@@ -85,6 +85,12 @@ public class IngestionPipeline : IKnowledgeIngester
         [".docx"] = "OfficeParser", [".pptx"] = "OfficeParser",
     };
 
+    /// <summary>
+    /// Set when pages failed to extract: the document's chunks are partial, or are an older
+    /// parse kept in place of a partial one. Reindex retries any document carrying it.
+    /// </summary>
+    public const string MetadataKeyExtractionIncomplete = "ExtractionIncomplete";
+
     /// <summary>The parser's warnings from the last ingestion, one per line.</summary>
     public const string MetadataKeyParserWarnings = "ParserWarnings";
 
@@ -251,22 +257,40 @@ public class IngestionPipeline : IKnowledgeIngester
             if (partlyGarbled is not null)
                 warnings.Add(partlyGarbled);
 
-            var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
-
-            // Cleaned again per chunk: a chunker cutting at a token or character offset can split a
-            // surrogate pair, and the half left at either edge breaks both the embedder's Unicode
-            // normalisation and the database write (#595).
-            chunks = chunks.Select(c => c with { Content = StorableText.Clean(c.Content) }).ToList();
-            if (chunks.Count == 0)
+            // A re-parse of unchanged bytes that lost pages to exceptions would swap a complete
+            // index for a partial one -- or, when every page threw, fail a document whose old
+            // chunks are still right. Decided before chunking so that second case reaches it too.
+            // The row is read early only then: otherwise a file that cannot be read is still known
+            // to be a permanent failure before the database is touched.
+            parsedDocument.Metadata.TryGetValue(PdfParser.MetadataKeyPageErrors, out var pageErrors);
+            DocumentEntity? existing = null;
+            bool keepPreviousIndex = false;
+            if (pageErrors is not null)
             {
-                throw new PermanentIngestionException(warnings.Count > 0
-                    ? $"No extractable content ({string.Join("; ", warnings)}) [no_text]"
-                    : "No extractable content [no_text]");
+                existing = await LoadExistingAsync(documentId, ct);
+                keepPreviousIndex = existing is { ChunkCount: > 0 } &&
+                    string.Equals(existing.ContentHash, contentHash, StringComparison.OrdinalIgnoreCase);
             }
 
-            var existing = await _context.Documents
-                .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == documentId, ct);
+            IReadOnlyList<ChunkInfo> chunks = [];
+            if (!keepPreviousIndex)
+            {
+                chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
+
+                // Cleaned again per chunk: a chunker cutting at a token or character offset can split a
+                // surrogate pair, and the half left at either edge breaks both the embedder's Unicode
+                // normalisation and the database write (#595).
+                chunks = chunks.Select(c => c with { Content = StorableText.Clean(c.Content) }).ToList();
+                if (chunks.Count == 0)
+                {
+                    throw new PermanentIngestionException(warnings.Count > 0
+                        ? $"No extractable content ({string.Join("; ", warnings)}) [no_text]"
+                        : "No extractable content [no_text]");
+                }
+            }
+
+            if (pageErrors is null)
+                existing = await LoadExistingAsync(documentId, ct);
 
             if (existing is not null)
             {
@@ -299,17 +323,12 @@ public class IngestionPipeline : IKnowledgeIngester
                 return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
             }
 
-            // A reindex of unchanged bytes whose parse lost pages to exceptions would swap a
-            // complete index for a partial one, and record the new parser version so no later
-            // reindex retried it. The old chunks stay instead; the document returns to Ready with
-            // its previous parser recorded, so the next reindex tries again. Changed bytes are
-            // indexed partially all the same: stale text is worse than a missing page.
-            if (existing is { ChunkCount: > 0 } &&
-                string.Equals(existing.ContentHash, contentHash, StringComparison.OrdinalIgnoreCase) &&
-                parsedDocument.Metadata.TryGetValue(PdfParser.MetadataKeyPageErrors, out var pageErrors))
-            {
-                return await KeepPreviousIndexAsync(existing, generation, pageErrors, warnings, stopwatch, ct);
-            }
+            // The old chunks stay; the document returns to Ready marked incomplete, with its previous
+            // parser and index time, so it reads as what it is and the next reindex tries again.
+            // Changed bytes are indexed partially instead, marked the same way: stale text is worse
+            // than a missing page.
+            if (keepPreviousIndex)
+                return await KeepPreviousIndexAsync(existing!, generation, pageErrors!, warnings, stopwatch, ct);
 
             var metadata = BuildMetadata(options, existing);
 
@@ -325,6 +344,11 @@ public class IngestionPipeline : IKnowledgeIngester
                 metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
             else
                 metadata.Remove(MetadataKeyParserWarnings); // a reindex may carry the last run's forward
+
+            if (pageErrors is not null)
+                metadata[MetadataKeyExtractionIncomplete] = pageErrors;
+            else
+                metadata.Remove(MetadataKeyExtractionIncomplete);
 
             var embedSettings = _embeddingSettings.CurrentValue;
             IReadOnlyList<float[]> embeddings = await EmbedChunksAsync(chunks, embedSettings, ct);
@@ -423,6 +447,9 @@ public class IngestionPipeline : IKnowledgeIngester
         }
     }
 
+    private Task<DocumentEntity?> LoadExistingAsync(Guid documentId, CancellationToken ct) =>
+        _context.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.Id == documentId, ct);
+
     private async Task<IngestionResult> KeepPreviousIndexAsync(
         DocumentEntity existing, int generation, string pageErrors, List<string> warnings, Stopwatch stopwatch,
         CancellationToken ct)
@@ -433,6 +460,21 @@ public class IngestionPipeline : IKnowledgeIngester
             await transaction.RollbackAsync(CancellationToken.None);
             return Superseded(existing.Id, stopwatch, "Document was re-uploaded during ingestion");
         }
+
+        // Completing marks the document freshly indexed. It was not: the chunks are the old ones,
+        // so the old index time stands, and the failure is recorded where the API shows it and
+        // where reindex looks for documents to retry.
+        var metadata = new Dictionary<string, string>(existing.Metadata)
+        {
+            [MetadataKeyExtractionIncomplete] = pageErrors,
+            [MetadataKeyParserWarnings] = TruncateWarnings(
+                [.. warnings, $"{pageErrors} page(s) failed to extract, so the previous index was kept"]),
+        };
+        await _context.Documents
+            .Where(d => d.Id == existing.Id && d.Generation == generation)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(d => d.Metadata, metadata)
+                .SetProperty(d => d.LastIndexedAt, existing.LastIndexedAt), ct);
 
         await transaction.CommitAsync(CancellationToken.None);
         await _lifecycle.NotifyAsync(existing.Id, CancellationToken.None);

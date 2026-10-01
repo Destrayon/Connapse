@@ -77,6 +77,23 @@ public class PdfParserLayoutTests
             parsed.Content.Should().Contain(body);
     }
 
+    [Fact]
+    public async Task ParseAsync_TableRowsThatDifferOnlyInNumbers_AreKept()
+    {
+        // Ignoring digits made these rows one line repeated on every page, and removed them all.
+        byte[] pdf = TestPdf.Build(Enumerable.Range(0, 4).Select(i =>
+            new TestPdf.Page(
+            [
+                new(72, 700, $"Revenue {2022 + i}: {12 + i} million"),
+                new(72, 600, Bodies[i]),
+            ])).ToArray());
+
+        var parsed = await Parser("ContentOrder").ParseAsync(new MemoryStream(pdf), "table.pdf");
+
+        for (int i = 0; i < 4; i++)
+            parsed.Content.Should().Contain($"Revenue {2022 + i}: {12 + i} million");
+    }
+
     [Theory]
     [InlineData("ContentOrder")]
     [InlineData("XYCut")]

@@ -19,7 +19,7 @@ namespace Connapse.Ingestion.Parsers;
 /// Supplies the page cap and the text mode. Optional so tests and tools can build a parser without
 /// settings; with none, any page count is parsed in the default mode.
 /// </param>
-public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocumentParser
+public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocumentParser
 {
     /// <summary>Parser metadata key: pages whose extraction threw, as opposed to pages with no text.</summary>
     public const string MetadataKeyPageErrors = "PageErrors";
@@ -188,8 +188,9 @@ public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocume
     /// The line-based counterpart of <see cref="RemoveDecorations"/> for the content-order modes,
     /// which have no blocks to compare. A line within the first or last two of a page, appearing
     /// there on at least half the pages (three at minimum), is a running header or footer.
-    /// Digits are ignored when comparing, so "Page 3 of 40" matches "Page 4 of 40". A page is
-    /// never emptied.
+    /// Lines must match exactly, except page numbers ("7", "Page 7", "Page 7 of 40", "7/40"),
+    /// which match each other: ignoring digits everywhere also matched table rows such as
+    /// "Revenue 2024: 12" and "Revenue 2025: 13" and deleted them. A page is never emptied.
     /// </summary>
     private static void RemoveRepeatedEdgeLines(PageText?[] pages)
     {
@@ -233,25 +234,19 @@ public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocume
         return nonBlank.Take(EdgeLines).Concat(nonBlank.TakeLast(EdgeLines)).Select(EdgeKey);
     }
 
-    /// <summary>Whitespace collapsed and digits erased, so page numbers do not make lines differ.</summary>
+    /// <summary>The line with whitespace collapsed; every page-number line shares one key.</summary>
     private static string EdgeKey(string line)
     {
-        var builder = new System.Text.StringBuilder(line.Length);
-        bool space = false;
-        foreach (char c in line.Trim())
-        {
-            if (char.IsDigit(c)) continue;
-            if (char.IsWhiteSpace(c))
-            {
-                if (!space) builder.Append(' ');
-                space = true;
-                continue;
-            }
-            builder.Append(c);
-            space = false;
-        }
-        return builder.ToString().Trim();
+        string collapsed = string.Join(' ', line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return PageNumberLine().IsMatch(collapsed) ? PageNumberKey : collapsed;
     }
+
+    private const string PageNumberKey = "\u0000page-number";
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"^(?:(?:page|p\.?)\s*)?[-\u2013\u2014]?\s*\d{1,4}\s*[-\u2013\u2014]?(?:\s*(?:of|/)\s*\d{1,4})?$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex PageNumberLine();
 
     private static PageText ExtractPage(Page page, PdfTextMode mode)
     {
