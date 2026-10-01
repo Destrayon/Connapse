@@ -262,6 +262,84 @@ public class PostgresProviderCredentialStore(
         return new ProviderCredentialInfo(GitHubProvider, existing.PrincipalName, now);
     }
 
+    /// <summary>The provider key the Atlassian link app is stored under.</summary>
+    public const string AtlassianProvider = "atlassian";
+
+    private sealed record AtlassianLinkAppConfig(string? ClientId);
+
+    public async Task<AtlassianLinkAppRegistration?> GetAtlassianLinkAppAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var row = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == AtlassianProvider)
+            .Select(c => new { c.ConfigJson, c.VerifiedAt })
+            .FirstOrDefaultAsync(ct);
+
+        if (row is null || string.IsNullOrWhiteSpace(row.ConfigJson)) return null;
+
+        var config = System.Text.Json.JsonSerializer.Deserialize<AtlassianLinkAppConfig>(row.ConfigJson, AppJson);
+        return string.IsNullOrWhiteSpace(config?.ClientId)
+            ? null
+            : new AtlassianLinkAppRegistration(config.ClientId, row.VerifiedAt);
+    }
+
+    public async Task<string?> GetAtlassianLinkAppSecretAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        string? protectedSecret = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == AtlassianProvider)
+            .Select(c => c.SecretProtected)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrEmpty(protectedSecret)) return null;
+
+        try
+        {
+            return Protector.Unprotect(protectedSecret);
+        }
+        catch (Exception ex)
+        {
+            throw new ProviderCredentialUnavailableException(AtlassianProvider, ex);
+        }
+    }
+
+    public async Task<ProviderCredentialInfo> SaveAtlassianLinkAppAsync(
+        string clientId, string clientSecret, Guid? createdByUserId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientSecret);
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var existing = await db.ProviderCredentials.FirstOrDefaultAsync(c => c.Provider == AtlassianProvider, ct);
+        var now = DateTime.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new ProviderCredentialEntity { Provider = AtlassianProvider };
+            db.ProviderCredentials.Add(existing);
+        }
+
+        string trimmedId = clientId.Trim();
+        existing.ConfigJson = System.Text.Json.JsonSerializer.Serialize(new AtlassianLinkAppConfig(trimmedId), AppJson);
+        existing.SecretProtected = Protector.Protect(clientSecret);
+        existing.PrincipalName = trimmedId;
+        existing.CreatedAt = now;
+        existing.CreatedByUserId = createdByUserId;
+        existing.VerifiedAt = null;
+
+        await db.SaveChangesAsync(ct);
+
+        return new ProviderCredentialInfo(AtlassianProvider, existing.PrincipalName, now);
+    }
+
+    public async Task<bool> MarkAtlassianLinkAppVerifiedAsync(DateTime when, CancellationToken ct = default) =>
+        await MarkVerifiedAsync(AtlassianProvider, when, ct);
+
     private static GitHubAppRegistration? ReadApp(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return null;

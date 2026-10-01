@@ -15,4 +15,5 @@ public class ConnapseUser : IdentityUser<Guid>
     public List<AuditLogEntity> AuditLogs { get; set; } = [];
     public List<UserAzureIdentityLinkEntity> AzureIdentityLinks { get; set; } = [];
     public List<UserGitHubIdentityLinkEntity> GitHubIdentityLinks { get; set; } = [];
+    public List<UserAtlassianIdentityLinkEntity> AtlassianIdentityLinks { get; set; } = [];
 }
