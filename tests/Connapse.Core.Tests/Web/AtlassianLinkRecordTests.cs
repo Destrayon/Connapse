@@ -19,7 +19,7 @@ public class AtlassianLinkRecordTests
     private readonly IAuditLogger _audit = Substitute.For<IAuditLogger>();
     private readonly IProviderCredentialStore _credentials = Substitute.For<IProviderCredentialStore>();
     private readonly Guid _user = Guid.NewGuid();
-    private readonly PendingAtlassianLink _link = new(Guid.Empty, "acc-ada", "Ada", null, DateTime.UtcNow);
+    private readonly PendingAtlassianLink _link = new(Guid.Empty, "acc-ada", "Ada", null, DateTime.UtcNow, RevocationGeneration: 0);
 
     private Task RecordAsync() => CloudIdentityEndpoints.RecordAtlassianLinkAsync(
         _audit, _credentials, NullLogger.Instance, _user, _link, CancellationToken.None);

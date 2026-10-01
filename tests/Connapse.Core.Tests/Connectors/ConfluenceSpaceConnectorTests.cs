@@ -355,9 +355,27 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         _api.Confluence.DownloadRedirect = target;
 
         // Permanent: the same redirect will come back on a retry.
-        await FluentActions.Awaiting(() => _connector.ReadFileAsync("/attachments/501/notes.txt"))
-            .Should().ThrowAsync<Connapse.Core.Interfaces.PermanentIngestionException>();
+        (await FluentActions.Awaiting(() => _connector.ReadFileAsync("/attachments/501/notes.txt"))
+            .Should().ThrowAsync<Connapse.Core.Interfaces.PermanentIngestionException>())
+            .WithInnerException<AtlassianRedirectRefusedException>();
         _api.Requests.Should().NotContain(r => r.AbsoluteUri.StartsWith(target, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(typeof(InvalidOperationException))]
+    [InlineData(typeof(ObjectDisposedException))]
+    public async Task ReadFile_AttachmentDownloadFailsForAnotherReason_IsNotMarkedPermanent(Type failure)
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "notes.txt"));
+        await _connector.GetChangesAsync(null);
+        _api.Map($"/ex/confluence/{CloudId}/wiki/rest/api/content/1/child/attachment/att501/download",
+            _ => throw (Exception)Activator.CreateInstance(failure, "transient")!);
+
+        // A retry may well succeed, so it must not be filed as a failure no retry can fix.
+        var thrown = await FluentActions.Awaiting(() => _connector.ReadFileAsync("/attachments/501/notes.txt"))
+            .Should().ThrowAsync<Exception>();
+        thrown.Which.Should().NotBeOfType<Connapse.Core.Interfaces.PermanentIngestionException>();
     }
 
     [Fact]
