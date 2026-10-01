@@ -3,6 +3,7 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Connapse.Web.Endpoints;
@@ -200,6 +201,7 @@ public static class DocumentsEndpoints
             string fileId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
+            [FromServices] DocumentReadGuard readGuard,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -207,7 +209,8 @@ public static class DocumentsEndpoints
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
             var document = await documentStore.GetAsync(fileId, ct);
-            if (document is null || document.ContainerId != containerId.ToString())
+            if (document is null || document.ContainerId != containerId.ToString()
+                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document.Id, ct))
                 return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
 
             return Results.Ok(document);
@@ -273,6 +276,7 @@ public static class DocumentsEndpoints
             [FromServices] IDocumentStore documentStore,
             [FromServices] IManagedStorageProvider managedStorage,
             [FromServices] IEnumerable<IDocumentParser> parsers,
+            [FromServices] DocumentReadGuard readGuard,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -280,7 +284,8 @@ public static class DocumentsEndpoints
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
             var document = await documentStore.GetAsync(fileId, ct);
-            if (document is null || document.ContainerId != containerId.ToString())
+            if (document is null || document.ContainerId != containerId.ToString()
+                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document.Id, ct))
                 return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
 
             document.Metadata.TryGetValue("Status", out var status);

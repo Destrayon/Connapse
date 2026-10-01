@@ -75,12 +75,13 @@ public sealed class AtlassianSearchResultVerifier(
         using var gate = new SemaphoreSlim(Math.Max(1, settings.Value.MaxParallelism));
 
         var allowed = new ConcurrentDictionary<int, bool>();
+        var sites = checker.NewSiteLookup(); // one connection lookup per site for this search
         await Task.WhenAll(pending.Select(async p =>
         {
             try
             {
                 await gate.WaitAsync(budget.Token);
-                try { allowed[p.Index] = await checker.CanReadAsync(p.CloudId, p.ContentId, accountId, budget.Token); }
+                try { allowed[p.Index] = await checker.CanReadAsync(p.CloudId, p.ContentId, accountId, sites, budget.Token); }
                 finally { gate.Release(); }
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
