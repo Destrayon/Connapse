@@ -20,6 +20,9 @@ internal static class TextDecoding
     /// <summary>How much of the file the UTF-16 heuristic samples.</summary>
     private const int Utf16SampleBytes = 4096;
 
+    /// <summary>The fewest zero bytes on one parity that counts as UTF-16 evidence.</summary>
+    private const int MinUtf16NulCount = 8;
+
     /// <summary>How much of the file the charset detector reads.</summary>
     private const int DetectorSampleBytes = 64 * 1024;
 
@@ -36,6 +39,8 @@ internal static class TextDecoding
     /// Decodes in order of certainty: a BOM, BOM-less UTF-16, strict UTF-8, the charset
     /// detector when it is confident, and finally Windows-1252, which maps every byte.
     /// </summary>
+    public static (string Text, Encoding Encoding) Decode(ReadOnlyMemory<byte> memory) => Decode(memory.Span);
+
     public static (string Text, Encoding Encoding) Decode(ReadOnlySpan<byte> bytes)
     {
         Encoding encoding = Detect(bytes, out int preambleLength);
@@ -94,9 +99,12 @@ internal static class TextDecoding
             if (i % 2 == 0) evenNuls++; else oddNuls++;
         }
 
+        // At least half the code units must show the pattern, and in absolute terms more than a
+        // stray byte or two: valid UTF-8 may contain NUL, and "A\0BC" alone would otherwise pass.
         int pairs = sample.Length / 2;
-        bool mostlyOdd = oddNuls >= pairs * 0.3 && evenNuls <= pairs * 0.05;
-        bool mostlyEven = evenNuls >= pairs * 0.3 && oddNuls <= pairs * 0.05;
+        double required = Math.Max(MinUtf16NulCount, pairs * 0.5);
+        bool mostlyOdd = oddNuls >= required && evenNuls <= pairs * 0.05;
+        bool mostlyEven = evenNuls >= required && oddNuls <= pairs * 0.05;
 
         bigEndian = mostlyEven;
         return mostlyOdd || mostlyEven;

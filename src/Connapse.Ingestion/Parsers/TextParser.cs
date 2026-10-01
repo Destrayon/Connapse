@@ -32,9 +32,7 @@ public class TextParser : IDocumentParser
 
         try
         {
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer, cancellationToken);
-            var (content, encoding) = TextDecoding.Decode(buffer.GetBuffer().AsSpan(0, (int)buffer.Length));
+            var (content, encoding) = TextDecoding.Decode(await ReadAllBytesAsync(stream, cancellationToken));
             metadata["Encoding"] = encoding.WebName;
 
             // Detect file type from extension
@@ -95,5 +93,24 @@ public class TextParser : IDocumentParser
             warnings.Add($"Error reading text file: {ex.Message}");
             return new ParsedDocument(string.Empty, metadata, warnings);
         }
+    }
+
+    /// <summary>
+    /// The pipeline has already buffered the file in a MemoryStream, so its buffer is read in
+    /// place rather than copied: a second full copy of every large text file would double the
+    /// worker's peak memory for nothing.
+    /// </summary>
+    private static async Task<ReadOnlyMemory<byte>> ReadAllBytesAsync(Stream stream, CancellationToken ct)
+    {
+        if (stream is MemoryStream memory && memory.TryGetBuffer(out ArraySegment<byte> segment))
+        {
+            int start = (int)memory.Position;
+            memory.Position = memory.Length;
+            return segment.AsMemory(start, (int)memory.Length - start);
+        }
+
+        using var copy = new MemoryStream();
+        await stream.CopyToAsync(copy, ct);
+        return copy.ToArray();
     }
 }

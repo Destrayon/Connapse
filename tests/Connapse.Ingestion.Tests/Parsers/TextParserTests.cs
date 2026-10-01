@@ -235,6 +235,33 @@ public class TextParserTests
         result.Metadata["Encoding"].Should().Be("windows-1251");
     }
 
+    [Theory]
+    [InlineData("A\0BC")]
+    [InlineData("2026-10-01 job=7 status=ok\0\n2026-10-01 job=8 status=ok\0\n2026-10-01 job=9 status=ok\0\n")]
+    public async Task ParseAsync_Utf8WithAFewNuls_IsNotMistakenForUtf16(string text)
+    {
+        // Valid UTF-8 may contain NUL; a few on one byte parity are not UTF-16 evidence.
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+
+        var result = await _parser.ParseAsync(stream, "log.txt");
+
+        result.Metadata["Encoding"].Should().Be("utf-8");
+        result.Content.Should().Be(text.Replace("\0", ""));
+    }
+
+    [Fact]
+    public async Task ParseAsync_PipelineBufferedStream_IsReadFromItsPosition()
+    {
+        // The pipeline hands over an expandable MemoryStream; its buffer is read in place.
+        var stream = new MemoryStream();
+        stream.Write(Encoding.Latin1.GetBytes(LatinSentence));
+        stream.Position = 0;
+
+        var result = await _parser.ParseAsync(stream, "buffered.txt");
+
+        result.Content.Should().Be(LatinSentence);
+    }
+
     [Fact]
     public async Task ParseAsync_StrayNulCharacters_AreRemoved()
     {
