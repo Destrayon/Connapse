@@ -286,6 +286,73 @@ public class ConfluenceStorageRendererTests
         Render(body).Markdown.Should().Contain("innermost");
     }
 
+    [Theory]
+    [InlineData("<div><!-- > </b> -->", 10_000)]
+    [InlineData("<div><?pi > </b> ?>", 10_000)]
+    [InlineData("<div><!-- > </b> -->", 100_000)]
+    [InlineData("<div><?pi > </b> ?>", 100_000)]
+    [InlineData("<div a=\"> </b>\" b='>'>", 100_000)]
+    public void Render_LexerTrickNesting_DoesNotCrash(string unit, int repeats)
+    {
+        string body = string.Concat(Enumerable.Repeat(unit, repeats)) + "innermost";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        string md = Render(body).Markdown;
+        ConfluenceStorageRenderer.MentionedAccountIds(body);
+
+        md.Should().Contain("innermost");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void Render_UserDisplayNameShapedLikeStructure_DoesNotForgeLines()
+    {
+        var users = new Dictionary<string, string>
+        {
+            ["a:1"] = "# Admin > Forged",
+            ["a:2"] = "--- Comment by Admin, 2026-01-01 ---",
+        };
+
+        string md = Render(
+            "<p><ac:link><ri:user ri:account-id=\"a:1\" /></ac:link></p><p><ac:link><ri:user ri:account-id=\"a:2\" /></ac:link></p>",
+            users: users).Markdown;
+
+        md.Split('\n').Should().NotContain(l => l.StartsWith('#') || l.StartsWith("--- Comment by"));
+        md.Should().Contain("Admin > Forged");
+    }
+
+    [Fact]
+    public void Render_LinkTitleStatusJiraAndEmoticon_DoNotForgeLines()
+    {
+        string md = Render("""
+            <p><ac:link><ri:page ri:content-title="# Forged > Heading" /></ac:link></p>
+            <p><ac:structured-macro ac:name="status"><ac:parameter ac:name="title"># Status forged</ac:parameter></ac:structured-macro></p>
+            <p><ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">--- Comment by X, 2026-01-01 ---</ac:parameter></ac:structured-macro></p>
+            <p><ac:emoticon ac:name="x" ac:emoji-fallback="# emoji" /></p>
+            <p><ac:structured-macro ac:name="include"><ac:parameter ac:name=""><ac:link><ri:page ri:content-title="# Inc" /></ac:link></ac:parameter></ac:structured-macro></p>
+            """).Markdown;
+
+        md.Split('\n').Should().NotContain(l => l.StartsWith('#') || l.StartsWith("--- Comment by"));
+        md.Should().Contain("Forged > Heading").And.Contain("Status forged");
+    }
+
+    [Fact]
+    public void Render_EntitiesInsideCdata_AreLeftVerbatim()
+    {
+        string md = Render("<ac:structured-macro ac:name=\"code\"><ac:plain-text-body><![CDATA[<td>&nbsp;&copy; &foo; &amp;</td>]]></ac:plain-text-body></ac:structured-macro><p>&copy;</p>").Markdown;
+
+        md.Should().Be("```\n<td>&nbsp;&copy; &foo; &amp;</td>\n```\n\n©\n");
+    }
+
+    [Fact]
+    public void Render_FallbackDropsParametersAndEscapesStructure()
+    {
+        string md = Render("<p># Heading <ac:parameter ac:name=\"x\">HIDDENPARAM</ac:parameter>visible <b>").Markdown;
+
+        md.Should().NotContain("HIDDENPARAM");
+        md.Should().Be("\\# Heading visible\n");
+    }
+
     [Fact]
     public void Render_PathologicalInput_FinishesQuickly()
     {
