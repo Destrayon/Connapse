@@ -95,6 +95,64 @@ public sealed class AtlassianApiClient(
     }
 
     /// <summary>
+    /// Downloads a file, following Confluence's redirect to Atlassian's media service. The named
+    /// client does not follow redirects itself (it would carry on to any host), so each hop is
+    /// checked here: it must be HTTPS on the default port to <c>api.atlassian.com</c> under this
+    /// site, or to another <c>*.atlassian.com</c> host. Only this site's API gets the bearer token;
+    /// a media address carries its own short-lived token in its query.
+    /// </summary>
+    public async Task<Stream> DownloadAsync(string relative, CancellationToken ct)
+    {
+        Uri url = Resolve(relative);
+        var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, url), ct);
+
+        for (int hops = 0; IsRedirect(response.StatusCode); hops++)
+        {
+            Uri? location = response.Headers.Location;
+            response.Dispose();
+
+            Uri? target = location is null ? null : new Uri(url, location);
+            if (hops >= MaxDownloadRedirects || target is null || !IsAtlassianHost(target))
+                throw new InvalidOperationException("Refusing to follow a download redirect outside Atlassian.");
+
+            url = target;
+            if (string.Equals(target.Host, ApiHost, StringComparison.OrdinalIgnoreCase))
+            {
+                Uri pinned = Resolve(target.AbsoluteUri);
+                response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, pinned), ct);
+            }
+            else
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, target);
+                response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            }
+        }
+
+        try
+        {
+            response.EnsureSuccessStatusCode();
+            return new ResponseStream(await response.Content.ReadAsStreamAsync(ct), response);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+    }
+
+    private const int MaxDownloadRedirects = 3;
+
+    private static bool IsRedirect(HttpStatusCode status) =>
+        status is HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther
+            or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;
+
+    private static bool IsAtlassianHost(Uri target) =>
+        target.Scheme == Uri.UriSchemeHttps
+        && target.IsDefaultPort
+        && (string.Equals(target.Host, ApiHost, StringComparison.OrdinalIgnoreCase)
+            || target.Host.EndsWith(".atlassian.com", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Sends with a bearer token. A 401 means the cached token was revoked or expired early, so it
     /// is dropped and the request is repeated once with a fresh one; a second 401 is the account
     /// itself being refused.

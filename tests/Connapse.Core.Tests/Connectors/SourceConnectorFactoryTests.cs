@@ -809,6 +809,42 @@ public class SourceConnectorFactoryTests
         config.StatePath.Should().Be(Path.GetFullPath(Path.Combine("/var/atlassian", source.Id.ToString("N"))));
     }
 
+    [Fact]
+    public void Create_AtlassianScopeWithoutAttachmentSettings_DefaultsToIncludedUnder25Mb()
+    {
+        var source = MakeSource(AtlassianConnection.Id, """{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG"}""");
+
+        var config = ((Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConnector)_factory.Create(source, AtlassianConnection, "s")).Config;
+
+        config.IncludeAttachments.Should().BeTrue();
+        config.MaxAttachmentMb.Should().Be(25);
+    }
+
+    [Fact]
+    public void Create_AtlassianScopeWithAttachmentSettings_CarriesThemThrough()
+    {
+        var source = MakeSource(AtlassianConnection.Id,
+            """{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG","includeAttachments":false,"maxAttachmentMb":5}""");
+
+        var config = ((Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConnector)_factory.Create(source, AtlassianConnection, "s")).Config;
+
+        config.IncludeAttachments.Should().BeFalse();
+        config.MaxAttachmentMb.Should().Be(5);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-3)]
+    public void Create_AtlassianScopeWithNonPositiveAttachmentCap_Throws(int cap)
+    {
+        var source = MakeSource(AtlassianConnection.Id,
+            $$"""{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG","maxAttachmentMb":{{cap}}}""");
+
+        Action act = () => _factory.Create(source, AtlassianConnection, "s");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*'{source.Name}'*maxAttachmentMb*");
+    }
+
     [Theory]
     [InlineData("""{"kind":"confluence-space","spaceKey":"ENG"}""")]
     [InlineData("""{"kind":"confluence-space","spaceId":"","spaceKey":"ENG"}""")]

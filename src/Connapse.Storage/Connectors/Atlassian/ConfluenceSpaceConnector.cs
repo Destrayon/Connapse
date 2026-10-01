@@ -19,7 +19,15 @@ namespace Connapse.Storage.Connectors.Atlassian;
 /// <param name="SpaceId">The space's numeric id.</param>
 /// <param name="SpaceKey">The space's key, carried into each document's metadata.</param>
 /// <param name="StatePath">This source's own page-state directory.</param>
-public sealed record ConfluenceSpaceConfig(AtlassianSite Site, string SpaceId, string SpaceKey, string StatePath);
+/// <param name="IncludeAttachments">Whether page attachments are indexed too.</param>
+/// <param name="MaxAttachmentMb">Attachments larger than this are skipped.</param>
+public sealed record ConfluenceSpaceConfig(
+    AtlassianSite Site,
+    string SpaceId,
+    string SpaceKey,
+    string StatePath,
+    bool IncludeAttachments = true,
+    int MaxAttachmentMb = 25);
 
 /// <summary>
 /// Syncs a Confluence space's current pages and blog posts. Every cycle lists the whole space
@@ -29,7 +37,11 @@ public sealed record ConfluenceSpaceConfig(AtlassianSite Site, string SpaceId, s
 /// same way. Paths are id-based, so a rename or move inside the space never re-ingests.
 /// </summary>
 public sealed partial class ConfluenceSpaceConnector(
-    ConfluenceSpaceConfig config, AtlassianApiClient api, ILogger? logger = null, TimeProvider? clock = null)
+    ConfluenceSpaceConfig config,
+    AtlassianApiClient api,
+    ILogger? logger = null,
+    TimeProvider? clock = null,
+    IFileTypeValidator? fileTypes = null)
     : ISyncCursorConnector
 {
     /// <summary>How far up the tree a breadcrumb or folder lookup climbs before it gives up.</summary>
@@ -37,6 +49,12 @@ public sealed partial class ConfluenceSpaceConnector(
 
     /// <summary>How often the titles of folders in use are read again, to catch a renamed folder.</summary>
     internal static readonly TimeSpan FolderRefreshInterval = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How long a page's attachment list is trusted. Deleted attachments are invisible to the
+    /// change query, so every page's list is read again once a day.
+    /// </summary>
+    internal static readonly TimeSpan AttachmentSweepInterval = TimeSpan.FromHours(24);
 
     private const string ListQuery = "status=current&limit=250";
 
@@ -67,6 +85,7 @@ public sealed partial class ConfluenceSpaceConnector(
         var state = fresh ? new ConfluenceSyncState() : _store.LoadState();
         var listed = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
         Dictionary<string, DateTimeOffset> commented = [];
+        HashSet<string> attached = [];
 
         try
         {
@@ -79,7 +98,7 @@ public sealed partial class ConfluenceSpaceConnector(
 
             // A first sync reads every page, comments included, so it has nothing to catch up on.
             if (previous?.Watermark is { } watermark)
-                commented = await CommentedPagesAsync(watermark, ct);
+                (commented, attached) = await ChangedPagesAsync(watermark, ct);
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
         {
@@ -97,17 +116,31 @@ public sealed partial class ConfluenceSpaceConnector(
             return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message);
         }
 
-        Apply(listed, carryOver: !fresh, commented);
+        var stored = Merge(listed, fresh, commented, attached);
 
+        // After the listing is settled, and outside its all-or-nothing rule: a page whose list
+        // could not be read keeps the attachments it had, so nothing is deleted for it.
+        string? stopped = config.IncludeAttachments
+            ? await RefreshAttachmentsAsync(listed.Values, state, started, ct)
+            : null;
+
+        Save(listed, stored, state);
         state.Watermark = started;
         _store.SaveState(state);
 
+        var files = Listing(null, out int skipped);
+        string? skippedNote = skipped > 0
+            ? $"{skipped} attachment{(skipped == 1 ? "" : "s")} skipped: over {config.MaxAttachmentMb} MB or unsupported type"
+            : null;
+        string? notice = string.Join(" ", new[] { skippedNote, stopped }.Where(n => n is not null));
+
         return new SyncDelta(
-            List(null), [], new ConfluenceCursor(started).Serialize(), RequiresFullResync: false, IsFullListing: true);
+            files, [], new ConfluenceCursor(started).Serialize(), RequiresFullResync: false, IsFullListing: true,
+            Notice: notice.Length > 0 ? notice : null);
     }
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) =>
-        Task.FromResult(List(prefix));
+        Task.FromResult(Listing(prefix, out _));
 
     /// <summary>
     /// Fetches the page's storage-format body and renders it under its breadcrumb. Only storage
@@ -116,6 +149,14 @@ public sealed partial class ConfluenceSpaceConnector(
     /// </summary>
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {
+        if (FindAttachment(path) is { } found)
+        {
+            // Confluence answers with a redirect to its media service, which the client follows
+            // only onto Atlassian's own hosts.
+            return await api.DownloadAsync(
+                $"rest/api/content/{found.Page.Id}/child/attachment/att{found.Attachment.Id}/download", ct);
+        }
+
         var page = Find(path)
             ?? throw new FileNotFoundException(
                 $"'{LogSanitizer.Sanitize(path)}' is not a synced page of Confluence space {LogSanitizer.Sanitize(config.SpaceKey)}.");
@@ -163,7 +204,7 @@ public sealed partial class ConfluenceSpaceConnector(
     }
 
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default) =>
-        Task.FromResult(Find(path) is not null);
+        Task.FromResult(Find(path) is not null || FindAttachment(path) is not null);
 
     /// <summary>Returned unchanged: a document's path is already the id-based form this connector reads.</summary>
     public string ResolveJobPath(string relativePath) => relativePath;
@@ -302,28 +343,35 @@ public sealed partial class ConfluenceSpaceConnector(
     }
 
     /// <summary>
-    /// Asks CQL which comments changed since a day before <paramref name="watermark"/> and returns
-    /// the newest change per page. The day of overlap absorbs CQL's unstated timezone; a comment it
-    /// reports twice is harmless because <see cref="Apply"/> only moves a time forward.
+    /// Asks CQL which comments (and, with attachments on, which attachments) changed since a day
+    /// before <paramref name="watermark"/>. Returns the newest comment change per page, and the
+    /// pages whose attachments changed. The day of overlap absorbs CQL's unstated timezone; a hit
+    /// reported twice is harmless because a comment time only moves forward and an attachment hit
+    /// only re-reads the page's list.
     /// </summary>
-    private async Task<Dictionary<string, DateTimeOffset>> CommentedPagesAsync(DateTimeOffset watermark, CancellationToken ct)
+    private async Task<(Dictionary<string, DateTimeOffset> Commented, HashSet<string> Attached)> ChangedPagesAsync(
+        DateTimeOffset watermark, CancellationToken ct)
     {
         string since = (watermark - TimeSpan.FromDays(1)).UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-        string cql = $"space=\"{CqlQuote(config.SpaceKey)}\" AND type=comment AND lastmodified >= \"{since}\"";
+        string types = config.IncludeAttachments ? "type in (comment, attachment)" : "type=comment";
+        string cql = $"space=\"{CqlQuote(config.SpaceKey)}\" AND {types} AND lastmodified >= \"{since}\"";
         string url = $"rest/api/search?cql={Uri.EscapeDataString(cql)}&limit=100&expand=content.container";
 
-        var newest = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        var commented = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        var attached = new HashSet<string>(StringComparer.Ordinal);
         await foreach (var hit in api.PageAsync(url, ReadSearchResults, ct))
         {
             string? pageId = hit.Content?.Container?.Id;
-            if (!ConfluencePageStateStore.IsContentId(pageId) || hit.LastModified is not { } at)
+            if (!ConfluencePageStateStore.IsContentId(pageId))
                 continue;
 
-            if (!newest.TryGetValue(pageId!, out var known) || at > known)
-                newest[pageId!] = at;
+            if (hit.Content!.Type == "attachment")
+                attached.Add(pageId!);
+            else if (hit.LastModified is { } at && (!commented.TryGetValue(pageId!, out var known) || at > known))
+                commented[pageId!] = at;
         }
 
-        return newest;
+        return (commented, attached);
     }
 
     /// <summary>A value for inside a CQL double-quoted string.</summary>
@@ -335,42 +383,139 @@ public sealed partial class ConfluenceSpaceConnector(
             : [];
 
     /// <summary>
-    /// Writes what changed and deletes the records the listing no longer has. On a fresh start
-    /// (<paramref name="carryOver"/> off) nothing is kept from the old records.
+    /// Fills each listed page with what earlier cycles learned and the change query reported, and
+    /// returns the stored records to compare against. On a fresh start comment times are not
+    /// trusted, but attachment lists are kept (marked due) so a listing cut short deletes nothing.
     /// </summary>
-    private void Apply(
-        Dictionary<string, ConfluenceStoredPage> listed, bool carryOver, Dictionary<string, DateTimeOffset> commented)
+    private Dictionary<string, ConfluenceStoredPage> Merge(
+        Dictionary<string, ConfluenceStoredPage> listed, bool fresh,
+        Dictionary<string, DateTimeOffset> commented, HashSet<string> attached)
     {
+        var stored = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
         foreach (var page in listed.Values)
         {
-            var existing = _store.Load(page.Id);
-            if (existing is not null && carryOver)
+            if (_store.Load(page.Id) is { } existing)
             {
-                // Kept from earlier cycles: the listing does not carry them.
-                page.LastCommentAt = existing.LastCommentAt;
+                stored[page.Id] = existing;
                 page.Attachments = existing.Attachments;
+                page.AttachmentsListedAt = fresh ? null : existing.AttachmentsListedAt;
+                if (!fresh)
+                    page.LastCommentAt = existing.LastCommentAt;
             }
 
             // Only ever moves forward, so a comment the one-day overlap reports again changes nothing.
             if (commented.TryGetValue(page.Id, out var at) && (page.LastCommentAt is null || at > page.LastCommentAt))
                 page.LastCommentAt = at;
 
-            if (existing is not null && carryOver
-                && existing.Kind == page.Kind && existing.Version == page.Version && existing.VersionAt == page.VersionAt
-                && existing.Title == page.Title && existing.ParentId == page.ParentId && existing.ParentType == page.ParentType
-                && existing.LastCommentAt == page.LastCommentAt)
-                continue;
+            if (attached.Contains(page.Id))
+                page.AttachmentsListedAt = null;
+        }
 
-            _store.Save(page);
+        return stored;
+    }
+
+    /// <summary>Writes the records that changed, deletes the ones no longer listed, and indexes attachments by id.</summary>
+    private void Save(
+        Dictionary<string, ConfluenceStoredPage> listed, Dictionary<string, ConfluenceStoredPage> stored, ConfluenceSyncState state)
+    {
+        foreach (var page in listed.Values)
+        {
+            if (!stored.TryGetValue(page.Id, out var existing)
+                || !JsonSerializer.SerializeToUtf8Bytes(existing, Json).AsSpan().SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(page, Json)))
+                _store.Save(page);
         }
 
         foreach (string id in _store.Ids().Where(id => !listed.ContainsKey(id)).ToList())
             _store.Delete(id);
+
+        var owners = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var page in listed.Values)
+            foreach (var attachment in page.Attachments)
+                owners[attachment.Id] = page.Id;
+        state.AttachmentPages = owners;
     }
+
+    /// <summary>
+    /// Reads the attachment list of every page that is due: never read, named by an attachment
+    /// change, or older than <see cref="AttachmentSweepInterval"/>. A rate limit stops the reading
+    /// and is returned as a notice; every page not reached keeps its previous list and stays due.
+    /// </summary>
+    private async Task<string?> RefreshAttachmentsAsync(
+        IEnumerable<ConfluenceStoredPage> pages, ConfluenceSyncState state, DateTimeOffset now, CancellationToken ct)
+    {
+        var due = pages
+            .Where(p => p.AttachmentsListedAt is not { } at || now - at >= AttachmentSweepInterval)
+            .OrderBy(p => p.AttachmentsListedAt.HasValue)
+            .ThenBy(p => p.Id, StringComparer.Ordinal)
+            .ToList();
+        bool sweeping = state.LastAttachmentSweepAt is null || due.Any(p => p.AttachmentsListedAt is not null);
+        bool complete = true;
+
+        foreach (var page in due)
+        {
+            try
+            {
+                page.Attachments = await ListAttachmentsAsync(page, ct);
+                page.AttachmentsListedAt = now;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+            {
+                // Gone or hidden since the listing; the next listing settles which.
+                complete = false;
+            }
+            catch (AtlassianRateLimitedException ex)
+            {
+                _logger.LogWarning(
+                    "Confluence space {SpaceKey}: rate limited while listing attachments; {Remaining} page(s) keep their previous list until next cycle",
+                    LogSanitizer.Sanitize(config.SpaceKey), due.Count - due.IndexOf(page));
+                return ex.Message;
+            }
+        }
+
+        // Recorded only when a sweep of aged lists ran to the end.
+        if (complete && sweeping)
+            state.LastAttachmentSweepAt = now;
+        return null;
+    }
+
+    private async Task<List<ConfluenceStoredAttachment>> ListAttachmentsAsync(ConfluenceStoredPage page, CancellationToken ct)
+    {
+        string endpoint = page.Kind == "blogpost" ? "blogposts" : "pages";
+        var attachments = new List<ConfluenceStoredAttachment>();
+
+        await foreach (var item in api.PageAsync($"api/v2/{endpoint}/{page.Id}/attachments?limit=250", ReadAttachments, ct))
+        {
+            // Confluence ids attachments "att" plus digits; the digits are what addresses carry.
+            string? id = item.Id is { } raw && raw.StartsWith("att", StringComparison.Ordinal) ? raw[3..] : item.Id;
+            if (!ConfluencePageStateStore.IsContentId(id) || string.IsNullOrWhiteSpace(item.Title))
+                continue;
+
+            attachments.Add(new ConfluenceStoredAttachment
+            {
+                Id = id!,
+                Version = item.Version?.Number ?? 0,
+                VersionAt = item.Version?.CreatedAt ?? DateTimeOffset.MinValue,
+                FileName = item.Title,
+                MediaType = item.MediaType,
+                Size = item.FileSize ?? 0,
+            });
+        }
+
+        return attachments;
+    }
+
+    private static IEnumerable<AttachmentResponse> ReadAttachments(JsonElement root) =>
+        root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array
+            ? results.EnumerateArray().Select(e => e.Deserialize<AttachmentResponse>(Json)).OfType<AttachmentResponse>().ToList()
+            : [];
 
     // ── Documents ──────────────────────────────────────────────────────────
 
-    private IReadOnlyList<ConnectorFile> List(string? prefix)
+    /// <summary>
+    /// Every stored page, and with attachments on, every attachment of theirs that is within the
+    /// size cap and has a parser. <paramref name="skipped"/> counts the attachments left out.
+    /// </summary>
+    private IReadOnlyList<ConnectorFile> Listing(string? prefix, out int skipped)
     {
         string? normalized = string.IsNullOrEmpty(prefix) ? null : "/" + prefix.Trim('/') + "/";
         var pages = _store.Ids()
@@ -378,15 +523,86 @@ public sealed partial class ConfluenceSpaceConnector(
             .OfType<ConfluenceStoredPage>()
             .ToDictionary(p => p.Id, StringComparer.Ordinal);
         var state = _store.LoadState();
+        var files = new List<ConnectorFile>();
+        skipped = 0;
+
+        foreach (var page in pages.Values)
+        {
+            var breadcrumb = Breadcrumb(page, state, pages.GetValueOrDefault);
+            files.Add(ToConnectorFile(page, breadcrumb));
+
+            if (!config.IncludeAttachments)
+                continue;
+
+            foreach (var attachment in page.Attachments)
+            {
+                if (IsIndexable(attachment))
+                    files.Add(ToConnectorFile(page, attachment, breadcrumb));
+                else
+                    skipped++;
+            }
+        }
 
         return
         [
-            .. pages.Values
-                .Select(p => ToConnectorFile(p, Breadcrumb(p, state, pages.GetValueOrDefault)))
+            .. files
                 .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal))
                 .OrderBy(f => f.Path, StringComparer.Ordinal),
         ];
     }
+
+    private bool IsIndexable(ConfluenceStoredAttachment attachment) =>
+        attachment.Size <= config.MaxAttachmentMb * 1024L * 1024L
+        && fileTypes is not null
+        && fileTypes.IsSupported(SafeFileName(attachment.FileName));
+
+    /// <summary>
+    /// An attachment as a document: its real size and version time are the signature, and its
+    /// address is the page's, so a search hit on it is checked against the page.
+    /// </summary>
+    private ConnectorFile ToConnectorFile(
+        ConfluenceStoredPage page, ConfluenceStoredAttachment attachment, IReadOnlyList<string> breadcrumb) => new(
+        Path: AttachmentPath(attachment),
+        SizeBytes: attachment.Size,
+        LastModified: attachment.VersionAt.UtcDateTime,
+        ContentType: attachment.MediaType,
+        ResourceUri: AtlassianUri.ForAttachment(config.Site.CloudId, page.Id, attachment.Id),
+        Metadata: new Dictionary<string, string>
+        {
+            ["confluence:spaceKey"] = config.SpaceKey,
+            ["confluence:title"] = attachment.FileName,
+            ["confluence:pageId"] = page.Id,
+            ["confluence:breadcrumb"] = string.Join(" > ", breadcrumb.Append(attachment.FileName)),
+            ["confluence:url"] = $"{config.Site.SiteUrl}/wiki/pages/viewpageattachments.action?pageId={page.Id}",
+        },
+        Strategy: null);
+
+    internal static string AttachmentPath(ConfluenceStoredAttachment attachment) =>
+        $"/attachments/{attachment.Id}/{SafeFileName(attachment.FileName)}";
+
+    /// <summary>
+    /// A file name safe to use as the last path segment: no separators, control characters or
+    /// characters Windows refuses, no run of dots, no leading or trailing dots or spaces, at most
+    /// 200 characters with the extension kept. The same name always comes out the same.
+    /// </summary>
+    internal static string SafeFileName(string name)
+    {
+        var sb = new StringBuilder(name.Length);
+        foreach (char c in name)
+            sb.Append(char.IsControl(c) || c is '/' or '\\' or ':' or '*' or '?' or '"' or '<' or '>' or '|' ? '_' : c);
+
+        string safe = DotRun().Replace(sb.ToString(), ".").Trim(' ', '.');
+        if (safe.Length > 200)
+        {
+            string extension = Path.GetExtension(safe);
+            safe = safe[..(200 - Math.Min(extension.Length, 20))] + extension[..Math.Min(extension.Length, 20)];
+        }
+
+        return safe.Length == 0 ? "attachment" : safe;
+    }
+
+    [GeneratedRegex(@"\.{2,}", RegexOptions.CultureInvariant)]
+    private static partial Regex DotRun();
 
     private ConnectorFile ToConnectorFile(ConfluenceStoredPage page, IReadOnlyList<string> breadcrumb)
     {
@@ -430,6 +646,29 @@ public sealed partial class ConfluenceSpaceConnector(
 
     [GeneratedRegex(@"^/(?<kind>pages|blogposts)/(?<id>[0-9]{1,19})\.md\z", RegexOptions.CultureInvariant)]
     private static partial Regex PathPattern();
+
+    [GeneratedRegex(@"^/attachments/(?<id>[0-9]{1,19})/(?<name>[^/]+)\z", RegexOptions.CultureInvariant)]
+    private static partial Regex AttachmentPattern();
+
+    /// <summary>
+    /// The page and attachment an attachment path names, or null unless it is one the listing would
+    /// emit now: same file name, attachments on, within the cap, and parseable.
+    /// </summary>
+    private (ConfluenceStoredPage Page, ConfluenceStoredAttachment Attachment)? FindAttachment(string path)
+    {
+        var match = AttachmentPattern().Match(path ?? "");
+        if (!match.Success || !config.IncludeAttachments)
+            return null;
+
+        string id = match.Groups["id"].Value;
+        if (!_store.LoadState().AttachmentPages.TryGetValue(id, out string? pageId) || _store.Load(pageId) is not { } page)
+            return null;
+
+        var attachment = page.Attachments.FirstOrDefault(a => a.Id == id);
+        return attachment is not null && AttachmentPath(attachment) == path && IsIndexable(attachment)
+            ? (page, attachment)
+            : null;
+    }
 
     /// <summary>The stored record a path names, or null when it is not one this source holds.</summary>
     private ConfluenceStoredPage? Find(string path)
@@ -577,6 +816,8 @@ public sealed partial class ConfluenceSpaceConnector(
     private sealed record CommentResponse(string? Id, CommentVersion? Version, ContentBody? Body);
 
     private sealed record PageComment(string? AuthorId, DateTimeOffset Created, string Body);
+
+    private sealed record AttachmentResponse(string? Id, string? Title, string? MediaType, long? FileSize, VersionInfo? Version);
 
     /// <summary>The cursor: when the last complete listing started, which the next change query counts back from.</summary>
     private sealed record ConfluenceCursor(DateTimeOffset? Watermark)
