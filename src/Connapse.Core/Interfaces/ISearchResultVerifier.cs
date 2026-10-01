@@ -16,3 +16,9 @@ public interface ISearchResultVerifier
     Task<IReadOnlyList<SearchHit>> VerifyAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default);
 }
+
+/// <summary>
+/// A verifier that owns one hit scheme and passes every other scheme's hits through. Implementations
+/// register against this interface; only the composite is registered as <see cref="ISearchResultVerifier"/>.
+/// </summary>
+public interface IPerSchemeResultVerifier : ISearchResultVerifier;
