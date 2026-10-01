@@ -192,6 +192,12 @@ public static class ServiceCollectionExtensions
         // GitHub issues sources read the REST API anonymously; headers are set per request.
         services.AddHttpClient(Connectors.ConnectorFactory.GitHubHttpClientName);
 
+        // Atlassian Cloud: one named client for the API and the token endpoint, and a singleton
+        // token cache so service-account tokens are shared across every source on a site.
+        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName);
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<Connectors.Atlassian.AtlassianTokenSource>();
+
         // The GitHub App Connapse acts as. Singleton so installation tokens are reused across a sync
         // rather than minted per request; it reaches the scoped credential store through a scope.
         services.AddSingleton<Connectors.GitHub.ConnapseGitHubApp>();
