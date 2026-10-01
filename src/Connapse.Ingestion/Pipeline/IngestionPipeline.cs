@@ -64,6 +64,26 @@ public class IngestionPipeline : IKnowledgeIngester
             ? version
             : 1;
 
+    /// <summary>
+    /// The parser a document was indexed with. Documents indexed before names were recorded were
+    /// read by whichever parser owned their extension at the time; treating a missing name as a
+    /// match instead would hide a different parser taking that extension over.
+    /// </summary>
+    public static string? StoredParserName(IReadOnlyDictionary<string, string> metadata, string extension) =>
+        metadata.TryGetValue(MetadataKeyParser, out var stored) && !string.IsNullOrEmpty(stored)
+            ? stored
+            : LegacyParserByExtension.GetValueOrDefault(extension);
+
+    /// <summary>The parser that owned each extension when parser identities started being recorded (#596).</summary>
+    private static readonly Dictionary<string, string> LegacyParserByExtension = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".txt"] = "TextParser", [".md"] = "TextParser", [".markdown"] = "TextParser", [".csv"] = "TextParser",
+        [".log"] = "TextParser", [".json"] = "TextParser", [".xml"] = "TextParser", [".yaml"] = "TextParser",
+        [".yml"] = "TextParser",
+        [".pdf"] = "PdfParser",
+        [".docx"] = "OfficeParser", [".pptx"] = "OfficeParser",
+    };
+
     /// <summary>The parser's warnings from the last ingestion, one per line.</summary>
     public const string MetadataKeyParserWarnings = "ParserWarnings";
 

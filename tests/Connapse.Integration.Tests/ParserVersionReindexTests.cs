@@ -33,11 +33,13 @@ public class ParserVersionReindexTests(SharedWebAppFixture fixture)
         return source.Id;
     }
 
-    /// <summary>Ingests a file and stores its bytes where a reindex will look for them.</summary>
+    /// <summary>
+    /// Ingests a source-owned file. A real source's bytes live on the remote, never on the local
+    /// file system, so nothing is written there.
+    /// </summary>
     private static async Task<Guid> IngestAsync(IServiceProvider sp, Guid sourceId, string path, string text)
     {
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(text);
-        await sp.GetRequiredService<IKnowledgeFileSystem>().SaveFileAsync(path, new MemoryStream(bytes));
 
         var created = await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(
             new MemoryStream(bytes),
@@ -132,6 +134,45 @@ public class ParserVersionReindexTests(SharedWebAppFixture fixture)
                 new ReindexOptions { DetectSettingsChanges = true, DocumentIds = [id.ToString()] }, CancellationToken.None);
 
         queue.Jobs.Should().ContainSingle().Which.DocumentId.Should().Be(id.ToString());
+    }
+
+    [Fact]
+    public async Task Reindex_LegacyDocumentWhoseExtensionAnotherParserTookOver_IsReparsed()
+    {
+        // No recorded name means "the parser that owned the extension then"; a different parser
+        // at the same version is still a different parser.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid sourceId = await SeedSourceAsync(sp);
+        Guid id = await IngestAsync(sp, sourceId, $"/pv-{Guid.NewGuid():N}/legacy.md", "# Legacy\n\nIndexed long ago.");
+
+        var factory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var ctx = await factory.CreateDbContextAsync())
+        {
+            var doc = await ctx.Documents.SingleAsync(d => d.Id == id);
+            doc.Metadata = doc.Metadata
+                .Where(kv => kv.Key is not IngestionPipeline.MetadataKeyParser and not IngestionPipeline.MetadataKeyParserVersion)
+                .ToDictionary();
+            await ctx.SaveChangesAsync();
+        }
+
+        var queue = new RecordingIngestionQueue();
+        await using (var ctx = await factory.CreateDbContextAsync())
+            await Reindexer(sp, ctx, queue, new Renamed("MarkdownEngine", version: 1, ".md")).ReindexAsync(
+                new ReindexOptions { DetectSettingsChanges = true, DocumentIds = [id.ToString()] }, CancellationToken.None);
+
+        queue.Jobs.Should().ContainSingle().Which.DocumentId.Should().Be(id.ToString());
+    }
+
+    /// <summary>A different parser, by name, for chosen extensions.</summary>
+    private sealed class Renamed(string name, int version, params string[] extensions) : IDocumentParser
+    {
+        public IReadOnlySet<string> SupportedExtensions { get; } = new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase);
+        public string Name => name;
+        public int Version => version;
+
+        public Task<ParsedDocument> ParseAsync(Stream stream, string fileName, CancellationToken cancellationToken = default) =>
+            new TextParser().ParseAsync(stream, fileName, cancellationToken);
     }
 
     /// <summary>The same reader under a newer version, for chosen extensions only.</summary>

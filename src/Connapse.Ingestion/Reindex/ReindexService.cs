@@ -188,44 +188,49 @@ public class ReindexService : IReindexService
                 StoredHash: null);
         }
 
-        // Check if file exists (via connector for connector-backed containers)
-        if (!await FileExistsAsync(doc, ct))
+        // Source-owned documents: see EvaluateAndEnqueueDocumentAsync. Content changes are the sync
+        // engine's to detect, so only settings and the parser are compared.
+        string? currentHash = null;
+        if (doc.SourceId is null)
         {
-            return new ReindexCheck(
-                documentId,
-                NeedsReindex: false,
-                Reason: ReindexReason.FileNotFound,
-                CurrentHash: null,
-                StoredHash: doc.ContentHash);
-        }
+            // Check if file exists (via connector for connector-backed containers)
+            if (!await FileExistsAsync(doc, ct))
+            {
+                return new ReindexCheck(
+                    documentId,
+                    NeedsReindex: false,
+                    Reason: ReindexReason.FileNotFound,
+                    CurrentHash: null,
+                    StoredHash: doc.ContentHash);
+            }
 
-        // Compute current content hash (via connector for connector-backed containers)
-        string currentHash;
-        try
-        {
-            using var stream = await OpenFileAsync(doc, ct);
-            currentHash = await ComputeContentHashAsync(stream, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to compute hash for document {DocumentId}", Sanitize(documentId));
-            return new ReindexCheck(
-                documentId,
-                NeedsReindex: false,
-                Reason: ReindexReason.Error,
-                CurrentHash: null,
-                StoredHash: doc.ContentHash);
-        }
+            // Compute current content hash (via connector for connector-backed containers)
+            try
+            {
+                using var stream = await OpenFileAsync(doc, ct);
+                currentHash = await ComputeContentHashAsync(stream, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to compute hash for document {DocumentId}", Sanitize(documentId));
+                return new ReindexCheck(
+                    documentId,
+                    NeedsReindex: false,
+                    Reason: ReindexReason.Error,
+                    CurrentHash: null,
+                    StoredHash: doc.ContentHash);
+            }
 
-        // Check content hash
-        if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
-        {
-            return new ReindexCheck(
-                documentId,
-                NeedsReindex: true,
-                Reason: ReindexReason.ContentChanged,
-                CurrentHash: currentHash,
-                StoredHash: doc.ContentHash);
+            // Check content hash
+            if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return new ReindexCheck(
+                    documentId,
+                    NeedsReindex: true,
+                    Reason: ReindexReason.ContentChanged,
+                    CurrentHash: currentHash,
+                    StoredHash: doc.ContentHash);
+            }
         }
 
         // Check chunking settings
@@ -325,53 +330,61 @@ public class ReindexService : IReindexService
                 return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.Forced, ct);
             }
 
-            // Check if file exists (via connector for connector-backed containers)
-            if (!await FileExistsAsync(doc, ct))
+            // Source-owned documents are read through their source's connector, which this service
+            // does not hold; the legacy file system never has them, so every one used to come back
+            // FileNotFound and no settings or parser change could ever reach it. Their content changes
+            // are the sync engine's to detect, by remote signature, so here only the recorded
+            // settings and parser are compared, and the pipeline reads the file as usual.
+            if (doc.SourceId is null)
             {
-                _logger.LogWarning(
-                    "Document {DocumentId} file not found at {Path}",
-                    doc.Id,
-                    doc.Path);
+                // Check if file exists (via connector for connector-backed containers)
+                if (!await FileExistsAsync(doc, ct))
+                {
+                    _logger.LogWarning(
+                        "Document {DocumentId} file not found at {Path}",
+                        doc.Id,
+                        doc.Path);
 
-                return new ReindexDocumentResult(
-                    doc.Id.ToString(),
-                    doc.FileName,
-                    ReindexAction.Skipped,
-                    ReindexReason.FileNotFound);
-            }
+                    return new ReindexDocumentResult(
+                        doc.Id.ToString(),
+                        doc.FileName,
+                        ReindexAction.Skipped,
+                        ReindexReason.FileNotFound);
+                }
 
-            // Compute current content hash (via connector for connector-backed containers)
-            string currentHash;
-            try
-            {
-                using var stream = await OpenFileAsync(doc, ct);
-                currentHash = await ComputeContentHashAsync(stream, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Failed to compute hash for document {DocumentId}",
-                    doc.Id);
+                // Compute current content hash (via connector for connector-backed containers)
+                string currentHash;
+                try
+                {
+                    using var stream = await OpenFileAsync(doc, ct);
+                    currentHash = await ComputeContentHashAsync(stream, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to compute hash for document {DocumentId}",
+                        doc.Id);
 
-                return new ReindexDocumentResult(
-                    doc.Id.ToString(),
-                    doc.FileName,
-                    ReindexAction.Failed,
-                    ReindexReason.Error,
-                    ErrorMessage: $"Hash computation failed: {ex.Message}");
-            }
+                    return new ReindexDocumentResult(
+                        doc.Id.ToString(),
+                        doc.FileName,
+                        ReindexAction.Failed,
+                        ReindexReason.Error,
+                        ErrorMessage: $"Hash computation failed: {ex.Message}");
+                }
 
-            // Check if content hash changed
-            if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation(
-                    "Document {DocumentId} content hash changed (stored={StoredHash}, current={CurrentHash})",
-                    doc.Id,
-                    doc.ContentHash?[..Math.Min(8, doc.ContentHash?.Length ?? 0)],
-                    currentHash[..Math.Min(8, currentHash.Length)]);
+                // Check if content hash changed
+                if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation(
+                        "Document {DocumentId} content hash changed (stored={StoredHash}, current={CurrentHash})",
+                        doc.Id,
+                        doc.ContentHash?[..Math.Min(8, doc.ContentHash?.Length ?? 0)],
+                        currentHash[..Math.Min(8, currentHash.Length)]);
 
-                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ContentChanged, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ContentChanged, ct);
+                }
             }
 
             // Check settings changes if enabled
@@ -594,8 +607,7 @@ public class ReindexService : IReindexService
 
     /// <summary>
     /// True when the parser that would read this document now is a different parser, or a newer
-    /// version, than the one that produced its chunks. A document recorded without a parser name
-    /// is compared by version alone.
+    /// version, than the one that produced its chunks.
     /// </summary>
     private (bool changed, string? stored, string? current) CheckParserChanged(DocumentEntity doc)
     {
@@ -604,10 +616,12 @@ public class ReindexService : IReindexService
         if (parser is null)
             return (false, null, null);
 
-        doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyParser, out var storedName);
+        string? storedName = Pipeline.IngestionPipeline.StoredParserName(doc.Metadata, extension);
         int storedVersion = Pipeline.IngestionPipeline.StoredParserVersion(doc.Metadata);
 
-        bool sameParser = string.IsNullOrEmpty(storedName) || storedName == parser.Name;
+        // Unknown only for an extension no parser handled when versions were introduced; nothing
+        // indexed it then, so whatever handles it now is the parser that produced it.
+        bool sameParser = storedName is null || storedName == parser.Name;
         bool changed = !sameParser || storedVersion < parser.Version;
 
         return (changed,
