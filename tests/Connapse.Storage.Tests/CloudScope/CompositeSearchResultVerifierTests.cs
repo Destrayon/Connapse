@@ -34,6 +34,20 @@ public class CompositeSearchResultVerifierTests
             Task.FromResult(rankedCandidates);
     }
 
+    // Pass-through whose multiplier rises while it verifies, the way a verifier's first refresh
+    // can learn that it enforces only after the search was already sized.
+    private sealed class LearnsDuringVerifyVerifier : IPerSchemeResultVerifier
+    {
+        public int CandidateMultiplier { get; private set; } = 1;
+
+        public Task<IReadOnlyList<SearchHit>> VerifyAsync(
+            IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
+        {
+            CandidateMultiplier = 3;
+            return Task.FromResult(rankedCandidates);
+        }
+    }
+
     private static SearchHit Hit(string id, string uri) =>
         new(id, $"doc-{id}", "content", 1f, new Dictionary<string, string> { ["uri"] = uri });
 
@@ -80,6 +94,17 @@ public class CompositeSearchResultVerifierTests
         var result = await composite.VerifyAsync(candidates, null, 1);
 
         result.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_MultiplierRisesDuringVerify_CapsByTheValueTheSearchWasSizedWith()
+    {
+        var composite = new CompositeSearchResultVerifier([new LearnsDuringVerifyVerifier()]);
+        IReadOnlyList<SearchHit> candidates = [Hit("1", "a://"), Hit("2", "b://"), Hit("3", "c://")];
+
+        var result = await composite.VerifyAsync(candidates, null, 1);
+
+        result.Should().HaveCount(3, "the search was sized at 1x, so the pool goes to AutoCut uncapped");
     }
 
     [Fact]
