@@ -232,7 +232,7 @@ public sealed partial class ConfluenceSpaceConnector(
         {
             throw new FileNotFoundException($"Confluence attachment {attachment.Id} no longer exists.", ex);
         }
-        catch (InvalidOperationException ex)
+        catch (AtlassianRedirectRefusedException ex)
         {
             throw new PermanentIngestionException(
                 $"Confluence attachment {attachment.Id} could not be downloaded: {ex.Message}", ex);
