@@ -49,6 +49,7 @@
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeGitHubApi.cs" Link="Fakes\FakeGitHubApi.cs" />
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeAtlassianApi.cs" Link="Fakes\FakeAtlassianApi.cs" />
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeConfluence.cs" Link="Fakes\FakeConfluence.cs" />
+    <Compile Include="..\Connapse.Core.Tests\Connectors\FakeConfluenceChanges.cs" Link="Fakes\FakeConfluenceChanges.cs" />
   </ItemGroup>
 
 </Project>
