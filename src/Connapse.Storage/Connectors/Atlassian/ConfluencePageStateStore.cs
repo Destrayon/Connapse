@@ -37,7 +37,6 @@ internal sealed record ConfluenceFolderParent(string? ParentId, string? ParentTy
 internal sealed class ConfluenceSyncState
 {
     public DateTimeOffset? Watermark { get; set; }
-    public DateTimeOffset? LastAttachmentSweepAt { get; set; }
     public Dictionary<string, string> FolderTitles { get; set; } = [];
 
     /// <summary>Each known folder's own parent. Folders nest, and a breadcrumb walks through them.</summary>

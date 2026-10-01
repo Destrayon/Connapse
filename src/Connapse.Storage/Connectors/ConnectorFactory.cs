@@ -313,7 +313,8 @@ public class ConnectorFactory(
                 IncludeAttachments: Bool(scope, "includeAttachments") ?? true,
                 MaxAttachmentMb: maxAttachmentMb),
             new Atlassian.AtlassianApiClient(
-                httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret),
+                httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret,
+                downloads: httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.DownloadHttpClientName)),
             loggerFactory?.CreateLogger<Atlassian.ConfluenceSpaceConnector>(),
             // The parsers Ingestion registered, reached through Core's interface: an attachment
             // without one is skipped and counted rather than ingested to fail.

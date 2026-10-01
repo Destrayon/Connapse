@@ -121,7 +121,7 @@ public sealed partial class ConfluenceSpaceConnector(
         // After the listing is settled, and outside its all-or-nothing rule: a page whose list
         // could not be read keeps the attachments it had, so nothing is deleted for it.
         string? stopped = config.IncludeAttachments
-            ? await RefreshAttachmentsAsync(listed.Values, state, started, ct)
+            ? await RefreshAttachmentsAsync(listed.Values, started, ct)
             : null;
 
         Save(listed, stored, state);
@@ -150,12 +150,7 @@ public sealed partial class ConfluenceSpaceConnector(
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {
         if (FindAttachment(path) is { } found)
-        {
-            // Confluence answers with a redirect to its media service, which the client follows
-            // only onto Atlassian's own hosts.
-            return await api.DownloadAsync(
-                $"rest/api/content/{found.Page.Id}/child/attachment/att{found.Attachment.Id}/download", ct);
-        }
+            return await DownloadAttachmentAsync(found.Page, found.Attachment, ct);
 
         var page = Find(path)
             ?? throw new FileNotFoundException(
@@ -211,6 +206,39 @@ public sealed partial class ConfluenceSpaceConnector(
 
     public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) =>
         throw new NotSupportedException("Confluence sources are polled; they do not support live watch.");
+
+    /// <summary>
+    /// Streams an attachment, never more than the size cap: the listed size is Confluence's word,
+    /// and the pipeline copies a download into memory whole. Failures that a retry cannot fix are
+    /// permanent: the attachment gone (404, mapped as the page read maps it), a redirect off
+    /// Atlassian's hosts, or more bytes than the cap allows.
+    /// </summary>
+    private async Task<Stream> DownloadAttachmentAsync(
+        ConfluenceStoredPage page, ConfluenceStoredAttachment attachment, CancellationToken ct)
+    {
+        Stream download;
+        try
+        {
+            // Confluence answers with a redirect to its media service, which the client follows
+            // only onto Atlassian's own hosts.
+            download = await api.DownloadAsync(
+                $"rest/api/content/{page.Id}/child/attachment/att{attachment.Id}/download", ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            throw new FileNotFoundException($"Confluence attachment {attachment.Id} no longer exists.", ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new PermanentIngestionException(
+                $"Confluence attachment {attachment.Id} could not be downloaded: {ex.Message}", ex);
+        }
+
+        return new SizeCappedStream(
+            download,
+            config.MaxAttachmentMb * 1024L * 1024L,
+            $"Confluence attachment {attachment.Id} is larger than the {config.MaxAttachmentMb} MB cap.");
+    }
 
     // ── Listing ────────────────────────────────────────────────────────────
 
@@ -441,15 +469,13 @@ public sealed partial class ConfluenceSpaceConnector(
     /// and is returned as a notice; every page not reached keeps its previous list and stays due.
     /// </summary>
     private async Task<string?> RefreshAttachmentsAsync(
-        IEnumerable<ConfluenceStoredPage> pages, ConfluenceSyncState state, DateTimeOffset now, CancellationToken ct)
+        IEnumerable<ConfluenceStoredPage> pages, DateTimeOffset now, CancellationToken ct)
     {
         var due = pages
             .Where(p => p.AttachmentsListedAt is not { } at || now - at >= AttachmentSweepInterval)
             .OrderBy(p => p.AttachmentsListedAt.HasValue)
             .ThenBy(p => p.Id, StringComparer.Ordinal)
             .ToList();
-        bool sweeping = state.LastAttachmentSweepAt is null || due.Any(p => p.AttachmentsListedAt is not null);
-        bool complete = true;
 
         foreach (var page in due)
         {
@@ -460,8 +486,8 @@ public sealed partial class ConfluenceSpaceConnector(
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
             {
-                // Gone or hidden since the listing; the next listing settles which.
-                complete = false;
+                // Gone or hidden since the listing; the next listing settles which. The page keeps
+                // its previous list meanwhile.
             }
             catch (AtlassianRateLimitedException ex)
             {
@@ -472,9 +498,6 @@ public sealed partial class ConfluenceSpaceConnector(
             }
         }
 
-        // Recorded only when a sweep of aged lists ran to the end.
-        if (complete && sweeping)
-            state.LastAttachmentSweepAt = now;
         return null;
     }
 
@@ -551,8 +574,13 @@ public sealed partial class ConfluenceSpaceConnector(
         ];
     }
 
+    /// <summary>
+    /// Within the cap and parseable. A size Confluence did not report (or reported as zero or less)
+    /// is not taken as small: the attachment is skipped and counted.
+    /// </summary>
     private bool IsIndexable(ConfluenceStoredAttachment attachment) =>
-        attachment.Size <= config.MaxAttachmentMb * 1024L * 1024L
+        attachment.Size > 0
+        && attachment.Size <= config.MaxAttachmentMb * 1024L * 1024L
         && fileTypes is not null
         && fileTypes.IsSupported(SafeFileName(attachment.FileName));
 
@@ -594,11 +622,19 @@ public sealed partial class ConfluenceSpaceConnector(
         string safe = DotRun().Replace(sb.ToString(), ".").Trim(' ', '.');
         if (safe.Length > 200)
         {
-            string extension = Path.GetExtension(safe);
-            safe = safe[..(200 - Math.Min(extension.Length, 20))] + extension[..Math.Min(extension.Length, 20)];
+            string extension = Prefix(Path.GetExtension(safe), 20);
+            safe = Prefix(safe, 200 - extension.Length) + extension;
         }
 
         return safe.Length == 0 ? "attachment" : safe;
+    }
+
+    /// <summary>The first <paramref name="length"/> UTF-16 units, one fewer if that would split a surrogate pair.</summary>
+    private static string Prefix(string value, int length)
+    {
+        if (value.Length <= length)
+            return value;
+        return char.IsHighSurrogate(value[length - 1]) ? value[..(length - 1)] : value[..length];
     }
 
     [GeneratedRegex(@"\.{2,}", RegexOptions.CultureInvariant)]

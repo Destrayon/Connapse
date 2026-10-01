@@ -536,6 +536,21 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
     private FakeConfluenceAttachment AttachmentOn(string pageId, string id, string name, long? size = null) =>
         new(id, pageId, name, "attached runbook text"u8.ToArray(), _clock.GetUtcNow().AddMinutes(-1), DeclaredSize: size);
 
+    /// <summary>
+    /// The registration the app really uses: downloads get a client that leaves redirects to
+    /// AtlassianApiClient, so every hop is checked against Atlassian's hosts.
+    /// </summary>
+    [Fact]
+    public void DownloadHttpClient_DoesNotFollowRedirectsItself()
+    {
+        var handler = fixture.Factory.Services.GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(AtlassianApiClient.DownloadHttpClientName);
+        while (handler is DelegatingHandler delegating)
+            handler = delegating.InnerHandler!;
+
+        handler.Should().BeOfType<SocketsHttpHandler>().Which.AllowAutoRedirect.Should().BeFalse();
+    }
+
     [Fact]
     public async Task NewAttachment_Ingested()
     {
