@@ -33,6 +33,13 @@ public static class ParseLimits
         long start = content.Position;
         try
         {
+            // Before the directory is read: ZipArchive allocates per entry, so a package listing
+            // millions of empty entries would exhaust memory here, inside the "cheap" check.
+            long? entries = ReadDeclaredEntryCount(content);
+            content.Position = start;
+            if (entries > limits.MaxZipEntries)
+                return $"it lists {entries:N0} entries, over the {limits.MaxZipEntries:N0} entry limit [too_many_entries]";
+
             // The sizes come from the ZIP central directory, so this reads a few kilobytes no
             // matter how far the package would inflate.
             using var zip = new ZipArchive(content, ZipArchiveMode.Read, leaveOpen: true);
@@ -64,4 +71,40 @@ public static class ParseLimits
     }
 
     private static long Megabytes(long bytes) => bytes / (1024 * 1024);
+
+    /// <summary>
+    /// The entry count from the ZIP's end-of-central-directory record (or its ZIP64 counterpart),
+    /// read from the last 64 KiB without touching the directory itself. Null when there is none.
+    /// </summary>
+    internal static long? ReadDeclaredEntryCount(Stream content)
+    {
+        const int EocdSize = 22;
+        int tail = (int)Math.Min(content.Length, EocdSize + ushort.MaxValue);
+        if (tail < EocdSize) return null;
+
+        byte[] buffer = new byte[tail];
+        content.Position = content.Length - tail;
+        content.ReadExactly(buffer);
+
+        for (int i = tail - EocdSize; i >= 0; i--)
+        {
+            if (BitConverter.ToUInt32(buffer, i) != 0x06054B50) continue;
+
+            ushort total = BitConverter.ToUInt16(buffer, i + 10);
+            if (total != ushort.MaxValue) return total;
+
+            // ZIP64: the locator sits just before the record and points at the real count.
+            int locator = i - 20;
+            if (locator < 0 || BitConverter.ToUInt32(buffer, locator) != 0x07064B50) return total;
+            long recordOffset = BitConverter.ToInt64(buffer, locator + 8);
+            if (recordOffset < 0 || recordOffset + 40 > content.Length) return total;
+
+            byte[] record = new byte[40];
+            content.Position = recordOffset;
+            content.ReadExactly(record);
+            return BitConverter.ToUInt32(record, 0) == 0x06064B50 ? BitConverter.ToInt64(record, 32) : total;
+        }
+
+        return null;
+    }
 }

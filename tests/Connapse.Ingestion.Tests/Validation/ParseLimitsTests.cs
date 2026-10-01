@@ -86,7 +86,57 @@ public class ParseLimitsTests
             parser, new MemoryStream(), "stuck.pdf", TimeSpan.FromMilliseconds(200), CancellationToken.None);
 
         (await act.Should().ThrowAsync<PermanentIngestionException>()).Which.Message.Should().EndWith("[parse_timeout]");
+        IngestionPipeline.AbandonedParses.Should().BeGreaterThan(0, "the stuck parse is still running and must be visible");
+
         release.Set();
+        await WaitUntilAsync(() => IngestionPipeline.AbandonedParses == 0);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (int i = 0; i < 100 && !condition(); i++)
+            await Task.Delay(50);
+        condition().Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckInput_PackageListingTooManyEntries_IsRefusedBeforeItsDirectoryIsRead()
+    {
+        var entries = Enumerable.Range(0, 12).Select(i => ($"part{i}.xml", new byte[1], CompressionLevel.NoCompression)).ToArray();
+        using var content = new MemoryStream(Zip(entries));
+
+        ParseLimits.ReadDeclaredEntryCount(content).Should().Be(12);
+        ParseLimits.CheckInput(content, ".docx", new UploadSettings { MaxZipEntries = 10 })
+            .Should().EndWith("[too_many_entries]");
+    }
+
+    [Fact]
+    public async Task CopyBounded_StreamOverTheLimit_FailsWhileCopying()
+    {
+        // A connector stream of unknown length: refused once it passes the cap, not after buffering.
+        using var source = new NonSeekable(new byte[3000]);
+        using var destination = new MemoryStream();
+
+        var act = () => IngestionPipeline.CopyBoundedAsync(source, destination, 1024, "big.pdf", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<PermanentIngestionException>()).Which.Message.Should().EndWith("[file_too_large]");
+        destination.Length.Should().BeLessThanOrEqualTo(1024);
+    }
+
+    [Fact]
+    public async Task CopyBounded_StreamWithinTheLimit_IsCopiedWhole()
+    {
+        using var source = new NonSeekable(new byte[1000]);
+        using var destination = new MemoryStream();
+
+        await IngestionPipeline.CopyBoundedAsync(source, destination, 1024, "small.pdf", CancellationToken.None);
+
+        destination.Length.Should().Be(1000);
+    }
+
+    private sealed class NonSeekable(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override bool CanSeek => false;
     }
 
     [Fact]

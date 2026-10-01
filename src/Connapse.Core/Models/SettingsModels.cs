@@ -469,6 +469,12 @@ public record UploadSettings
 
     /// <summary>Most characters a parser may extract from one file (default: 20 million).</summary>
     public int MaxExtractedCharacters { get; set; } = 20_000_000;
+
+    /// <summary>
+    /// Most entries a DOCX or PPTX package may list (default: 10,000). Reading a ZIP's directory
+    /// allocates per entry, so millions of empty entries exhaust memory before any size check.
+    /// </summary>
+    public int MaxZipEntries { get; set; } = 10_000;
 }
 
 /// <summary>
