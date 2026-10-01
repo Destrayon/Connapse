@@ -97,6 +97,24 @@ public class CompositeSearchScopeResolverTests
     }
 
     [Fact]
+    public async Task Combine_FourthGrantOnlyScheme_ContributesOnlyItsOwnGrantedMatches()
+    {
+        var composite = new CompositeSearchScopeResolver(
+        [
+            new(new FakeResolver(SearchScopes.Unrestricted), "s3://", ScopeKind.Cloud),
+            new(new FakeResolver(SearchScopes.Unrestricted), "azblob://", ScopeKind.Cloud),
+            new(new FakeResolver(SearchScopes.OfPrefixes(["github://42/", "github://7/"])), "github://", ScopeKind.GrantOnly),
+            new(new FakeResolver(SearchScopes.OfPrefixes(["confluence://site/space/ENG", "s3://stray/"])), "confluence://", ScopeKind.GrantOnly),
+        ]);
+
+        SearchScopes r = await composite.ResolveAsync(Guid.NewGuid());
+
+        r.IsUnrestricted.Should().BeFalse();
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo(
+            "s3://", "azblob://", "github://42/", "github://7/", "confluence://site/space/ENG");
+    }
+
+    [Fact]
     public async Task BothUnrestricted_IsUnrestricted() =>
         (await Combine(SearchScopes.Unrestricted, SearchScopes.Unrestricted)).IsUnrestricted.Should().BeTrue();
 
