@@ -833,6 +833,20 @@ public class SourceConnectorFactoryTests
     }
 
     [Theory]
+    [InlineData(101)]
+    [InlineData(500)]
+    [InlineData(int.MaxValue)]
+    public void Create_AtlassianScopeWithAttachmentCapAboveTheCeiling_ClampsToTheCeiling(int cap)
+    {
+        var source = MakeSource(AtlassianConnection.Id,
+            $$"""{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG","maxAttachmentMb":{{cap}}}""");
+
+        var config = ((Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConnector)_factory.Create(source, AtlassianConnection, "s")).Config;
+
+        config.MaxAttachmentMb.Should().Be(100);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(-3)]
     public void Create_AtlassianScopeWithNonPositiveAttachmentCap_Throws(int cap)
