@@ -12,7 +12,6 @@ public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, str
 
 public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict }
 
-/// <param name="Test">The failed probe, when <paramref name="Outcome"/> is <see cref="AtlassianAddOutcome.TestFailed"/>.</param>
 public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable }
 
 /// <summary>A Confluence space an admin can turn into a source.</summary>
@@ -24,6 +23,7 @@ public sealed record AtlassianSpacesResult(
     IReadOnlyList<ConfluenceSpaceInfo>? Spaces = null,
     string? Error = null);
 
+/// <param name="Test">The failed probe, when <paramref name="Outcome"/> is <see cref="AtlassianAddOutcome.TestFailed"/>.</param>
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
     Connection? Connection = null,

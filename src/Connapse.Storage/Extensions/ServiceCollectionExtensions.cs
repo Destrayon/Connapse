@@ -323,10 +323,10 @@ public static class ServiceCollectionExtensions
         // CloudEnforcementLatch; nothing else resolves this today.
         services.TryAddSingleton(new EnforcementMigration());
 
-        // The composite is THE resolver; it unions the AWS and Azure resolvers per cloud/scheme.
-        // AWS keeps its exact behavior as one inner resolver. Wired via an explicit factory that
-        // passes the two concrete resolvers, so the composite's ISearchScopeResolver parameters do
-        // not resolve back to the composite itself (no self-reference).
+        // The composite is THE resolver; it unions the AWS, Azure, GitHub and Atlassian resolvers
+        // per scheme. AWS keeps its exact behavior as one inner resolver. Wired via an explicit
+        // factory that passes the concrete resolvers, so the composite's ISearchScopeResolver
+        // parameters do not resolve back to the composite itself (no self-reference).
         services.AddScoped<CloudScope.AwsSearchScopeResolver>();
         services.AddScoped<CloudScope.AzureSearchScopeResolver>();
         services.AddScoped<CloudScope.GitHubSearchScopeResolver>();
