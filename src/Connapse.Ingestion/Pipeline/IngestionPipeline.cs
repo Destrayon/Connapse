@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -298,6 +299,18 @@ public class IngestionPipeline : IKnowledgeIngester
                 return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
             }
 
+            // A reindex of unchanged bytes whose parse lost pages to exceptions would swap a
+            // complete index for a partial one, and record the new parser version so no later
+            // reindex retried it. The old chunks stay instead; the document returns to Ready with
+            // its previous parser recorded, so the next reindex tries again. Changed bytes are
+            // indexed partially all the same: stale text is worse than a missing page.
+            if (existing is { ChunkCount: > 0 } &&
+                string.Equals(existing.ContentHash, contentHash, StringComparison.OrdinalIgnoreCase) &&
+                parsedDocument.Metadata.TryGetValue(PdfParser.MetadataKeyPageErrors, out var pageErrors))
+            {
+                return await KeepPreviousIndexAsync(existing, generation, pageErrors, warnings, stopwatch, ct);
+            }
+
             var metadata = BuildMetadata(options, existing);
 
             // Parser warnings used to reach only the log, or a failure message. A document that
@@ -408,6 +421,31 @@ public class IngestionPipeline : IKnowledgeIngester
                 await workingStream.DisposeAsync();
             }
         }
+    }
+
+    private async Task<IngestionResult> KeepPreviousIndexAsync(
+        DocumentEntity existing, int generation, string pageErrors, List<string> warnings, Stopwatch stopwatch,
+        CancellationToken ct)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        if ((await DocumentLifecycle.CompleteAsync(_context, existing.Id, generation, ct)).Count == 0)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return Superseded(existing.Id, stopwatch, "Document was re-uploaded during ingestion");
+        }
+
+        await transaction.CommitAsync(CancellationToken.None);
+        await _lifecycle.NotifyAsync(existing.Id, CancellationToken.None);
+
+        _logger.LogWarning(
+            "ReindexKeptPreviousIndex {DocumentId}: {PageErrors} page(s) failed to extract; its {ChunkCount} existing chunks were kept",
+            existing.Id, pageErrors, existing.ChunkCount);
+
+        return new IngestionResult(
+            DocumentId: existing.Id.ToString(),
+            ChunkCount: existing.ChunkCount,
+            Duration: stopwatch.Elapsed,
+            Warnings: [.. warnings, $"{pageErrors} page(s) failed to extract, so the previous index was kept"]);
     }
 
     private static IngestionResult Superseded(Guid documentId, Stopwatch stopwatch, string reason) =>
