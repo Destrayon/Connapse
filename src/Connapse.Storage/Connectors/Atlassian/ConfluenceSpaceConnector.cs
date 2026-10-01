@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -54,7 +55,8 @@ public sealed partial class ConfluenceSpaceConnector(
 
     public async Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
-        if (cursor is not null && ConfluenceCursor.TryParse(cursor) is null)
+        var previous = cursor is null ? null : ConfluenceCursor.TryParse(cursor);
+        if (cursor is not null && previous is null)
             return new SyncDelta([], [], NextCursor: null, RequiresFullResync: true);
 
         // A null cursor is a fresh start: what the store holds is from before a resync and is not
@@ -64,6 +66,7 @@ public sealed partial class ConfluenceSpaceConnector(
         DateTimeOffset started = _clock.GetUtcNow();
         var state = fresh ? new ConfluenceSyncState() : _store.LoadState();
         var listed = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
+        Dictionary<string, DateTimeOffset> commented = [];
 
         try
         {
@@ -73,6 +76,10 @@ public sealed partial class ConfluenceSpaceConnector(
             await ListAsync("pages", "page", listed, ct);
             await ListAsync("blogposts", "blogpost", listed, ct);
             await ResolveFoldersAsync(listed.Values, state, started, ct);
+
+            // A first sync reads every page, comments included, so it has nothing to catch up on.
+            if (previous?.Watermark is { } watermark)
+                commented = await CommentedPagesAsync(watermark, ct);
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
         {
@@ -90,7 +97,7 @@ public sealed partial class ConfluenceSpaceConnector(
             return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message);
         }
 
-        Apply(listed, carryOver: !fresh);
+        Apply(listed, carryOver: !fresh, commented);
 
         state.Watermark = started;
         _store.SaveState(state);
@@ -132,10 +139,26 @@ public sealed partial class ConfluenceSpaceConnector(
         // would replace the page's chunks with the breadcrumb and record that as indexed. Retryable.
         if (content.Body?.Storage?.Value is not { } body)
             throw new IOException($"Confluence {page.Kind} {page.Id} came back without a storage body; it will be retried.");
-        var names = await UserNamesAsync(ConfluenceStorageRenderer.MentionedAccountIds(body), ct);
-        var breadcrumb = Breadcrumb(page, _store.LoadState(), _store.Load);
+        var comments = await CommentsAsync(endpoint, page, ct);
 
-        var rendered = ConfluenceStorageRenderer.Render(new ConfluenceRenderInput(breadcrumb, body, Comments: [], names));
+        var accounts = new HashSet<string>(ConfluenceStorageRenderer.MentionedAccountIds(body), StringComparer.Ordinal);
+        foreach (var comment in comments)
+        {
+            accounts.UnionWith(ConfluenceStorageRenderer.MentionedAccountIds(comment.Body));
+            if (comment.AuthorId is not null)
+                accounts.Add(comment.AuthorId);
+        }
+
+        var names = await UserNamesAsync(accounts, ct);
+        var breadcrumb = Breadcrumb(page, _store.LoadState(), _store.Load);
+        var rendered = ConfluenceStorageRenderer.Render(new ConfluenceRenderInput(
+            breadcrumb,
+            body,
+            [.. comments.Select(c => new ConfluenceComment(
+                c.AuthorId is not null && names.TryGetValue(c.AuthorId, out string? name) ? name : "Unknown user",
+                c.Created,
+                c.Body))],
+            names));
         return new MemoryStream(Encoding.UTF8.GetBytes(rendered.Markdown));
     }
 
@@ -279,10 +302,44 @@ public sealed partial class ConfluenceSpaceConnector(
     }
 
     /// <summary>
+    /// Asks CQL which comments changed since a day before <paramref name="watermark"/> and returns
+    /// the newest change per page. The day of overlap absorbs CQL's unstated timezone; a comment it
+    /// reports twice is harmless because <see cref="Apply"/> only moves a time forward.
+    /// </summary>
+    private async Task<Dictionary<string, DateTimeOffset>> CommentedPagesAsync(DateTimeOffset watermark, CancellationToken ct)
+    {
+        string since = (watermark - TimeSpan.FromDays(1)).UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        string cql = $"space=\"{CqlQuote(config.SpaceKey)}\" AND type=comment AND lastmodified >= \"{since}\"";
+        string url = $"rest/api/search?cql={Uri.EscapeDataString(cql)}&limit=100&expand=content.container";
+
+        var newest = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        await foreach (var hit in api.PageAsync(url, ReadSearchResults, ct))
+        {
+            string? pageId = hit.Content?.Container?.Id;
+            if (!ConfluencePageStateStore.IsContentId(pageId) || hit.LastModified is not { } at)
+                continue;
+
+            if (!newest.TryGetValue(pageId!, out var known) || at > known)
+                newest[pageId!] = at;
+        }
+
+        return newest;
+    }
+
+    /// <summary>A value for inside a CQL double-quoted string.</summary>
+    private static string CqlQuote(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+    private static IEnumerable<SearchHit> ReadSearchResults(JsonElement root) =>
+        root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array
+            ? results.EnumerateArray().Select(e => e.Deserialize<SearchHit>(Json)).OfType<SearchHit>().ToList()
+            : [];
+
+    /// <summary>
     /// Writes what changed and deletes the records the listing no longer has. On a fresh start
     /// (<paramref name="carryOver"/> off) nothing is kept from the old records.
     /// </summary>
-    private void Apply(Dictionary<string, ConfluenceStoredPage> listed, bool carryOver)
+    private void Apply(
+        Dictionary<string, ConfluenceStoredPage> listed, bool carryOver, Dictionary<string, DateTimeOffset> commented)
     {
         foreach (var page in listed.Values)
         {
@@ -292,11 +349,17 @@ public sealed partial class ConfluenceSpaceConnector(
                 // Kept from earlier cycles: the listing does not carry them.
                 page.LastCommentAt = existing.LastCommentAt;
                 page.Attachments = existing.Attachments;
-
-                if (existing.Kind == page.Kind && existing.Version == page.Version && existing.VersionAt == page.VersionAt
-                    && existing.Title == page.Title && existing.ParentId == page.ParentId && existing.ParentType == page.ParentType)
-                    continue;
             }
+
+            // Only ever moves forward, so a comment the one-day overlap reports again changes nothing.
+            if (commented.TryGetValue(page.Id, out var at) && (page.LastCommentAt is null || at > page.LastCommentAt))
+                page.LastCommentAt = at;
+
+            if (existing is not null && carryOver
+                && existing.Kind == page.Kind && existing.Version == page.Version && existing.VersionAt == page.VersionAt
+                && existing.Title == page.Title && existing.ParentId == page.ParentId && existing.ParentType == page.ParentType
+                && existing.LastCommentAt == page.LastCommentAt)
+                continue;
 
             _store.Save(page);
         }
@@ -425,6 +488,35 @@ public sealed partial class ConfluenceSpaceConnector(
     }
 
     /// <summary>
+    /// The page's footer comments, and for a page its inline comments too, oldest first. Storage
+    /// format only, like the body.
+    /// </summary>
+    private async Task<List<PageComment>> CommentsAsync(string endpoint, ConfluenceStoredPage page, CancellationToken ct)
+    {
+        var comments = new List<PageComment>();
+        string[] kinds = page.Kind == "blogpost" ? ["footer"] : ["footer", "inline"];
+
+        foreach (string kind in kinds)
+        {
+            string url = $"api/v2/{endpoint}/{page.Id}/{kind}-comments?body-format=storage";
+            await foreach (var comment in api.PageAsync(url, ReadComments, ct))
+            {
+                comments.Add(new PageComment(
+                    comment.Version?.AuthorId,
+                    comment.Version?.CreatedAt ?? DateTimeOffset.MinValue,
+                    comment.Body?.Storage?.Value ?? ""));
+            }
+        }
+
+        return [.. comments.OrderBy(c => c.Created)];
+    }
+
+    private static IEnumerable<CommentResponse> ReadComments(JsonElement root) =>
+        root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array
+            ? results.EnumerateArray().Select(e => e.Deserialize<CommentResponse>(Json)).OfType<CommentResponse>().ToList()
+            : [];
+
+    /// <summary>
     /// Display names for mentioned accounts, looked up a hundred at a time and kept for this
     /// connector's lifetime. A failed lookup leaves the names out rather than failing the page.
     /// </summary>
@@ -474,7 +566,19 @@ public sealed partial class ConfluenceSpaceConnector(
 
     private sealed record FolderResponse(string? Id, string? Title, string? ParentId, string? ParentType);
 
-    /// <summary>The cursor: when the last complete listing started.</summary>
+    private sealed record SearchContainer(string? Id, string? Type);
+
+    private sealed record SearchContent(string? Id, string? Type, SearchContainer? Container);
+
+    private sealed record SearchHit(SearchContent? Content, DateTimeOffset? LastModified);
+
+    private sealed record CommentVersion(DateTimeOffset? CreatedAt, string? AuthorId);
+
+    private sealed record CommentResponse(string? Id, CommentVersion? Version, ContentBody? Body);
+
+    private sealed record PageComment(string? AuthorId, DateTimeOffset Created, string Body);
+
+    /// <summary>The cursor: when the last complete listing started, which the next change query counts back from.</summary>
     private sealed record ConfluenceCursor(DateTimeOffset? Watermark)
     {
         public string Serialize() => JsonSerializer.Serialize(this, Json);

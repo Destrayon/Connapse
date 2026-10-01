@@ -154,6 +154,9 @@ public sealed partial class FakeConfluence
             if (rest == "rest/api/user/bulk")
                 return Users(query.GetValues("accountId") ?? []);
 
+            if (AnswerChanges(rest, query) is { } changes)
+                return changes;
+
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         }
     }
