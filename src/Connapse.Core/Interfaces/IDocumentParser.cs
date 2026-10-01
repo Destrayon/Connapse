@@ -11,6 +11,19 @@ public interface IDocumentParser
     IReadOnlySet<string> SupportedExtensions { get; }
 
     /// <summary>
+    /// Recorded on every document the parser indexes, so a different parser taking over an
+    /// extension marks those documents for re-parsing.
+    /// </summary>
+    string Name => GetType().Name;
+
+    /// <summary>
+    /// Bump whenever the parser's output for the same file changes. Documents recorded with an
+    /// older version are re-parsed by a reindex that detects settings changes; documents indexed
+    /// before versions were recorded count as version 1.
+    /// </summary>
+    int Version => 1;
+
+    /// <summary>
     /// Parses a document from a stream.
     /// </summary>
     /// <param name="stream">The file content stream.</param>

@@ -25,6 +25,7 @@ public class ReindexService : IReindexService
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly ILogger<ReindexService> _logger;
+    private readonly IReadOnlyList<IDocumentParser> _parsers;
 
     public ReindexService(
         KnowledgeDbContext context,
@@ -34,8 +35,10 @@ public class ReindexService : IReindexService
         IIngestionQueue queue,
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
-        ILogger<ReindexService> logger)
+        ILogger<ReindexService> logger,
+        IEnumerable<IDocumentParser>? parsers = null)
     {
+        _parsers = parsers?.ToList() ?? [];
         _context = context;
         _fileSystem = fileSystem;
         _managedStorage = managedStorage;
@@ -253,6 +256,16 @@ public class ReindexService : IReindexService
                 StoredEmbeddingModel: embeddingCheck.stored);
         }
 
+        if (CheckParserChanged(doc).changed)
+        {
+            return new ReindexCheck(
+                documentId,
+                NeedsReindex: true,
+                Reason: ReindexReason.ParserChanged,
+                CurrentHash: currentHash,
+                StoredHash: doc.ContentHash);
+        }
+
         // Check if never indexed
         if (!doc.LastIndexedAt.HasValue || doc.IngestionStatus != DocumentStatus.Ready)
         {
@@ -388,6 +401,20 @@ public class ReindexService : IReindexService
                         embeddingCheck.current);
 
                     return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.EmbeddingSettingsChanged, ct);
+                }
+
+                // A parser that now reads the same bytes differently: the content hash cannot
+                // see it, so text garbled by an older parser would otherwise stay garbled.
+                var parserCheck = CheckParserChanged(doc);
+                if (parserCheck.changed)
+                {
+                    _logger.LogInformation(
+                        "Document {DocumentId} was parsed by {Stored}; the current parser is {Current}",
+                        doc.Id,
+                        parserCheck.stored,
+                        parserCheck.current);
+
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ParserChanged, ct);
                 }
             }
 
@@ -563,6 +590,29 @@ public class ReindexService : IReindexService
         return (!string.Equals(currentKey, storedKey, StringComparison.OrdinalIgnoreCase),
             storedKey,
             currentKey);
+    }
+
+    /// <summary>
+    /// True when the parser that would read this document now is a different parser, or a newer
+    /// version, than the one that produced its chunks. A document recorded without a parser name
+    /// is compared by version alone.
+    /// </summary>
+    private (bool changed, string? stored, string? current) CheckParserChanged(DocumentEntity doc)
+    {
+        string extension = Path.GetExtension(doc.FileName).ToLowerInvariant();
+        IDocumentParser? parser = _parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
+        if (parser is null)
+            return (false, null, null);
+
+        doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyParser, out var storedName);
+        int storedVersion = Pipeline.IngestionPipeline.StoredParserVersion(doc.Metadata);
+
+        bool sameParser = string.IsNullOrEmpty(storedName) || storedName == parser.Name;
+        bool changed = !sameParser || storedVersion < parser.Version;
+
+        return (changed,
+            $"{storedName ?? parser.Name} v{storedVersion}",
+            $"{parser.Name} v{parser.Version}");
     }
 
     private (bool changed, string? stored, string? current) CheckEmbeddingSettingsChanged(DocumentEntity doc)

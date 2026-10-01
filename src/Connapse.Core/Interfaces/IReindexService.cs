@@ -161,7 +161,9 @@ public enum ReindexReason
     /// <summary>Document has never been indexed.</summary>
     NeverIndexed,
     /// <summary>Error occurred during evaluation.</summary>
-    Error
+    Error,
+    /// <summary>A different parser, or a newer version of it, would now read the file.</summary>
+    ParserChanged
 }
 
 /// <summary>

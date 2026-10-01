@@ -22,6 +22,9 @@ public class TextParser : IDocumentParser
 
     public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
 
+    /// <summary>2: encoding detection (#594). Version 1 read every file as UTF-8 and garbled Latin-1.</summary>
+    public int Version => 2;
+
     public async Task<ParsedDocument> ParseAsync(
         Stream stream,
         string fileName,
