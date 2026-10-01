@@ -16,6 +16,7 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
 
     private readonly Dictionary<string, Func<HttpRequestMessage, HttpResponseMessage>> _routes = [];
     private readonly HashSet<string> _validTokens = [];
+    private readonly object _gate = new();
     private int _tokensIssued;
 
     /// <summary>Requests received, by absolute path (the token endpoint included).</summary>
@@ -35,13 +36,21 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     /// <summary>Answers the next Confluence request 429 with a <c>Retry-After</c> of 30 seconds.</summary>
     public bool RateLimitNext { get; set; }
 
-    /// <summary>Answers every Confluence request with this status until cleared with <c>FailWith(null)</c>.</summary>
+    /// <summary>Answers every Confluence request (not the token endpoint) with this status until cleared with <c>FailWith(null)</c>.</summary>
     public HttpStatusCode? FailingStatus { get; private set; }
 
-    public void FailWith(HttpStatusCode? status) => FailingStatus = status;
+    /// <summary>Answers every token-endpoint request with this status until cleared with <c>FailTokenWith(null)</c>.</summary>
+    public HttpStatusCode? FailingTokenStatus { get; private set; }
+
+    /// <summary>The Content-Type of each token request.</summary>
+    public List<string?> TokenContentTypes { get; } = [];
+
+    public void FailWith(HttpStatusCode? status) { lock (_gate) FailingStatus = status; }
+
+    public void FailTokenWith(HttpStatusCode? status) { lock (_gate) FailingTokenStatus = status; }
 
     /// <summary>Makes every token issued so far invalid; the next request carrying one gets 401.</summary>
-    public void RevokeTokens() => _validTokens.Clear();
+    public void RevokeTokens() { lock (_gate) _validTokens.Clear(); }
 
     /// <summary>Registers the answer for a Confluence path, such as <c>/ex/confluence/{id}/wiki/api/v2/spaces</c>.</summary>
     public void Map(string absolutePath, Func<HttpRequestMessage, HttpResponseMessage> handler) =>
@@ -58,42 +67,54 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var uri = request.RequestUri!;
-        Requests.Add(uri);
-        Calls[uri.AbsolutePath] = Calls.GetValueOrDefault(uri.AbsolutePath) + 1;
-
-        if (uri.Host == "auth.atlassian.com" && uri.AbsolutePath == TokenPath)
-            return await IssueTokenAsync(request, ct);
-
         string? token = request.Headers.Authorization?.Parameter;
-        BearerTokens.Add(token);
+        bool isToken = uri.Host == "auth.atlassian.com" && uri.AbsolutePath == TokenPath;
+        string? tokenBody = isToken ? await request.Content!.ReadAsStringAsync(ct) : null;
 
-        if (token is null || !_validTokens.Contains(token))
-            return new HttpResponseMessage(HttpStatusCode.Unauthorized);
-
-        if (RateLimitNext)
+        Func<HttpRequestMessage, HttpResponseMessage>? route = null;
+        lock (_gate)
         {
-            RateLimitNext = false;
-            var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
-            limited.Headers.TryAddWithoutValidation("Retry-After", "30");
-            return limited;
+            Requests.Add(uri);
+            Calls[uri.AbsolutePath] = Calls.GetValueOrDefault(uri.AbsolutePath) + 1;
+
+            if (isToken)
+            {
+                TokenContentTypes.Add(request.Content!.Headers.ContentType?.MediaType);
+                return IssueToken(tokenBody!);
+            }
+
+            BearerTokens.Add(token);
+
+            if (token is null || !_validTokens.Contains(token))
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+
+            if (RateLimitNext)
+            {
+                RateLimitNext = false;
+                var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                limited.Headers.TryAddWithoutValidation("Retry-After", "30");
+                return limited;
+            }
+
+            if (FailingStatus is { } failing)
+                return new HttpResponseMessage(failing);
+
+            _routes.TryGetValue(uri.AbsolutePath, out route);
         }
 
-        if (FailingStatus is { } failing)
-            return new HttpResponseMessage(failing);
-
-        return _routes.TryGetValue(uri.AbsolutePath, out var route)
-            ? route(request)
-            : new HttpResponseMessage(HttpStatusCode.NotFound);
+        return route is null ? new HttpResponseMessage(HttpStatusCode.NotFound) : route(request);
     }
 
-    private async Task<HttpResponseMessage> IssueTokenAsync(HttpRequestMessage request, CancellationToken ct)
+    // Caller holds _gate. Accepts the form body Atlassian documents, and JSON too.
+    private HttpResponseMessage IssueToken(string body)
     {
-        if (FailingStatus is { } failing)
+        if (FailingTokenStatus is { } failing)
             return new HttpResponseMessage(failing);
 
-        string body = await request.Content!.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.GetProperty("grant_type").GetString() != "client_credentials")
+        string? grantType = body.TrimStart().StartsWith('{')
+            ? JsonDocument.Parse(body).RootElement.GetProperty("grant_type").GetString()
+            : System.Web.HttpUtility.ParseQueryString(body)["grant_type"];
+        if (grantType != "client_credentials")
             return new HttpResponseMessage(HttpStatusCode.BadRequest);
 
         string token = "token-" + ++_tokensIssued;

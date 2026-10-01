@@ -57,9 +57,14 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
         AtlassianSite site, string clientSecret, CancellationToken ct)
     {
         using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
-        using var response = await http.PostAsJsonAsync(
+        using var response = await http.PostAsync(
             TokenEndpoint,
-            new TokenRequest("client_credentials", site.ClientId, clientSecret),
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "client_credentials",
+                ["client_id"] = site.ClientId,
+                ["client_secret"] = clientSecret,
+            }),
             ct);
 
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
@@ -83,16 +88,16 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
     {
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public volatile string? Token;
-        public DateTimeOffset ExpiresAt;
+        private long _expiresAtTicks;
+        public DateTimeOffset ExpiresAt
+        {
+            get => new(Volatile.Read(ref _expiresAtTicks), TimeSpan.Zero);
+            set => Volatile.Write(ref _expiresAtTicks, value.UtcTicks);
+        }
 
         public string? Fresh(TimeProvider time) =>
             Token is { } token && time.GetUtcNow() < ExpiresAt ? token : null;
     }
-
-    private sealed record TokenRequest(
-        [property: JsonPropertyName("grant_type")] string GrantType,
-        [property: JsonPropertyName("client_id")] string ClientId,
-        [property: JsonPropertyName("client_secret")] string ClientSecret);
 
     private sealed record TokenResponse(
         [property: JsonPropertyName("access_token")] string? AccessToken,
