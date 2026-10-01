@@ -26,7 +26,7 @@ public sealed class AzureSearchResultVerifier(
     IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     EnforcementMigration migration,
     IOptions<AzureVerifierSettings> settings,
-    ILogger<AzureSearchResultVerifier> logger) : ISearchResultVerifier
+    ILogger<AzureSearchResultVerifier> logger) : IPerSchemeResultVerifier
 {
     // Over-fetch only pays off when VerifyAsync will actually drop hits, which happens only in the
     // Enforcing state below. NotEnforcing and EnforcingButUnusable never call into the per-hit
