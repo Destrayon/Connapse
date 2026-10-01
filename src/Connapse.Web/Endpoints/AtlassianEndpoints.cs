@@ -62,6 +62,27 @@ public static class AtlassianEndpoints
             };
         }).RequireAuthorization("RequireAdmin");
 
+        // GET /api/v1/atlassian/sites/{connectionId}/spaces — the site's current Confluence spaces,
+        // read as its service account, for choosing which to turn into sources. Personal spaces
+        // are left out unless asked for.
+        group.MapGet("/{connectionId:guid}/spaces", async (
+            Guid connectionId,
+            [FromQuery] bool? includePersonal,
+            [FromServices] AtlassianSiteService sites,
+            CancellationToken ct) =>
+        {
+            var listed = await sites.ListSpacesAsync(connectionId, includePersonal ?? false, ct);
+            return listed.Outcome switch
+            {
+                AtlassianSpacesOutcome.NotFound => Results.NotFound(new { error = "No such connection." }),
+                AtlassianSpacesOutcome.NotAtlassian =>
+                    Results.BadRequest(new { error = "That connection is not an Atlassian site." }),
+                AtlassianSpacesOutcome.Unavailable =>
+                    Results.Json(new { error = listed.Error }, statusCode: StatusCodes.Status502BadGateway),
+                _ => Results.Ok(listed.Spaces!.Select(s => new { id = s.Id, key = s.Key, name = s.Name, type = s.Type })),
+            };
+        }).RequireAuthorization("RequireAdmin");
+
         return app;
     }
 }

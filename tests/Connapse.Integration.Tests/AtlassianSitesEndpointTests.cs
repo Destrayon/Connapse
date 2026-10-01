@@ -196,4 +196,106 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 
         second.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
+
+    private async Task<Guid> CreateSiteAsync(string host)
+    {
+        var response = await CreateAsync(_fixture.AdminClient, host);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("id").GetGuid();
+    }
+
+    private void MapSpaces() => _api.MapJson(Root + "/api/v2/spaces", new
+    {
+        results = new object[]
+        {
+            new { id = "100", key = "ENG", name = "Engineering", type = "global" },
+            new { id = "300", key = "~pat", name = "Pat's notes", type = "personal" },
+            new { id = "200", key = "HB", name = "Handbook", type = "global" },
+        },
+    });
+
+    [Fact]
+    public async Task Spaces_NonAdmin_Returns403()
+    {
+        using var editor = await EditorClientAsync();
+
+        var response = await editor.GetAsync($"{Sites}/{Guid.NewGuid()}/spaces");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Spaces_Anonymous_Returns401()
+    {
+        using var anon = _fixture.Factory.CreateClient();
+
+        var response = await anon.GetAsync($"{Sites}/{Guid.NewGuid()}/spaces");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Spaces_UnknownConnection_Returns404()
+    {
+        var response = await _fixture.AdminClient.GetAsync($"{Sites}/{Guid.NewGuid()}/spaces");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Spaces_ConnectionThatIsNotAtlassian_Returns400()
+    {
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var other = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+            new CreateConnectionRequest("spaces-not-atlassian", ConnectionProvider.Filesystem,
+                "{\"allowedRoots\":[\"/tmp\"]}", null), null);
+
+        var response = await _fixture.AdminClient.GetAsync($"{Sites}/{other.Id}/spaces");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Spaces_Admin_ListsSpacesWithoutPersonalOnesByDefault()
+    {
+        Guid id = await CreateSiteAsync("spaces-default.atlassian.net");
+        MapSpaces();
+
+        var response = await _fixture.AdminClient.GetAsync($"{Sites}/{id}/spaces");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        string raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain(Secret);
+        var body = JsonDocument.Parse(raw).RootElement;
+        body.EnumerateArray().Select(e => e.GetProperty("key").GetString()).Should().Equal("ENG", "HB");
+        body[0].GetProperty("id").GetString().Should().Be("100");
+        body[0].GetProperty("name").GetString().Should().Be("Engineering");
+        body[0].GetProperty("type").GetString().Should().Be("global");
+    }
+
+    [Fact]
+    public async Task Spaces_IncludePersonal_ListsPersonalSpacesToo()
+    {
+        Guid id = await CreateSiteAsync("spaces-personal.atlassian.net");
+        MapSpaces();
+
+        var response = await _fixture.AdminClient.GetAsync($"{Sites}/{id}/spaces?includePersonal=true");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.EnumerateArray().Select(e => e.GetProperty("key").GetString()).Should().BeEquivalentTo("ENG", "HB", "~pat");
+    }
+
+    [Fact]
+    public async Task Spaces_AtlassianFails_Returns502WithoutTheSecret()
+    {
+        Guid id = await CreateSiteAsync("spaces-failing.atlassian.net");
+        _api.FailWith(HttpStatusCode.InternalServerError);
+
+        var response = await _fixture.AdminClient.GetAsync($"{Sites}/{id}/spaces");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(Secret).And.Contain("error");
+    }
 }

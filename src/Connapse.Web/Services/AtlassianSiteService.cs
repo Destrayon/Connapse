@@ -13,6 +13,17 @@ public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, str
 public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict }
 
 /// <param name="Test">The failed probe, when <paramref name="Outcome"/> is <see cref="AtlassianAddOutcome.TestFailed"/>.</param>
+public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable }
+
+/// <summary>A Confluence space an admin can turn into a source.</summary>
+public sealed record ConfluenceSpaceInfo(string Id, string Key, string Name, string Type);
+
+/// <param name="Error">What went wrong, for <see cref="AtlassianSpacesOutcome.Unavailable"/>. Never carries a secret.</param>
+public sealed record AtlassianSpacesResult(
+    AtlassianSpacesOutcome Outcome,
+    IReadOnlyList<ConfluenceSpaceInfo>? Spaces = null,
+    string? Error = null);
+
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
     Connection? Connection = null,
@@ -31,7 +42,8 @@ public sealed class AtlassianSiteService(
     IHttpClientFactory httpClients,
     AtlassianConnectionTester tester,
     IConnectionStore connections,
-    IAuditLogger audit)
+    IAuditLogger audit,
+    AtlassianTokenSource tokens)
 {
     public async Task<AtlassianResolveResult> ResolveAsync(string? siteUrl, CancellationToken ct = default)
     {
@@ -87,6 +99,74 @@ public sealed class AtlassianSiteService(
         return new AtlassianAddResult(AtlassianAddOutcome.Created, connection, SiteUrl: normalizedSite,
             CloudId: cloudId, ClientId: trimmedClientId);
     }
+
+    /// <summary>
+    /// Lists the site's current Confluence spaces as its service account, personal ones only when
+    /// asked. Failures are reduced to a message safe to show an admin: the service account's secret
+    /// never appears in it.
+    /// </summary>
+    public async Task<AtlassianSpacesResult> ListSpacesAsync(
+        Guid connectionId, bool includePersonal, CancellationToken ct = default)
+    {
+        Connection? connection = await connections.GetAsync(connectionId, ct);
+        if (connection is null)
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.NotFound);
+        if (connection.Provider != ConnectionProvider.Atlassian)
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.NotAtlassian);
+
+        AtlassianSite? site = AtlassianSite.FromConfigJson(connection.ConfigJson);
+        string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
+        if (site is null || string.IsNullOrEmpty(secret))
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
+                Error: $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Providers page.");
+
+        try
+        {
+            using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
+            var api = new AtlassianApiClient(http, tokens, site, secret);
+
+            var spaces = new List<ConfluenceSpaceInfo>();
+            await foreach (ConfluenceSpaceInfo space in api.PageAsync(
+                "api/v2/spaces?status=current&limit=250", ReadSpaces, ct))
+            {
+                if (includePersonal || !string.Equals(space.Type, "personal", StringComparison.OrdinalIgnoreCase))
+                    spaces.Add(space);
+            }
+
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Listed,
+                spaces.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList());
+        }
+        catch (AtlassianRateLimitedException ex)
+        {
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message);
+        }
+        catch (AtlassianAuthException ex)
+        {
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException)
+        {
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
+                Error: "Atlassian could not list this site's spaces. Check the service account's access and try again.");
+        }
+    }
+
+    private static IEnumerable<ConfluenceSpaceInfo> ReadSpaces(JsonElement root)
+    {
+        if (!root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+            yield break;
+
+        foreach (var item in results.EnumerateArray())
+        {
+            string? id = Text(item, "id"), key = Text(item, "key");
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(key))
+                continue;
+            yield return new ConfluenceSpaceInfo(id, key, Text(item, "name") ?? key, Text(item, "type") ?? "");
+        }
+    }
+
+    private static string? Text(JsonElement obj, string name) =>
+        obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     /// <summary>Runs every probe again with the stored secret. Null when the connection is gone or unreadable.</summary>
     public async Task<ConnectionTestResult?> RetestAsync(Guid connectionId, CancellationToken ct = default)
