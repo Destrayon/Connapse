@@ -45,4 +45,10 @@ public class PrivateSourceVisibilityTests
     public void PrivateSourceWithoutARepositoryId_IsHidden() =>
         PrivateSourceVisibility.IsVisible(With("""{"owner":"acme","repo":"infra","private":true}"""), new HashSet<string> { "github://99/" })
             .Should().BeFalse();
+
+    [Theory]
+    [InlineData("""{"kind":"confluence-space","spaceKey":"ENG"}""")]
+    [InlineData("""{"kind":"Confluence-Space","spaceKey":"ENG"}""")]
+    public void ConfluenceSpaceSource_IsHiddenFromNonAdmins(string scope) =>
+        PrivateSourceVisibility.IsVisible(With(scope), new HashSet<string> { "atlassian://" }).Should().BeFalse();
 }

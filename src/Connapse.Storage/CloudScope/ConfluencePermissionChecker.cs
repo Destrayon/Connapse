@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
 using Connapse.Core;
@@ -29,7 +30,15 @@ public sealed class ConfluencePermissionChecker(
     public static readonly TimeSpan AllowTtl = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan FailureTtl = TimeSpan.FromSeconds(30);
 
-    public async Task<bool> CanReadAsync(string cloudId, string contentId, string accountId, CancellationToken ct)
+    public Task<bool> CanReadAsync(string cloudId, string contentId, string accountId, CancellationToken ct) =>
+        CanReadAsync(cloudId, contentId, accountId, NewSiteLookup(), ct);
+
+    /// <summary>
+    /// The same check, finding the site's connection through <paramref name="sites"/> so that many
+    /// checks in one search look the connection up (and decrypt its secret) once per site.
+    /// </summary>
+    public async Task<bool> CanReadAsync(
+        string cloudId, string contentId, string accountId, SiteLookup sites, CancellationToken ct)
     {
         // An empty or anonymous subject would ask what the public can see, not what this user can.
         if (string.IsNullOrWhiteSpace(accountId) || accountId.Trim().Equals("anonymous", StringComparison.OrdinalIgnoreCase))
@@ -44,17 +53,17 @@ public sealed class ConfluencePermissionChecker(
         if (cache.TryGetValue(key, out bool cached))
             return cached;
 
-        (bool allowed, TimeSpan lifetime) = await CheckAsync(cloudId, contentId, accountId, ct);
+        (bool allowed, TimeSpan lifetime) = await CheckAsync(cloudId, contentId, accountId, sites, ct);
         cache.Set(key, allowed, lifetime);
         return allowed;
     }
 
     private async Task<(bool Allowed, TimeSpan Lifetime)> CheckAsync(
-        string cloudId, string contentId, string accountId, CancellationToken ct)
+        string cloudId, string contentId, string accountId, SiteLookup sites, CancellationToken ct)
     {
         try
         {
-            if (await ClientForAsync(cloudId, ct) is not { } client)
+            if (await sites.ClientForAsync(cloudId, ct) is not { } client)
                 return (false, FailureTtl);
 
             object body = new { subject = new { type = "user", identifier = accountId }, operation = "read" };
@@ -93,8 +102,14 @@ public sealed class ConfluencePermissionChecker(
         }
     }
 
+    /// <summary>
+    /// A lookup that remembers each site's connection for as long as the caller holds it. Hold one
+    /// for a single search only: it keeps the decrypted secret inside the clients it hands out.
+    /// </summary>
+    public SiteLookup NewSiteLookup() => new(LookUpClientAsync);
+
     /// <summary>A client for the connection that reads <paramref name="cloudId"/>, or null when none does or its secret is gone.</summary>
-    private async Task<AtlassianApiClient?> ClientForAsync(string cloudId, CancellationToken ct)
+    private async Task<AtlassianApiClient?> LookUpClientAsync(string cloudId, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
@@ -119,5 +134,20 @@ public sealed class ConfluencePermissionChecker(
 
         logger.LogWarning("No Atlassian connection reads site {CloudId}; denying its documents", cloudId);
         return null;
+    }
+
+    /// <summary>
+    /// Each site's connection, looked up at most once. Concurrent checks for one site share the
+    /// lookup, and its outcome: a missing connection or an unreadable secret denies them all.
+    /// </summary>
+    public sealed class SiteLookup
+    {
+        private readonly Func<string, CancellationToken, Task<AtlassianApiClient?>> _lookUp;
+        private readonly ConcurrentDictionary<string, Lazy<Task<AtlassianApiClient?>>> _sites = new(StringComparer.Ordinal);
+
+        internal SiteLookup(Func<string, CancellationToken, Task<AtlassianApiClient?>> lookUp) => _lookUp = lookUp;
+
+        internal Task<AtlassianApiClient?> ClientForAsync(string cloudId, CancellationToken ct) =>
+            _sites.GetOrAdd(cloudId, id => new Lazy<Task<AtlassianApiClient?>>(() => _lookUp(id, ct))).Value;
     }
 }

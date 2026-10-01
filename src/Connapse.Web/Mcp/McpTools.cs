@@ -645,7 +645,8 @@ public class McpTools
             document = await documentStore.GetByPathAsync(resolvedId.Value, normalizedPath, ct);
         }
 
-        if (document is null || document.ContainerId != resolvedId.Value.ToString())
+        if (document is null || document.ContainerId != resolvedId.Value.ToString()
+            || !await CanReadDocumentAsync(services, document.Id, ct))
             return $"Error: Document '{fileId}' not found in this container.";
 
         document.Metadata.TryGetValue("Status", out var status);
@@ -942,6 +943,19 @@ public class McpTools
 
         var sourceByName = await sources.GetByNameAsync(lowered, ct);
         return sourceByName is not null && visible(sourceByName) ? ToOwner(sourceByName) : null;
+    }
+
+    /// <summary>
+    /// Whether the calling user may read this document directly; see <see cref="DocumentReadGuard"/>.
+    /// Without the guard nothing can be checked, so the read is refused.
+    /// </summary>
+    private static async Task<bool> CanReadDocumentAsync(IServiceProvider services, string documentId, CancellationToken ct)
+    {
+        if (services.GetService<DocumentReadGuard>() is not { } guard)
+            return false;
+
+        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
+        return await guard.CanReadAsync(SearchPrincipal.Resolve(caller), documentId, ct);
     }
 
     /// <summary>Which sources the calling user may see listed; see <see cref="PrivateSourceVisibility"/>.</summary>

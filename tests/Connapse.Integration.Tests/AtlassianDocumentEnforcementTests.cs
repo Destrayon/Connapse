@@ -1,4 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -7,6 +10,9 @@ using Connapse.Identity.Services;
 using Connapse.Storage.CloudScope;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Web.Mcp;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -192,5 +198,126 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             fixture.Atlassian.FailWith(null);
         }
+    }
+
+    private static async Task<string> DocumentIdAsync(IServiceProvider sp, Guid containerId, string fileName)
+    {
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        return (await db.Documents.AsNoTracking().SingleAsync(d => d.ContainerId == containerId && d.FileName == fileName)).Id.ToString();
+    }
+
+    /// <summary>A Viewer with a password and a bearer token, linked to <paramref name="atlassianAccount"/>.</summary>
+    private async Task<HttpClient> ViewerClientAsync(IServiceProvider sp, string atlassianAccount)
+    {
+        string email = $"v-{Guid.NewGuid():N}@example.com";
+        const string Password = "AtlViewerTest1!";
+        var users = sp.GetRequiredService<UserManager<Connapse.Identity.Data.Entities.ConnapseUser>>();
+        var user = new Connapse.Identity.Data.Entities.ConnapseUser
+        {
+            UserName = email, Email = email, EmailConfirmed = true, DisplayName = email, CreatedAt = DateTime.UtcNow,
+        };
+        (await users.CreateAsync(user, Password)).Succeeded.Should().BeTrue();
+        await users.AddToRoleAsync(user, "Viewer");
+        await sp.GetRequiredService<AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount, "Someone", null);
+
+        using var anon = fixture.Factory.CreateClient();
+        var response = await anon.PostAsJsonAsync("/api/v1/auth/token", new { email, password = Password });
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var token = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString();
+
+        var client = fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    [Fact]
+    public async Task McpGetDocument_DeniedAtlassianDoc_ReturnsNotFound()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid containerId = await SeedAsync(sp);
+        string denied = await DocumentIdAsync(sp, containerId, "denied-page.md");
+        string allowed = await DocumentIdAsync(sp, containerId, "allowed-page.md");
+        Guid userId = await SeedUserAsync(sp, AllowedAccount);
+
+        var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")),
+        };
+        try
+        {
+            string deniedResult = await McpTools.GetDocument(sp, containerId.ToString(), denied);
+            string missingResult = await McpTools.GetDocument(sp, containerId.ToString(), Guid.Empty.ToString());
+            string allowedResult = await McpTools.GetDocument(sp, containerId.ToString(), allowed);
+
+            deniedResult.Should().Be(missingResult.Replace(Guid.Empty.ToString(), denied));
+            allowedResult.Should().NotContain("not found in this container",
+                "the allowed page passes the guard (its file was never stored, so the read fails later)");
+        }
+        finally
+        {
+            accessor.HttpContext = null;
+        }
+    }
+
+    [Fact]
+    public async Task RestGetDocument_DeniedAtlassianDoc_Returns404()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid containerId = await SeedAsync(sp);
+        string denied = await DocumentIdAsync(sp, containerId, "denied-page.md");
+        string allowed = await DocumentIdAsync(sp, containerId, "allowed-page.md");
+        string upload = await DocumentIdAsync(sp, containerId, "upload.md");
+        using var client = await ViewerClientAsync(sp, AllowedAccount);
+        string Files(string id) => $"/api/containers/{containerId}/files/{id}";
+
+        var deniedResponse = await client.GetAsync(Files(denied));
+        var missingResponse = await client.GetAsync(Files(Guid.Empty.ToString()));
+        deniedResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await deniedResponse.Content.ReadAsStringAsync()).Should()
+            .Be((await missingResponse.Content.ReadAsStringAsync()).Replace(Guid.Empty.ToString(), denied));
+        (await client.GetAsync(Files(denied) + "/content")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await client.GetAsync(Files(allowed))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.GetAsync(Files(upload))).StatusCode.Should().Be(HttpStatusCode.OK,
+            "a document with no address is readable as before");
+    }
+
+    [Fact]
+    public async Task Sources_NonAdmin_DoesNotListConfluenceSources()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        await SeedAsync(sp);
+        var connection = (await sp.GetRequiredService<IConnectionStore>().ListAsync(take: int.MaxValue))
+            .Single(c => c.Name == $"atl-{_cloudId}");
+        var source = await sp.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"conf-{Guid.NewGuid():N}"[..20], connection.Id, """{"kind":"confluence-space","spaceKey":"ENG"}"""));
+        using var viewer = await ViewerClientAsync(sp, AllowedAccount);
+
+        (await viewer.GetAsync($"/api/sources/{source.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await viewer.GetStringAsync("/api/sources?take=100")).Should().NotContain(source.Id.ToString());
+        (await fixture.AdminClient.GetAsync($"/api/sources/{source.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task DirectRead_AzureNotEnforcing_ReadsAzblobDocs()
+    {
+        // The guard runs the whole composite, so Azure's verifier now also governs direct reads. When
+        // Azure is not enforcing it must pass every document, as search does.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid containerId = await SeedAsync(sp);
+        var azure = AzureVerifyEnforcementTests.BuildVerifier(sp.GetRequiredService<IDocumentStore>(), azureEnforcing: false, []);
+        var atlassian = sp.GetServices<IPerSchemeResultVerifier>().OfType<AtlassianSearchResultVerifier>().Single();
+        var guard = new Connapse.Web.Services.DocumentReadGuard(new CompositeSearchResultVerifier([azure, atlassian]));
+        Guid user = AzureVerifyEnforcementTests.TestUser;
+
+        foreach (string name in new[] { "azure-granted.md", "azure-ungranted.md", "upload.md" })
+            (await guard.CanReadAsync(user, await DocumentIdAsync(sp, containerId, name), default)).Should().BeTrue(name);
+        (await guard.CanReadAsync(user, await DocumentIdAsync(sp, containerId, "allowed-page.md"), default))
+            .Should().BeFalse("the user has no Atlassian link");
     }
 }

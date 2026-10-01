@@ -1,6 +1,8 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope;
 using Connapse.Web.Mcp;
+using Connapse.Web.Services;
 using FluentAssertions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -46,6 +48,7 @@ public class McpToolsGetDocumentTests
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
         services.GetService(typeof(IManagedStorageProvider)).Returns(_managedStorage);
+        services.GetService(typeof(DocumentReadGuard)).Returns(new DocumentReadGuard(new NoOpSearchResultVerifier()));
         _services = services;
     }
 
@@ -74,6 +77,32 @@ public class McpToolsGetDocumentTests
 
         result.Should().Contain(FileContent);
         result.Should().Contain($"Document: {FileName}");
+    }
+
+    [Fact]
+    public async Task GetDocument_GuardDenies_ReturnsSameErrorAsMissingDocument()
+    {
+        _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>()).Returns(MakeDocument());
+        var denying = Substitute.For<ISearchResultVerifier>();
+        denying.VerifyAsync(Arg.Any<IReadOnlyList<SearchHit>>(), Arg.Any<Guid?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SearchHit>());
+        _services.GetService(typeof(DocumentReadGuard)).Returns(new DocumentReadGuard(denying));
+
+        var denied = await McpTools.GetDocument(_services, ContainerId.ToString(), DocId);
+        _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>()).Returns((Document?)null);
+        var missing = await McpTools.GetDocument(_services, ContainerId.ToString(), DocId);
+
+        denied.Should().Be(missing);
+        await _connector.DidNotReceive().ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetDocument_NoGuardRegistered_RefusesTheRead()
+    {
+        _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>()).Returns(MakeDocument());
+        _services.GetService(typeof(DocumentReadGuard)).Returns(null);
+
+        (await McpTools.GetDocument(_services, ContainerId.ToString(), DocId)).Should().StartWith("Error:").And.Contain("not found");
     }
 
     [Fact]
@@ -172,6 +201,7 @@ public class McpToolsGetDocumentTests
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
         services.GetService(typeof(IManagedStorageProvider)).Returns(_managedStorage);
+        services.GetService(typeof(DocumentReadGuard)).Returns(new DocumentReadGuard(new NoOpSearchResultVerifier()));
         services.GetService(typeof(IEnumerable<IDocumentParser>)).Returns(new[] { parser });
 
         var result = await McpTools.GetDocument(services, ContainerId.ToString(), DocId);
@@ -194,6 +224,7 @@ public class McpToolsGetDocumentTests
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
         services.GetService(typeof(IManagedStorageProvider)).Returns(_managedStorage);
+        services.GetService(typeof(DocumentReadGuard)).Returns(new DocumentReadGuard(new NoOpSearchResultVerifier()));
         services.GetService(typeof(IEnumerable<IDocumentParser>)).Returns(Array.Empty<IDocumentParser>());
 
         var result = await McpTools.GetDocument(services, ContainerId.ToString(), DocId);
