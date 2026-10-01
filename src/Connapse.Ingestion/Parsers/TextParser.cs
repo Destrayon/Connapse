@@ -32,8 +32,10 @@ public class TextParser : IDocumentParser
 
         try
         {
-            using var reader = new StreamReader(stream, leaveOpen: true);
-            var content = await reader.ReadToEndAsync(cancellationToken);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, cancellationToken);
+            var (content, encoding) = TextDecoding.Decode(buffer.GetBuffer().AsSpan(0, (int)buffer.Length));
+            metadata["Encoding"] = encoding.WebName;
 
             // Detect file type from extension
             var extension = Path.GetExtension(fileName).ToLowerInvariant();
