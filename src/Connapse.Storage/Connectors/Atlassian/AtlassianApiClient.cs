@@ -57,9 +57,15 @@ public sealed class AtlassianApiClient(
     {
         Uri? next = Resolve(relative);
 
+        // A server that hands back a link it already gave would otherwise be walked forever.
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
         while (next is not null)
         {
             Uri current = next;
+            if (!visited.Add(current.AbsoluteUri))
+                throw new InvalidOperationException("Atlassian repeated a paging link; refusing to loop.");
+
             using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, current), ct);
             response.EnsureSuccessStatusCode();
 

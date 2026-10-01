@@ -18,7 +18,10 @@ public class ConnectorFactory(
     CloudScope.ConnapseAzureCredentials azureCredentials,
     IHttpClientFactory httpClientFactory,
     ILogger<ConnectorFactory> logger,
-    GitHub.GitHubCredentialPool? gitHubPool = null) : IConnectorFactory
+    GitHub.GitHubCredentialPool? gitHubPool = null,
+    Atlassian.AtlassianTokenSource? atlassianTokens = null,
+    IOptionsMonitor<AtlassianSourceSettings>? atlassianSettings = null,
+    ILoggerFactory? loggerFactory = null) : IConnectorFactory
 {
     /// <summary>The named client GitHub sources and the GitHub App read the REST API through.</summary>
     public const string GitHubHttpClientName = "GitHub";
@@ -139,6 +142,8 @@ public class ConnectorFactory(
 
             ConnectionProvider.GitHub => CreateGitHub(source, scope, connection, credential),
 
+            ConnectionProvider.Atlassian => CreateAtlassian(source, scope, connection, secret),
+
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };
     }
@@ -251,6 +256,57 @@ public class ConnectorFactory(
             MirrorPath = Path.GetFullPath(Path.Combine(
                 gitHubSettings.CurrentValue.MirrorDirectory, source.Id.ToString("N"))),
         };
+    }
+
+    /// <summary>
+    /// A Confluence space on an Atlassian site connection. The space id and the site's cloud id
+    /// both end up in request URLs and in every document's address, so each is checked here; the
+    /// connection's secret is the service account's, and nothing reads without it.
+    /// </summary>
+    private Atlassian.ConfluenceSpaceConnector CreateAtlassian(
+        Source source, JsonDocument scope, Connection connection, string? secret)
+    {
+        string kind = Str(scope, "kind") ?? "";
+        if (kind != "confluence-space")
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' has unknown Atlassian content kind '{LogSanitizer.Sanitize(kind)}'.");
+
+        string? spaceId = scope.RootElement.TryGetProperty("spaceId", out var id)
+            ? id.ValueKind switch
+            {
+                JsonValueKind.String => id.GetString(),
+                JsonValueKind.Number => id.GetRawText(),
+                _ => null,
+            }
+            : null;
+        if (!Atlassian.ConfluencePageStateStore.IsContentId(spaceId))
+            throw new InvalidOperationException($"Source '{source.Name}' has no valid Confluence spaceId in its scope.");
+
+        string? spaceKey = Str(scope, "spaceKey")?.Trim();
+        if (string.IsNullOrEmpty(spaceKey))
+            throw new InvalidOperationException($"Source '{source.Name}' has no Confluence spaceKey in its scope.");
+
+        var site = Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson)
+            ?? throw new InvalidOperationException(
+                $"Source '{source.Name}' is on connection '{connection.Name}', which is not a well-formed Atlassian site.");
+
+        if (string.IsNullOrEmpty(secret))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' is on connection '{connection.Name}', which has no service-account secret stored.");
+
+        if (atlassianTokens is null || atlassianSettings is null)
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' needs the Atlassian token source and source settings, which are not registered.");
+
+        // Keyed on the source id, like the GitHub mirror, so two sources never share a store.
+        string statePath = Path.GetFullPath(Path.Combine(
+            atlassianSettings.CurrentValue.StateDirectory, source.Id.ToString("N")));
+
+        return new Atlassian.ConfluenceSpaceConnector(
+            new Atlassian.ConfluenceSpaceConfig(site, spaceId!, spaceKey, statePath),
+            new Atlassian.AtlassianApiClient(
+                httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret),
+            loggerFactory?.CreateLogger<Atlassian.ConfluenceSpaceConnector>());
     }
 
     private static void RequireJsonObject(JsonDocument doc, string subject)

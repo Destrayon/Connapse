@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Connapse.Core;
@@ -31,6 +34,9 @@ public sealed partial class ConfluenceSpaceConnector(
     /// <summary>How far up the tree a breadcrumb or folder lookup climbs before it gives up.</summary>
     internal const int MaxAncestors = 50;
 
+    /// <summary>How often the titles of folders in use are read again, to catch a renamed folder.</summary>
+    internal static readonly TimeSpan FolderRefreshInterval = TimeSpan.FromHours(1);
+
     private const string ListQuery = "status=current&limit=250";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -38,6 +44,9 @@ public sealed partial class ConfluenceSpaceConnector(
     private readonly ConfluencePageStateStore _store = new(config.StatePath);
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly ILogger _logger = logger ?? NullLogger.Instance;
+    private readonly Dictionary<string, string> _userNames = new(StringComparer.Ordinal);
+
+    internal ConfluenceSpaceConfig Config => config;
 
     public ConnectorType Type => ConnectorType.Atlassian;
 
@@ -45,18 +54,15 @@ public sealed partial class ConfluenceSpaceConnector(
 
     public async Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
-        if (cursor is null)
-        {
-            // A fresh start: whatever the store holds is from before a resync and not trusted.
-            _store.Reset();
-        }
-        else if (ConfluenceCursor.TryParse(cursor) is null)
-        {
+        if (cursor is not null && ConfluenceCursor.TryParse(cursor) is null)
             return new SyncDelta([], [], NextCursor: null, RequiresFullResync: true);
-        }
 
+        // A null cursor is a fresh start: what the store holds is from before a resync and is not
+        // trusted. It is replaced only once a listing has completed, though — emptying it first
+        // would leave ingestion jobs already queued with nothing to read if this cycle stops.
+        bool fresh = cursor is null;
         DateTimeOffset started = _clock.GetUtcNow();
-        var state = _store.LoadState();
+        var state = fresh ? new ConfluenceSyncState() : _store.LoadState();
         var listed = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
 
         try
@@ -66,6 +72,7 @@ public sealed partial class ConfluenceSpaceConnector(
 
             await ListAsync("pages", "page", listed, ct);
             await ListAsync("blogposts", "blogpost", listed, ct);
+            await ResolveFoldersAsync(listed.Values, state, started, ct);
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
         {
@@ -83,8 +90,7 @@ public sealed partial class ConfluenceSpaceConnector(
             return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message);
         }
 
-        await ResolveFoldersAsync(listed.Values, state, ct);
-        Apply(listed);
+        Apply(listed, carryOver: !fresh);
 
         state.Watermark = started;
         _store.SaveState(state);
@@ -96,8 +102,39 @@ public sealed partial class ConfluenceSpaceConnector(
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) =>
         Task.FromResult(List(prefix));
 
-    public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default) =>
-        throw new NotSupportedException("Reading Confluence pages is not available yet.");
+    /// <summary>
+    /// Fetches the page's storage-format body and renders it under its breadcrumb. Only storage
+    /// format is ever asked for: the rendered views expand include macros as the service account,
+    /// which would put restricted pages' text into less restricted ones.
+    /// </summary>
+    public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
+    {
+        var page = Find(path)
+            ?? throw new FileNotFoundException(
+                $"'{LogSanitizer.Sanitize(path)}' is not a synced page of Confluence space {LogSanitizer.Sanitize(config.SpaceKey)}.");
+
+        string endpoint = page.Kind == "blogpost" ? "blogposts" : "pages";
+        ContentResponse content;
+        try
+        {
+            content = await api.GetJsonAsync<ContentResponse>($"api/v2/{endpoint}/{page.Id}?body-format=storage", ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            throw new FileNotFoundException($"Confluence {page.Kind} {page.Id} no longer exists.", ex);
+        }
+
+        // Moved out between the listing and this read: not this source's to index any more.
+        if (content.SpaceId is { } spaceId && spaceId != config.SpaceId)
+            throw new FileNotFoundException($"Confluence {page.Kind} {page.Id} is no longer in this space.");
+
+        string body = content.Body?.Storage?.Value ?? "";
+        var names = await UserNamesAsync(ConfluenceStorageRenderer.MentionedAccountIds(body), ct);
+        var breadcrumb = Breadcrumb(page, _store.LoadState(), _store.Load);
+
+        var rendered = ConfluenceStorageRenderer.Render(new ConfluenceRenderInput(breadcrumb, body, Comments: [], names));
+        return new MemoryStream(Encoding.UTF8.GetBytes(rendered.Markdown));
+    }
 
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default) =>
         Task.FromResult(Find(path) is not null);
@@ -139,48 +176,84 @@ public sealed partial class ConfluenceSpaceConnector(
             : [];
 
     /// <summary>
-    /// Looks up each folder a listed page sits in whose title is not yet known, then that folder's
-    /// own parent folders. One request per folder, ever: titles are cached in the state.
+    /// Learns the title and parent of every folder a listed page sits under, climbing nested
+    /// folders. Known folders are reused from the state and read again once every
+    /// <see cref="FolderRefreshInterval"/>, so a renamed folder reaches its pages' breadcrumbs.
+    /// A folder that answered 403 or 404 is remembered as unavailable until that refresh too.
+    /// Folders no listed page reaches any more are dropped. Nothing is written to
+    /// <paramref name="state"/> until every lookup has finished, so a rate limit midway leaves it as it was.
     /// </summary>
     private async Task ResolveFoldersAsync(
-        IEnumerable<ConfluenceStoredPage> pages, ConfluenceSyncState state, CancellationToken ct)
+        IEnumerable<ConfluenceStoredPage> pages, ConfluenceSyncState state, DateTimeOffset now, CancellationToken ct)
     {
+        bool refresh = state.FoldersRefreshedAt is not { } last || now - last >= FolderRefreshInterval;
+
+        var titles = new Dictionary<string, string>(StringComparer.Ordinal);
+        var parents = new Dictionary<string, ConfluenceFolderParent>(StringComparer.Ordinal);
+        var unavailable = new HashSet<string>(StringComparer.Ordinal);
+
         var pending = new Queue<(string Id, int Depth)>(
             pages.Where(p => p.ParentType == "folder" && p.ParentId is not null)
                 .Select(p => (p.ParentId!, 0)));
 
         while (pending.TryDequeue(out var next))
         {
-            if (state.FolderTitles.ContainsKey(next.Id) || next.Depth >= MaxAncestors)
+            if (next.Depth >= MaxAncestors || titles.ContainsKey(next.Id) || unavailable.Contains(next.Id))
                 continue;
 
-            FolderResponse folder;
-            try
+            if (!refresh && state.FolderUnavailable.Contains(next.Id))
             {
-                folder = await api.GetJsonAsync<FolderResponse>($"api/v2/folders/{next.Id}", ct);
-            }
-            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
-            {
-                // The breadcrumb just stops here; the page itself is still listed.
+                unavailable.Add(next.Id);
                 continue;
             }
 
-            string? parentId = ConfluencePageStateStore.IsContentId(folder.ParentId) ? folder.ParentId : null;
-            state.FolderTitles[next.Id] = folder.Title ?? "";
-            state.FolderParents[next.Id] = new ConfluenceFolderParent(parentId, folder.ParentType);
+            ConfluenceFolderParent parent;
+            if (!refresh && state.FolderTitles.TryGetValue(next.Id, out string? known))
+            {
+                titles[next.Id] = known;
+                parent = state.FolderParents.GetValueOrDefault(next.Id) ?? new ConfluenceFolderParent(null, null);
+            }
+            else
+            {
+                FolderResponse folder;
+                try
+                {
+                    folder = await api.GetJsonAsync<FolderResponse>($"api/v2/folders/{next.Id}", ct);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+                {
+                    // The breadcrumb just stops here; the page itself is still listed.
+                    unavailable.Add(next.Id);
+                    continue;
+                }
 
-            if (folder.ParentType == "folder" && parentId is not null)
-                pending.Enqueue((parentId, next.Depth + 1));
+                titles[next.Id] = folder.Title ?? "";
+                parent = new ConfluenceFolderParent(
+                    ConfluencePageStateStore.IsContentId(folder.ParentId) ? folder.ParentId : null, folder.ParentType);
+            }
+
+            parents[next.Id] = parent;
+            if (parent.ParentType == "folder" && parent.ParentId is not null)
+                pending.Enqueue((parent.ParentId, next.Depth + 1));
         }
+
+        state.FolderTitles = titles;
+        state.FolderParents = parents;
+        state.FolderUnavailable = unavailable;
+        if (refresh)
+            state.FoldersRefreshedAt = now;
     }
 
-    /// <summary>Writes what changed and deletes the records the listing no longer has.</summary>
-    private void Apply(Dictionary<string, ConfluenceStoredPage> listed)
+    /// <summary>
+    /// Writes what changed and deletes the records the listing no longer has. On a fresh start
+    /// (<paramref name="carryOver"/> off) nothing is kept from the old records.
+    /// </summary>
+    private void Apply(Dictionary<string, ConfluenceStoredPage> listed, bool carryOver)
     {
         foreach (var page in listed.Values)
         {
             var existing = _store.Load(page.Id);
-            if (existing is not null)
+            if (existing is not null && carryOver)
             {
                 // Kept from earlier cycles: the listing does not carry them.
                 page.LastCommentAt = existing.LastCommentAt;
@@ -203,19 +276,22 @@ public sealed partial class ConfluenceSpaceConnector(
     private IReadOnlyList<ConnectorFile> List(string? prefix)
     {
         string? normalized = string.IsNullOrEmpty(prefix) ? null : "/" + prefix.Trim('/') + "/";
+        var pages = _store.Ids()
+            .Select(_store.Load)
+            .OfType<ConfluenceStoredPage>()
+            .ToDictionary(p => p.Id, StringComparer.Ordinal);
+        var state = _store.LoadState();
 
         return
         [
-            .. _store.Ids()
-                .Select(_store.Load)
-                .OfType<ConfluenceStoredPage>()
-                .Select(ToConnectorFile)
+            .. pages.Values
+                .Select(p => ToConnectorFile(p, Breadcrumb(p, state, pages.GetValueOrDefault)))
                 .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal))
                 .OrderBy(f => f.Path, StringComparer.Ordinal),
         ];
     }
 
-    private ConnectorFile ToConnectorFile(ConfluenceStoredPage page)
+    private ConnectorFile ToConnectorFile(ConfluenceStoredPage page, IReadOnlyList<string> breadcrumb)
     {
         DateTimeOffset modified = page.LastCommentAt is { } commented && commented > page.VersionAt
             ? commented
@@ -223,9 +299,12 @@ public sealed partial class ConfluenceSpaceConnector(
 
         return new ConnectorFile(
             Path: PathFor(page),
-            // Not a size: the version number. With the time below it is the signature the sync
-            // engine compares, so an unchanged page is never fetched again.
-            SizeBytes: page.Version,
+            // Not a size: the page's version in the high half and a hash of its breadcrumb in the
+            // low half. With the time below it is the signature the sync engine compares, so an
+            // unchanged page is never fetched again, while a page whose space, ancestor or folder
+            // was renamed, or which moved under another parent, is re-ingested with its new
+            // breadcrumb even though its own version did not move.
+            SizeBytes: Signature(page.Version, breadcrumb),
             LastModified: modified.UtcDateTime,
             ContentType: "text/markdown",
             ResourceUri: AtlassianUri.ForPage(config.Site.CloudId, page.Id),
@@ -237,6 +316,16 @@ public sealed partial class ConfluenceSpaceConnector(
             },
             // The container's default chunker, which routes markdown to the document-aware one.
             Strategy: null);
+    }
+
+    /// <summary>
+    /// The version shifted into the high 32 bits, with the first four bytes of a SHA-256 of the
+    /// breadcrumb below it. Deterministic across processes, unlike <see cref="string.GetHashCode()"/>.
+    /// </summary>
+    internal static long Signature(int version, IReadOnlyList<string> breadcrumb)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001f', breadcrumb)));
+        return ((long)Math.Max(version, 0) << 32) | BinaryPrimitives.ReadUInt32BigEndian(hash);
     }
 
     internal static string PathFor(ConfluenceStoredPage page) =>
@@ -257,7 +346,91 @@ public sealed partial class ConfluenceSpaceConnector(
         return page?.Kind == kind ? page : null;
     }
 
+    // ── Reading ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Space name, then each ancestor page or folder from the top down, then the title. Walks the
+    /// stored parent links, so it costs no requests; stops at an unknown parent, a cycle, or
+    /// <see cref="MaxAncestors"/> levels. The listing and the read share it, so the breadcrumb the
+    /// signature hashes is the one the page is rendered with.
+    /// </summary>
+    private List<string> Breadcrumb(
+        ConfluenceStoredPage page, ConfluenceSyncState state, Func<string, ConfluenceStoredPage?> pages)
+    {
+        string title = page.Title;
+        string space = string.IsNullOrWhiteSpace(state.SpaceName) ? config.SpaceKey : state.SpaceName;
+        if (page.Kind == "blogpost")
+            return [space, "Blog", title];
+
+        var ancestors = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal) { "page:" + page.Id };
+        string? id = page.ParentId;
+        string? type = page.ParentType;
+
+        while (id is not null && ancestors.Count < MaxAncestors && seen.Add(type + ":" + id))
+        {
+            if (type == "folder" && state.FolderTitles.TryGetValue(id, out string? folderTitle))
+            {
+                ancestors.Add(folderTitle);
+                var parent = state.FolderParents.GetValueOrDefault(id);
+                (id, type) = (parent?.ParentId, parent?.ParentType);
+            }
+            else if (type == "page" && pages(id) is { Kind: "page" } parentPage)
+            {
+                ancestors.Add(parentPage.Title);
+                (id, type) = (parentPage.ParentId, parentPage.ParentType);
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        ancestors.Reverse();
+        return [space, .. ancestors, title];
+    }
+
+    /// <summary>
+    /// Display names for mentioned accounts, looked up a hundred at a time and kept for this
+    /// connector's lifetime. A failed lookup leaves the names out rather than failing the page.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> UserNamesAsync(IReadOnlySet<string> accountIds, CancellationToken ct)
+    {
+        foreach (string[] batch in accountIds.Where(a => !_userNames.ContainsKey(a)).Chunk(100))
+        {
+            string query = string.Join('&', batch.Select(a => "accountId=" + Uri.EscapeDataString(a)));
+            try
+            {
+                var users = await api.GetJsonAsync<UserBulkResponse>($"rest/api/user/bulk?{query}", ct);
+                foreach (var user in users.Results ?? [])
+                {
+                    string? name = string.IsNullOrWhiteSpace(user.DisplayName) ? user.PublicName : user.DisplayName;
+                    if (user.AccountId is not null && !string.IsNullOrWhiteSpace(name))
+                        _userNames[user.AccountId] = name;
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(
+                    "Confluence space {SpaceKey}: looking up mentioned users failed (HTTP {Status}); rendering without their names",
+                    LogSanitizer.Sanitize(config.SpaceKey), (int?)ex.StatusCode);
+            }
+        }
+
+        return _userNames;
+    }
+
     // ── Wire shapes ────────────────────────────────────────────────────────
+
+    private sealed record StorageBody(string? Value, string? Representation);
+
+    private sealed record ContentBody(StorageBody? Storage);
+
+    private sealed record ContentResponse(string? Id, string? Title, string? SpaceId, ContentBody? Body);
+
+    private sealed record UserResponse(string? AccountId, string? DisplayName, string? PublicName);
+
+    private sealed record UserBulkResponse(List<UserResponse>? Results);
 
     private sealed record SpaceResponse(string? Id, string? Key, string? Name);
 
