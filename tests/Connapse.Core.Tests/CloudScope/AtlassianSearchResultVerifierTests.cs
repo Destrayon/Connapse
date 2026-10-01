@@ -210,7 +210,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task NoAtlassianConnection_TwoSearchesAcrossARefresh_SameResultsMultiplierOneAndNoUriLookups()
+    public async Task NoAtlassianConnection_TwoSearchesAcrossARefresh_SameResultsMultiplierOneAndNoLinkLookups()
     {
         _connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
         var composite = new CompositeSearchResultVerifier([NewVerifier(settings: new AtlassianVerifierSettings { CandidateMultiplier = 3 })]);
@@ -227,8 +227,51 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         Ids(first).Should().Equal("a", "b", "c");
         Ids(second).Should().Equal(Ids(first));
         await _connections.Received(2).ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _documents.DidNotReceive().GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>());
         await _links.DidNotReceive().GetLinkAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Records "no Atlassian connection" as the last answer, as a stale instance would hold.</summary>
+    private void PresenceSaysAbsent()
+    {
+        _presence.TryBeginRefresh(out long ticket).Should().BeTrue();
+        _presence.CompleteRefresh(ticket, anyAtlassianConnection: false);
+    }
+
+    [Fact]
+    public async Task StalePresenceAbsent_AtlassianHit_StillDroppedForAnUnlinkedUser()
+    {
+        // The site exists in the store (another instance created it); this process has not refreshed.
+        PresenceSaysAbsent();
+        Allow("1", true);
+        SearchHit[] hits = [Hit("p1", AtlassianUri.ForPage(CloudId, "1")), Hit("x", null)];
+
+        Ids(await NewVerifier().VerifyAsync(hits, Guid.NewGuid(), 10)).Should().Equal("x");
+    }
+
+    [Fact]
+    public async Task StalePresenceAbsent_AtlassianHit_StillDroppedForALinkedButDeniedUser()
+    {
+        PresenceSaysAbsent();
+        Allow("1", false);
+        SearchHit[] hits = [Hit("p1", AtlassianUri.ForPage(CloudId, "1")), Hit("x", null)];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("x");
+        _api.Calls.Keys.Should().Contain(PageRoot + "1/permission/check");
+    }
+
+    [Fact]
+    public async Task StalePresenceAbsent_DirectReadGuard_DeniesTheAtlassianDocument()
+    {
+        PresenceSaysAbsent();
+        Allow("1", false);
+        Hit("p1", AtlassianUri.ForPage(CloudId, "1"));
+        var guard = new Connapse.Web.Services.DocumentReadGuard(
+            new CompositeSearchResultVerifier([NewVerifier()]), _documents,
+            NullLogger<Connapse.Web.Services.DocumentReadGuard>.Instance);
+        var document = new Document("p1", "c", "page.md", "text/markdown", "/page.md", 1, DateTime.UtcNow, []);
+
+        (await guard.CanReadAsync(_user, document, default)).Should().BeFalse();
+        (await guard.CanReadAsync(Guid.NewGuid(), document, default)).Should().BeFalse();
     }
 
     [Fact]

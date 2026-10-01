@@ -39,11 +39,11 @@ public sealed class AtlassianSearchResultVerifier(
         if (rankedCandidates.Count == 0)
             return rankedCandidates;
 
-        // No Atlassian connection means no atlassian:// document: documents cascade-delete with
-        // their source, and a connection that still has sources cannot be deleted. So there is
-        // nothing to look up. Unknown (never answered) still looks, and fails closed as below.
-        if (presence.Known == false)
-            return rankedCandidates;
+        // Every hit's address is read and every atlassian:// hit checked, whatever the presence
+        // flag says. The flag is per process and up to a refresh old, while the scope resolver
+        // reads connections live, so a site added on another instance would otherwise be searched
+        // here unchecked. It only sizes CandidateMultiplier. Deployments with no Confluence hits
+        // pay one batched lookup: the link and connection lookups below run only for atlassian://.
 
         IReadOnlyDictionary<string, string?> uris =
             await documents.GetResourceUrisAsync(rankedCandidates.Select(h => h.DocumentId).ToList(), ct);
