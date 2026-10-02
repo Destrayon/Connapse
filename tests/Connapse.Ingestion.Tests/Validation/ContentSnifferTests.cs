@@ -66,8 +66,17 @@ public class ContentSnifferTests
     [InlineData(".md")]
     [InlineData(".json")]
     [InlineData(".html")]
+    [InlineData(".eml")]
     public void DescribeMismatch_ImageNamedAsText_IsRejected(string extension) =>
         ContentSniffer.DescribeMismatch(Jpeg, extension).Should().Be("its content is a JPEG image, not text");
+
+    [Fact]
+    public void DescribeMismatch_OleNamedMsg_IsConsistent() =>
+        ContentSniffer.DescribeMismatch(Ole, ".msg").Should().BeNull();
+
+    [Fact]
+    public void DescribeMismatch_PngNamedMsg_NamesTheRealFormat() =>
+        ContentSniffer.DescribeMismatch(Png, ".msg").Should().Be("its content is a PNG image, not an Outlook message");
 
     [Theory]
     [InlineData("GIF89a is the header every GIF starts with.\n")]

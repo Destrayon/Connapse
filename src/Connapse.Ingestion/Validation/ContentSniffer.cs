@@ -16,7 +16,7 @@ public static class ContentSniffer
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".txt", ".md", ".markdown", ".csv", ".log", ".json", ".xml", ".yaml", ".yml", ".html", ".htm",
+        ".txt", ".md", ".markdown", ".csv", ".log", ".json", ".xml", ".yaml", ".yml", ".html", ".htm", ".eml",
     };
 
     private static readonly HashSet<string> ZipOfficeExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -83,6 +83,18 @@ public static class ContentSniffer
             return Identify(head) is { } actual
                 ? $"its content is {actual}, not a {extension.TrimStart('.').ToUpperInvariant()} file"
                 : $"its content is not a {extension.TrimStart('.').ToUpperInvariant()} file";
+        }
+
+        if (extension.Equals(".msg", StringComparison.OrdinalIgnoreCase))
+        {
+            if (head.IsEmpty) return "the file is empty";
+
+            // An Outlook message is an OLE compound file.
+            if (head.StartsWith(OleMagic)) return null;
+
+            return Identify(head) is { } actual
+                ? $"its content is {actual}, not an Outlook message"
+                : "its content is not an Outlook message";
         }
 
         if (TextExtensions.Contains(extension))

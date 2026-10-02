@@ -972,7 +972,7 @@ internal static class IngestionPipelineStrategyResolver
     /// </summary>
     private static readonly HashSet<string> ParsedMarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".pdf", ".docx", ".pptx", ".html", ".htm",
+        ".pdf", ".docx", ".pptx", ".html", ".htm", ".eml", ".msg",
     };
 
     public static string Resolve(string fallbackStrategy, string? fileName, bool strategyIsExplicit = false)

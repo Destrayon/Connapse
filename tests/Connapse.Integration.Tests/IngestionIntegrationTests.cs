@@ -211,6 +211,47 @@ public class IngestionIntegrationTests : IAsyncLifetime
         await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
+    [Fact]
+    public async Task UploadIngestSearch_EmlMessage_IndexesHeadersBodyAndAttachment()
+    {
+        // #600: email, with its attachment parsed by the attachment's own parser.
+        var eml = string.Join("\r\n",
+            "From: Grace Hopper <grace@example.com>",
+            "To: Dock Office <dock@example.com>",
+            "Subject: Quayside crane schedule",
+            "Date: Tue, 30 Sep 2026 14:05:00 +0000",
+            "MIME-Version: 1.0",
+            "Content-Type: multipart/mixed; boundary=\"b1\"",
+            "",
+            "--b1",
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "The quayside cranes are serviced on alternate Thursdays.",
+            "--b1",
+            "Content-Type: text/plain; name=\"tides.txt\"",
+            "Content-Disposition: attachment; filename=\"tides.txt\"",
+            "",
+            "Spring tides flood the lower apron twice a month.",
+            "--b1--",
+            "");
+
+        var documentId = await UploadDocument("crane-schedule.eml", eml);
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
+
+        var document = await _fixture.AdminClient.GetFromJsonAsync<DocumentDto>(
+            $"/api/containers/{_containerId}/files/{documentId}", JsonOptions);
+        document!.Metadata["IndexedWith:Parser"].Should().Be("EmailParser");
+
+        foreach (var term in new[] { "quayside cranes", "lower apron", "Grace Hopper" })
+        {
+            var hits = await _fixture.AdminClient.GetFromJsonAsync<SearchResultDto>(
+                $"/api/containers/{_containerId}/search?q={Uri.EscapeDataString(term)}&mode=Keyword&topK=5", JsonOptions);
+            hits!.Hits.Should().Contain(h => h.DocumentId == documentId, $"'{term}' is in the message");
+        }
+
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
+    }
+
     private record ErrorResponse(string Error);
 
     private async Task<string> UploadDocument(string fileName, string content)

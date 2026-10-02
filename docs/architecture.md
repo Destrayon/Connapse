@@ -332,8 +332,9 @@ Bucket: knowledge-files
 | `PdfParser` | .pdf | PdfPig | Text + metadata (title, author, pages) |
 | `OfficeParser` | .docx, .pptx | OpenXML SDK | Paragraphs, tables, slides, properties |
 | `HtmlParser` | .html, .htm | SmartReader (Readability), ReverseMarkdown | Main content as Markdown: headings, lists, tables |
+| `EmailParser` | .eml, .msg | MimeKit, MsgReader | Subject, From/To/Cc/Date, body, attachments parsed recursively |
 
-**Future**: `.xlsx`, `.eml`, code files with syntax-aware parsing.
+**Future**: `.xlsx`, code files with syntax-aware parsing.
 
 ### Chunking (IChunkingStrategy)
 

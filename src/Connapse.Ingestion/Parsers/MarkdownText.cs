@@ -28,4 +28,37 @@ internal static class MarkdownText
 
         return line;
     }
+
+    /// <summary>
+    /// Pushes every ATX heading down by <paramref name="levels"/>, to at most level 6, so a document
+    /// embedded under a heading of its own -- an email attachment -- nests beneath it in the
+    /// chunker's breadcrumb instead of standing beside it. Fenced code is left alone.
+    /// </summary>
+    public static string DemoteHeadings(string markdown, int levels)
+    {
+        var lines = markdown.Split('\n');
+        bool inFence = false;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            if (line.StartsWith("```", StringComparison.Ordinal) || line.StartsWith("~~~", StringComparison.Ordinal))
+            {
+                inFence = !inFence;
+                continue;
+            }
+
+            if (inFence || line.Length == 0 || line[0] != '#')
+                continue;
+
+            int depth = 0;
+            while (depth < line.Length && line[depth] == '#')
+                depth++;
+            if (depth > 6 || (depth < line.Length && line[depth] != ' '))
+                continue;
+
+            lines[i] = new string('#', Math.Min(6, depth + levels)) + line[depth..];
+        }
+
+        return string.Join('\n', lines);
+    }
 }

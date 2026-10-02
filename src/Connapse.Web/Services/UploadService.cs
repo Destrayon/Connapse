@@ -27,6 +27,8 @@ public class UploadService(
         [".xml"] = "application/xml",
         [".html"] = "text/html",
         [".htm"] = "text/html",
+        [".eml"] = "message/rfc822",
+        [".msg"] = "application/vnd.ms-outlook",
     };
 
     public async Task<UploadResult> UploadAsync(UploadRequest request, CancellationToken ct = default)
