@@ -130,9 +130,11 @@ public class ReindexService : IReindexService
         var results = new List<ReindexDocumentResult>();
         var reasonCounts = new Dictionary<ReindexReason, int>();
 
-        var run = new ReindexRun(options.DryRun, options.MaxDocuments);
-        foreach (var doc in documents)
+        var run = new ReindexRun(options.DryRun);
+        string? continueAfter = null;
+        for (int i = 0; i < documents.Count; i++)
         {
+            var doc = documents[i];
             var result = await EvaluateAndEnqueueDocumentAsync(doc, options, batchId, run, ct);
             results.Add(result);
 
@@ -140,17 +142,26 @@ public class ReindexService : IReindexService
             if (!reasonCounts.TryGetValue(result.Reason, out var count))
                 count = 0;
             reasonCounts[result.Reason] = count + 1;
+
+            // Stop at the cap rather than mark the rest deferred: evaluating a document hashes its
+            // file, which on a remote connector is a full read, and that is the cost a cap bounds.
+            if (options.MaxDocuments is int max && run.Enqueued >= max && i < documents.Count - 1)
+            {
+                continueAfter = doc.Id.ToString();
+                break;
+            }
         }
 
         var summary = new ReindexResult
         {
             BatchId = batchId,
-            TotalDocuments = results.Count,
+            TotalDocuments = documents.Count,
             EnqueuedCount = results.Count(r => r.Action == ReindexAction.Enqueued),
             SkippedCount = results.Count(r => r.Action == ReindexAction.Skipped),
             FailedCount = results.Count(r => r.Action == ReindexAction.Failed),
             PlannedCount = results.Count(r => r.Action == ReindexAction.Planned),
-            DeferredCount = results.Count(r => r.Action == ReindexAction.Deferred),
+            RemainingCount = documents.Count - results.Count,
+            ContinueAfter = continueAfter,
             DryRun = options.DryRun,
             ReasonCounts = reasonCounts,
             Documents = results
@@ -327,7 +338,11 @@ public class ReindexService : IReindexService
             query = query.Where(d => guids.Contains(d.Id));
         }
 
-        return await query.ToListAsync(ct);
+        // A stable order is what lets a capped run be continued from where it stopped.
+        if (Guid.TryParse(options.ContinueAfter, out var after))
+            query = query.Where(d => d.Id.CompareTo(after) > 0);
+
+        return await query.OrderBy(d => d.Id).ToListAsync(ct);
     }
 
     private async Task<ReindexDocumentResult> EvaluateAndEnqueueDocumentAsync(
@@ -539,12 +554,10 @@ public class ReindexService : IReindexService
     {
         // The one point every reason reaches before a job is enqueued, so a dry run and the cap
         // apply to forced, content, settings and parser reindexes alike.
-        if (run is not null)
+        if (run is { DryRun: true })
         {
-            if (run.DryRun)
-                return new ReindexDocumentResult(doc.Id.ToString(), doc.FileName, ReindexAction.Planned, reason);
-            if (run.MaxDocuments is int max && run.Enqueued >= max)
-                return new ReindexDocumentResult(doc.Id.ToString(), doc.FileName, ReindexAction.Deferred, reason);
+            run.Enqueued++;
+            return new ReindexDocumentResult(doc.Id.ToString(), doc.FileName, ReindexAction.Planned, reason);
         }
 
         // The chunks stay where they are. IngestionPipeline purges them itself on a reindex,
@@ -594,6 +607,18 @@ public class ReindexService : IReindexService
             },
             BatchId: batchId,
             ResetAttempts: resetAttempts), ct);
+
+        // No job id means the queue did not take the job; it must not use up the cap.
+        if (jobId is null)
+        {
+            _logger.LogWarning("Ingestion queue returned no job for document {DocumentId} on reindex", doc.Id);
+            return new ReindexDocumentResult(
+                doc.Id.ToString(),
+                doc.FileName,
+                ReindexAction.Failed,
+                reason,
+                ErrorMessage: "The ingestion queue did not accept the job.");
+        }
 
         if (run is not null)
             run.Enqueued++;
@@ -708,11 +733,10 @@ public class ReindexService : IReindexService
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 
-    /// <summary>One reindex run's dry-run flag, cap, and how many it has enqueued so far.</summary>
-    private sealed class ReindexRun(bool dryRun, int? maxDocuments)
+    /// <summary>One reindex run's dry-run flag and how many it has enqueued (or planned) so far.</summary>
+    private sealed class ReindexRun(bool dryRun)
     {
         public bool DryRun { get; } = dryRun;
-        public int? MaxDocuments { get; } = maxDocuments;
         public int Enqueued { get; set; }
     }
 }

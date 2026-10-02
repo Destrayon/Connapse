@@ -82,10 +82,18 @@ public record ReindexOptions
     public bool DryRun { get; init; }
 
     /// <summary>
-    /// Enqueue at most this many documents; the rest that need it are reported as deferred and
-    /// picked up by the next run. Null = no cap. Lets a large re-parse go out in batches.
+    /// Enqueue (or, on a dry run, plan) at most this many documents, then stop evaluating: the
+    /// documents after that point are not hashed or read. Null = no cap. Lets a large re-parse go
+    /// out in batches. Nothing resumes a capped run on its own; the caller sends the next request
+    /// with <see cref="ContinueAfter"/> set to the previous result's <see cref="ReindexResult.ContinueAfter"/>.
     /// </summary>
     public int? MaxDocuments { get; init; }
+
+    /// <summary>
+    /// Continuation cursor from a capped run: evaluate only documents ordered after this document id.
+    /// Documents are evaluated in id order, so batches neither overlap nor skip, even with Force.
+    /// </summary>
+    public string? ContinueAfter { get; init; }
 }
 
 /// <summary>
@@ -121,8 +129,14 @@ public record ReindexResult
     /// <summary>Dry run only: documents that would have been enqueued.</summary>
     public int PlannedCount { get; init; }
 
-    /// <summary>Documents that need reindexing but were held back by MaxDocuments.</summary>
-    public int DeferredCount { get; init; }
+    /// <summary>Documents left unevaluated because MaxDocuments was reached.</summary>
+    public int RemainingCount { get; init; }
+
+    /// <summary>
+    /// Set when MaxDocuments stopped the run before the last document: pass it back as
+    /// <see cref="ReindexOptions.ContinueAfter"/> to continue. Null when every document was evaluated.
+    /// </summary>
+    public string? ContinueAfter { get; init; }
 
     /// <summary>True when nothing was enqueued because the run was a dry run.</summary>
     public bool DryRun { get; init; }
@@ -162,9 +176,7 @@ public enum ReindexAction
     /// <summary>Document evaluation failed.</summary>
     Failed,
     /// <summary>Dry run: the document would have been enqueued.</summary>
-    Planned,
-    /// <summary>The document needs reindexing but the run's MaxDocuments cap was reached.</summary>
-    Deferred
+    Planned
 }
 
 /// <summary>

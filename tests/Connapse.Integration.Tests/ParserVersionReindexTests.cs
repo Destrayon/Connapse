@@ -204,21 +204,57 @@ public class ParserVersionReindexTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Reindex_WithACap_QueuesUpToItAndDefersTheRest()
+    public async Task Reindex_WithACap_StopsAtItAndContinuesFromTheCursor()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var ids = await SeedLegacyTextDocumentsAsync(sp);
+        var docIds = ids.Select(i => i.ToString()).ToList();
+
+        var queue = new RecordingIngestionQueue();
+        await using var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var first = await Reindexer(sp, ctx, queue, new TextParser()).ReindexAsync(
+            new ReindexOptions { Force = true, MaxDocuments = 2, DocumentIds = docIds },
+            CancellationToken.None);
+
+        first.EnqueuedCount.Should().Be(2);
+        first.Documents.Should().HaveCount(2, "the document after the cap is not evaluated at all");
+        first.RemainingCount.Should().Be(1);
+        first.ContinueAfter.Should().NotBeNull();
+
+        // Force re-queues everything, so only the cursor keeps the second batch from repeating the first.
+        var second = await Reindexer(sp, ctx, queue, new TextParser()).ReindexAsync(
+            new ReindexOptions { Force = true, MaxDocuments = 2, DocumentIds = docIds, ContinueAfter = first.ContinueAfter },
+            CancellationToken.None);
+
+        second.EnqueuedCount.Should().Be(1);
+        second.RemainingCount.Should().Be(0);
+        second.ContinueAfter.Should().BeNull();
+        queue.Jobs.Select(j => j.DocumentId).Should().BeEquivalentTo(docIds);
+    }
+
+    [Fact]
+    public async Task Reindex_QueueReturnsNoJob_FailsAndDoesNotUseUpTheCap()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var sp = scope.ServiceProvider;
         var ids = await SeedLegacyTextDocumentsAsync(sp);
 
-        var queue = new RecordingIngestionQueue();
+        var queue = new RefusingIngestionQueue();
         await using var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
         var result = await Reindexer(sp, ctx, queue, new TextParser()).ReindexAsync(
-            new ReindexOptions { DetectSettingsChanges = true, MaxDocuments = 2, DocumentIds = ids.Select(i => i.ToString()).ToList() },
+            new ReindexOptions { Force = true, MaxDocuments = 1, DocumentIds = ids.Select(i => i.ToString()).ToList() },
             CancellationToken.None);
 
-        queue.Jobs.Should().HaveCount(2);
-        result.EnqueuedCount.Should().Be(2);
-        result.DeferredCount.Should().Be(1);
+        result.EnqueuedCount.Should().Be(0);
+        result.FailedCount.Should().Be(3, "every document is still tried when none is accepted");
+        result.ContinueAfter.Should().BeNull();
+    }
+
+    private sealed class RefusingIngestionQueue : RecordingIngestionQueue
+    {
+        public override Task<string?> EnqueueAsync(IngestionJob job, CancellationToken ct = default) =>
+            Task.FromResult<string?>(null);
     }
 
     [Fact]
