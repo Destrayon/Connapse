@@ -52,6 +52,21 @@ internal static class TestHostProgram
             new Behaving("Test.Throw", _ => throw new InvalidOperationException("the parser met content it cannot read")),
             new Behaving("Test.ProcessId", content => new ParsedDocument(
                 Environment.ProcessId.ToString(), new() { ["Bytes"] = content.Length.ToString() }, [])),
+            new Behaving("Test.NativeAllocate", _ =>
+            {
+                // Native memory, which the managed heap limit does not see: only the watchdog does.
+                var blocks = new List<IntPtr>();
+                while (true)
+                {
+                    const int size = 16 * 1024 * 1024;
+                    IntPtr block = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                    unsafe { new Span<byte>((void*)block, size).Fill(1); }
+                    blocks.Add(block);
+                    Thread.Sleep(20);
+                }
+            }),
+            new Behaving("Test.Environment", content => new ParsedDocument(
+                Environment.GetEnvironmentVariable(System.Text.Encoding.UTF8.GetString(content)) ?? "(unset)", [], [])),
             new Behaving("Test.Huge", _ => new ParsedDocument(new string('x', 100_000), [], [])),
             new Behaving("Test.SlowProcessId", _ =>
             {

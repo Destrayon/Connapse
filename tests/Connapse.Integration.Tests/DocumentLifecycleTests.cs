@@ -284,9 +284,15 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
         after.Metadata[IngestionPipeline.MetadataKeyExtractionIncomplete].Should().Be("1");
     }
 
+    /// <summary>
+    /// A colour space that does not exist, which makes PdfPig throw on the page, and invisible text
+    /// (render mode 3), so OCR (#598) finds nothing on it either: the page stays a failed page.
+    /// </summary>
+    private const string BrokenPagePrefix = "/CS0 cs 0.5 sc 3 Tr\n";
+
     private static byte[] OnePagePdf(bool broken)
     {
-        string content = (broken ? "/CS0 cs 0.5 sc\n" : "")
+        string content = (broken ? BrokenPagePrefix : "")
             + "BT /F1 12 Tf 72 720 Td (A short memo about the renewal schedule for next year.) Tj ET";
         string resources = broken
             ? "<< /Font << /F1 4 0 R >> /ColorSpace << /CS0 /Bogus >> >>"
@@ -317,7 +323,7 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
     private static byte[] TwoPagePdf(bool breakSecondPage)
     {
         const string first = "BT /F1 12 Tf 72 720 Td (Quarterly revenue grew twelve percent on the strength of renewals.) Tj ET";
-        string second = (breakSecondPage ? "/CS0 cs 0.5 sc\n" : "")
+        string second = (breakSecondPage ? BrokenPagePrefix : "")
             + "BT /F1 12 Tf 72 720 Td (Renewals carried the second half of the year for every region.) Tj ET";
         string secondResources = breakSecondPage
             ? "<< /Font << /F1 4 0 R >> /ColorSpace << /CS0 /Bogus >> >>"

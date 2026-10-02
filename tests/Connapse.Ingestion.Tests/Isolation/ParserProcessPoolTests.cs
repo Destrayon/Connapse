@@ -94,6 +94,35 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task ParseAsync_HostThatGrowsNativeMemoryPastItsLimit_IsKilledAsOutOfMemory()
+    {
+        // Native allocations do not count against the managed heap limit; the watchdog sees the
+        // whole process, as the container's memory limit would (#598).
+        var act = () => ParseAsync(_pool, "Test.NativeAllocate", settings: Settings with { ParserMemoryLimitMb = 256 });
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[parse_out_of_memory]*");
+        _pool.HostProcessIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Host_DoesNotInheritTheWebProcessesConfiguration()
+    {
+        // A parse compromised through a native parser must not find connection strings or keys.
+        const string name = "ConnectionStrings__ParserHostProbe";
+        Environment.SetEnvironmentVariable(name, "Host=db;Password=secret");
+        try
+        {
+            var result = await ParseAsync(_pool, "Test.Environment", name);
+
+            result.Content.Should().Be("(unset)");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, null);
+        }
+    }
+
+    [Fact]
     public async Task ParseAsync_HostThatCrashes_FailsAsCrashedAndTheNextParseWorks()
     {
         var act = () => ParseAsync(_pool, "Test.Crash");

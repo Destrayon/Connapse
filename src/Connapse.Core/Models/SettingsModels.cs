@@ -456,11 +456,39 @@ public record UploadSettings
     /// </summary>
     public bool IsolateParsers { get; set; } = true;
 
-    /// <summary>Managed heap each parser process may use before a parse fails as <c>parse_out_of_memory</c> (default: 2,048 MiB).</summary>
+    /// <summary>
+    /// Memory each parser process may use, native libraries included, before its parse fails as
+    /// <c>parse_out_of_memory</c> (default: 2,048 MiB). Its managed heap is capped at three quarters
+    /// of this; the process as a whole is watched while it parses and killed past the limit.
+    /// </summary>
     public int ParserMemoryLimitMb { get; set; } = 2048;
 
     /// <summary>Files a parser process handles before it is replaced with a fresh one (default: 50).</summary>
     public int ParserFilesPerProcess { get; set; } = 50;
+
+    /// <summary>
+    /// OCR PDF pages that have no text layer, or one too garbled to read, on the CPU (default:
+    /// true). Off, a PDF with no text at all fails as <c>no_text_layer</c> rather than being
+    /// indexed as empty.
+    /// </summary>
+    public bool PdfOcr { get; set; } = true;
+
+    /// <summary>
+    /// Most pages of one PDF that are OCR'd (default: 50). OCR costs seconds a page, so the rest of
+    /// a long scan is left unread, with a warning, rather than running past the parse deadline.
+    /// </summary>
+    public int MaxOcrPagesPerDocument { get; set; } = 50;
+
+    /// <summary>
+    /// CPU threads each OCR'd page may use (default: 1). Every ingestion worker can OCR at once, so
+    /// OCR can occupy this many cores per worker; one keeps a scan batch from starving search on a
+    /// small server. More threads mostly spin rather than speed a page up: measured, a scanned page
+    /// took 3.8 s on one thread against 3.6 s on three, and 2.3 to 7 s in a two-CPU container.
+    /// </summary>
+    public int PdfOcrThreads { get; set; } = 1;
+
+    /// <summary>Resolution PDF pages are rendered at for OCR (default: 200 dpi).</summary>
+    public int PdfOcrDpi { get; set; } = 200;
 
     /// <summary>Largest file that is parsed at all (default: 256 MiB).</summary>
     public long MaxFileBytes { get; set; } = 256L * 1024 * 1024;
