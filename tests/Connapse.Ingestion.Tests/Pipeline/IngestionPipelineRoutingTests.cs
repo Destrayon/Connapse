@@ -12,7 +12,10 @@ public class IngestionPipelineRoutingTests
     [InlineData("docs.MDX", "DocumentAware")]
     [InlineData("notes.MD", "DocumentAware")]
     [InlineData("file.txt", "Recursive")]
-    [InlineData("file.pdf", "Recursive")]
+    [InlineData("file.pdf", "DocumentAware")]
+    [InlineData("report.DOCX", "DocumentAware")]
+    [InlineData("deck.pptx", "DocumentAware")]
+    [InlineData("data.csv", "Recursive")]
     [InlineData(null, "Recursive")]
     [InlineData("", "Recursive")]
     public void ResolveStrategyName_RoutesByExtension(string? fileName, string expected)

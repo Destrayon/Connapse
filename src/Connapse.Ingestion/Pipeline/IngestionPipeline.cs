@@ -959,7 +959,11 @@ internal static class IngestionPipelineStrategyResolver
 {
     private static readonly HashSet<string> MarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".md", ".markdown", ".mdx"
+        ".md", ".markdown", ".mdx",
+
+        // Their parsers write Markdown -- headings, tables, slide sections (#597, #599) -- which
+        // the configured Semantic chunker re-joins with spaces, flattening the tables.
+        ".pdf", ".docx", ".pptx",
     };
 
     public static string Resolve(string fallbackStrategy, string? fileName)
