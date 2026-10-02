@@ -106,7 +106,7 @@ public class DocxMarkdownTests
     }
 
     [Fact]
-    public async Task Convert_HeaderFooterAndFootnote_AreIncludedOnce()
+    public async Task Convert_ReferencedHeaderFooterAndFootnote_AreIncludedAndUnusedOnesAreNot()
     {
         void Extras(MainDocumentPart main)
         {
@@ -114,19 +114,82 @@ public class DocxMarkdownTests
             header.Header = new Header(Para("Confidential draft"));
             var footer = main.AddNewPart<FooterPart>();
             footer.Footer = new Footer(Para("Contoso Ltd"));
+            var stale = main.AddNewPart<FooterPart>();
+            stale.Footer = new Footer(Para("Old footer no page uses"));
             var footnotes = main.AddNewPart<FootnotesPart>();
             footnotes.Footnotes = new Footnotes(
                 new Footnote(Para("")) { Id = -1 },
                 new Footnote(Para("")) { Id = 0 },
-                new Footnote(Para("Source: the 2025 audit.")) { Id = 1 });
+                new Footnote(Para("Source: the 2025 audit.")) { Id = 1 },
+                new Footnote(Para("A note whose reference was deleted.")) { Id = 2 });
+
+            var body = main.Document.Body!;
+            body.Append(new SectionProperties(
+                new HeaderReference { Type = HeaderFooterValues.Default, Id = main.GetIdOfPart(header) },
+                new FooterReference { Type = HeaderFooterValues.Default, Id = main.GetIdOfPart(footer) }));
         }
 
-        string content = await ParseAsync(Extras, Para("Body text."));
+        var cited = new Paragraph(
+            new Run(new Text("Revenue grew.")),
+            new Run(new FootnoteReference { Id = 1 }));
+
+        string content = await ParseAsync(Extras, cited);
 
         content.Should().Contain("Confidential draft");
         content.Should().Contain("Contoso Ltd");
-        content.Should().Contain("## Footnotes");
         content.Should().Contain("[1] Source: the 2025 audit.");
+        content.Should().NotContain("Old footer no page uses");
+        content.Should().NotContain("reference was deleted");
+    }
+
+    [Fact]
+    public async Task Convert_ParagraphsInsideACustomXmlWrapper_AreRead()
+    {
+        var wrapper = new CustomXmlBlock(Para("Clause 4.2 limits liability.")) { Element = "clause" };
+
+        string content = await ParseAsync(null, Para("Intro."), wrapper);
+
+        content.Should().Contain("Clause 4.2 limits liability.");
+    }
+
+    [Fact]
+    public async Task Convert_RowStartingAtALaterGridColumn_KeepsValuesUnderTheirHeaders()
+    {
+        var offset = new TableRow(
+            new TableRowProperties(new GridBefore { Val = 1 }),
+            Cell("12"), Cell("15"));
+        var table = new Table(
+            new TableRow(Cell("Region"), Cell("Q1"), Cell("Q2")),
+            offset);
+
+        string content = await ParseAsync(null, table);
+
+        content.Should().Contain("|  | 12 | 15 |");
+    }
+
+    [Fact]
+    public async Task Convert_EmptyFirstRow_IsNotReplacedByADataRowAsTheHeader()
+    {
+        var table = new Table(
+            new TableRow(Cell(""), Cell("")),
+            new TableRow(Cell("North"), Cell("12")));
+
+        string content = await ParseAsync(null, table);
+
+        content.Should().Contain("|  |  |\n| --- | --- |\n| North | 12 |");
+    }
+
+    [Fact]
+    public async Task Convert_TextOnlyInTheFallback_IsKept()
+    {
+        var alternate = new AlternateContent(
+            new AlternateContentChoice(new Drawing()) { Requires = "wps" },
+            new AlternateContentFallback(new Picture(new DocumentFormat.OpenXml.Vml.Shape(
+                new DocumentFormat.OpenXml.Vml.TextBox(new TextBoxContent(Para("Only the legacy copy has this.")))))));
+
+        string content = await ParseAsync(null, new Paragraph(new Run(alternate)));
+
+        content.Should().Contain("Only the legacy copy has this.");
     }
 
     [Fact]
