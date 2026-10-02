@@ -223,12 +223,20 @@ public static class ContainersEndpoints
             if (!await containerStore.ExistsAsync(containerId, ct))
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
+            if (request?.MaxDocuments is <= 0)
+                return Results.BadRequest(new { error = "maxDocuments must be a positive number" });
+            if (request?.ContinueAfter is not null && !Guid.TryParse(request.ContinueAfter, out _))
+                return Results.BadRequest(new { error = "continueAfter must be a document id from a previous reindex response" });
+
             var options = new ReindexOptions
             {
                 ContainerId = containerId.ToString(),
                 Force = request?.Force ?? false,
                 DetectSettingsChanges = request?.DetectSettingsChanges ?? true,
-                Strategy = request?.Strategy
+                Strategy = request?.Strategy,
+                DryRun = request?.DryRun ?? false,
+                MaxDocuments = request?.MaxDocuments,
+                ContinueAfter = request?.ContinueAfter,
             };
 
             var result = await reindexService.ReindexAsync(options, ct);
@@ -240,10 +248,19 @@ public static class ContainersEndpoints
                 enqueuedCount = result.EnqueuedCount,
                 skippedCount = result.SkippedCount,
                 failedCount = result.FailedCount,
+                plannedCount = result.PlannedCount,
+                remainingCount = result.RemainingCount,
+                continueAfter = result.ContinueAfter,
+                dryRun = result.DryRun,
                 reasonCounts = result.ReasonCounts.ToDictionary(
                     kvp => kvp.Key.ToString(),
                     kvp => kvp.Value),
-                message = $"Reindex complete: {result.EnqueuedCount} enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed"
+                message = (result.DryRun
+                    ? $"Dry run: {result.PlannedCount} would be enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed"
+                    : $"Reindex complete: {result.EnqueuedCount} enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed")
+                    + (result.ContinueAfter is null
+                        ? ""
+                        : $"; stopped at maxDocuments with {result.RemainingCount} not yet evaluated, send continueAfter to continue")
             });
         })
         .WithName("ReindexContainer")
@@ -411,4 +428,7 @@ public record CreateContainerApiRequest(
 public record ContainerReindexRequest(
     bool? Force = null,
     bool? DetectSettingsChanges = null,
-    ChunkingStrategy? Strategy = null);
+    ChunkingStrategy? Strategy = null,
+    bool? DryRun = null,
+    int? MaxDocuments = null,
+    string? ContinueAfter = null);
