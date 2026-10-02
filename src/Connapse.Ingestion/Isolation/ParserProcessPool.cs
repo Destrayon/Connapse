@@ -327,7 +327,13 @@ public sealed class ParserProcessPool : IDisposable
             try
             {
                 if (!_process.HasExited)
+                {
                     _process.Kill(entireProcessTree: true);
+
+                    // On Linux the kill is a signal that returns before the process is gone; waiting
+                    // reaps it, so a killed host has left by the time the pool reports it killed.
+                    _process.WaitForExit(TimeSpan.FromSeconds(5));
+                }
             }
             catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
             {
