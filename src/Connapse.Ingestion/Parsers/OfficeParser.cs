@@ -142,7 +142,7 @@ public class OfficeParser : IDocumentParser
 
         metadata["SlideCount"] = slideIdList.Count().ToString();
 
-        var content = PptxMarkdown.Convert(presentationPart, cancellationToken);
+        var content = PptxMarkdown.Convert(presentationPart, warnings, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(content))
         {

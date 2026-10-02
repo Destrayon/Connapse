@@ -79,6 +79,15 @@ public class DocxMarkdownTests
     }
 
     [Fact]
+    public async Task Convert_ParagraphThatLooksLikeMarkdown_IsEscapedNotMadeAHeading()
+    {
+        string content = await ParseAsync(null, Para("# of claims rose"), Para("---"));
+
+        content.Should().Contain("\\# of claims rose");
+        content.Should().Contain("\\---");
+    }
+
+    [Fact]
     public async Task Convert_ListParagraph_BecomesABullet()
     {
         var item = Para("First item");
