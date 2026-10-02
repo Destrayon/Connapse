@@ -247,6 +247,13 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             {
                 throw;
             }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or TypeInitializationException or BadImageFormatException)
+            {
+                // A deployment without the native libraries, not a bad page: every other page would
+                // fail the same way, so say so once and stop.
+                warnings.Add($"OCR is unavailable in this deployment, so pages without a text layer were not read: {ex.GetBaseException().Message}");
+                break;
+            }
             catch (Exception ex)
             {
                 read++;
