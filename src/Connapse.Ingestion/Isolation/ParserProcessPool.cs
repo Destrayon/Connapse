@@ -129,6 +129,8 @@ public sealed class ParserProcessPool : IDisposable
                 // Read before the kill: the host's last words say whether it ran out of memory.
                 string stderr = current.CollectErrors();
                 Discard(ref host);
+                if (current.KilledForMemory)
+                    throw OutOfMemory(name, settings, ex);
                 if (ct.IsCancellationRequested)
                     throw new OperationCanceledException(ct);
                 if (deadline.IsCancellationRequested)
@@ -235,14 +237,39 @@ public sealed class ParserProcessPool : IDisposable
         };
         start.ArgumentList.Add(hostPath);
 
-        // A hard cap on the managed heap: past it, allocations throw OutOfMemoryException in the
-        // host instead of growing until the machine or container runs out.
-        long bytes = Math.Max(64, memoryLimitMb) * 1024L * 1024L;
+        // The host parses untrusted files with native code (PDFium, ONNX Runtime). It inherits
+        // nothing from the web process's environment beyond what running .NET needs, so a parse
+        // that is compromised cannot read connection strings or API keys from it.
+        var inherited = start.Environment.ToList();
+        start.Environment.Clear();
+        foreach (var (key, value) in inherited)
+        {
+            if (value is not null && InheritedVariables.Contains(key))
+                start.Environment[key] = value;
+        }
+
+        // Three quarters of the process's limit for the managed heap: past it, allocations throw
+        // OutOfMemoryException in the host. The rest is for native memory, which the watchdog
+        // counts along with everything else (see Host.ExchangeAsync).
+        long bytes = Math.Max(64, memoryLimitMb) * 1024L * 1024L * 3 / 4;
         start.Environment["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X");
         start.Environment["DOTNET_gcServer"] = "0";
         start.Environment[ParentProcessIdVariable] = (parentProcessId ?? Environment.ProcessId).ToString();
         return start;
     }
+
+    /// <summary>
+    /// The environment a host is given: what locates the runtime, the temp directory and the
+    /// culture, and what Windows needs to start a process at all. Nothing that configures Connapse.
+    /// </summary>
+    private static readonly HashSet<string> InheritedVariables = new(
+        RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+    {
+        "PATH", "HOME", "USER", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "TEMP", "TMP",
+        "DOTNET_ROOT", "DOTNET_ROOT_X64", "DOTNET_ROOT_ARM64", "DOTNET_ROOT(x86)",
+        "SystemRoot", "windir", "SystemDrive", "ComSpec", "PATHEXT", "USERPROFILE", "LOCALAPPDATA", "APPDATA",
+        "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
+    };
 
     public void Dispose()
     {
@@ -270,6 +297,12 @@ public sealed class ParserProcessPool : IDisposable
 
         public int ProcessId { get; }
         public int MemoryLimitMb { get; }
+
+        /// <summary>Set when the watchdog killed the host for using more memory than its limit.</summary>
+        public bool KilledForMemory { get; private set; }
+
+        /// <summary>How often the watchdog reads the host's memory while it parses.</summary>
+        private static readonly TimeSpan MemoryCheckInterval = TimeSpan.FromMilliseconds(250);
         public int FilesParsed { get; set; }
         public bool HasExited => Volatile.Read(ref _killed) == 1 || _process.HasExited;
 
@@ -310,6 +343,28 @@ public sealed class ParserProcessPool : IDisposable
 
         public async Task<ParseResponse> ExchangeAsync(ParseRequest request, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct)
         {
+            // The heap limit covers managed memory only. ONNX Runtime, PDFium and Skia allocate
+            // natively, and in a container that memory counts against the limit the web process
+            // shares: a host that grew past it would get both killed. So the whole process is
+            // watched while it parses, and killed past its limit.
+            long limit = Math.Max(64, MemoryLimitMb) * 1024L * 1024L;
+            using var watchdog = new Timer(_ =>
+            {
+                try
+                {
+                    _process.Refresh();
+                    if (_process.WorkingSet64 > limit)
+                    {
+                        KilledForMemory = true;
+                        Kill();
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    // Exited or disposed between checks.
+                }
+            }, null, MemoryCheckInterval, MemoryCheckInterval);
+
             Stream input = _process.StandardInput.BaseStream;
             await WriteJsonAsync(input, request, ct);
             await WriteFrameAsync(input, content, ct);

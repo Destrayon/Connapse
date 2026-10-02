@@ -1,3 +1,4 @@
+using Microsoft.ML.OnnxRuntime;
 using PDFtoImage;
 using RapidOcrNet;
 using SkiaSharp;
@@ -21,6 +22,9 @@ internal static class PdfOcr
     /// </summary>
     internal const int MaxRenderedSide = 4000;
 
+    /// <summary>The defaults, recognising one text line at a time: see <see cref="SessionOptions"/>.</summary>
+    private static readonly RapidOcrOptions Options = new() { RecMaxDegreeOfParallelism = 1 };
+
     private static readonly Lazy<RapidOcr> Engine = new(Load, LazyThreadSafetyMode.ExecutionAndPublication);
 
     // RapidOcr holds ONNX sessions and buffers per call; one page at a time per process. In the
@@ -41,7 +45,7 @@ internal static class PdfOcr
 
         lock (Gate)
         {
-            var result = Engine.Value.Detect(bitmap, RapidOcrOptions.Default, ct);
+            var result = Engine.Value.Detect(bitmap, Options, ct);
             return OcrLayout.Arrange(result.TextBlocks.Select(ToLine).ToList());
         }
     }
@@ -90,7 +94,30 @@ internal static class PdfOcr
             Path.Combine(models, "ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx"),
             Path.Combine(models, "latin_PP-OCRv5_rec_mobile_infer.onnx"),
             Path.Combine(models, "ppocrv5_latin_dict.txt"),
-            Math.Clamp(Environment.ProcessorCount, 1, 4));
+            SessionOptionsForOcr());
         return engine;
+    }
+
+    /// <summary>
+    /// One thread, no spinning, no memory arena. ONNX Runtime otherwise takes every core it can see
+    /// -- one OCR'd page kept three busy, measured -- and every ingestion worker runs its own parser
+    /// process, so a batch of scans would take the whole machine from search and the web app. Set
+    /// this way, OCR uses at most one core per ingestion worker. Its threads also spin between runs
+    /// by default, burning CPU in a process that sits idle in the pool, and its arena keeps the
+    /// memory of the largest page it has seen for the life of the process.
+    /// </summary>
+    private static SessionOptions SessionOptionsForOcr()
+    {
+        var options = new SessionOptions
+        {
+            // Both counts explicit: only then does ONNX Runtime skip pinning threads to cores.
+            IntraOpNumThreads = 1,
+            InterOpNumThreads = 1,
+            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+            EnableCpuMemArena = false,
+        };
+        options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
+        options.AddSessionConfigEntry("session.inter_op.allow_spinning", "0");
+        return options;
     }
 }

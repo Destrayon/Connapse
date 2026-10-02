@@ -456,7 +456,11 @@ public record UploadSettings
     /// </summary>
     public bool IsolateParsers { get; set; } = true;
 
-    /// <summary>Managed heap each parser process may use before a parse fails as <c>parse_out_of_memory</c> (default: 2,048 MiB).</summary>
+    /// <summary>
+    /// Memory each parser process may use, native libraries included, before its parse fails as
+    /// <c>parse_out_of_memory</c> (default: 2,048 MiB). Its managed heap is capped at three quarters
+    /// of this; the process as a whole is watched while it parses and killed past the limit.
+    /// </summary>
     public int ParserMemoryLimitMb { get; set; } = 2048;
 
     /// <summary>Files a parser process handles before it is replaced with a fresh one (default: 50).</summary>
