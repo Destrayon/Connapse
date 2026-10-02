@@ -441,6 +441,125 @@ public record UploadSettings
     /// Number of parallel ingestion workers (default: 4).
     /// </summary>
     public int ParallelWorkers { get; set; } = 4;
+
+    /// <summary>
+    /// Longest a single file may spend in its parser before it fails with <c>parse_timeout</c>
+    /// (default: 300 seconds). A parser stuck on a malformed file otherwise holds its document in
+    /// Processing for good.
+    /// </summary>
+    public int ParseTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Run the built-in parsers in Connapse.ParserHost processes that can be killed at the deadline
+    /// and are capped in memory (default: true). Off, they run inside the web process, where a
+    /// parser that ignores its deadline keeps its thread until the process restarts.
+    /// </summary>
+    public bool IsolateParsers { get; set; } = true;
+
+    /// <summary>
+    /// Memory each parser process may use, native libraries included, before its parse fails as
+    /// <c>parse_out_of_memory</c> (default: 2,048 MiB). Its managed heap is capped at three quarters
+    /// of this; the process as a whole is watched while it parses and killed past the limit.
+    /// </summary>
+    public int ParserMemoryLimitMb { get; set; } = 2048;
+
+    /// <summary>Files a parser process handles before it is replaced with a fresh one (default: 50).</summary>
+    public int ParserFilesPerProcess { get; set; } = 50;
+
+    /// <summary>
+    /// OCR PDF pages that have no text layer, or one too garbled to read, on the CPU (default:
+    /// true). Off, a PDF with no text at all fails as <c>no_text_layer</c> rather than being
+    /// indexed as empty.
+    /// </summary>
+    public bool PdfOcr { get; set; } = true;
+
+    /// <summary>
+    /// Most pages of one PDF that are OCR'd (default: 50). OCR costs seconds a page, so the rest of
+    /// a long scan is left unread, with a warning, rather than running past the parse deadline.
+    /// </summary>
+    public int MaxOcrPagesPerDocument { get; set; } = 50;
+
+    /// <summary>
+    /// CPU threads each OCR'd page may use (default: 1). Every ingestion worker can OCR at once, so
+    /// OCR can occupy this many cores per worker; one keeps a scan batch from starving search on a
+    /// small server. More threads mostly spin rather than speed a page up: measured, a scanned page
+    /// took 3.8 s on one thread against 3.6 s on three, and 2.3 to 7 s in a two-CPU container.
+    /// </summary>
+    public int PdfOcrThreads { get; set; } = 1;
+
+    /// <summary>Resolution PDF pages are rendered at for OCR (default: 200 dpi).</summary>
+    public int PdfOcrDpi { get; set; } = 200;
+
+    /// <summary>Largest file that is parsed at all (default: 256 MiB).</summary>
+    public long MaxFileBytes { get; set; } = 256L * 1024 * 1024;
+
+    /// <summary>Most pages a PDF may have (default: 5,000).</summary>
+    public int MaxPdfPages { get; set; } = 5000;
+
+    /// <summary>
+    /// Most bytes a DOCX or PPTX may expand to (default: 512 MiB). Both formats are ZIP packages,
+    /// so a small file can inflate to gigabytes.
+    /// </summary>
+    public long MaxDecompressedBytes { get; set; } = 512L * 1024 * 1024;
+
+    /// <summary>
+    /// Highest overall compression ratio a DOCX or PPTX may have once it expands past 10 MiB
+    /// (default: 100). Ordinary Office files sit far below it; zip bombs sit far above.
+    /// </summary>
+    public int MaxCompressionRatio { get; set; } = 100;
+
+    /// <summary>Most characters a parser may extract from one file (default: 20 million).</summary>
+    public int MaxExtractedCharacters { get; set; } = 20_000_000;
+
+    /// <summary>
+    /// PDF, DOCX and PPTX text with at least this share of unreadable glyphs, replacement or
+    /// control characters fails as <c>garbled_text</c> (default: 0.5).
+    /// </summary>
+    public double GarbledSuspiciousRatio { get; set; } = 0.5;
+
+    /// <summary>
+    /// PDF, DOCX and PPTX text with less than this share of letters and digits fails as
+    /// <c>garbled_text</c> (default: 0.25).
+    /// </summary>
+    public double GarbledMinAlphanumericRatio { get; set; } = 0.25;
+
+    /// <summary>
+    /// Text with at least this share of unreadable characters is still indexed but carries a
+    /// warning (default: 0.1).
+    /// </summary>
+    public double WarnSuspiciousRatio { get; set; } = 0.1;
+
+    /// <summary>Text shorter than this, in non-whitespace characters, is too short to judge (default: 200).</summary>
+    public int MinCharactersForQualityCheck { get; set; } = 200;
+
+    /// <summary>
+    /// Most entries a DOCX or PPTX package may list (default: 10,000). Reading a ZIP's directory
+    /// allocates per entry, so millions of empty entries exhaust memory before any size check.
+    /// </summary>
+    public int MaxZipEntries { get; set; } = 10_000;
+
+    public const string DefaultPdfTextMode = "ContentOrder";
+
+    /// <summary>
+    /// How PDF pages become text: Raw, ContentOrder, XYCut or Docstrum (default: ContentOrder,
+    /// the best of the four on extract-v1, 2026-10-01). See PdfTextMode in Connapse.Ingestion.
+    /// </summary>
+    public string PdfTextMode { get; set; } = DefaultPdfTextMode;
+
+    /// <summary>
+    /// Drop running headers, footers and page numbers -- text repeating at the edges of the pages
+    /// -- in PDFs of three or more pages (default: true).
+    /// </summary>
+    public bool PdfRemoveRepeatedHeadersAndFooters { get; set; } = true;
+
+    public const string DefaultPdfTableMode = "Ruled";
+
+    /// <summary>
+    /// Which PDF tables become Markdown tables: Off, Ruled (drawn with lines) or RuledAndStream
+    /// (also borderless tables found from text alignment) (default: Ruled). See PdfTableMode in
+    /// Connapse.Ingestion.
+    /// </summary>
+    public string PdfTableMode { get; set; } = DefaultPdfTableMode;
 }
 
 /// <summary>

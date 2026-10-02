@@ -160,7 +160,8 @@ public static class EmbeddingText
     /// <summary>What BERT's uncased BasicTokenizer does before WordPiece: lowercase, then drop accents.</summary>
     public static string Uncase(string text)
     {
-        string decomposed = text.ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        // Normalize throws on an unpaired surrogate, which chunk edges and pasted queries can carry.
+        string decomposed = Utilities.StorableText.Clean(text).ToLowerInvariant().Normalize(NormalizationForm.FormD);
         StringBuilder result = new(decomposed.Length);
         foreach (char c in decomposed)
             if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)

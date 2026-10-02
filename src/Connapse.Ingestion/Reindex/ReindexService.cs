@@ -25,6 +25,7 @@ public class ReindexService : IReindexService
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly ILogger<ReindexService> _logger;
+    private readonly IReadOnlyList<IDocumentParser> _parsers;
 
     public ReindexService(
         KnowledgeDbContext context,
@@ -34,8 +35,10 @@ public class ReindexService : IReindexService
         IIngestionQueue queue,
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
-        ILogger<ReindexService> logger)
+        ILogger<ReindexService> logger,
+        IEnumerable<IDocumentParser>? parsers = null)
     {
+        _parsers = parsers?.ToList() ?? [];
         _context = context;
         _fileSystem = fileSystem;
         _managedStorage = managedStorage;
@@ -127,24 +130,39 @@ public class ReindexService : IReindexService
         var results = new List<ReindexDocumentResult>();
         var reasonCounts = new Dictionary<ReindexReason, int>();
 
-        foreach (var doc in documents)
+        var run = new ReindexRun(options.DryRun);
+        string? continueAfter = null;
+        for (int i = 0; i < documents.Count; i++)
         {
-            var result = await EvaluateAndEnqueueDocumentAsync(doc, options, batchId, ct);
+            var doc = documents[i];
+            var result = await EvaluateAndEnqueueDocumentAsync(doc, options, batchId, run, ct);
             results.Add(result);
 
             // Track reason counts
             if (!reasonCounts.TryGetValue(result.Reason, out var count))
                 count = 0;
             reasonCounts[result.Reason] = count + 1;
+
+            // Stop at the cap rather than mark the rest deferred: evaluating a document hashes its
+            // file, which on a remote connector is a full read, and that is the cost a cap bounds.
+            if (options.MaxDocuments is int max && run.Enqueued >= max && i < documents.Count - 1)
+            {
+                continueAfter = doc.Id.ToString();
+                break;
+            }
         }
 
         var summary = new ReindexResult
         {
             BatchId = batchId,
-            TotalDocuments = results.Count,
+            TotalDocuments = documents.Count,
             EnqueuedCount = results.Count(r => r.Action == ReindexAction.Enqueued),
             SkippedCount = results.Count(r => r.Action == ReindexAction.Skipped),
             FailedCount = results.Count(r => r.Action == ReindexAction.Failed),
+            PlannedCount = results.Count(r => r.Action == ReindexAction.Planned),
+            RemainingCount = documents.Count - results.Count,
+            ContinueAfter = continueAfter,
+            DryRun = options.DryRun,
             ReasonCounts = reasonCounts,
             Documents = results
         };
@@ -185,44 +203,49 @@ public class ReindexService : IReindexService
                 StoredHash: null);
         }
 
-        // Check if file exists (via connector for connector-backed containers)
-        if (!await FileExistsAsync(doc, ct))
+        // Source-owned documents: see EvaluateAndEnqueueDocumentAsync. Content changes are the sync
+        // engine's to detect, so only settings and the parser are compared.
+        string? currentHash = null;
+        if (doc.SourceId is null)
         {
-            return new ReindexCheck(
-                documentId,
-                NeedsReindex: false,
-                Reason: ReindexReason.FileNotFound,
-                CurrentHash: null,
-                StoredHash: doc.ContentHash);
-        }
+            // Check if file exists (via connector for connector-backed containers)
+            if (!await FileExistsAsync(doc, ct))
+            {
+                return new ReindexCheck(
+                    documentId,
+                    NeedsReindex: false,
+                    Reason: ReindexReason.FileNotFound,
+                    CurrentHash: null,
+                    StoredHash: doc.ContentHash);
+            }
 
-        // Compute current content hash (via connector for connector-backed containers)
-        string currentHash;
-        try
-        {
-            using var stream = await OpenFileAsync(doc, ct);
-            currentHash = await ComputeContentHashAsync(stream, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to compute hash for document {DocumentId}", Sanitize(documentId));
-            return new ReindexCheck(
-                documentId,
-                NeedsReindex: false,
-                Reason: ReindexReason.Error,
-                CurrentHash: null,
-                StoredHash: doc.ContentHash);
-        }
+            // Compute current content hash (via connector for connector-backed containers)
+            try
+            {
+                using var stream = await OpenFileAsync(doc, ct);
+                currentHash = await ComputeContentHashAsync(stream, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to compute hash for document {DocumentId}", Sanitize(documentId));
+                return new ReindexCheck(
+                    documentId,
+                    NeedsReindex: false,
+                    Reason: ReindexReason.Error,
+                    CurrentHash: null,
+                    StoredHash: doc.ContentHash);
+            }
 
-        // Check content hash
-        if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
-        {
-            return new ReindexCheck(
-                documentId,
-                NeedsReindex: true,
-                Reason: ReindexReason.ContentChanged,
-                CurrentHash: currentHash,
-                StoredHash: doc.ContentHash);
+            // Check content hash
+            if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return new ReindexCheck(
+                    documentId,
+                    NeedsReindex: true,
+                    Reason: ReindexReason.ContentChanged,
+                    CurrentHash: currentHash,
+                    StoredHash: doc.ContentHash);
+            }
         }
 
         // Check chunking settings
@@ -251,6 +274,26 @@ public class ReindexService : IReindexService
                 StoredHash: doc.ContentHash,
                 CurrentEmbeddingModel: embeddingCheck.current,
                 StoredEmbeddingModel: embeddingCheck.stored);
+        }
+
+        if (CheckParserChanged(doc).changed)
+        {
+            return new ReindexCheck(
+                documentId,
+                NeedsReindex: true,
+                Reason: ReindexReason.ParserChanged,
+                CurrentHash: currentHash,
+                StoredHash: doc.ContentHash);
+        }
+
+        if (doc.Metadata.ContainsKey(Pipeline.IngestionPipeline.MetadataKeyExtractionIncomplete))
+        {
+            return new ReindexCheck(
+                documentId,
+                NeedsReindex: true,
+                Reason: ReindexReason.ExtractionIncomplete,
+                CurrentHash: currentHash,
+                StoredHash: doc.ContentHash);
         }
 
         // Check if never indexed
@@ -295,13 +338,18 @@ public class ReindexService : IReindexService
             query = query.Where(d => guids.Contains(d.Id));
         }
 
-        return await query.ToListAsync(ct);
+        // A stable order is what lets a capped run be continued from where it stopped.
+        if (Guid.TryParse(options.ContinueAfter, out var after))
+            query = query.Where(d => d.Id.CompareTo(after) > 0);
+
+        return await query.OrderBy(d => d.Id).ToListAsync(ct);
     }
 
     private async Task<ReindexDocumentResult> EvaluateAndEnqueueDocumentAsync(
         DocumentEntity doc,
         ReindexOptions options,
         string batchId,
+        ReindexRun run,
         CancellationToken ct)
     {
         try
@@ -309,56 +357,73 @@ public class ReindexService : IReindexService
             // If force mode, always enqueue
             if (options.Force)
             {
-                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.Forced, ct);
+                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.Forced, ct, run: run);
             }
 
-            // Check if file exists (via connector for connector-backed containers)
-            if (!await FileExistsAsync(doc, ct))
+            // A document still queued or being ingested is mid-reindex already. Without this a
+            // capped rollout's next run re-queued its own previous batch -- not Ready yet, so it
+            // read as never indexed -- and the deferred documents never got their turn.
+            if (doc.IngestionStatus.IsInFlight())
             {
-                _logger.LogWarning(
-                    "Document {DocumentId} file not found at {Path}",
-                    doc.Id,
-                    doc.Path);
-
                 return new ReindexDocumentResult(
-                    doc.Id.ToString(),
-                    doc.FileName,
-                    ReindexAction.Skipped,
-                    ReindexReason.FileNotFound);
+                    doc.Id.ToString(), doc.FileName, ReindexAction.Skipped, ReindexReason.AlreadyQueued);
             }
 
-            // Compute current content hash (via connector for connector-backed containers)
-            string currentHash;
-            try
+            // Source-owned documents are read through their source's connector, which this service
+            // does not hold; the legacy file system never has them, so every one used to come back
+            // FileNotFound and no settings or parser change could ever reach it. Their content changes
+            // are the sync engine's to detect, by remote signature, so here only the recorded
+            // settings and parser are compared, and the pipeline reads the file as usual.
+            if (doc.SourceId is null)
             {
-                using var stream = await OpenFileAsync(doc, ct);
-                currentHash = await ComputeContentHashAsync(stream, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Failed to compute hash for document {DocumentId}",
-                    doc.Id);
+                // Check if file exists (via connector for connector-backed containers)
+                if (!await FileExistsAsync(doc, ct))
+                {
+                    _logger.LogWarning(
+                        "Document {DocumentId} file not found at {Path}",
+                        doc.Id,
+                        doc.Path);
 
-                return new ReindexDocumentResult(
-                    doc.Id.ToString(),
-                    doc.FileName,
-                    ReindexAction.Failed,
-                    ReindexReason.Error,
-                    ErrorMessage: $"Hash computation failed: {ex.Message}");
-            }
+                    return new ReindexDocumentResult(
+                        doc.Id.ToString(),
+                        doc.FileName,
+                        ReindexAction.Skipped,
+                        ReindexReason.FileNotFound);
+                }
 
-            // Check if content hash changed
-            if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation(
-                    "Document {DocumentId} content hash changed (stored={StoredHash}, current={CurrentHash})",
-                    doc.Id,
-                    doc.ContentHash?[..Math.Min(8, doc.ContentHash?.Length ?? 0)],
-                    currentHash[..Math.Min(8, currentHash.Length)]);
+                // Compute current content hash (via connector for connector-backed containers)
+                string currentHash;
+                try
+                {
+                    using var stream = await OpenFileAsync(doc, ct);
+                    currentHash = await ComputeContentHashAsync(stream, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to compute hash for document {DocumentId}",
+                        doc.Id);
 
-                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ContentChanged, ct);
+                    return new ReindexDocumentResult(
+                        doc.Id.ToString(),
+                        doc.FileName,
+                        ReindexAction.Failed,
+                        ReindexReason.Error,
+                        ErrorMessage: $"Hash computation failed: {ex.Message}");
+                }
+
+                // Check if content hash changed
+                if (!string.Equals(currentHash, doc.ContentHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation(
+                        "Document {DocumentId} content hash changed (stored={StoredHash}, current={CurrentHash})",
+                        doc.Id,
+                        doc.ContentHash?[..Math.Min(8, doc.ContentHash?.Length ?? 0)],
+                        currentHash[..Math.Min(8, currentHash.Length)]);
+
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ContentChanged, ct, run: run);
+                }
             }
 
             // Check settings changes if enabled
@@ -374,7 +439,7 @@ public class ReindexService : IReindexService
                         chunkingCheck.stored,
                         chunkingCheck.current);
 
-                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ChunkingSettingsChanged, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ChunkingSettingsChanged, ct, run: run);
                 }
 
                 // Check embedding settings
@@ -387,7 +452,27 @@ public class ReindexService : IReindexService
                         embeddingCheck.stored,
                         embeddingCheck.current);
 
-                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.EmbeddingSettingsChanged, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.EmbeddingSettingsChanged, ct, run: run);
+                }
+
+                // A parser that now reads the same bytes differently: the content hash cannot
+                // see it, so text garbled by an older parser would otherwise stay garbled.
+                var parserCheck = CheckParserChanged(doc);
+                if (parserCheck.changed)
+                {
+                    _logger.LogInformation(
+                        "Document {DocumentId} was parsed by {Stored}; the current parser is {Current}",
+                        doc.Id,
+                        parserCheck.stored,
+                        parserCheck.current);
+
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ParserChanged, ct, run: run);
+                }
+
+                if (doc.Metadata.ContainsKey(Pipeline.IngestionPipeline.MetadataKeyExtractionIncomplete))
+                {
+                    _logger.LogInformation("Document {DocumentId} has pages that failed to extract; retrying", doc.Id);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ExtractionIncomplete, ct, run: run);
                 }
             }
 
@@ -399,7 +484,7 @@ public class ReindexService : IReindexService
                     doc.Id,
                     doc.IngestionStatus);
 
-                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.NeverIndexed, ct);
+                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.NeverIndexed, ct, run: run);
             }
 
             // No reindex needed
@@ -464,8 +549,17 @@ public class ReindexService : IReindexService
         ReindexOptions options,
         ReindexReason reason,
         CancellationToken ct,
-        bool resetAttempts = true)
+        bool resetAttempts = true,
+        ReindexRun? run = null)
     {
+        // The one point every reason reaches before a job is enqueued, so a dry run and the cap
+        // apply to forced, content, settings and parser reindexes alike.
+        if (run is { DryRun: true })
+        {
+            run.Enqueued++;
+            return new ReindexDocumentResult(doc.Id.ToString(), doc.FileName, ReindexAction.Planned, reason);
+        }
+
         // The chunks stay where they are. IngestionPipeline purges them itself on a reindex,
         // once the file has been read and the row updated — which is the only moment at which
         // dropping them is safe. Deleting here instead meant every way the work could fail
@@ -476,9 +570,12 @@ public class ReindexService : IReindexService
         // ChunkCount is left alone for the same reason: it describes chunks that still exist.
 
         // Determine chunking strategy. A record keeps the strategy its shape was given.
+        // A strategy the caller chose is kept too, and stays explicit, so a PDF chunked FixedSize
+        // on request is not re-chunked DocumentAware by the reindex.
         doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyChunkingStrategy, out var indexedWith);
+        bool storedExplicit = IsStrategyExplicit(doc);
         var strategy = options.Strategy ?? Enum.Parse<ChunkingStrategy>(
-            IngestionPipelineStrategyResolver.IsContentPinned(indexedWith)
+            IngestionPipelineStrategyResolver.IsContentPinned(indexedWith) || (storedExplicit && !string.IsNullOrEmpty(indexedWith))
                 ? indexedWith!
                 : _chunkingSettings.CurrentValue.Strategy,
             ignoreCase: true);
@@ -510,9 +607,25 @@ public class ReindexService : IReindexService
                 Metadata: doc.Metadata)
             {
                 Owner = owner,
+                StrategyIsExplicit = options.Strategy is not null || storedExplicit,
             },
             BatchId: batchId,
             ResetAttempts: resetAttempts), ct);
+
+        // No job id means the queue did not take the job; it must not use up the cap.
+        if (jobId is null)
+        {
+            _logger.LogWarning("Ingestion queue returned no job for document {DocumentId} on reindex", doc.Id);
+            return new ReindexDocumentResult(
+                doc.Id.ToString(),
+                doc.FileName,
+                ReindexAction.Failed,
+                reason,
+                ErrorMessage: "The ingestion queue did not accept the job.");
+        }
+
+        if (run is not null)
+            run.Enqueued++;
 
         _logger.LogInformation(
             "Enqueued document {DocumentId} ({FileName}) for reindex, reason: {Reason}",
@@ -527,6 +640,10 @@ public class ReindexService : IReindexService
             reason,
             JobId: jobId);
     }
+
+    private static bool IsStrategyExplicit(DocumentEntity doc) =>
+        doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyStrategyExplicit, out var value) &&
+        string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
 
     private (bool changed, string? stored, string? current) CheckChunkingSettingsChanged(DocumentEntity doc)
     {
@@ -551,11 +668,13 @@ public class ReindexService : IReindexService
         //
         // A content-pinned strategy (a record) is compared against itself, so changing the
         // configured strategy does not mark every record stale and re-chunk it the wrong way.
+        bool storedExplicit = IsStrategyExplicit(doc);
         string resolvedStrategy = IngestionPipelineStrategyResolver.Resolve(
-            fallbackStrategy: IngestionPipelineStrategyResolver.IsContentPinned(storedStrategy)
+            fallbackStrategy: IngestionPipelineStrategyResolver.IsContentPinned(storedStrategy) || storedExplicit
                 ? storedStrategy
                 : currentSettings.Strategy,
-            fileName: doc.FileName);
+            fileName: doc.FileName,
+            strategyIsExplicit: storedExplicit);
 
         var currentKey = $"{resolvedStrategy}:{currentSettings.MaxChunkSize}:{currentSettings.Overlap}";
         var storedKey = $"{storedStrategy}:{storedMaxSize}:{storedOverlap}";
@@ -563,6 +682,38 @@ public class ReindexService : IReindexService
         return (!string.Equals(currentKey, storedKey, StringComparison.OrdinalIgnoreCase),
             storedKey,
             currentKey);
+    }
+
+    /// <summary>
+    /// True when the parser that would read this document now is a different parser, or a newer
+    /// version, than the one that produced its chunks.
+    /// </summary>
+    private (bool changed, string? stored, string? current) CheckParserChanged(DocumentEntity doc)
+    {
+        string extension = Path.GetExtension(doc.FileName).ToLowerInvariant();
+        IDocumentParser? parser = _parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
+        if (parser is null)
+            return (false, null, null);
+
+        string? storedName = Pipeline.IngestionPipeline.StoredParserName(doc.Metadata, extension);
+        int storedVersion = Pipeline.IngestionPipeline.StoredParserVersion(doc.Metadata);
+
+        // Unknown only for an extension no parser handled when versions were introduced; nothing
+        // indexed it then, so whatever handles it now is the parser that produced it.
+        bool sameParser = storedName is null || storedName == parser.Name;
+
+        // A setting that changes the parser's output -- a PDF's table mode, OCR -- changes the
+        // document as much as a new version does. Documents indexed before settings were recorded
+        // carry none and are not flagged for it: the version bumps that came with recording them
+        // re-parse those already.
+        string currentSettings = parser.OutputSettings;
+        bool settingsChanged = doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyParserSettings, out var storedSettings)
+            && !string.Equals(storedSettings, currentSettings, StringComparison.Ordinal);
+        bool changed = !sameParser || storedVersion < parser.Version || settingsChanged;
+
+        return (changed,
+            $"{storedName ?? parser.Name} v{storedVersion} {storedSettings}".TrimEnd(),
+            $"{parser.Name} v{parser.Version} {currentSettings}".TrimEnd());
     }
 
     private (bool changed, string? stored, string? current) CheckEmbeddingSettingsChanged(DocumentEntity doc)
@@ -598,5 +749,12 @@ public class ReindexService : IReindexService
 
         var hashBytes = await sha256.ComputeHashAsync(content, ct);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    /// <summary>One reindex run's dry-run flag and how many it has enqueued (or planned) so far.</summary>
+    private sealed class ReindexRun(bool dryRun)
+    {
+        public bool DryRun { get; } = dryRun;
+        public int Enqueued { get; set; }
     }
 }

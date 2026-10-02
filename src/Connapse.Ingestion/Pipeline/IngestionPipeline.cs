@@ -1,6 +1,9 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Isolation;
+using Connapse.Ingestion.Parsers;
+using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Connapse.Storage.Documents;
@@ -10,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -38,15 +42,79 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IConnectionStore _connectionStore;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
+    private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
     private readonly ILogger<IngestionPipeline> _logger;
+    private readonly ParserProcessPool? _parserPool;
 
     // Metadata keys for tracking indexing settings
     public const string MetadataKeyChunkingStrategy = "IndexedWith:ChunkingStrategy";
+
+    /// <summary>
+    /// "true" when the chunking strategy was the caller's choice: a reindex keeps it rather than
+    /// routing a PDF, Office, HTML, email or EPUB file to DocumentAware (#633).
+    /// </summary>
+    public const string MetadataKeyStrategyExplicit = "IndexedWith:StrategyExplicit";
     public const string MetadataKeyChunkingMaxSize = "IndexedWith:ChunkingMaxSize";
     public const string MetadataKeyChunkingOverlap = "IndexedWith:ChunkingOverlap";
     public const string MetadataKeyEmbeddingProvider = "IndexedWith:EmbeddingProvider";
     public const string MetadataKeyEmbeddingModel = "IndexedWith:EmbeddingModel";
     public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
+
+    /// <summary>Which parser produced the document's chunks, and which version of it (#596).</summary>
+    public const string MetadataKeyParser = "IndexedWith:Parser";
+    public const string MetadataKeyParserVersion = "IndexedWith:ParserVersion";
+
+    /// <summary>The parser's <see cref="IDocumentParser.OutputSettings"/> when it indexed the document.</summary>
+    public const string MetadataKeyParserSettings = "IndexedWith:ParserSettings";
+
+    /// <summary>
+    /// The parser version a document was indexed with. Documents indexed before versions were
+    /// recorded carry none; they were parsed by what is now version 1.
+    /// </summary>
+    public static int StoredParserVersion(IReadOnlyDictionary<string, string> metadata) =>
+        metadata.TryGetValue(MetadataKeyParserVersion, out var stored) && int.TryParse(stored, out int version)
+            ? version
+            : 1;
+
+    /// <summary>
+    /// The parser a document was indexed with. Documents indexed before names were recorded were
+    /// read by whichever parser owned their extension at the time; treating a missing name as a
+    /// match instead would hide a different parser taking that extension over.
+    /// </summary>
+    public static string? StoredParserName(IReadOnlyDictionary<string, string> metadata, string extension) =>
+        metadata.TryGetValue(MetadataKeyParser, out var stored) && !string.IsNullOrEmpty(stored)
+            ? stored
+            : LegacyParserByExtension.GetValueOrDefault(extension);
+
+    /// <summary>The parser that owned each extension when parser identities started being recorded (#596).</summary>
+    private static readonly Dictionary<string, string> LegacyParserByExtension = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".txt"] = "TextParser", [".md"] = "TextParser", [".markdown"] = "TextParser", [".csv"] = "TextParser",
+        [".log"] = "TextParser", [".json"] = "TextParser", [".xml"] = "TextParser", [".yaml"] = "TextParser",
+        [".yml"] = "TextParser",
+        [".pdf"] = "PdfParser",
+        [".docx"] = "OfficeParser", [".pptx"] = "OfficeParser",
+    };
+
+    /// <summary>
+    /// Set when pages failed to extract: the document's chunks are partial, or are an older
+    /// parse kept in place of a partial one. Reindex retries any document carrying it.
+    /// </summary>
+    public const string MetadataKeyExtractionIncomplete = "ExtractionIncomplete";
+
+    /// <summary>The parser's warnings from the last ingestion, one per line.</summary>
+    public const string MetadataKeyParserWarnings = "ParserWarnings";
+
+    /// <summary>Keeps a page-by-page warning list from a long PDF from bloating the metadata column.</summary>
+    private const int MaxParserWarningsLength = 4000;
+
+    internal static string TruncateWarnings(IReadOnlyList<string> warnings)
+    {
+        string joined = string.Join("\n", warnings);
+        return joined.Length <= MaxParserWarningsLength
+            ? joined
+            : joined[..MaxParserWarningsLength] + $"\n… ({warnings.Count} warnings in total)";
+    }
 
     /// <summary>
     /// Written by SourceSyncService to record the remote's state at last ingestion, and
@@ -86,8 +154,11 @@ public class IngestionPipeline : IKnowledgeIngester
         IConnectionStore connectionStore,
         IConnectorFactory connectorFactory,
         IDocumentLifecycle lifecycle,
-        ILogger<IngestionPipeline> logger)
+        IOptionsMonitor<UploadSettings> uploadSettings,
+        ILogger<IngestionPipeline> logger,
+        ParserProcessPool? parserPool = null)
     {
+        _parserPool = parserPool;
         _context = context;
         _fileSystem = fileSystem;
         _embeddingProvider = embeddingProvider;
@@ -104,6 +175,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _connectionStore = connectionStore;
         _connectorFactory = connectorFactory;
         _lifecycle = lifecycle;
+        _uploadSettings = uploadSettings;
         _logger = logger;
     }
 
@@ -150,16 +222,21 @@ public class IngestionPipeline : IKnowledgeIngester
         try
         {
             // Handle non-seekable streams (e.g., from MinIO)
+            long maxFileBytes = _uploadSettings.CurrentValue.MaxFileBytes;
             if (!content.CanSeek)
             {
+                // Bounded while copying: a connector stream of unknown length would otherwise be
+                // buffered whole, and hashed, before the size limit could refuse it.
                 var ms = new MemoryStream();
-                await content.CopyToAsync(ms, ct);
+                await CopyBoundedAsync(content, ms, maxFileBytes, options.FileName, ct);
                 ms.Position = 0;
                 workingStream = ms;
                 createdMemoryStream = true;
             }
             else
             {
+                if (content.Length > maxFileBytes)
+                    throw new PermanentIngestionException(FileTooLarge(options.FileName, content.Length, maxFileBytes));
                 workingStream = content;
             }
 
@@ -170,19 +247,63 @@ public class IngestionPipeline : IKnowledgeIngester
             // cannot be read is known to be a permanent failure before any row is touched.
             workingStream.Position = 0;
             var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
-            warnings.AddRange(parsedDocument.Warnings);
 
-            var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
-            if (chunks.Count == 0)
+            // Text that came out of a PDF's glyph mappings can be junk end to end. Indexed, it is a
+            // document that shows as Ready and matches nothing anyone types. Judged before the
+            // cleaning below, which would erase the NUL glyphs it needs to count.
+            string extension = Path.GetExtension(options.FileName ?? "").ToLowerInvariant();
+            UploadSettings limits = _uploadSettings.CurrentValue;
+            var quality = TextQuality.Measure(parsedDocument.Content);
+            if (TextQuality.DescribeGarbled(extension, quality, limits) is { } garbled)
+                throw new PermanentIngestionException($"Could not parse {Path.GetFileName(options.FileName)}: {garbled}");
+            string? partlyGarbled = TextQuality.DescribePartlyGarbled(extension, quality, limits);
+
+            // Every chunk, and any failure message quoting a warning, ends up in a text column,
+            // so the parser's output is made storable once here rather than in each parser.
+            parsedDocument = parsedDocument with
             {
-                throw new PermanentIngestionException(warnings.Count > 0
-                    ? $"No extractable content ({string.Join("; ", warnings)})"
-                    : "No extractable content");
+                Content = StorableText.Clean(parsedDocument.Content),
+                Warnings = parsedDocument.Warnings.Select(StorableText.Clean).ToList(),
+                Metadata = CleanMetadata(parsedDocument.Metadata),
+            };
+            warnings.AddRange(parsedDocument.Warnings);
+            if (partlyGarbled is not null)
+                warnings.Add(partlyGarbled);
+
+            // A re-parse of unchanged bytes that lost pages to exceptions would swap a complete
+            // index for a partial one -- or, when every page threw, fail a document whose old
+            // chunks are still right. Decided before chunking so that second case reaches it too.
+            // The row is read early only then: otherwise a file that cannot be read is still known
+            // to be a permanent failure before the database is touched.
+            parsedDocument.Metadata.TryGetValue(PdfParser.MetadataKeyPageErrors, out var pageErrors);
+            DocumentEntity? existing = null;
+            bool keepPreviousIndex = false;
+            if (pageErrors is not null)
+            {
+                existing = await LoadExistingAsync(documentId, ct);
+                keepPreviousIndex = existing is { ChunkCount: > 0 } &&
+                    string.Equals(existing.ContentHash, contentHash, StringComparison.OrdinalIgnoreCase);
             }
 
-            var existing = await _context.Documents
-                .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == documentId, ct);
+            IReadOnlyList<ChunkInfo> chunks = [];
+            if (!keepPreviousIndex)
+            {
+                chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, options.StrategyIsExplicit, ct);
+
+                // Cleaned again per chunk: a chunker cutting at a token or character offset can split a
+                // surrogate pair, and the half left at either edge breaks both the embedder's Unicode
+                // normalisation and the database write (#595).
+                chunks = chunks.Select(c => c with { Content = StorableText.Clean(c.Content) }).ToList();
+                if (chunks.Count == 0)
+                {
+                    throw new PermanentIngestionException(warnings.Count > 0
+                        ? $"No extractable content ({string.Join("; ", warnings)}) [no_text]"
+                        : "No extractable content [no_text]");
+                }
+            }
+
+            if (pageErrors is null)
+                existing = await LoadExistingAsync(documentId, ct);
 
             if (existing is not null)
             {
@@ -215,7 +336,36 @@ public class IngestionPipeline : IKnowledgeIngester
                 return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
             }
 
+            // The old chunks stay; the document returns to Ready marked incomplete, with its previous
+            // parser and index time, so it reads as what it is and the next reindex tries again.
+            // Changed bytes are indexed partially instead, marked the same way: stale text is worse
+            // than a missing page.
+            if (keepPreviousIndex)
+                return await KeepPreviousIndexAsync(existing!, generation, pageErrors!, warnings, stopwatch, ct);
+
             var metadata = BuildMetadata(options, existing);
+
+            // Parser warnings used to reach only the log, or a failure message. A document that
+            // indexed with half its pages empty now says so where the API and UI can show it.
+            if (_parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension)) is { } usedParser)
+            {
+                metadata[MetadataKeyParser] = usedParser.Name;
+                metadata[MetadataKeyParserVersion] = usedParser.Version.ToString(CultureInfo.InvariantCulture);
+                if (usedParser.OutputSettings is { Length: > 0 } outputSettings)
+                    metadata[MetadataKeyParserSettings] = outputSettings;
+                else
+                    metadata.Remove(MetadataKeyParserSettings);
+            }
+
+            if (warnings.Count > 0)
+                metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
+            else
+                metadata.Remove(MetadataKeyParserWarnings); // a reindex may carry the last run's forward
+
+            if (pageErrors is not null)
+                metadata[MetadataKeyExtractionIncomplete] = pageErrors;
+            else
+                metadata.Remove(MetadataKeyExtractionIncomplete);
 
             var embedSettings = _embeddingSettings.CurrentValue;
             IReadOnlyList<float[]> embeddings = await EmbedChunksAsync(chunks, embedSettings, ct);
@@ -314,6 +464,50 @@ public class IngestionPipeline : IKnowledgeIngester
         }
     }
 
+    private Task<DocumentEntity?> LoadExistingAsync(Guid documentId, CancellationToken ct) =>
+        _context.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.Id == documentId, ct);
+
+    private async Task<IngestionResult> KeepPreviousIndexAsync(
+        DocumentEntity existing, int generation, string pageErrors, List<string> warnings, Stopwatch stopwatch,
+        CancellationToken ct)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        if ((await DocumentLifecycle.CompleteAsync(_context, existing.Id, generation, ct)).Count == 0)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return Superseded(existing.Id, stopwatch, "Document was re-uploaded during ingestion");
+        }
+
+        // Completing marks the document freshly indexed. It was not: the chunks are the old ones,
+        // so the old index time stands, and the failure is recorded where the API shows it and
+        // where reindex looks for documents to retry.
+        var metadata = new Dictionary<string, string>(existing.Metadata)
+        {
+            [MetadataKeyExtractionIncomplete] = pageErrors,
+            [MetadataKeyParserWarnings] = TruncateWarnings(
+                [.. warnings, $"{pageErrors} page(s) failed to extract, so the previous index was kept"]),
+        };
+        await _context.Documents
+            // Generation 0 means any, as DocumentLifecycle.CompleteAsync reads it.
+            .Where(d => d.Id == existing.Id && (generation == 0 || d.Generation == generation))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(d => d.Metadata, metadata)
+                .SetProperty(d => d.LastIndexedAt, existing.LastIndexedAt), ct);
+
+        await transaction.CommitAsync(CancellationToken.None);
+        await _lifecycle.NotifyAsync(existing.Id, CancellationToken.None);
+
+        _logger.LogWarning(
+            "ReindexKeptPreviousIndex {DocumentId}: {PageErrors} page(s) failed to extract; its {ChunkCount} existing chunks were kept",
+            existing.Id, pageErrors, existing.ChunkCount);
+
+        return new IngestionResult(
+            DocumentId: existing.Id.ToString(),
+            ChunkCount: existing.ChunkCount,
+            Duration: stopwatch.Elapsed,
+            Warnings: [.. warnings, $"{pageErrors} page(s) failed to extract, so the previous index was kept"]);
+    }
+
     private static IngestionResult Superseded(Guid documentId, Stopwatch stopwatch, string reason) =>
         new(DocumentId: documentId.ToString(), ChunkCount: 0, Duration: stopwatch.Elapsed, Warnings: [reason]);
 
@@ -329,7 +523,12 @@ public class IngestionPipeline : IKnowledgeIngester
         // DocumentAware actually ran — breaking reindex-detection and misleading consumers.
         metadata[MetadataKeyChunkingStrategy] = IngestionPipelineStrategyResolver.Resolve(
             fallbackStrategy: options.Strategy.ToString(),
-            fileName: options.FileName);
+            fileName: options.FileName,
+            strategyIsExplicit: options.StrategyIsExplicit);
+        if (options.StrategyIsExplicit)
+            metadata[MetadataKeyStrategyExplicit] = "true";
+        else
+            metadata.Remove(MetadataKeyStrategyExplicit);
         metadata[MetadataKeyChunkingMaxSize] = chunkSettings.MaxChunkSize.ToString();
         metadata[MetadataKeyChunkingOverlap] = chunkSettings.Overlap.ToString();
         metadata[MetadataKeyEmbeddingProvider] = embedSettings.Provider;
@@ -608,11 +807,71 @@ public class IngestionPipeline : IKnowledgeIngester
         if (parser == null)
             throw new PermanentIngestionException($"Unsupported file type: {extension}");
 
+        string? mismatch = await SniffMismatchAsync(content, extension, ct);
+        if (mismatch is not null)
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: {mismatch}");
+
+        UploadSettings limits = _uploadSettings.CurrentValue;
+        string? tooLarge = ParseLimits.CheckInput(content, extension, limits);
+        if (tooLarge is not null)
+            throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {tooLarge}");
+
+        var timeout = TimeSpan.FromSeconds(Math.Max(1, limits.ParseTimeoutSeconds));
+        ParsedDocument parsed = limits.IsolateParsers && _parserPool is not null && _parserPool.CanRun(parser)
+            ? await _parserPool.ParseAsync(parser, BufferOf(content), fileName, limits, timeout, ct)
+            : await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct, _logger);
+
+        if (parsed.Content.Length > limits.MaxExtractedCharacters)
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: it yielded {parsed.Content.Length:N0} characters, " +
+                $"over the {limits.MaxExtractedCharacters:N0} limit [output_too_large]");
+
+        return parsed;
+    }
+
+    /// <summary>The bytes from the stream's position on, without a copy when it is already a MemoryStream.</summary>
+    private static ReadOnlyMemory<byte> BufferOf(Stream content)
+    {
+        if (content is MemoryStream memory && memory.TryGetBuffer(out ArraySegment<byte> buffer))
+            return buffer.AsMemory((int)memory.Position, (int)(memory.Length - memory.Position));
+
+        using var copy = new MemoryStream();
+        content.CopyTo(copy);
+        return copy.ToArray();
+    }
+
+    /// <summary>
+    /// Runs the parser on the thread pool and stops waiting for it at the deadline.
+    /// <para>
+    /// The parsers are synchronous underneath and do not all observe the token: PdfPig stuck in a
+    /// malformed content stream never checks it. The abandoned parse keeps its thread until it
+    /// returns, but the document fails with <c>parse_timeout</c> instead of sitting in Processing
+    /// for good. Cancellation by the caller still surfaces as cancellation.
+    /// </para>
+    /// </summary>
+    internal static async Task<ParsedDocument> ParseWithDeadlineAsync(
+        IDocumentParser parser, Stream content, string fileName, TimeSpan timeout, CancellationToken ct,
+        ILogger? logger = null)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(timeout);
+
+        Task<ParsedDocument> parse = Task.Run(() => parser.ParseAsync(content, fileName, deadline.Token), deadline.Token);
         try
         {
-            return await parser.ParseAsync(content, fileName, ct);
+            return await parse.WaitAsync(timeout, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested
+                                   && (ex is TimeoutException || (ex is OperationCanceledException && deadline.IsCancellationRequested)))
+        {
+            if (!parse.IsCompleted)
+                TrackAbandonedParse(parse, parser, fileName, timeout, logger);
+
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: parsing did not finish within {timeout.TotalSeconds:0} seconds [parse_timeout]", ex);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not PermanentIngestionException)
         {
             // The file is already in memory, so nothing here is waiting on a network: a parser
             // that throws has met content it cannot read, and will meet it again on every retry.
@@ -620,16 +879,89 @@ public class IngestionPipeline : IKnowledgeIngester
         }
     }
 
+    private static int s_abandonedParses;
+
+    /// <summary>Parses that outran their deadline and are still running on a thread-pool thread.</summary>
+    internal static int AbandonedParses => Volatile.Read(ref s_abandonedParses);
+
+    /// <summary>
+    /// .NET cannot stop a thread, so a parser that ignores its token runs on after the deadline.
+    /// Each one is counted and logged as an error, so an operator can see them pile up; the
+    /// caller then disposes the stream, which ends any parser still reading it. Real isolation
+    /// needs a separate process.
+    /// </summary>
+    private static void TrackAbandonedParse(
+        Task<ParsedDocument> parse, IDocumentParser parser, string fileName, TimeSpan timeout, ILogger? logger)
+    {
+        int running = Interlocked.Increment(ref s_abandonedParses);
+        logger?.LogError(
+            "ParseAbandoned {Parser} on {FileName} after {TimeoutSeconds} s; {Running} abandoned parse(s) still running",
+            parser.GetType().Name, LogSanitizer.Sanitize(Path.GetFileName(fileName)), timeout.TotalSeconds, running);
+
+        _ = parse.ContinueWith(t =>
+        {
+            _ = t.Exception; // observed, so a late failure is not reported as unobserved
+            Interlocked.Decrement(ref s_abandonedParses);
+        }, TaskScheduler.Default);
+    }
+
+    internal static async Task CopyBoundedAsync(
+        Stream source, Stream destination, long maxBytes, string? fileName, CancellationToken ct)
+    {
+        byte[] buffer = new byte[81920];
+        long total = 0;
+        int read;
+        while ((read = await source.ReadAsync(buffer, ct)) > 0)
+        {
+            total += read;
+            if (total > maxBytes)
+                throw new PermanentIngestionException(FileTooLarge(fileName, total, maxBytes));
+            await destination.WriteAsync(buffer.AsMemory(0, read), ct);
+        }
+    }
+
+    private static string FileTooLarge(string? fileName, long bytes, long maxBytes) =>
+        $"Could not parse {Path.GetFileName(fileName)}: the file is at least {bytes / (1024 * 1024)} MB, " +
+        $"over the {maxBytes / (1024 * 1024)} MB limit [file_too_large]";
+
+    /// <summary>
+    /// Parser metadata (a PDF's title, author) is copied into every chunk's JSONB metadata, which
+    /// rejects NUL just as text columns do.
+    /// </summary>
+    private static Dictionary<string, string> CleanMetadata(Dictionary<string, string> metadata)
+    {
+        var cleaned = new Dictionary<string, string>(metadata.Count);
+        foreach (var (key, value) in metadata)
+            cleaned[StorableText.Clean(key)] = StorableText.Clean(value);
+        return cleaned;
+    }
+
+    /// <summary>
+    /// Reads the leading bytes, rewinds, and reports whether they contradict the extension.
+    /// The caller has already buffered the content, so the stream is seekable here.
+    /// </summary>
+    private static async Task<string?> SniffMismatchAsync(Stream content, string extension, CancellationToken ct)
+    {
+        long start = content.Position;
+        byte[] head = new byte[ContentSniffer.HeaderLength];
+        int read = await content.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
+        content.Position = start;
+
+        return ContentSniffer.DescribeMismatch(head.AsSpan(0, read), extension);
+    }
+
     private async Task<IReadOnlyList<ChunkInfo>> ChunkDocumentAsync(
         ParsedDocument parsedDocument,
         ChunkingStrategy strategyType,
         string? fileName,
+        bool strategyIsExplicit,
         CancellationToken ct)
     {
         ChunkingSettings settings = _chunkingSettings.CurrentValue;
         string strategyName = IngestionPipelineStrategyResolver.Resolve(
             fallbackStrategy: strategyType.ToString(),
-            fileName: fileName);
+            fileName: fileName,
+            strategyIsExplicit: strategyIsExplicit);
 
         IChunkingStrategy? strategy = _chunkingStrategies.FirstOrDefault(s =>
             s.Name.Equals(strategyName, StringComparison.OrdinalIgnoreCase));
@@ -665,16 +997,27 @@ internal static class IngestionPipelineStrategyResolver
 {
     private static readonly HashSet<string> MarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".md", ".markdown", ".mdx"
+        ".md", ".markdown", ".mdx",
     };
 
-    public static string Resolve(string fallbackStrategy, string? fileName)
+    /// <summary>
+    /// Formats whose parsers write Markdown -- headings, tables, slide sections (#597, #599) --
+    /// which the configured Semantic chunker re-joins with spaces, flattening the tables. Routed
+    /// to the heading-aware chunker unless the caller chose a strategy themselves (#633).
+    /// </summary>
+    private static readonly HashSet<string> ParsedMarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".docx", ".pptx", ".html", ".htm", ".eml", ".msg", ".epub",
+    };
+
+    public static string Resolve(string fallbackStrategy, string? fileName, bool strategyIsExplicit = false)
     {
         // A record is markdown too, but its shape is the reason it was given this strategy.
         if (IsContentPinned(fallbackStrategy)) return fallbackStrategy;
         if (string.IsNullOrEmpty(fileName)) return fallbackStrategy;
         string ext = System.IO.Path.GetExtension(fileName);
-        return MarkdownExtensions.Contains(ext) ? "DocumentAware" : fallbackStrategy;
+        if (MarkdownExtensions.Contains(ext)) return "DocumentAware";
+        return ParsedMarkdownExtensions.Contains(ext) && !strategyIsExplicit ? "DocumentAware" : fallbackStrategy;
     }
 
     /// <summary>

@@ -12,6 +12,8 @@ internal static class EvalEntryPoint
 {
     public static async Task<int> Main(string[] args)
     {
+        // First, before anything touches Regex; the hosted Connapse instance runs in this process.
+        Connapse.Core.Utilities.RegexTimeout.ApplyProcessDefault();
         CliArgs cli = CliArgs.Parse(args);
         using CancellationTokenSource cts = new();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };

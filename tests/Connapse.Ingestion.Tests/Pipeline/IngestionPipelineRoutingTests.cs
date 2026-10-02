@@ -12,7 +12,14 @@ public class IngestionPipelineRoutingTests
     [InlineData("docs.MDX", "DocumentAware")]
     [InlineData("notes.MD", "DocumentAware")]
     [InlineData("file.txt", "Recursive")]
-    [InlineData("file.pdf", "Recursive")]
+    [InlineData("file.pdf", "DocumentAware")]
+    [InlineData("report.DOCX", "DocumentAware")]
+    [InlineData("deck.pptx", "DocumentAware")]
+    [InlineData("page.html", "DocumentAware")]
+    [InlineData("page.HTM", "DocumentAware")]
+    [InlineData("mail.eml", "DocumentAware")]
+    [InlineData("mail.msg", "DocumentAware")]
+    [InlineData("data.csv", "Recursive")]
     [InlineData(null, "Recursive")]
     [InlineData("", "Recursive")]
     public void ResolveStrategyName_RoutesByExtension(string? fileName, string expected)
@@ -22,6 +29,17 @@ public class IngestionPipelineRoutingTests
             fileName: fileName);
 
         actual.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("file.pdf", "Semantic")]
+    [InlineData("deck.pptx", "Semantic")]
+    [InlineData("notes.md", "DocumentAware")]
+    public void Resolve_ExplicitStrategy_IsHonouredForParsedMarkdownFormats(string fileName, string expected)
+    {
+        // A caller who picked a strategy for a PDF keeps it; .md has always gone to DocumentAware.
+        IngestionPipelineStrategyResolver.Resolve("Semantic", fileName, strategyIsExplicit: true)
+            .Should().Be(expected);
     }
 
     [Fact]

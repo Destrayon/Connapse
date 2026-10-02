@@ -166,6 +166,20 @@ public class UploadServiceTests
         await _folderStore.Received(1).CreateAsync(ContainerId, "/docs/reports/", Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("FixedSize", true)]
+    public async Task UploadAsync_MarksOnlyACallersChosenStrategyAsExplicit(string? strategy, bool expected)
+    {
+        // #633: PDF, DOCX and PPTX go to the heading-aware chunker unless the caller chose.
+        var result = await _sut.UploadAsync(MakeRequest(strategy: strategy));
+
+        result.Success.Should().BeTrue();
+        await _ingestionQueue.Received(1).EnqueueAsync(
+            Arg.Is<IngestionJob>(j => j.Options.StrategyIsExplicit == expected),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task UploadAsync_DefaultsToSemanticStrategy()
     {

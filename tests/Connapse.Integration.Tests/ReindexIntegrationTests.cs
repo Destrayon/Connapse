@@ -88,6 +88,20 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(-5, null)]
+    [InlineData(null, "not-a-document-id")]
+    public async Task Reindex_InvalidCapOrCursor_IsRejected(int? maxDocuments, string? continueAfter)
+    {
+        // #627: a non-positive cap used to mean "no cap", the opposite of what was asked for.
+        var response = await _fixture.AdminClient.PostAsJsonAsync(
+            $"/api/containers/{_containerId}/reindex",
+            new { MaxDocuments = maxDocuments, ContinueAfter = continueAfter });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     [Fact]
     public async Task Reindex_ForceMode_ReprocessesAllDocuments()
     {

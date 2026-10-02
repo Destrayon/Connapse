@@ -114,7 +114,15 @@ public class IngestionPipelineTests
             _connectionStore,
             _connectorFactory,
             Substitute.For<IDocumentLifecycle>(),
+            UploadDefaults(),
             _logger);
+
+    private static IOptionsMonitor<UploadSettings> UploadDefaults()
+    {
+        var monitor = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        monitor.CurrentValue.Returns(new UploadSettings());
+        return monitor;
+    }
 
     private static KnowledgeDbContext CreateInMemoryContext()
     {
@@ -153,6 +161,54 @@ public class IngestionPipelineTests
         Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
 
         await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*corrupt*");
+    }
+
+    [Fact]
+    public async Task IngestAsync_GarbledPdfText_ThrowsPermanentWithoutChunking()
+    {
+        _parser.SupportedExtensions.Returns(new HashSet<string> { ".pdf" });
+        _parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ParsedDocument(string.Concat(Enumerable.Repeat(" ", 400)), [], []));
+        using var dbContext = CreateInMemoryContext();
+
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(
+            new MemoryStream("%PDF-1.4\n"u8.ToArray()), TextOptions("scan.pdf"));
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[garbled_text]");
+        await _chunkingStrategy.DidNotReceiveWithAnyArgs().ChunkAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task IngestAsync_NulMappedPdfText_IsJudgedBeforeCleaning()
+    {
+        _parser.SupportedExtensions.Returns(new HashSet<string> { ".pdf" });
+        _parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ParsedDocument(string.Concat(Enumerable.Repeat("\0\0\0a ", 400)), [], []));
+        using var dbContext = CreateInMemoryContext();
+
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(
+            new MemoryStream("%PDF-1.4\n"u8.ToArray()), TextOptions("glyphs.pdf"));
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[garbled_text]");
+    }
+
+    [Fact]
+    public async Task IngestAsync_ParserMetadataWithNul_IsCleanedBeforeChunking()
+    {
+        // A PDF title is copied into every chunk's JSONB metadata, which rejects NUL.
+        _parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ParsedDocument("Readable body text.",
+                new Dictionary<string, string> { ["Title"] = "Annual\0 report \uD835" }, []));
+        _chunkingStrategy.ChunkAsync(Arg.Any<ParsedDocument>(), Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ChunkInfo>());
+        using var dbContext = CreateInMemoryContext();
+
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
+
+        await act.Should().ThrowAsync<PermanentIngestionException>();
+        await _chunkingStrategy.Received().ChunkAsync(
+            Arg.Is<ParsedDocument>(d => d.Metadata["Title"] == "Annual report �"),
+            Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

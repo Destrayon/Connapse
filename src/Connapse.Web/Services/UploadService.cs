@@ -27,6 +27,9 @@ public class UploadService(
         [".xml"] = "application/xml",
         [".html"] = "text/html",
         [".htm"] = "text/html",
+        [".eml"] = "message/rfc822",
+        [".msg"] = "application/vnd.ms-outlook",
+        [".epub"] = "application/epub+zip",
     };
 
     public async Task<UploadResult> UploadAsync(UploadRequest request, CancellationToken ct = default)
@@ -174,9 +177,13 @@ public class UploadService(
 
         // Parse strategy
         var strategy = ChunkingStrategy.Semantic;
+        bool strategyIsExplicit = false;
         if (request.Strategy is not null &&
             Enum.TryParse<ChunkingStrategy>(request.Strategy, true, out var parsed))
+        {
             strategy = parsed;
+            strategyIsExplicit = true;
+        }
 
         // Build and enqueue ingestion job with the current generation
         var job = new IngestionJob(
@@ -193,7 +200,10 @@ public class UploadService(
                     ["OriginalFileName"] = request.FileName,
                     ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
                     ["IngestedVia"] = request.IngestedVia
-                }),
+                })
+            {
+                StrategyIsExplicit = strategyIsExplicit,
+            },
             BatchId: batchId);
 
         string? jobId = await ingestionQueue.EnqueueAsync(job, ct);

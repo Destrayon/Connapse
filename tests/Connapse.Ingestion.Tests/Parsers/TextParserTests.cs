@@ -178,4 +178,98 @@ public class TextParserTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    // The same sentences extract-v1's generated-encodings dataset uses (#594).
+    private const string Sentence = "Encoding check: café, naïve, Größe and 日本語 must survive.";
+    private const string LatinSentence = "Encoding check: café, naïve, Größe must survive.";
+
+    public static TheoryData<string, byte[], string, string> Encodings() => new()
+    {
+        { "utf8", Encoding.UTF8.GetBytes(Sentence), Sentence, "utf-8" },
+        { "utf8-bom", [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(Sentence)], Sentence, "utf-8" },
+        { "utf16le-bom", [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(Sentence)], Sentence, "utf-16" },
+        { "utf16le", Encoding.Unicode.GetBytes(Sentence), Sentence, "utf-16" },
+        { "utf16be", Encoding.BigEndianUnicode.GetBytes(Sentence), Sentence, "utf-16BE" },
+        { "utf32le-bom", [.. Encoding.UTF32.GetPreamble(), .. Encoding.UTF32.GetBytes(Sentence)], Sentence, "utf-32" },
+        { "latin1", Encoding.Latin1.GetBytes(LatinSentence), LatinSentence, "" },
+    };
+
+    [Theory]
+    [MemberData(nameof(Encodings))]
+    public async Task ParseAsync_Encoding_DecodesTheTextExactly(string label, byte[] bytes, string expected, string webName)
+    {
+        using var stream = new MemoryStream(bytes);
+
+        var result = await _parser.ParseAsync(stream, "encoded.txt");
+
+        result.Content.Should().Be(expected, $"the {label} file must decode without garbling");
+        result.Content.Should().NotContain("�");
+        if (webName.Length > 0)
+            result.Metadata["Encoding"].Should().Be(webName);
+    }
+
+    [Fact]
+    public async Task ParseAsync_Windows1252SmartQuotes_FallBackToWindows1252()
+    {
+        // 0x93/0x94 are curly quotes in Windows-1252 and control characters in Latin-1.
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        const string text = "He said “fin” and left — café closed.";
+        using var stream = new MemoryStream(Encoding.GetEncoding(1252).GetBytes(text));
+
+        var result = await _parser.ParseAsync(stream, "quotes.txt");
+
+        result.Content.Should().Be(text);
+    }
+
+    [Fact]
+    public async Task ParseAsync_CyrillicWindows1251_IsDetected()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        const string text = "Съешь же ещё этих мягких французских булок, да выпей чаю. "
+            + "Широкая электрификация южных губерний даст мощный толчок подъёму сельского хозяйства.";
+        using var stream = new MemoryStream(Encoding.GetEncoding(1251).GetBytes(text));
+
+        var result = await _parser.ParseAsync(stream, "russian.txt");
+
+        result.Content.Should().Be(text);
+        result.Metadata["Encoding"].Should().Be("windows-1251");
+    }
+
+    [Theory]
+    [InlineData("A\0BC")]
+    [InlineData("2026-10-01 job=7 status=ok\0\n2026-10-01 job=8 status=ok\0\n2026-10-01 job=9 status=ok\0\n")]
+    public async Task ParseAsync_Utf8WithAFewNuls_IsNotMistakenForUtf16(string text)
+    {
+        // Valid UTF-8 may contain NUL; a few on one byte parity are not UTF-16 evidence.
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+
+        var result = await _parser.ParseAsync(stream, "log.txt");
+
+        result.Metadata["Encoding"].Should().Be("utf-8");
+        result.Content.Should().Be(text.Replace("\0", ""));
+    }
+
+    [Fact]
+    public async Task ParseAsync_PipelineBufferedStream_IsReadFromItsPosition()
+    {
+        // The pipeline hands over an expandable MemoryStream; its buffer is read in place.
+        var stream = new MemoryStream();
+        stream.Write(Encoding.Latin1.GetBytes(LatinSentence));
+        stream.Position = 0;
+
+        var result = await _parser.ParseAsync(stream, "buffered.txt");
+
+        result.Content.Should().Be(LatinSentence);
+    }
+
+    [Fact]
+    public async Task ParseAsync_StrayNulCharacters_AreRemoved()
+    {
+        // PostgreSQL text columns reject NUL, which left documents stuck in Processing.
+        using var stream = new MemoryStream("before\0after"u8.ToArray());
+
+        var result = await _parser.ParseAsync(stream, "nul.txt");
+
+        result.Content.Should().Be("beforeafter");
+    }
 }

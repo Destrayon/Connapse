@@ -8,6 +8,7 @@
     <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
     <ProjectReference Include="..\Connapse.Identity\Connapse.Identity.csproj" />
     <ProjectReference Include="..\Connapse.Background\Connapse.Background.csproj" />
+    <ProjectReference Include="..\Connapse.ParserHost\Connapse.ParserHost.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -32,5 +33,14 @@
     <InternalsVisibleTo Include="Connapse.Core.Tests" />
     <InternalsVisibleTo Include="Connapse.Integration.Tests" />
   </ItemGroup>
+
+  <!--
+    Connapse.ParserHost runs from this app's folder (#624). The build copies its deps.json here but
+    publish does not, and without it the host cannot find the native libraries under runtimes/
+    (PDFium, ONNX Runtime, SkiaSharp), so OCR fails in a published deployment (#598).
+  -->
+  <Target Name="PublishParserHostDeps" AfterTargets="Publish">
+    <Copy SourceFiles="$(OutDir)Connapse.ParserHost.deps.json" DestinationFolder="$(PublishDir)" />
+  </Target>
 
 </Project>
