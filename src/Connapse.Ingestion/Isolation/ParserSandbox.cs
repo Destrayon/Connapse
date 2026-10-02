@@ -69,7 +69,17 @@ public static class ParserSandbox
     /// Confines this process as far as the kernel allows, and says how: "landlock (ABI 7)", or why
     /// not ("none: ..."). Called once, before the first request is read.
     /// </summary>
+    /// <summary>How this process was confined, once <see cref="Apply"/> has run.</summary>
+    public static string? Current { get; private set; }
+
     public static (bool Applied, string Description) Apply(ParserSandboxMode mode)
+    {
+        var result = ApplyCore(mode);
+        Current = result.Description;
+        return result;
+    }
+
+    private static (bool Applied, string Description) ApplyCore(ParserSandboxMode mode)
     {
         if (mode == ParserSandboxMode.Off)
             return (false, "none: turned off");

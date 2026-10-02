@@ -263,6 +263,117 @@ public sealed class ParserProcessPoolTests : IDisposable
         pool.MemoryLimitMb(new UploadSettings { ParserMemoryLimitMb = 256 }).Should().Be(256, "a lower setting is kept");
     }
 
+    /// <summary>
+    /// The sandbox exists only on Linux (#641); elsewhere these return early. CI runs on Linux, where
+    /// a host that is not confined fails the first test rather than letting the rest pass vacuously.
+    /// </summary>
+    private async Task<bool> ConfinedAsync()
+    {
+        if (!OperatingSystem.IsLinux())
+            return false;
+
+        string sandbox = (await ParseAsync(_pool, "Test.Sandbox")).Content;
+        sandbox.Should().StartWith("landlock", "parser hosts confine themselves on Linux");
+        return true;
+    }
+
+    [Fact]
+    public async Task Sandbox_HostOnLinux_IsConfinedByLandlock()
+    {
+        if (!await ConfinedAsync())
+            return;
+    }
+
+    [Fact]
+    public async Task Sandbox_HostCannotReadSettingsFilesBesideItsAssemblies()
+    {
+        if (!await ConfinedAsync())
+            return;
+
+        // The app folder holds appsettings*.json, and beside them the generated signing key.
+        string settings = Path.Combine(AppContext.BaseDirectory, "appsettings.SandboxProbe.json");
+        await File.WriteAllTextAsync(settings, """{ "ConnectionStrings": { "Db": "secret" } }""");
+        try
+        {
+            (await ParseAsync(_pool, "Test.ReadFile", settings)).Content.Should().StartWith("denied");
+        }
+        finally
+        {
+            File.Delete(settings);
+        }
+    }
+
+    [Fact]
+    public async Task Sandbox_HostCannotReadTheSharedTempFolder()
+    {
+        if (!await ConfinedAsync())
+            return;
+
+        // Where ASP.NET buffers uploads in flight.
+        string upload = Path.Combine(Path.GetTempPath(), $"sandbox-probe-{Guid.NewGuid():N}.tmp");
+        await File.WriteAllTextAsync(upload, "another user's upload");
+        try
+        {
+            (await ParseAsync(_pool, "Test.ReadFile", upload)).Content.Should().StartWith("denied");
+        }
+        finally
+        {
+            File.Delete(upload);
+        }
+    }
+
+    [Fact]
+    public async Task Sandbox_HostCannotOpenNetworkConnections()
+    {
+        if (!await ConfinedAsync())
+            return;
+
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            (await ParseAsync(_pool, "Test.Connect", $"127.0.0.1:{port}")).Content.Should().StartWith("denied");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Sandbox_HostStillReadsItsOwnCodeAndModels()
+    {
+        if (!await ConfinedAsync())
+            return;
+
+        string model = Path.Combine(AppContext.BaseDirectory, "models", "v5", "ppocrv5_latin_dict.txt");
+        (await ParseAsync(_pool, "Test.ReadFile", model)).Content.Should().StartWith("read");
+    }
+
+    [Fact]
+    public async Task Sandbox_ConfinedHost_StillOcrsAScan()
+    {
+        // OCR loads ONNX Runtime, PDFium and Skia after the sandbox is in place: the real test that
+        // the allow-list holds everything they need, and that their telemetry is off.
+        byte[] scan = TestScanPdf.Build(pages: new TestPdf.Page([new(72, 700, "Quarterly harbour report")]));
+
+        var result = await _pool.ParseAsync(new PdfParser(), scan, "scan.pdf", Settings, TimeSpan.FromSeconds(60), CancellationToken.None);
+
+        result.Content.Should().Contain("harbour report");
+    }
+
+    [Fact]
+    public async Task Sandbox_RequiredWhereUnavailable_RefusesToParse()
+    {
+        if (OperatingSystem.IsLinux())
+            return;
+
+        var act = () => ParseAsync(_pool, nameof(TextParser), settings: Settings with { ParserSandbox = "Required" });
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[sandbox_unavailable]*");
+    }
+
     [Fact]
     public void CanRun_OnlyConnapsesOwnParsersWhenTheHostIsDeployed()
     {

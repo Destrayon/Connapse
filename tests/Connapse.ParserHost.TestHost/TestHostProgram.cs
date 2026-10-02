@@ -67,6 +67,33 @@ internal static class TestHostProgram
             }),
             new Behaving("Test.Environment", content => new ParsedDocument(
                 Environment.GetEnvironmentVariable(System.Text.Encoding.UTF8.GetString(content)) ?? "(unset)", [], [])),
+            new Behaving("Test.Sandbox", _ => new ParsedDocument(ParserSandbox.Current ?? "(not applied)", [], [])),
+            new Behaving("Test.ReadFile", content =>
+            {
+                string path = System.Text.Encoding.UTF8.GetString(content);
+                try
+                {
+                    return new ParsedDocument($"read {File.ReadAllBytes(path).Length} bytes", [], []);
+                }
+                catch (Exception ex)
+                {
+                    return new ParsedDocument($"denied: {ex.GetType().Name}", [], []);
+                }
+            }),
+            new Behaving("Test.Connect", content =>
+            {
+                string[] target = System.Text.Encoding.UTF8.GetString(content).Split(':');
+                try
+                {
+                    using var client = new System.Net.Sockets.TcpClient();
+                    client.Connect(target[0], int.Parse(target[1]));
+                    return new ParsedDocument("connected", [], []);
+                }
+                catch (Exception ex)
+                {
+                    return new ParsedDocument($"denied: {ex.GetType().Name}", [], []);
+                }
+            }),
             new Behaving("Test.Huge", _ => new ParsedDocument(new string('x', 100_000), [], [])),
             new Behaving("Test.SlowProcessId", _ =>
             {
