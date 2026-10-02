@@ -27,15 +27,23 @@ internal static class DocxMarkdown
         var output = new StringBuilder();
 
         // Headers and footers repeat on every page; once each is enough to make them searchable.
-        AppendDistinct(output, main.HeaderParts.Select(p => p.Header), styles, ct);
+        // Only the ones a section uses: a document can keep parts no page shows any more, and
+        // their stale text must not become searchable.
+        var headerIds = body.Descendants<HeaderReference>().Select(r => r.Id?.Value).ToHashSet();
+        var footerIds = body.Descendants<FooterReference>().Select(r => r.Id?.Value).ToHashSet();
+        AppendDistinct(output, main.HeaderParts.Where(p => headerIds.Contains(main.GetIdOfPart(p))).Select(p => p.Header), styles, ct);
 
         AppendBlocks(output, body.ChildElements, styles, ct);
 
-        AppendDistinct(output, main.FooterParts.Select(p => p.Footer), styles, ct);
+        AppendDistinct(output, main.FooterParts.Where(p => footerIds.Contains(main.GetIdOfPart(p))).Select(p => p.Footer), styles, ct);
+
+        // Likewise only notes the text cites.
+        var footnoteIds = body.Descendants<FootnoteReference>().Select(r => r.Id?.Value).ToHashSet();
+        var endnoteIds = body.Descendants<EndnoteReference>().Select(r => r.Id?.Value).ToHashSet();
         AppendNotes(output, "Footnotes", main.FootnotesPart?.Footnotes?.Elements<Footnote>()
-            .Where(n => n.Id?.Value > 0).Select(n => (OpenXmlElement)n), styles, ct);
+            .Where(n => footnoteIds.Contains(n.Id?.Value)).Select(n => (OpenXmlElement)n), styles, ct);
         AppendNotes(output, "Endnotes", main.EndnotesPart?.Endnotes?.Elements<Endnote>()
-            .Where(n => n.Id?.Value > 0).Select(n => (OpenXmlElement)n), styles, ct);
+            .Where(n => endnoteIds.Contains(n.Id?.Value)).Select(n => (OpenXmlElement)n), styles, ct);
 
         return output.ToString().Trim();
     }
@@ -63,6 +71,13 @@ internal static class DocxMarkdown
 
                 case SdtBlock sdt when sdt.SdtContentBlock is { } content:
                     AppendBlocks(output, content.ChildElements, styles, ct);
+                    break;
+
+                // Any other block-level wrapper -- custom XML, a tracked move or insertion around
+                // whole paragraphs -- is entered rather than skipped, so its text is not lost.
+                case OpenXmlCompositeElement wrapper
+                    when wrapper.Descendants<Paragraph>().Any() || wrapper.Descendants<Table>().Any():
+                    AppendBlocks(output, wrapper.ChildElements, styles, ct);
                     break;
             }
         }
@@ -135,8 +150,14 @@ internal static class DocxMarkdown
             {
                 switch (child)
                 {
-                    case AlternateContentFallback:
-                        continue;
+                    case AlternateContent alternate:
+                        // One branch, never both: the Choice, unless it holds no text a reader
+                        // can see, in which case the Fallback is the only copy there is.
+                        string chosen = string.Concat(alternate.Elements<AlternateContentChoice>().Take(1).Select(VisibleText));
+                        builder.Append(chosen.Trim().Length > 0
+                            ? chosen
+                            : string.Concat(alternate.Elements<AlternateContentFallback>().Select(VisibleText)));
+                        break;
                     case Text text:
                         builder.Append(text.Text);
                         break;
@@ -162,11 +183,17 @@ internal static class DocxMarkdown
     /// <summary>Each table once, as a Markdown table; its first row is the header Markdown needs.</summary>
     private static string TableMarkdown(Table table)
     {
+        // Rows are laid against the grid: a row starting at a later column (gridBefore) is padded
+        // in front, so each value stays under its own header. Empty rows are kept, or a later
+        // data row would be promoted to the header Markdown takes from the first.
         var rows = table.Elements<TableRow>()
-            .Select(row => row.Elements<TableCell>().SelectMany(CellTexts).ToList())
-            .Where(cells => cells.Any(c => c.Length > 0))
+            .Select(row =>
+            {
+                int before = row.TableRowProperties?.GetFirstChild<GridBefore>()?.Val?.Value ?? 0;
+                return Enumerable.Repeat(string.Empty, before).Concat(row.Elements<TableCell>().SelectMany(CellTexts)).ToList();
+            })
             .ToList();
-        if (rows.Count == 0)
+        if (rows.Count == 0 || rows.All(cells => cells.All(c => c.Length == 0)))
             return string.Empty;
 
         int columns = rows.Max(r => r.Count);
