@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Parsers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -314,6 +315,10 @@ public sealed class ParserProcessPool : IDisposable
         start.Environment["DOTNET_gcServer"] = "0";
         start.Environment[ParentProcessIdVariable] = (parentProcessId ?? Environment.ProcessId).ToString();
         start.Environment[ParserSandbox.ModeVariable] = sandboxMode.ToString();
+
+        // ONNX Runtime's Linux build sends telemetry to Microsoft unless this is set before it
+        // loads (see PdfOcr.DisableOnnxRuntimeTelemetry).
+        start.Environment[PdfOcr.TelemetryVariable] = "1";
 
         // A temp folder of the host's own, the only place the sandbox lets it write: ONNX Runtime
         // writes a log to $TMPDIR and crashes when it cannot. The shared temp folder stays closed,
