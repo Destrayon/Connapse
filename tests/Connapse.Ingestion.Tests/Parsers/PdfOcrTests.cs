@@ -66,6 +66,8 @@ public class PdfOcrTests
         parsed.Content.Should().Contain("First").And.NotContain("Third");
         parsed.Metadata[PdfParser.MetadataKeyOcrPages].Should().Be("1");
         parsed.Warnings.Should().Contain(w => w.Contains("2 page(s)") && w.Contains("OCR limit"));
+        parsed.Metadata[PdfParser.MetadataKeyPageErrors].Should().Be("2",
+            "pages left unread make the extraction incomplete, so a reindex keeps a fuller index and retries");
     }
 
     [Fact]
@@ -79,7 +81,8 @@ public class PdfOcrTests
         int read = int.Parse(parsed.Metadata[PdfParser.MetadataKeyOcrPages]);
         read.Should().BeInRange(1, 9);
         parsed.Content.Should().Contain("Scanned page number 1");
-        parsed.Warnings.Should().Contain(w => w.Contains("parse deadline"));
+        parsed.Warnings.Should().Contain(w => w.Contains("deadline"));
+        parsed.Metadata[PdfParser.MetadataKeyPageErrors].Should().Be((10 - read).ToString());
     }
 
     [Fact]
@@ -94,14 +97,36 @@ public class PdfOcrTests
     }
 
     [Fact]
-    public void RenderDpi_HugePage_IsLoweredToKeepTheBitmapBounded()
+    public void RenderDpi_LargePage_IsLoweredToKeepTheBitmapBounded()
     {
-        // A 100-inch square page at 200 dpi would be a 20,000-pixel bitmap.
-        byte[] poster = TestScanPdf.ImagePdf([(Jpeg: TinyJpeg(), Width: 1, Height: 1)], pageWidth: 7200, pageHeight: 7200);
+        // A 50-inch square page at 200 dpi would be a 10,000-pixel bitmap.
+        byte[] poster = TestScanPdf.ImagePdf([(Jpeg: TinyJpeg(), Width: 1, Height: 1)], pageWidth: 3600, pageHeight: 3600);
 
-        int dpi = PdfOcr.RenderDpi(poster, 0, 200);
+        PdfOcr.RenderDpi(poster, 0, 200).Should().Be(PdfOcr.MaxRenderedSide / 50);
+    }
 
-        dpi.Should().Be(PdfOcr.MaxRenderedSide / 100);
+    [Theory]
+    [InlineData(7200)]
+    [InlineData(72_000)]
+    [InlineData(14_400_000)]
+    public void RenderDpi_PageTooLargeToReadUnderTheCap_IsNotRendered(double side)
+    {
+        // Raising the resolution to a readable floor would break the pixel cap: a 1,000-inch page
+        // at even 36 dpi is 36,000 pixels a side.
+        byte[] poster = TestScanPdf.ImagePdf([(Jpeg: TinyJpeg(), Width: 1, Height: 1)], pageWidth: side, pageHeight: side);
+
+        PdfOcr.RenderDpi(poster, 0, 200).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ParseAsync_PageTooLargeToOcr_IsAnIncompletePageNotARender()
+    {
+        byte[] poster = TestScanPdf.ImagePdf([(Jpeg: TinyJpeg(), Width: 1, Height: 1)], pageWidth: 72_000, pageHeight: 72_000);
+
+        var parsed = await ParseAsync(poster);
+
+        parsed.Warnings.Should().Contain(w => w.Contains("too large to render"));
+        parsed.Metadata[PdfParser.MetadataKeyPageErrors].Should().Be("1");
     }
 
     private static byte[] TinyJpeg()

@@ -55,6 +55,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
         var warnings = new List<string>();
         var metadata = new Dictionary<string, string>();
         UploadSettings settings = limits?.CurrentValue ?? DefaultLimits;
+        var parseClock = Stopwatch.StartNew();
 
         try
         {
@@ -114,7 +115,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
                 }
 
                 if (settings.PdfOcr)
-                    OcrUnreadablePages(pdf, pages, failedPages, settings, metadata, warnings, cancellationToken);
+                    OcrUnreadablePages(pdf, pages, failedPages, settings, parseClock, metadata, warnings, cancellationToken);
 
                 if (failedPages.Count > 0)
                     metadata[MetadataKeyPageErrors] = failedPages.Count.ToString();
@@ -193,9 +194,15 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// Replaces the text of every page that has none, or none worth reading, with what OCR finds on
     /// it, up to the document's OCR budget. A page whose extraction threw counts as having none, and
     /// is no longer a page error once OCR has read it.
+    /// <para>
+    /// A page OCR did not get to -- over the page or time budget, too large to render, failed, or
+    /// with OCR unavailable -- joins <paramref name="incompletePages"/>, the page errors. That marks
+    /// the document's extraction incomplete, so a reindex of unchanged bytes keeps the index it has
+    /// rather than replacing it with less, and a later reindex retries it.
+    /// </para>
     /// </summary>
     private static void OcrUnreadablePages(
-        byte[] pdf, PageText?[] pages, HashSet<int> failedPages, UploadSettings settings,
+        byte[] pdf, PageText?[] pages, HashSet<int> incompletePages, UploadSettings settings, Stopwatch parseClock,
         Dictionary<string, string> metadata, List<string> warnings, CancellationToken ct)
     {
         int budget = Math.Max(0, settings.MaxOcrPagesPerDocument);
@@ -205,8 +212,10 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
         // A page costs seconds, and more on a small server: a long scan that ran OCR into the parse
         // deadline would lose every page, so OCR stops with time to spare and keeps what it read.
+        // Measured from the start of the parse, which extraction has already used part of.
         var timeBudget = TimeSpan.FromSeconds(Math.Max(1, settings.ParseTimeoutSeconds) * OcrShareOfParseTimeout);
         bool outOfTime = false;
+        bool unavailable = false;
 
         for (int i = 1; i <= pages.Length; i++)
         {
@@ -216,9 +225,11 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             if (!unreadable)
                 continue;
 
-            if (read >= budget || (outOfTime = outOfTime || watch.Elapsed >= timeBudget))
+            if (unavailable || read >= budget || (outOfTime = outOfTime || parseClock.Elapsed >= timeBudget))
             {
-                skipped++;
+                if (!unavailable)
+                    skipped++;
+                incompletePages.Add(i);
                 continue;
             }
 
@@ -226,15 +237,20 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             watch.Start();
             try
             {
-                string ocr = PdfOcr.ReadPage(pdf, i - 1, settings.PdfOcrDpi, ct);
+                string? ocr = PdfOcr.ReadPage(pdf, i - 1, settings.PdfOcrDpi, ct);
                 read++;
-                if (!string.IsNullOrWhiteSpace(ocr))
+                if (ocr is null)
+                {
+                    incompletePages.Add(i);
+                    warnings.Add($"Page {i} is too large to render for OCR at a readable resolution.");
+                }
+                else if (!string.IsNullOrWhiteSpace(ocr))
                 {
                     pages[i - 1] = new PageText(ocr, null);
 
                     // The page has text now; a warning that its extraction failed would read as a
                     // page that produced none.
-                    if (failedPages.Remove(i))
+                    if (incompletePages.Remove(i))
                     {
                         string failed = $"Error extracting text from page {i}: ";
                         int at = warnings.FindIndex(w => w.StartsWith(failed, StringComparison.Ordinal));
@@ -252,11 +268,13 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
                 // A deployment without the native libraries, not a bad page: every other page would
                 // fail the same way, so say so once and stop.
                 warnings.Add($"OCR is unavailable in this deployment, so pages without a text layer were not read: {ex.GetBaseException().Message}");
-                break;
+                unavailable = true;
+                incompletePages.Add(i);
             }
             catch (Exception ex)
             {
                 read++;
+                incompletePages.Add(i);
                 warnings.Add($"OCR failed on page {i}: {ex.Message}");
             }
             finally
@@ -274,7 +292,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
         if (skipped > 0)
         {
             warnings.Add(outOfTime
-                ? $"{skipped} page(s) with no readable text were not OCR'd: OCR stopped after {watch.Elapsed.TotalSeconds:0} seconds to finish within the parse deadline."
+                ? $"{skipped} page(s) with no readable text were not OCR'd: OCR stopped {parseClock.Elapsed.TotalSeconds:0} seconds into the parse to finish within its deadline."
                 : $"{skipped} page(s) with no readable text were not OCR'd: the {budget}-page OCR limit per document was reached.");
         }
     }

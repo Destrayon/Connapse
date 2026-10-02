@@ -27,10 +27,16 @@ internal static class PdfOcr
     // parser host there is only one parse at a time anyway.
     private static readonly Lock Gate = new();
 
-    /// <summary>The page's text, one line per recognised text line, or empty when none was found.</summary>
-    public static string ReadPage(byte[] pdf, int pageIndex, int dpi, CancellationToken ct)
+    /// <summary>
+    /// The page's text in reading order, empty when none was found, or null when the page is too
+    /// large to render at a resolution text could be read at.
+    /// </summary>
+    public static string? ReadPage(byte[] pdf, int pageIndex, int dpi, CancellationToken ct)
     {
-        using SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: RenderDpi(pdf, pageIndex, dpi)));
+        if (RenderDpi(pdf, pageIndex, dpi) is not int renderDpi)
+            return null;
+
+        using SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: renderDpi));
         ct.ThrowIfCancellationRequested();
 
         lock (Gate)
@@ -51,16 +57,26 @@ internal static class PdfOcr
             points.Min(p => p.X), points.Min(p => p.Y), points.Max(p => p.X), points.Max(p => p.Y), block.Text);
     }
 
-    /// <summary>The requested resolution, lowered so the page's longer side stays within <see cref="MaxRenderedSide"/>.</summary>
-    internal static int RenderDpi(byte[] pdf, int pageIndex, int dpi)
+    /// <summary>
+    /// Below this, rendered text is too small to recognise, so a page that only fits the pixel cap
+    /// at a lower resolution is not rendered at all: raising it to this would break the cap.
+    /// </summary>
+    internal const int MinReadableDpi = 50;
+
+    /// <summary>
+    /// The requested resolution, lowered so the page's longer side stays within
+    /// <see cref="MaxRenderedSide"/>; or null for a page that fits only below <see cref="MinReadableDpi"/>.
+    /// </summary>
+    internal static int? RenderDpi(byte[] pdf, int pageIndex, int dpi)
     {
         var size = Conversion.GetPageSize(pdf, pageIndex);
         float longestInches = Math.Max(size.Width, size.Height) / 72f;
-        if (longestInches <= 0)
-            return dpi;
+        if (!float.IsFinite(longestInches) || longestInches <= 0)
+            return null;
 
-        int fitting = (int)(MaxRenderedSide / longestInches);
-        return Math.Clamp(Math.Min(dpi, fitting), 36, Math.Max(36, dpi));
+        int fitting = (int)Math.Min(int.MaxValue, MaxRenderedSide / longestInches);
+        int chosen = Math.Min(Math.Max(1, dpi), fitting);
+        return chosen < MinReadableDpi ? null : chosen;
     }
 
     private static RapidOcr Load()
