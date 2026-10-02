@@ -164,6 +164,48 @@ public class ParserVersionReindexTests(SharedWebAppFixture fixture)
         queue.Jobs.Should().ContainSingle().Which.DocumentId.Should().Be(id.ToString());
     }
 
+    [Fact]
+    public async Task Reindex_StrategyTheCallerChose_IsKeptRatherThanRoutedToDocumentAware()
+    {
+        // #633 routes HTML, PDF and Office files to DocumentAware unless the caller chose a
+        // strategy; that choice must survive a reindex, not only the upload.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid sourceId = await SeedSourceAsync(sp);
+        byte[] html = System.Text.Encoding.UTF8.GetBytes("<html><body><h1>Rates</h1><p>The northern lane costs more in winter.</p></body></html>");
+        var created = await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(
+            new MemoryStream(html),
+            new IngestionOptions(FileName: "rates.html", ContentType: "text/html", Path: $"/pv-{Guid.NewGuid():N}/rates.html",
+                Strategy: ChunkingStrategy.FixedSize)
+            {
+                Owner = OwnerRef.ForSource(sourceId),
+                StrategyIsExplicit = true,
+            });
+        Guid id = Guid.Parse(created.DocumentId);
+
+        var factory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var check = await factory.CreateDbContextAsync())
+        {
+            var doc = await check.Documents.SingleAsync(d => d.Id == id);
+            doc.Metadata[IngestionPipeline.MetadataKeyChunkingStrategy].Should().Be("FixedSize");
+            doc.Metadata[IngestionPipeline.MetadataKeyStrategyExplicit].Should().Be("true");
+        }
+
+        var unchanged = new RecordingIngestionQueue();
+        await using (var ctx = await factory.CreateDbContextAsync())
+            await Reindexer(sp, ctx, unchanged, new HtmlParser()).ReindexAsync(
+                new ReindexOptions { DetectSettingsChanges = true, DocumentIds = [id.ToString()] }, CancellationToken.None);
+        unchanged.Jobs.Should().BeEmpty("the stored strategy is the one the caller asked for, not a stale setting");
+
+        var forced = new RecordingIngestionQueue();
+        await using (var ctx = await factory.CreateDbContextAsync())
+            await Reindexer(sp, ctx, forced, new HtmlParser()).ReindexAsync(
+                new ReindexOptions { Force = true, DocumentIds = [id.ToString()] }, CancellationToken.None);
+        var job = forced.Jobs.Should().ContainSingle().Subject;
+        job.Options.Strategy.Should().Be(ChunkingStrategy.FixedSize);
+        job.Options.StrategyIsExplicit.Should().BeTrue();
+    }
+
     /// <summary>Three text documents indexed before parser versions were recorded (#627).</summary>
     private static async Task<List<Guid>> SeedLegacyTextDocumentsAsync(IServiceProvider sp)
     {
@@ -282,6 +324,53 @@ public class ParserVersionReindexTests(SharedWebAppFixture fixture)
 
         queue.Jobs.Select(j => j.DocumentId).Should().NotContain(ids[0].ToString());
         result.Documents.Should().Contain(d => d.DocumentId == ids[0].ToString() && d.Reason == ReindexReason.AlreadyQueued);
+    }
+
+    [Theory]
+    [InlineData("tables=Ruled", "tables=Off", true)]
+    [InlineData("tables=Ruled", "tables=Ruled", false)]
+    [InlineData(null, "tables=Off", false)]
+    public async Task Reindex_ParserOutputSettingsChanged_ReparsesOnlyWhenTheStoredOnesDiffer(
+        string? stored, string current, bool reparsed)
+    {
+        // A PDF's table mode or OCR changes its text as much as a new parser version. Documents
+        // indexed before the settings were recorded are left to the version bump instead.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid sourceId = await SeedSourceAsync(sp);
+        Guid id = await IngestAsync(sp, sourceId, $"/pv-{Guid.NewGuid():N}/notes.txt", "Notes on the quarterly plan.");
+
+        var factory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var ctx = await factory.CreateDbContextAsync())
+        {
+            var doc = await ctx.Documents.SingleAsync(d => d.Id == id);
+            var metadata = new Dictionary<string, string>(doc.Metadata);
+            if (stored is null)
+                metadata.Remove(IngestionPipeline.MetadataKeyParserSettings);
+            else
+                metadata[IngestionPipeline.MetadataKeyParserSettings] = stored;
+            doc.Metadata = metadata;
+            await ctx.SaveChangesAsync();
+        }
+
+        var queue = new RecordingIngestionQueue();
+        await using (var ctx = await factory.CreateDbContextAsync())
+            await Reindexer(sp, ctx, queue, new WithSettings(new TextParser(), current)).ReindexAsync(
+                new ReindexOptions { DetectSettingsChanges = true, DocumentIds = [id.ToString()] }, CancellationToken.None);
+
+        queue.Jobs.Should().HaveCount(reparsed ? 1 : 0);
+    }
+
+    /// <summary>The same reader, reporting chosen output settings.</summary>
+    private sealed class WithSettings(IDocumentParser inner, string settings) : IDocumentParser
+    {
+        public IReadOnlySet<string> SupportedExtensions => inner.SupportedExtensions;
+        public string Name => inner.Name;
+        public int Version => inner.Version;
+        public string OutputSettings => settings;
+
+        public Task<ParsedDocument> ParseAsync(Stream stream, string fileName, CancellationToken cancellationToken = default) =>
+            inner.ParseAsync(stream, fileName, cancellationToken);
     }
 
     /// <summary>A different parser, by name, for chosen extensions.</summary>

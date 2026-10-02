@@ -42,6 +42,25 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// </summary>
     public int Version => 4;
 
+    /// <summary>
+    /// Text mode, table mode, header and footer removal, and OCR on or off with its resolution.
+    /// Not the OCR page budget or thread count: pages the budget left unread already mark the
+    /// document incomplete, which a reindex retries, and threads do not change the text.
+    /// </summary>
+    public string OutputSettings
+    {
+        get
+        {
+            UploadSettings settings = limits?.CurrentValue ?? DefaultLimits;
+            PdfTableMode tables = Enum.TryParse(settings.PdfTableMode, ignoreCase: true, out PdfTableMode parsed)
+                ? parsed
+                : Enum.Parse<PdfTableMode>(UploadSettings.DefaultPdfTableMode);
+            string ocr = settings.PdfOcr ? $"{settings.PdfOcrDpi}dpi" : "off";
+            return $"text={PdfTextModes.Parse(settings.PdfTextMode)};tables={tables};" +
+                   $"headers={settings.PdfRemoveRepeatedHeadersAndFooters};ocr={ocr}";
+        }
+    }
+
     /// <summary>Parser metadata key: pages whose text came from OCR.</summary>
     public const string MetadataKeyOcrPages = "OcrPages";
 
@@ -122,7 +141,9 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
                 if (settings.PdfRemoveRepeatedHeadersAndFooters)
                 {
-                    if (mode is PdfTextMode.XYCut or PdfTextMode.Docstrum)
+                    // An OCR'd page has lines but no blocks, and block removal skips a document
+                    // with any such page; the line-based removal covers every page.
+                    if (mode is PdfTextMode.XYCut or PdfTextMode.Docstrum && pages.All(p => p is null || p.Blocks is not null))
                         RemoveDecorations(pages);
                     else
                         RemoveRepeatedEdgeLines(pages);

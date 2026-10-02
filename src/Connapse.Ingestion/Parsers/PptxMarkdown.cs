@@ -31,7 +31,7 @@ internal static class PptxMarkdown
             number++;
 
             if (slideId.RelationshipId?.Value is not { } relationshipId ||
-                presentation.GetPartById(relationshipId) is not SlidePart slidePart ||
+                TryPart(presentation, relationshipId) is not SlidePart slidePart ||
                 slidePart.Slide?.CommonSlideData?.ShapeTree is not { } tree)
             {
                 continue;
@@ -167,9 +167,9 @@ internal static class PptxMarkdown
         output.Append('\n');
     }
 
-    private static OpenXmlPart? TryPart(SlidePart slide, string id)
+    private static OpenXmlPart? TryPart(OpenXmlPartContainer container, string id)
     {
-        try { return slide.GetPartById(id); }
+        try { return container.GetPartById(id); }
         catch (ArgumentOutOfRangeException) { return null; }
     }
 

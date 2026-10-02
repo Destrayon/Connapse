@@ -62,25 +62,27 @@ internal static class PdfTables
 
         // Each table goes before the first region, in reading order, that starts below it and
         // shares some of its width: that is where a reader moving down the column meets it.
-        var output = regions.Select(r => (Text: r.Text, IsTable: false)).ToList();
+        // Keyed by region index: two regions with the same text (a repeated label) must not be
+        // confused when finding where a table goes.
+        var output = regions.Select((r, i) => (Region: i, Text: r.Text, IsTable: false)).ToList();
         foreach (var table in tables.OrderBy(t => t.Top))
         {
             int at = regions.FindIndex(r =>
                 r.BoundingBox.Top <= table.Top && r.BoundingBox.Left < table.Right && r.BoundingBox.Right > table.Left);
-            var entry = (Text: ToMarkdown(table), IsTable: true);
+            var entry = (Region: -1, Text: ToMarkdown(table), IsTable: true);
             if (at < 0)
             {
                 output.Add(entry);
             }
             else
             {
-                int index = output.IndexOf((regions[at].Text, false));
+                int index = output.FindIndex(o => o.Region == at);
                 output.Insert(index < 0 ? output.Count : index, entry);
             }
         }
 
         var builder = new StringBuilder();
-        foreach (var (text, isTable) in output)
+        foreach (var (_, text, isTable) in output)
         {
             if (builder.Length > 0) builder.AppendLine();
             builder.AppendLine(text);

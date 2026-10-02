@@ -36,6 +36,18 @@ public class PdfOcrTests
     }
 
     [Fact]
+    public void OutputSettings_ChangeWithWhatChangesTheText()
+    {
+        string baseline = Parser(new UploadSettings()).OutputSettings;
+
+        Parser(new UploadSettings { PdfTableMode = "Off" }).OutputSettings.Should().NotBe(baseline);
+        Parser(new UploadSettings { PdfOcr = false }).OutputSettings.Should().NotBe(baseline);
+        Parser(new UploadSettings { PdfOcrDpi = 300 }).OutputSettings.Should().NotBe(baseline);
+        Parser(new UploadSettings { PdfOcrThreads = 4, MaxOcrPagesPerDocument = 5 }).OutputSettings.Should().Be(baseline,
+            "threads do not change the text, and pages the budget skipped already mark the document incomplete");
+    }
+
+    [Fact]
     public async Task ParseAsync_PageWithATextLayer_IsNotOcrd()
     {
         byte[] pdf = TestPdf.Build(Page("A born-digital page with real text."));
@@ -73,16 +85,17 @@ public class PdfOcrTests
     [Fact]
     public async Task ParseAsync_OcrThatWouldOutrunTheDeadline_StopsAndKeepsWhatItRead()
     {
-        // A one-second deadline leaves 0.6 s for OCR: a page or two of ten, never all of them.
-        byte[] scan = TestScanPdf.Build(pages: Enumerable.Range(1, 10).Select(i => Page($"Scanned page number {i}")).ToArray());
+        // A one-second deadline leaves 0.6 s for OCR: a few pages of forty, never all of them,
+        // however fast the machine.
+        byte[] scan = TestScanPdf.Build(pages: Enumerable.Range(1, 40).Select(i => Page($"Scanned page number {i}")).ToArray());
 
         var parsed = await ParseAsync(scan, new UploadSettings { ParseTimeoutSeconds = 1 });
 
         int read = int.Parse(parsed.Metadata[PdfParser.MetadataKeyOcrPages]);
-        read.Should().BeInRange(1, 9);
+        read.Should().BeInRange(1, 39);
         parsed.Content.Should().Contain("Scanned page number 1");
         parsed.Warnings.Should().Contain(w => w.Contains("deadline"));
-        parsed.Metadata[PdfParser.MetadataKeyPageErrors].Should().Be((10 - read).ToString());
+        parsed.Metadata[PdfParser.MetadataKeyPageErrors].Should().Be((40 - read).ToString());
     }
 
     [Fact]

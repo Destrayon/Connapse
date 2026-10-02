@@ -48,6 +48,12 @@ public class IngestionPipeline : IKnowledgeIngester
 
     // Metadata keys for tracking indexing settings
     public const string MetadataKeyChunkingStrategy = "IndexedWith:ChunkingStrategy";
+
+    /// <summary>
+    /// "true" when the chunking strategy was the caller's choice: a reindex keeps it rather than
+    /// routing a PDF, Office, HTML, email or EPUB file to DocumentAware (#633).
+    /// </summary>
+    public const string MetadataKeyStrategyExplicit = "IndexedWith:StrategyExplicit";
     public const string MetadataKeyChunkingMaxSize = "IndexedWith:ChunkingMaxSize";
     public const string MetadataKeyChunkingOverlap = "IndexedWith:ChunkingOverlap";
     public const string MetadataKeyEmbeddingProvider = "IndexedWith:EmbeddingProvider";
@@ -57,6 +63,9 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <summary>Which parser produced the document's chunks, and which version of it (#596).</summary>
     public const string MetadataKeyParser = "IndexedWith:Parser";
     public const string MetadataKeyParserVersion = "IndexedWith:ParserVersion";
+
+    /// <summary>The parser's <see cref="IDocumentParser.OutputSettings"/> when it indexed the document.</summary>
+    public const string MetadataKeyParserSettings = "IndexedWith:ParserSettings";
 
     /// <summary>
     /// The parser version a document was indexed with. Documents indexed before versions were
@@ -342,6 +351,10 @@ public class IngestionPipeline : IKnowledgeIngester
             {
                 metadata[MetadataKeyParser] = usedParser.Name;
                 metadata[MetadataKeyParserVersion] = usedParser.Version.ToString(CultureInfo.InvariantCulture);
+                if (usedParser.OutputSettings is { Length: > 0 } outputSettings)
+                    metadata[MetadataKeyParserSettings] = outputSettings;
+                else
+                    metadata.Remove(MetadataKeyParserSettings);
             }
 
             if (warnings.Count > 0)
@@ -475,7 +488,8 @@ public class IngestionPipeline : IKnowledgeIngester
                 [.. warnings, $"{pageErrors} page(s) failed to extract, so the previous index was kept"]),
         };
         await _context.Documents
-            .Where(d => d.Id == existing.Id && d.Generation == generation)
+            // Generation 0 means any, as DocumentLifecycle.CompleteAsync reads it.
+            .Where(d => d.Id == existing.Id && (generation == 0 || d.Generation == generation))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(d => d.Metadata, metadata)
                 .SetProperty(d => d.LastIndexedAt, existing.LastIndexedAt), ct);
@@ -511,6 +525,10 @@ public class IngestionPipeline : IKnowledgeIngester
             fallbackStrategy: options.Strategy.ToString(),
             fileName: options.FileName,
             strategyIsExplicit: options.StrategyIsExplicit);
+        if (options.StrategyIsExplicit)
+            metadata[MetadataKeyStrategyExplicit] = "true";
+        else
+            metadata.Remove(MetadataKeyStrategyExplicit);
         metadata[MetadataKeyChunkingMaxSize] = chunkSettings.MaxChunkSize.ToString();
         metadata[MetadataKeyChunkingOverlap] = chunkSettings.Overlap.ToString();
         metadata[MetadataKeyEmbeddingProvider] = embedSettings.Provider;

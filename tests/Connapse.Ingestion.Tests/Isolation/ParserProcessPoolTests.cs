@@ -244,6 +244,25 @@ public sealed class ParserProcessPoolTests : IDisposable
         IsRunning(pid).Should().BeFalse();
     }
 
+    [Theory]
+    // available, workers -> hosts at once, per-host limit for the default 2,048 MB setting
+    [InlineData(64L * 1024, 4, 4, 2048)]
+    [InlineData(8L * 1024, 4, 4, 1024)]
+    [InlineData(2L * 1024, 4, 2, 512)]
+    [InlineData(512L, 4, 1, 512)]
+    public void Constructor_SizesHostsToHalfTheAvailableMemory(long availableMb, int workers, int hosts, int perHostMb)
+    {
+        // Four hosts at 2 GB each would outgrow a small container before any one hit its own cap.
+        using var pool = new ParserProcessPool(
+            new ConfigurationBuilder().AddInMemoryCollection([new("Hangfire:IngestionWorkerCount", workers.ToString())]).Build(),
+            hostPath: TestHostPath,
+            availableMemoryBytes: availableMb * 1024 * 1024);
+
+        pool.Slots.Should().Be(hosts);
+        pool.MemoryLimitMb(new UploadSettings()).Should().Be(perHostMb);
+        pool.MemoryLimitMb(new UploadSettings { ParserMemoryLimitMb = 256 }).Should().Be(256, "a lower setting is kept");
+    }
+
     [Fact]
     public void CanRun_OnlyConnapsesOwnParsersWhenTheHostIsDeployed()
     {

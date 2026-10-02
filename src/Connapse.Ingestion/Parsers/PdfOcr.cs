@@ -38,6 +38,8 @@ internal static class PdfOcr
         if (RenderDpi(pdf, pageIndex, dpi) is not int renderDpi)
             return null;
 
+        ct.ThrowIfCancellationRequested();
+
         using SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: renderDpi));
         ct.ThrowIfCancellationRequested();
 

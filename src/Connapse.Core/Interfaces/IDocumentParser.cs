@@ -24,6 +24,13 @@ public interface IDocumentParser
     int Version => 1;
 
     /// <summary>
+    /// The current values of the settings that change this parser's output, as a stable string,
+    /// or empty when none do. Recorded on every document the parser indexes, so changing one of
+    /// them marks those documents for re-parsing as a new version would.
+    /// </summary>
+    string OutputSettings => string.Empty;
+
+    /// <summary>
     /// Parses a document from a stream.
     /// </summary>
     /// <param name="stream">The file content stream.</param>

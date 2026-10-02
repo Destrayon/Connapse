@@ -570,9 +570,12 @@ public class ReindexService : IReindexService
         // ChunkCount is left alone for the same reason: it describes chunks that still exist.
 
         // Determine chunking strategy. A record keeps the strategy its shape was given.
+        // A strategy the caller chose is kept too, and stays explicit, so a PDF chunked FixedSize
+        // on request is not re-chunked DocumentAware by the reindex.
         doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyChunkingStrategy, out var indexedWith);
+        bool storedExplicit = IsStrategyExplicit(doc);
         var strategy = options.Strategy ?? Enum.Parse<ChunkingStrategy>(
-            IngestionPipelineStrategyResolver.IsContentPinned(indexedWith)
+            IngestionPipelineStrategyResolver.IsContentPinned(indexedWith) || (storedExplicit && !string.IsNullOrEmpty(indexedWith))
                 ? indexedWith!
                 : _chunkingSettings.CurrentValue.Strategy,
             ignoreCase: true);
@@ -604,6 +607,7 @@ public class ReindexService : IReindexService
                 Metadata: doc.Metadata)
             {
                 Owner = owner,
+                StrategyIsExplicit = options.Strategy is not null || storedExplicit,
             },
             BatchId: batchId,
             ResetAttempts: resetAttempts), ct);
@@ -637,6 +641,10 @@ public class ReindexService : IReindexService
             JobId: jobId);
     }
 
+    private static bool IsStrategyExplicit(DocumentEntity doc) =>
+        doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyStrategyExplicit, out var value) &&
+        string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+
     private (bool changed, string? stored, string? current) CheckChunkingSettingsChanged(DocumentEntity doc)
     {
         var currentSettings = _chunkingSettings.CurrentValue;
@@ -660,11 +668,13 @@ public class ReindexService : IReindexService
         //
         // A content-pinned strategy (a record) is compared against itself, so changing the
         // configured strategy does not mark every record stale and re-chunk it the wrong way.
+        bool storedExplicit = IsStrategyExplicit(doc);
         string resolvedStrategy = IngestionPipelineStrategyResolver.Resolve(
-            fallbackStrategy: IngestionPipelineStrategyResolver.IsContentPinned(storedStrategy)
+            fallbackStrategy: IngestionPipelineStrategyResolver.IsContentPinned(storedStrategy) || storedExplicit
                 ? storedStrategy
                 : currentSettings.Strategy,
-            fileName: doc.FileName);
+            fileName: doc.FileName,
+            strategyIsExplicit: storedExplicit);
 
         var currentKey = $"{resolvedStrategy}:{currentSettings.MaxChunkSize}:{currentSettings.Overlap}";
         var storedKey = $"{storedStrategy}:{storedMaxSize}:{storedOverlap}";
@@ -691,11 +701,19 @@ public class ReindexService : IReindexService
         // Unknown only for an extension no parser handled when versions were introduced; nothing
         // indexed it then, so whatever handles it now is the parser that produced it.
         bool sameParser = storedName is null || storedName == parser.Name;
-        bool changed = !sameParser || storedVersion < parser.Version;
+
+        // A setting that changes the parser's output -- a PDF's table mode, OCR -- changes the
+        // document as much as a new version does. Documents indexed before settings were recorded
+        // carry none and are not flagged for it: the version bumps that came with recording them
+        // re-parse those already.
+        string currentSettings = parser.OutputSettings;
+        bool settingsChanged = doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyParserSettings, out var storedSettings)
+            && !string.Equals(storedSettings, currentSettings, StringComparison.Ordinal);
+        bool changed = !sameParser || storedVersion < parser.Version || settingsChanged;
 
         return (changed,
-            $"{storedName ?? parser.Name} v{storedVersion}",
-            $"{parser.Name} v{parser.Version}");
+            $"{storedName ?? parser.Name} v{storedVersion} {storedSettings}".TrimEnd(),
+            $"{parser.Name} v{parser.Version} {currentSettings}".TrimEnd());
     }
 
     private (bool changed, string? stored, string? current) CheckEmbeddingSettingsChanged(DocumentEntity doc)

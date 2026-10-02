@@ -97,7 +97,8 @@ public static class ParseLimits
             int locator = i - 20;
             if (locator < 0 || BitConverter.ToUInt32(buffer, locator) != 0x07064B50) return total;
             long recordOffset = BitConverter.ToInt64(buffer, locator + 8);
-            if (recordOffset < 0 || recordOffset + 40 > content.Length) return total;
+            // Compared against what is left, so an offset near long.MaxValue cannot wrap past it.
+            if (recordOffset < 0 || recordOffset > content.Length - 40) return total;
 
             byte[] record = new byte[40];
             content.Position = recordOffset;

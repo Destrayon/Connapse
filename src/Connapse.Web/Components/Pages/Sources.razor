@@ -954,7 +954,7 @@
                     : "";
 
                 if (result.Notice is not null)
-                    Warn($"'{source.Name}': {result.Notice}");
+                    Warn($"'{source.Name}': {result.Notice}{skipped}");
                 else
                     Succeed(result.WithheldDeletions > 0
                         ? $"'{source.Name}' synced — {result.Upserted} queued, {result.WithheldDeletions} deletion(s) withheld.{skipped}"

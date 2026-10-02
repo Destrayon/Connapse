@@ -24,7 +24,10 @@ namespace Connapse.Ingestion.Isolation;
 /// </para>
 /// <para>
 /// At most as many hosts run as there are ingestion workers (<c>Hangfire:IngestionWorkerCount</c>),
-/// the parses that could be in flight at once.
+/// the parses that could be in flight at once -- and fewer, with lower limits, when the memory
+/// available to the process (the container's limit, in a container) could not hold that many at
+/// their configured limit. Hosts together get at most half of it: the rest is the web process's,
+/// and in a container a host that crossed it would get both killed.
 /// </para>
 /// </summary>
 public sealed class ParserProcessPool : IDisposable
@@ -34,6 +37,12 @@ public sealed class ParserProcessPool : IDisposable
 
     /// <summary>Room in a reply for its JSON, metadata and the warnings the host keeps.</summary>
     private const long ResponseOverheadBytes = 8L * 1024 * 1024;
+
+    /// <summary>The share of the available memory all hosts together may use.</summary>
+    private const double HostShareOfMemory = 0.5;
+
+    /// <summary>The least a host is given; below it OCR and large PDFs cannot run, so fewer hosts run.</summary>
+    internal const int MinHostMemoryMb = 512;
 
     private readonly ILogger<ParserProcessPool> _logger;
     private readonly SemaphoreSlim _slots;
@@ -45,13 +54,35 @@ public sealed class ParserProcessPool : IDisposable
     public ParserProcessPool(
         IConfiguration? configuration = null,
         ILogger<ParserProcessPool>? logger = null,
-        string? hostPath = null)
+        string? hostPath = null,
+        long? availableMemoryBytes = null)
     {
         _logger = logger ?? NullLogger<ParserProcessPool>.Instance;
         int workers = int.TryParse(configuration?["Hangfire:IngestionWorkerCount"], out int n) && n > 0 ? n : 4;
-        _slots = new SemaphoreSlim(workers, workers);
+
+        // The GC reports the container's memory limit when there is one, else the machine's.
+        long available = availableMemoryBytes ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        long budgetMb = Math.Max(MinHostMemoryMb, (long)(available * HostShareOfMemory / (1024 * 1024)));
+        Slots = (int)Math.Clamp(budgetMb / MinHostMemoryMb, 1, workers);
+        _hostMemoryCeilingMb = (int)Math.Min(int.MaxValue, budgetMb / Slots);
+        _slots = new SemaphoreSlim(Slots, Slots);
         HostPath = hostPath ?? Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.dll");
+
+        _logger.LogInformation(
+            "ParserPool runs up to {Slots} parser hosts of at most {CeilingMb} MB each, half of the {AvailableMb} MB available",
+            Slots, _hostMemoryCeilingMb, available / (1024 * 1024));
     }
+
+    /// <summary>Hosts that may run at once.</summary>
+    internal int Slots { get; }
+
+    private readonly int _hostMemoryCeilingMb;
+
+    /// <summary>
+    /// The configured per-host limit, lowered so that every host at it still fits the share of
+    /// memory the hosts may use together.
+    /// </summary>
+    internal int MemoryLimitMb(UploadSettings settings) => Math.Min(Math.Max(64, settings.ParserMemoryLimitMb), _hostMemoryCeilingMb);
 
     /// <summary>The Connapse.ParserHost assembly the pool starts with the dotnet host.</summary>
     public string HostPath { get; }
@@ -130,7 +161,7 @@ public sealed class ParserProcessPool : IDisposable
                 string stderr = current.CollectErrors();
                 Discard(ref host);
                 if (current.KilledForMemory)
-                    throw OutOfMemory(name, settings, ex);
+                    throw OutOfMemory(name, MemoryLimitMb(settings), ex);
                 if (ct.IsCancellationRequested)
                     throw new OperationCanceledException(ct);
                 if (deadline.IsCancellationRequested)
@@ -141,7 +172,7 @@ public sealed class ParserProcessPool : IDisposable
                 }
 
                 if (stderr.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase))
-                    throw OutOfMemory(name, settings, ex);
+                    throw OutOfMemory(name, MemoryLimitMb(settings), ex);
 
                 _logger.LogError(ex, "ParserHostCrashed {Parser} on {FileName}: {Stderr}",
                     parser.Name, LogSanitizer.Sanitize(name), stderr);
@@ -151,7 +182,7 @@ public sealed class ParserProcessPool : IDisposable
             if (response.OutOfMemory)
             {
                 Discard(ref host);
-                throw OutOfMemory(name, settings, null);
+                throw OutOfMemory(name, MemoryLimitMb(settings), null);
             }
 
             if (response.PermanentError is { } permanent)
@@ -178,21 +209,22 @@ public sealed class ParserProcessPool : IDisposable
     private static PermanentIngestionException Timeout(string name, TimeSpan timeout, Exception? inner) =>
         new($"Could not parse {name}: parsing did not finish within {timeout.TotalSeconds:0} seconds [parse_timeout]", inner);
 
-    private static PermanentIngestionException OutOfMemory(string name, UploadSettings settings, Exception? inner) =>
-        new($"Could not parse {name}: it needed more than the {settings.ParserMemoryLimitMb:N0} MB the parser may use [parse_out_of_memory]", inner);
+    private static PermanentIngestionException OutOfMemory(string name, int limitMb, Exception? inner) =>
+        new($"Could not parse {name}: it needed more than the {limitMb:N0} MB the parser may use [parse_out_of_memory]", inner);
 
     /// <summary>An idle host started under the same memory limit, or a new one.</summary>
     private Host Take(UploadSettings settings)
     {
         while (_idle.TryTake(out var idle))
         {
-            if (idle.MemoryLimitMb == settings.ParserMemoryLimitMb && !idle.HasExited)
+            if (idle.MemoryLimitMb == MemoryLimitMb(settings) && !idle.HasExited)
                 return idle;
             idle.Kill();
             _all.TryRemove(idle, out _);
         }
 
-        var host = Host.Start(StartInfo(HostPath, settings.ParserMemoryLimitMb), settings.ParserMemoryLimitMb);
+        int limitMb = MemoryLimitMb(settings);
+        var host = Host.Start(StartInfo(HostPath, limitMb), limitMb);
         _all[host] = 0;
         return host;
     }
@@ -238,8 +270,10 @@ public sealed class ParserProcessPool : IDisposable
         start.ArgumentList.Add(hostPath);
 
         // The host parses untrusted files with native code (PDFium, ONNX Runtime). It inherits
-        // nothing from the web process's environment beyond what running .NET needs, so a parse
-        // that is compromised cannot read connection strings or API keys from it.
+        // nothing from the web process's environment beyond what running .NET needs, so secrets
+        // are not handed to it. That narrows a compromise, but is not a sandbox: the host runs
+        // as the same user, can read what that user can, and on Linux may be able to read the web
+        // process's own environment. A separate identity is #641.
         var inherited = start.Environment.ToList();
         start.Environment.Clear();
         foreach (var (key, value) in inherited)
