@@ -26,6 +26,14 @@ public static class ParserHostLoop
     {
         WatchParent();
 
+        // Before the first untrusted byte is read. Required and unavailable means every request is
+        // refused, rather than parsed unconfined.
+        ParserSandboxMode mode = ParserSandbox.ModeFromEnvironment();
+        var (confined, sandbox) = ParserSandbox.Apply(mode);
+        string? refusal = mode == ParserSandboxMode.Required && !confined
+            ? $"the parser sandbox is required but unavailable ({sandbox}) [sandbox_unavailable]"
+            : null;
+
         // An OutOfMemoryException is usually caught inside a parser and turned into a warning, so
         // the reply would look like an empty document. Seeing it first-chance keeps it a memory
         // failure, which the parent reports as one.
@@ -49,7 +57,9 @@ public static class ParserHostLoop
             ParseResponse response;
             try
             {
-                response = await ParseAsync(request, content, extraParsers);
+                response = refusal is not null
+                    ? new ParseResponse(null, null, null, PermanentError: refusal)
+                    : await ParseAsync(request, content, extraParsers);
             }
             catch (OutOfMemoryException)
             {
@@ -60,6 +70,7 @@ public static class ParserHostLoop
                 response = new ParseResponse(null, null, null, OutOfMemory: true);
 
             content = [];
+            response = response with { Sandbox = sandbox };
             await WriteJsonAsync(output, response, CancellationToken.None);
             await output.FlushAsync();
 

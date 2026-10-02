@@ -463,6 +463,14 @@ public record UploadSettings
     /// </summary>
     public int ParserMemoryLimitMb { get; set; } = 2048;
 
+    /// <summary>
+    /// Whether parser processes confine themselves with Landlock on Linux (#641): read-only access
+    /// to the runtime and the app's code, no settings or data files, no network, no reach into
+    /// other processes. "Auto" (default) confines where the kernel allows and warns where it does
+    /// not; "Required" refuses to parse without it; "Off" never confines.
+    /// </summary>
+    public string ParserSandbox { get; set; } = "Auto";
+
     /// <summary>Files a parser process handles before it is replaced with a fresh one (default: 50).</summary>
     public int ParserFilesPerProcess { get; set; } = 50;
 
