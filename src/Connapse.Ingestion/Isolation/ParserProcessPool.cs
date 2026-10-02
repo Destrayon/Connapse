@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Parsers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -49,6 +50,7 @@ public sealed class ParserProcessPool : IDisposable
     private readonly ConcurrentBag<Host> _idle = [];
     private readonly ConcurrentDictionary<Host, byte> _all = new();
     private int _missingHostLogged;
+    private int _sandboxLogged;
     private bool _disposed;
 
     public ParserProcessPool(
@@ -179,6 +181,8 @@ public sealed class ParserProcessPool : IDisposable
                 throw new PermanentIngestionException($"Could not parse {name}: the parser process crashed [parse_crashed]", ex);
             }
 
+            LogSandboxOnce(response.Sandbox);
+
             if (response.OutOfMemory)
             {
                 Discard(ref host);
@@ -206,6 +210,21 @@ public sealed class ParserProcessPool : IDisposable
     private static int MaxResponseFrame(UploadSettings settings) =>
         (int)Math.Min(int.MaxValue, Math.Max(0, settings.MaxExtractedCharacters) * 6L + ResponseOverheadBytes);
 
+    /// <summary>
+    /// Says once how the hosts are confined: a warning when they are not, on Linux, where they
+    /// could be.
+    /// </summary>
+    private void LogSandboxOnce(string? sandbox)
+    {
+        if (sandbox is null || Interlocked.Exchange(ref _sandboxLogged, 1) == 1)
+            return;
+
+        if (sandbox.StartsWith("none", StringComparison.Ordinal) && OperatingSystem.IsLinux())
+            _logger.LogWarning("ParserSandbox parser hosts run unconfined: {Sandbox}", sandbox);
+        else
+            _logger.LogInformation("ParserSandbox parser hosts are confined by {Sandbox}", sandbox);
+    }
+
     private static PermanentIngestionException Timeout(string name, TimeSpan timeout, Exception? inner) =>
         new($"Could not parse {name}: parsing did not finish within {timeout.TotalSeconds:0} seconds [parse_timeout]", inner);
 
@@ -217,14 +236,15 @@ public sealed class ParserProcessPool : IDisposable
     {
         while (_idle.TryTake(out var idle))
         {
-            if (idle.MemoryLimitMb == MemoryLimitMb(settings) && !idle.HasExited)
+            if (idle.MemoryLimitMb == MemoryLimitMb(settings) && idle.SandboxMode == SandboxModeOf(settings) && !idle.HasExited)
                 return idle;
             idle.Kill();
             _all.TryRemove(idle, out _);
         }
 
         int limitMb = MemoryLimitMb(settings);
-        var host = Host.Start(StartInfo(HostPath, limitMb), limitMb);
+        ParserSandboxMode sandbox = SandboxModeOf(settings);
+        var host = Host.Start(StartInfo(HostPath, limitMb, sandboxMode: sandbox), limitMb, sandbox);
         _all[host] = 0;
         return host;
     }
@@ -257,7 +277,11 @@ public sealed class ParserProcessPool : IDisposable
     /// How a host is started: by the dotnet host, with its heap capped and told which process is
     /// its parent, so that it exits if the web process dies mid-parse instead of spinning on.
     /// </summary>
-    internal static ProcessStartInfo StartInfo(string hostPath, int memoryLimitMb, int? parentProcessId = null)
+    private static ParserSandboxMode SandboxModeOf(UploadSettings settings) =>
+        Enum.TryParse(settings.ParserSandbox, ignoreCase: true, out ParserSandboxMode mode) ? mode : ParserSandboxMode.Auto;
+
+    internal static ProcessStartInfo StartInfo(
+        string hostPath, int memoryLimitMb, int? parentProcessId = null, ParserSandboxMode sandboxMode = ParserSandboxMode.Auto)
     {
         var start = new ProcessStartInfo(Host.DotnetMuxer())
         {
@@ -273,7 +297,8 @@ public sealed class ParserProcessPool : IDisposable
         // nothing from the web process's environment beyond what running .NET needs, so secrets
         // are not handed to it. That narrows a compromise, but is not a sandbox: the host runs
         // as the same user, can read what that user can, and on Linux may be able to read the web
-        // process's own environment. A separate identity is #641.
+        // process's own environment. On Linux the host also confines itself with Landlock
+        // (ParserSandbox, #641), which closes those.
         var inherited = start.Environment.ToList();
         start.Environment.Clear();
         foreach (var (key, value) in inherited)
@@ -289,6 +314,28 @@ public sealed class ParserProcessPool : IDisposable
         start.Environment["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X");
         start.Environment["DOTNET_gcServer"] = "0";
         start.Environment[ParentProcessIdVariable] = (parentProcessId ?? Environment.ProcessId).ToString();
+        start.Environment[ParserSandbox.ModeVariable] = sandboxMode.ToString();
+
+        // ONNX Runtime's Linux build sends telemetry to Microsoft unless this is set before it
+        // loads (see PdfOcr.DisableOnnxRuntimeTelemetry).
+        start.Environment[PdfOcr.TelemetryVariable] = "1";
+
+        // The runtime's diagnostics server opens a Unix socket at start-up; the sandbox allows no
+        // sockets, and nothing should be attaching to a parser host anyway.
+        start.Environment["DOTNET_EnableDiagnostics"] = "0";
+
+        // A temp folder of the host's own, the only place the sandbox lets it write: ONNX Runtime
+        // writes a log to $TMPDIR and crashes when it cannot. The shared temp folder stays closed,
+        // because it holds other users' uploads in flight.
+        string temp = Path.Combine(Path.GetTempPath(), $"connapse-parserhost-{Guid.NewGuid():N}");
+        if (OperatingSystem.IsWindows())
+            Directory.CreateDirectory(temp);
+        else
+            Directory.CreateDirectory(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        start.Environment["TMPDIR"] = temp;
+        start.Environment["TEMP"] = temp;
+        start.Environment["TMP"] = temp;
+        start.Environment[ParserSandbox.TempVariable] = temp;
         return start;
     }
 
@@ -322,12 +369,18 @@ public sealed class ParserProcessPool : IDisposable
         private readonly ConcurrentQueue<string> _errorTail = new();
         private int _killed;
 
-        private Host(Process process, int memoryLimitMb)
+        private Host(Process process, int memoryLimitMb, ParserSandboxMode sandboxMode)
         {
             _process = process;
             ProcessId = process.Id;
             MemoryLimitMb = memoryLimitMb;
+            SandboxMode = sandboxMode;
         }
+
+        public ParserSandboxMode SandboxMode { get; }
+
+        /// <summary>The host's private temp folder, removed when the host ends.</summary>
+        private string? TempDirectory { get; init; }
 
         public int ProcessId { get; }
         public int MemoryLimitMb { get; }
@@ -359,10 +412,13 @@ public sealed class ParserProcessPool : IDisposable
             return string.Join('\n', _errorTail);
         }
 
-        public static Host Start(ProcessStartInfo start, int memoryLimitMb)
+        public static Host Start(ProcessStartInfo start, int memoryLimitMb, ParserSandboxMode sandboxMode)
         {
             var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {start.ArgumentList[0]}.");
-            var host = new Host(process, memoryLimitMb);
+            var host = new Host(process, memoryLimitMb, sandboxMode)
+            {
+                TempDirectory = start.Environment.TryGetValue(ParserSandbox.TempVariable, out string? temp) ? temp : null,
+            };
             process.ErrorDataReceived += (sender, e) =>
             {
                 if (e.Data is null)
@@ -431,6 +487,21 @@ public sealed class ParserProcessPool : IDisposable
             finally
             {
                 _process.Dispose();
+                DeleteTemp();
+            }
+        }
+
+        private void DeleteTemp()
+        {
+            if (TempDirectory is null)
+                return;
+            try
+            {
+                Directory.Delete(TempDirectory, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A file still open on Windows, or already gone: temp is cleaned eventually anyway.
             }
         }
 

@@ -17,6 +17,11 @@
     <PackageReference Include="PdfPig" Version="0.1.16" />
     <!-- 5.2.1, not later: 5.3+ moves to SkiaSharp 4, and RapidOcrNet is built against SkiaSharp 3. -->
     <PackageReference Include="PDFtoImage" Version="5.2.1" />
+    <!-- PDFium itself, newer than the 147 PDFtoImage 5.2.1 asks for: it renders untrusted pages and
+         takes security fixes often (#641). Its C API is stable, so PDFtoImage runs on it unchanged. -->
+    <PackageReference Include="bblanchon.PDFium.Linux" Version="156.0.8076" />
+    <PackageReference Include="bblanchon.PDFium.macOS" Version="156.0.8076" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="156.0.8076" />
     <PackageReference Include="RapidOcrNet" Version="4.2.0" GeneratePathProperty="true" />
     <PackageReference Include="PragmaticSegmenterNet" Version="1.0.5" />
     <PackageReference Include="ReverseMarkdown" Version="6.2.1" />

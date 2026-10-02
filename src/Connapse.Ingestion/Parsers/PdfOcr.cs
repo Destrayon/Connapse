@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.ML.OnnxRuntime;
 using PDFtoImage;
 using RapidOcrNet;
@@ -99,8 +100,39 @@ internal static class PdfOcr
         return engine;
     }
 
+    /// <summary>
+    /// ONNX Runtime's Linux build carries Microsoft's 1DS telemetry, on by default (#641): as it
+    /// initialises it reads <c>/etc/machine-id</c> -- or, when that is missing, as in Connapse's
+    /// image, runs <c>echo `blkid; hostname`</c> through a shell -- and posts events to
+    /// <c>mobile.events.data.microsoft.com</c>. A self-hosted knowledge base has no business
+    /// reporting its machine to anyone, and where the shell call fails (no shell, or the parser
+    /// sandbox) ONNX Runtime dereferences the null result and crashes.
+    /// <para>
+    /// <c>ORT_DISABLE_TELEMETRY=1</c> stops it, but only if set before ONNX Runtime first loads: it
+    /// reads the variable with getenv as it initialises. Parser hosts get it from the pool. For OCR
+    /// in the web process it is set here, natively, since a managed SetEnvironmentVariable is not
+    /// seen by getenv on Linux.
+    /// </para>
+    /// </summary>
+    internal static void DisableOnnxRuntimeTelemetry()
+    {
+        if (OperatingSystem.IsWindows())
+            Environment.SetEnvironmentVariable(TelemetryVariable, "1");
+        else
+            _ = SetEnv(TelemetryVariable, "1", overwrite: 1);
+    }
+
+    internal const string TelemetryVariable = "ORT_DISABLE_TELEMETRY";
+
+    [DllImport("libc", EntryPoint = "setenv", SetLastError = true)]
+    private static extern int SetEnv(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value, int overwrite);
+
     private static RapidOcr Load(int threads)
     {
+        // Before the first ONNX Runtime call below creates its environment.
+        DisableOnnxRuntimeTelemetry();
+
         // Absolute paths: RapidOcrNet's defaults are relative to the working directory, which for
         // the web process and the parser host is not where the models are deployed.
         string models = Path.Combine(AppContext.BaseDirectory, "models", "v5");
@@ -111,6 +143,9 @@ internal static class PdfOcr
             Path.Combine(models, "latin_PP-OCRv5_rec_mobile_infer.onnx"),
             Path.Combine(models, "ppocrv5_latin_dict.txt"),
             SessionOptionsForOcr(threads));
+
+        // And through the API, for a build that reads the setting later than the variable.
+        OrtEnv.Instance().DisableTelemetryEvents();
         return engine;
     }
 

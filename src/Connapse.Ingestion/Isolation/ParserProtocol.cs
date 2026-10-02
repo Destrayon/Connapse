@@ -28,7 +28,8 @@ public static class ParserProtocol
         List<string>? Warnings,
         string? PermanentError = null,
         string? Error = null,
-        bool OutOfMemory = false);
+        bool OutOfMemory = false,
+        string? Sandbox = null);
 
     public static async Task WriteFrameAsync(Stream stream, ReadOnlyMemory<byte> payload, CancellationToken ct)
     {
