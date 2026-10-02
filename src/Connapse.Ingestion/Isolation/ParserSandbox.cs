@@ -116,8 +116,15 @@ public static class ParserSandbox
         bool viaMuxer = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
         string?[] argv = [exe, .. viaMuxer ? args : args.Skip(1), null];
 
-        _ = SetEnv(ConfinedVariable, description, overwrite: 1);
-        _ = ExecV(exe, argv);
+        try
+        {
+            _ = SetEnv(ConfinedVariable, description, overwrite: 1);
+            _ = ExecV(exe, argv);
+        }
+        catch (Exception ex) when (ex is MarshalDirectiveException or DllNotFoundException or EntryPointNotFoundException)
+        {
+            return (false, $"none: restarting confined failed ({ex.Message})");
+        }
 
         // Still here: the restart failed. This thread is confined and the others are not, which is
         // no sandbox at all.
@@ -301,7 +308,8 @@ public static class ParserSandbox
     [DllImport("libc", EntryPoint = "execv", SetLastError = true)]
     private static extern int ExecV(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
-        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPUTF8Str)] string?[] argv);
+        // LPStr is UTF-8 on Linux; the array marshaller does not take LPUTF8Str.
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr)] string?[] argv);
 
     [DllImport("libc", EntryPoint = "setenv", SetLastError = true)]
     private static extern int SetEnv(
