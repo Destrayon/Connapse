@@ -33,6 +33,9 @@
       "dev-nfcorpus",
       "dev-dbpedia",
       "dev-scifact"
+    ],
+    "pdfqa-v1": [
+      "pdfqa"
     ]
   },
   "datasets": {
@@ -790,6 +793,86 @@
           "name": "qrels.parquet",
           "url": "build:eval/tools/build_dev_suite.py",
           "sha256": "91a93b018ba7dc7374707316390daaeb6311abcf886800096aab54e32241a0cd"
+        }
+      ]
+    },
+    "pdfqa": {
+      "adapter": "pdf-qa",
+      "version": "1",
+      "tags": [
+        "shape:pdf",
+        "source:pdfqa"
+      ],
+      "files": [
+        {
+          "name": "census-p60-279.pdf",
+          "url": "https://www.census.gov/content/dam/Census/library/publications/2023/demo/p60-279.pdf",
+          "sha256": "ce921ae1c54b000b3c1defbe52762a5358b9b597a6cd01aee5b84671fab598c5"
+        },
+        {
+          "name": "irs-p15-2024.pdf",
+          "url": "https://www.irs.gov/pub/irs-prior/p15--2024.pdf",
+          "sha256": "3a15da95e39b24f2b6c61f4abc85298c897f57600c3508f9381fab7180a092e0"
+        },
+        {
+          "name": "fr-2023-28800.pdf",
+          "url": "https://www.govinfo.gov/content/pkg/FR-2024-01-02/pdf/2023-28800.pdf",
+          "sha256": "b7e23ceff132f02a32e2c225accb531db6400f625b4f6b8d9711363faa9e9788"
+        },
+        {
+          "name": "crec-2024-01-11.pdf",
+          "url": "https://www.govinfo.gov/content/pkg/CREC-2024-01-11/pdf/CREC-2024-01-11-pt1-PgS93.pdf",
+          "sha256": "b018dc2e89011ab0435eee5476e0beb0d4f321fb822397099d24e740e8bf1fd4"
+        },
+        {
+          "name": "ntrs-19930090935.pdf",
+          "url": "https://ntrs.nasa.gov/api/citations/19930090935/downloads/19930090935.pdf",
+          "sha256": "ce0107af2da864f8373a9e9936895fd4694c4e6bbfce27ff06393490984ee428"
+        },
+        {
+          "name": "jfk-104-10059-10218.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10059-10218.pdf",
+          "sha256": "0f03fd0c9377c36b7a160afa3cb9e77f9812f794ea03ffb53ae4af3a3b1de1b9"
+        },
+        {
+          "name": "jfk-104-10130-10215.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10130-10215.pdf",
+          "sha256": "45dbdc414c863cd9b81b0d252143d528ffeb2bc2a1fa1bc796ec04e22bd1fb1d"
+        },
+        {
+          "name": "jfk-104-10103-10079.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10103-10079.pdf",
+          "sha256": "80a14abf48236c4ffb1c525b7c5a00d2a9f1305ee47b9edf7b2defb01627de7f"
+        },
+        {
+          "name": "jfk-104-10237-10120.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10237-10120.pdf",
+          "sha256": "7fa4b0fa60d1b6df7aa2baaacf92f3517089df3ad2d29c9b5ffea5d19cc0531e"
+        },
+        {
+          "name": "jfk-104-10074-10349.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10074-10349.pdf",
+          "sha256": "5124b1c386ca4bc443350dcb96ba2dea0e99f92b78ee4f4156b536d55d5691ff"
+        },
+        {
+          "name": "jfk-104-10169-10017.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10169-10017.pdf",
+          "sha256": "27cbbdb8763578e59f1f039b32061b94b802d5be88b03160e57241aa6f326bd4"
+        },
+        {
+          "name": "jfk-104-10221-10310.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10221-10310.pdf",
+          "sha256": "6731277d1b4ceb38f81ba22fa574607c831ffe307d4f581e65d4e6cbd6d072fc"
+        },
+        {
+          "name": "jfk-104-10185-10030.pdf",
+          "url": "https://www.archives.gov/files/research/jfk/releases/2025/0318/104-10185-10030.pdf",
+          "sha256": "ed3c587cd2868f4fb34491687b50708a504593acd97b846fbd8ecc0caafc37f6"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:pdfqa/questions.jsonl",
+          "sha256": "2fad9bccc9d6f946f1f2a7e30647a9bf1f635e6bcbaf834a88743ddd0a7fb5b3"
         }
       ]
     }
