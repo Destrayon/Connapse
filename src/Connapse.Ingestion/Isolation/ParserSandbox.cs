@@ -18,7 +18,9 @@ namespace Connapse.Ingestion.Isolation;
 /// <c>appdata</c>, not the knowledge store, not the shared temp directory -- and no writes
 /// anywhere but <c>/dev/null</c> and a private temp folder the pool makes for each host (ONNX
 /// Runtime writes a log to <c>$TMPDIR</c>). The file itself arrives over stdin.</item>
-/// <item>Network (Landlock ABI 4+): no TCP connect or bind.</item>
+/// <item>Network: no sockets at all -- a seccomp filter refuses socket(2) for every family, so no
+/// TCP, UDP, DNS, netlink or Unix-socket connection can carry a document out. Landlock's own TCP
+/// rules (ABI 4+) are kept as a second layer; it has no rules for UDP.</item>
 /// <item>Other processes (ABI 6+): no signals to, and no abstract Unix sockets of, processes outside
 /// the sandbox. Landlock also denies ptrace and <c>/proc/&lt;pid&gt;/environ</c> or <c>mem</c> of any
 /// process outside the sandbox, including the web process.</item>
@@ -53,6 +55,9 @@ public static class ParserSandbox
     private const ulong IoctlDev = 1UL << 15;              // ABI 5
     private const ulong NetBindTcp = 1, NetConnectTcp = 2; // ABI 4
     private const ulong ScopeAbstractUnixSocket = 1, ScopeSignal = 2; // ABI 6
+
+    /// <summary>The oldest Landlock ABI <see cref="ParserSandboxMode.Required"/> accepts: the first that can deny truncation.</summary>
+    internal const long MinRequiredAbi = 3;
 
     /// <summary>Directories under the app folder the host may read, besides culture folders of satellite assemblies.</summary>
     private static readonly string[] AppDirectories = ["runtimes", "models"];
@@ -138,11 +143,20 @@ public static class ParserSandbox
         if (!OperatingSystem.IsLinux())
             return (false, $"none: Landlock is Linux-only ({RuntimeInformation.OSDescription})");
 
+        var gaps = new List<string>();
         try
         {
             long abi = Syscall(SysLandlockCreateRuleset, IntPtr.Zero, 0, CreateRulesetVersion);
             if (abi < 1)
                 return (false, $"none: this kernel has no Landlock (errno {Marshal.GetLastPInvokeError()})");
+
+            // Below ABI 3 a file outside the allow-list can still be truncated -- emptied -- so
+            // Required, which promises the rest of the system is out of reach, refuses it.
+            if (mode == ParserSandboxMode.Required && abi < MinRequiredAbi)
+            {
+                return (false, $"none: Landlock ABI {abi} cannot stop files being truncated; " +
+                               $"Required needs ABI {MinRequiredAbi} (Linux 6.2) or later");
+            }
 
             ulong handledFs = AbiOneFs | (abi >= 2 ? Refer : 0) | (abi >= 3 ? Truncate : 0) | (abi >= 5 ? IoctlDev : 0);
             var attr = new RulesetAttr
@@ -169,6 +183,16 @@ public static class ParserSandbox
 
                 if (Prctl(PrSetNoNewPrivs, 1, 0, 0, 0) != 0)
                     return (false, $"none: no_new_privs failed (errno {Marshal.GetLastPInvokeError()})");
+
+                // Like Landlock, a seccomp filter binds this thread and what it starts, so it is
+                // installed here, before the re-exec that carries both into every thread.
+                if (!InstallNoSocketsFilter(out string? filterError))
+                {
+                    if (mode == ParserSandboxMode.Required)
+                        return (false, $"none: the no-network filter could not be installed ({filterError})");
+                    gaps.Add($"network not blocked ({filterError})");
+                }
+
                 if (Syscall(SysLandlockRestrictSelf, (IntPtr)ruleset, 0, 0) != 0)
                     return (false, $"none: landlock_restrict_self failed (errno {Marshal.GetLastPInvokeError()})");
             }
@@ -177,7 +201,15 @@ public static class ParserSandbox
                 Close(ruleset);
             }
 
-            return (true, $"landlock (ABI {abi})");
+            if (abi < 3)
+                gaps.Add("files outside it can still be truncated (ABI 3+)");
+            if (abi < 6)
+                gaps.Add("signals to other processes are not blocked (ABI 6+)");
+
+            string description = $"landlock (ABI {abi}) and seccomp (no sockets)";
+            if (gaps.Count > 0)
+                description = $"landlock (ABI {abi}); not covered: {string.Join("; ", gaps)}";
+            return (true, description);
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException
                                        or IOException or UnauthorizedAccessException)
@@ -269,6 +301,83 @@ public static class ParserSandbox
             Close(fd);
         }
     }
+
+    /// <summary>
+    /// A seccomp filter that fails socket(2) with EACCES for every address family, and io_uring_setup
+    /// with it (io_uring can open sockets without the syscall). Calls made through another
+    /// architecture's syscall table -- 32-bit or x32 on x86-64 -- are refused outright, since that
+    /// is how a filter on one table is otherwise sidestepped.
+    /// </summary>
+    private static bool InstallNoSocketsFilter(out string? error)
+    {
+        (uint arch, uint socketNr) = RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X64 => (0xC000003Eu, 41u),
+            Architecture.Arm64 => (0xC00000B7u, 198u),
+            _ => (0u, 0u),
+        };
+        if (arch == 0)
+        {
+            error = $"no filter for {RuntimeInformation.ProcessArchitecture}";
+            return false;
+        }
+
+        const ushort LoadWord = 0x20, JumpIfEqual = 0x15, JumpIfAtLeast = 0x35, Return = 0x06;
+        const uint Allow = 0x7FFF0000, DenyEacces = 0x00050000 | 13;
+        const uint IoUringSetup = 425, X32Bit = 0x40000000;
+
+        SockFilter[] program =
+        [
+            new(LoadWord, 0, 0, 4),                 // 0: architecture
+            new(JumpIfEqual, 0, 5, arch),           // 1: another syscall table -> deny
+            new(LoadWord, 0, 0, 0),                 // 2: syscall number
+            new(JumpIfAtLeast, 3, 0, X32Bit),       // 3: x32 call -> deny
+            new(JumpIfEqual, 2, 0, socketNr),       // 4: socket -> deny
+            new(JumpIfEqual, 1, 0, IoUringSetup),   // 5: io_uring_setup -> deny
+            new(Return, 0, 0, Allow),               // 6
+            new(Return, 0, 0, DenyEacces),          // 7
+        ];
+
+        var handle = GCHandle.Alloc(program, GCHandleType.Pinned);
+        try
+        {
+            var prog = new SockFprog { Length = (ushort)program.Length, Filter = handle.AddrOfPinnedObject() };
+            if (PrctlSeccomp(PrSetSeccomp, SeccompModeFilter, ref prog, 0, 0) != 0)
+            {
+                error = $"errno {Marshal.GetLastPInvokeError()}";
+                return false;
+            }
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        error = null;
+        return true;
+    }
+
+    private const int PrSetSeccomp = 22;
+    private const ulong SeccompModeFilter = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly struct SockFilter(ushort code, byte jumpIfTrue, byte jumpIfFalse, uint value)
+    {
+        public readonly ushort Code = code;
+        public readonly byte JumpIfTrue = jumpIfTrue;
+        public readonly byte JumpIfFalse = jumpIfFalse;
+        public readonly uint Value = value;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SockFprog
+    {
+        public ushort Length;
+        public IntPtr Filter;
+    }
+
+    [DllImport("libc", EntryPoint = "prctl", SetLastError = true)]
+    private static extern int PrctlSeccomp(int option, ulong mode, ref SockFprog prog, ulong d, ulong e);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RulesetAttr

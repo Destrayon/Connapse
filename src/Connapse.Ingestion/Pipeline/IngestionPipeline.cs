@@ -818,8 +818,13 @@ public class IngestionPipeline : IKnowledgeIngester
             throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {tooLarge}");
 
         var timeout = TimeSpan.FromSeconds(Math.Max(1, limits.ParseTimeoutSeconds));
-        ParsedDocument parsed = limits.IsolateParsers && _parserPool is not null && _parserPool.CanRun(parser)
-            ? await _parserPool.ParseAsync(parser, BufferOf(content), fileName, limits, timeout, ct)
+        bool isolated = limits.IsolateParsers && _parserPool is not null && _parserPool.CanRun(parser);
+
+        if (RefusalOutsideHost(limits, isolated, fileName) is { } refusal)
+            throw new PermanentIngestionException(refusal);
+
+        ParsedDocument parsed = isolated
+            ? await _parserPool!.ParseAsync(parser, BufferOf(content), fileName, limits, timeout, ct)
             : await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct, _logger);
 
         if (parsed.Content.Length > limits.MaxExtractedCharacters)
@@ -829,6 +834,17 @@ public class IngestionPipeline : IKnowledgeIngester
 
         return parsed;
     }
+
+    /// <summary>
+    /// Required promises no file is parsed outside a confined host, so falling back to the web
+    /// process -- isolation off, the host not deployed, or a parser the host does not carry --
+    /// is refused rather than done silently.
+    /// </summary>
+    internal static string? RefusalOutsideHost(UploadSettings limits, bool isolated, string fileName) =>
+        !isolated && string.Equals(limits.ParserSandbox, nameof(ParserSandboxMode.Required), StringComparison.OrdinalIgnoreCase)
+            ? $"Could not parse {Path.GetFileName(fileName)}: the parser sandbox is required, but this file would be " +
+              "parsed outside a parser host (IsolateParsers is off, or the host is not deployed) [sandbox_unavailable]"
+            : null;
 
     /// <summary>The bytes from the stream's position on, without a copy when it is already a MemoryStream.</summary>
     private static ReadOnlyMemory<byte> BufferOf(Stream content)

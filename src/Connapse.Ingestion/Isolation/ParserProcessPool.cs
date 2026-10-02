@@ -320,6 +320,10 @@ public sealed class ParserProcessPool : IDisposable
         // loads (see PdfOcr.DisableOnnxRuntimeTelemetry).
         start.Environment[PdfOcr.TelemetryVariable] = "1";
 
+        // The runtime's diagnostics server opens a Unix socket at start-up; the sandbox allows no
+        // sockets, and nothing should be attaching to a parser host anyway.
+        start.Environment["DOTNET_EnableDiagnostics"] = "0";
+
         // A temp folder of the host's own, the only place the sandbox lets it write: ONNX Runtime
         // writes a log to $TMPDIR and crashes when it cannot. The shared temp folder stays closed,
         // because it holds other users' uploads in flight.

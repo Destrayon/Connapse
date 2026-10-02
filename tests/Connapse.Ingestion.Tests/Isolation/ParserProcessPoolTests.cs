@@ -342,6 +342,39 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task Sandbox_HostCannotSendUdp()
+    {
+        if (!await ConfinedAsync())
+            return;
+
+        // Landlock has no UDP rules; the seccomp filter refuses every socket, DNS included.
+        using var listener = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+        int port = ((System.Net.IPEndPoint)listener.Client.LocalEndPoint!).Port;
+
+        (await ParseAsync(_pool, "Test.Udp", $"127.0.0.1:{port}")).Content.Should().StartWith("denied");
+        listener.Available.Should().Be(0, "nothing may have arrived");
+    }
+
+    [Theory]
+    [InlineData("Required", false, true)]
+    [InlineData("required", false, true)]
+    [InlineData("Required", true, false)]
+    [InlineData("Auto", false, false)]
+    [InlineData("Off", false, false)]
+    public void Pipeline_RequiredSandboxWithoutAHost_RefusesToParse(string sandbox, bool isolated, bool refused)
+    {
+        // With isolation off or no host deployed, the pipeline parses in the web process; Required
+        // forbids exactly that.
+        string? refusal = Connapse.Ingestion.Pipeline.IngestionPipeline.RefusalOutsideHost(
+            new UploadSettings { ParserSandbox = sandbox }, isolated, "file.pdf");
+
+        if (refused)
+            refusal.Should().Contain("[sandbox_unavailable]");
+        else
+            refusal.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Sandbox_HostStillReadsItsOwnCodeAndModels()
     {
         if (!await ConfinedAsync())

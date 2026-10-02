@@ -94,6 +94,20 @@ internal static class TestHostProgram
                     return new ParsedDocument($"denied: {ex.GetType().Name}", [], []);
                 }
             }),
+            new Behaving("Test.Udp", content =>
+            {
+                string[] target = System.Text.Encoding.UTF8.GetString(content).Split(':');
+                try
+                {
+                    using var client = new System.Net.Sockets.UdpClient();
+                    client.Send("exfiltrated"u8.ToArray(), target[0], int.Parse(target[1]));
+                    return new ParsedDocument("sent", [], []);
+                }
+                catch (Exception ex)
+                {
+                    return new ParsedDocument($"denied: {ex.GetType().Name}", [], []);
+                }
+            }),
             new Behaving("Test.Huge", _ => new ParsedDocument(new string('x', 100_000), [], [])),
             new Behaving("Test.SlowProcessId", _ =>
             {
