@@ -44,15 +44,36 @@ public class DocumentAwareChunker(ITokenCounter tokenCounter, RecursiveChunker r
         var chunks = new List<ChunkInfo>();
         int chunkIndex = 0;
 
-        foreach (MarkdownSection section in sections)
+        for (int sectionIndex = 0; sectionIndex < sections.Count; sectionIndex++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            MarkdownSection section = sections[sectionIndex];
 
             string body = parsedDocument.Content.Substring(
                 section.SpanStart,
                 section.SpanEnd - section.SpanStart);
 
-            if (string.IsNullOrWhiteSpace(body)) continue;
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                // A heading with nothing under it -- a title-only slide, a short DOCX section
+                // heading -- is still text someone may search for. Emitted only for a leaf: a
+                // heading directly followed by its own subheading is carried by that section's
+                // breadcrumb already.
+                bool isLeaf = sectionIndex + 1 >= sections.Count || sections[sectionIndex + 1].Depth <= section.Depth;
+                if (isLeaf && section.HeaderPath.Length > 0)
+                {
+                    chunks.Add(BuildChunk(
+                        parsedDocument,
+                        section.HeaderPath,
+                        chunkIndex++,
+                        tokenCounter.CountTokens(section.HeaderPath),
+                        startOffset: section.SpanStart,
+                        endOffset: section.SpanStart,
+                        section,
+                        offsetEstimated: true));
+                }
+                continue;
+            }
 
             string text = settings.PrependHeaderPath && section.HeaderPath.Length > 0
                 ? $"{section.HeaderPath}\n\n{body}"
@@ -75,9 +96,37 @@ public class DocumentAwareChunker(ITokenCounter tokenCounter, RecursiveChunker r
 
             // Oversize section: delegate body (without prepend) to RecursiveChunker.
             // Translate sub-chunk offsets back to outer-content coordinates.
-            var syntheticDoc = new ParsedDocument(body, parsedDocument.Metadata, parsedDocument.Warnings);
-            IReadOnlyList<ChunkInfo> sub = await recursiveChunker.ChunkAsync(
-                syntheticDoc, settings, cancellationToken);
+            //
+            // The breadcrumb is prepended to every piece afterwards, so its tokens are reserved
+            // first; otherwise each piece could land over MaxChunkSize. Markdown tables are cut
+            // on row boundaries with their header repeated, so no piece is a run of rows without
+            // its columns, and no row is split in half.
+            bool reserve = settings.PrependHeaderPath && section.HeaderPath.Length > 0;
+            int headerTokens = reserve ? tokenCounter.CountTokens($"{section.HeaderPath}\n\n") : 0;
+            var bodySettings = settings with { MaxChunkSize = Math.Max(16, settings.MaxChunkSize - headerTokens) };
+
+            var sub = new List<ChunkInfo>();
+            foreach (var (pieceStart, piece, isTable) in MarkdownTables.SplitAroundTables(body))
+            {
+                IEnumerable<(int Start, string Text)> parts = isTable
+                    ? MarkdownTables.SplitByRows(piece, bodySettings.MaxChunkSize, tokenCounter)
+                    : [(0, piece)];
+
+                foreach (var (partStart, part) in parts)
+                {
+                    if (string.IsNullOrWhiteSpace(part)) continue;
+                    if (isTable && tokenCounter.CountTokens(part) <= bodySettings.MaxChunkSize)
+                    {
+                        sub.Add(new ChunkInfo(part.Trim(), 0, tokenCounter.CountTokens(part.Trim()),
+                            pieceStart + partStart, pieceStart + partStart + part.Length, []));
+                        continue;
+                    }
+
+                    var syntheticDoc = new ParsedDocument(part, parsedDocument.Metadata, parsedDocument.Warnings);
+                    foreach (ChunkInfo s in await recursiveChunker.ChunkAsync(syntheticDoc, bodySettings, cancellationToken))
+                        sub.Add(s with { StartOffset = pieceStart + partStart + s.StartOffset, EndOffset = pieceStart + partStart + s.EndOffset });
+                }
+            }
 
             foreach (ChunkInfo s in sub)
             {
