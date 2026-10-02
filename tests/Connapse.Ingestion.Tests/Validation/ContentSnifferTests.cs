@@ -65,6 +65,7 @@ public class ContentSnifferTests
     [InlineData(".txt")]
     [InlineData(".md")]
     [InlineData(".json")]
+    [InlineData(".html")]
     public void DescribeMismatch_ImageNamedAsText_IsRejected(string extension) =>
         ContentSniffer.DescribeMismatch(Jpeg, extension).Should().Be("its content is a JPEG image, not text");
 

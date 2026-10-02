@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentParser, TextParser>();
         services.AddSingleton<IDocumentParser, PdfParser>();
         services.AddSingleton<IDocumentParser, OfficeParser>();
+        services.AddSingleton<IDocumentParser, HtmlParser>();
         services.AddSingleton<IFileTypeValidator, FileTypeValidator>();
 
         // Register chunking strategies
