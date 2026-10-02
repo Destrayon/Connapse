@@ -252,12 +252,52 @@ public class IngestionIntegrationTests : IAsyncLifetime
         await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
+    [Fact]
+    public async Task UploadIngestSearch_EpubBook_IndexesItsChapters()
+    {
+        // #600: a book's chapters in reading order.
+        byte[] epub;
+        using (var output = new MemoryStream())
+        {
+            using (var zip = new System.IO.Compression.ZipArchive(output, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+            {
+                void Add(string path, string text)
+                {
+                    using var writer = new StreamWriter(zip.CreateEntry(path).Open());
+                    writer.Write(text);
+                }
+
+                Add("mimetype", "application/epub+zip");
+                Add("META-INF/container.xml", """<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>""");
+                Add("content.opf", """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:600</dc:identifier><dc:title>Harbour Almanac</dc:title><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>""");
+                Add("nav.xhtml", """<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>toc</title></head><body><nav epub:type="toc"><ol><li><a href="c1.xhtml">One</a></li></ol></nav></body></html>""");
+                Add("c1.xhtml", """<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c1</title></head><body><h1>Tides</h1><p>Neap tides leave the oyster beds exposed for hours.</p></body></html>""");
+            }
+            epub = output.ToArray();
+        }
+
+        var documentId = await UploadDocument("almanac.epub", epub);
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
+
+        var document = await _fixture.AdminClient.GetFromJsonAsync<DocumentDto>(
+            $"/api/containers/{_containerId}/files/{documentId}", JsonOptions);
+        document!.Metadata["IndexedWith:Parser"].Should().Be("EpubParser");
+
+        var hits = await _fixture.AdminClient.GetFromJsonAsync<SearchResultDto>(
+            $"/api/containers/{_containerId}/search?q={Uri.EscapeDataString("oyster beds")}&mode=Keyword&topK=5", JsonOptions);
+        hits!.Hits.Should().Contain(h => h.DocumentId == documentId);
+
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
+    }
+
     private record ErrorResponse(string Error);
 
-    private async Task<string> UploadDocument(string fileName, string content)
+    private Task<string> UploadDocument(string fileName, string content) =>
+        UploadDocument(fileName, Encoding.UTF8.GetBytes(content));
+
+    private async Task<string> UploadDocument(string fileName, byte[] fileBytes)
     {
         using var multipart = new MultipartFormDataContent();
-        var fileBytes = Encoding.UTF8.GetBytes(content);
         var fileContent2 = new ByteArrayContent(fileBytes);
         fileContent2.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(fileContent2, "files", fileName);

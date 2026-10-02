@@ -15,7 +15,7 @@ public static class ParseLimits
 
     private static readonly HashSet<string> ZipOfficeExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".docx", ".pptx",
+        ".docx", ".pptx", ".epub",
     };
 
     /// <summary>
@@ -55,7 +55,7 @@ public static class ParseLimits
                 return $"it expands to {Megabytes(inflated)} MB, over the {Megabytes(limits.MaxDecompressedBytes)} MB limit [decompressed_too_large]";
 
             if (inflated > RatioCheckFloorBytes && compressed > 0 && inflated / compressed > limits.MaxCompressionRatio)
-                return $"it expands {inflated / compressed}:1, over the {limits.MaxCompressionRatio}:1 limit for Office files [decompressed_too_large]";
+                return $"it expands {inflated / compressed}:1, over the {limits.MaxCompressionRatio}:1 limit for ZIP-based documents [decompressed_too_large]";
 
             return null;
         }

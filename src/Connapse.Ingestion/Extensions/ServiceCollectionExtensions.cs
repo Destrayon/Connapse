@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentParser, PdfParser>();
         services.AddSingleton<IDocumentParser, OfficeParser>();
         services.AddSingleton<IDocumentParser, HtmlParser>();
+        services.AddSingleton<IDocumentParser, EpubParser>();
         // Attachments are parsed by the other parsers, looked up when a message is parsed: taking
         // IEnumerable<IDocumentParser> in the constructor would include EmailParser itself.
         services.AddSingleton<IDocumentParser>(sp => new EmailParser(

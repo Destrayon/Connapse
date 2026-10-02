@@ -21,7 +21,7 @@ public static class ContentSniffer
 
     private static readonly HashSet<string> ZipOfficeExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".docx", ".pptx",
+        ".docx", ".pptx", ".epub",
     };
 
     private static ReadOnlySpan<byte> PdfMagic => "%PDF-"u8;
@@ -81,8 +81,8 @@ public static class ContentSniffer
             if (head.StartsWith(ZipMagic)) return null;
 
             return Identify(head) is { } actual
-                ? $"its content is {actual}, not a {extension.TrimStart('.').ToUpperInvariant()} file"
-                : $"its content is not a {extension.TrimStart('.').ToUpperInvariant()} file";
+                ? $"its content is {actual}, not {Format(extension)}"
+                : $"its content is not {Format(extension)}";
         }
 
         if (extension.Equals(".msg", StringComparison.OrdinalIgnoreCase))
@@ -109,6 +109,13 @@ public static class ContentSniffer
         }
 
         return null;
+    }
+
+    /// <summary>"a DOCX file", "an EPUB file".</summary>
+    private static string Format(string extension)
+    {
+        string name = extension.TrimStart('.').ToUpperInvariant();
+        return (name.Length > 0 && "AEIOU".Contains(name[0]) ? "an " : "a ") + name + " file";
     }
 
     /// <summary>
