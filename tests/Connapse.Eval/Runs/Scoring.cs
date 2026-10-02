@@ -15,7 +15,13 @@ public sealed record DatasetScores(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, double>> PerQuery,
     double LatencyP50Ms,
     double LatencyP95Ms,
-    string? NotScoredReason);
+    string? NotScoredReason)
+{
+    /// <summary>Means over the scored queries carrying each "kind:" tag, by tag.</summary>
+    public IReadOnlyList<KindScores> Kinds { get; init; } = [];
+}
+
+public sealed record KindScores(string Kind, int Queries, IReadOnlyDictionary<string, double> Means);
 
 public sealed record RunScores(
     string RunName,
@@ -71,8 +77,17 @@ public static class Scoring
             Dictionary<string, double> means = MetricNames.All.ToDictionary(
                 m => m, m => perQuery.Count == 0 ? double.NaN : perQuery.Values.Average(v => v[m]));
             List<double> latencies = test.Select(r => r.Trace.Total.TotalMilliseconds).ToList();
+            List<KindScores> kinds = test
+                .Where(r => perQuery.ContainsKey(r.QueryId))
+                .SelectMany(r => (r.Tags ?? []).Where(t => t.StartsWith("kind:", StringComparison.Ordinal)).Select(t => (Kind: t, r.QueryId)))
+                .GroupBy(x => x.Kind)
+                .OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => new KindScores(g.Key, g.Count(),
+                    MetricNames.All.ToDictionary(m => m, m => g.Average(x => perQuery[x.QueryId][m]))))
+                .ToList();
             datasets.Add(new DatasetScores(info.Name, info.Tags, false, test.Count, noAnswer,
-                test.Count(r => r.Error is not null), means, perQuery, Percentile(latencies, 50), Percentile(latencies, 95), null));
+                test.Count(r => r.Error is not null), means, perQuery, Percentile(latencies, 50), Percentile(latencies, 95), null)
+            { Kinds = kinds });
         }
 
         List<DatasetScores> valid = datasets.Where(d => !d.Invalid && d.PerQuery.Count > 0).ToList();

@@ -48,4 +48,6 @@ public sealed record QueryResult(
     Split Split,
     IReadOnlyList<RankedDoc> Ranked,
     Trace Trace,
-    string? Error);
+    string? Error,
+    IReadOnlyList<RetrievedPassage>? Passages = null,
+    IReadOnlyList<string>? Tags = null);

@@ -42,6 +42,23 @@ public class DatasetCacheTests : IDisposable
         hashes["corpus.jsonl"].Should().Be(PayloadHash);
     }
 
+    [Fact]
+    public async Task EnsureAsync_RepoFile_CopiedFreshSoAnEditFailsTheChecksum()
+    {
+        DatasetCache cache = CacheWithLocks(out string locks);
+        Directory.CreateDirectory(Path.Combine(locks, "ds"));
+        string committed = Path.Combine(locks, "ds", "questions.jsonl");
+        File.WriteAllBytes(committed, _payload);
+        DatasetEntry entry = new("pdf-qa", "rev1", [], [new DatasetFile("questions.jsonl", "repo:ds/questions.jsonl", PayloadHash)]);
+
+        await cache.EnsureAsync("ds", entry, allowUnpinned: false, CancellationToken.None);
+        File.WriteAllText(committed, "edited");
+        Func<Task> act = () => cache.EnsureAsync("ds", entry, allowUnpinned: false, CancellationToken.None);
+
+        await act.Should().ThrowAsync<ChecksumMismatchException>();
+        _handler.Calls.Should().Be(0);
+    }
+
     private static DatasetEntry FileListEntry() =>
         new("olmocr-bench", "rev1", [], [], new DatasetFileList("https://example.test/pdfs"));
 

@@ -84,7 +84,8 @@ internal static class Commands
                 ? $"  {d.Name,-28} not scored: {d.NotScoredReason}"
                 : d.PerQuery.Count == 0
                 ? $"  {d.Name,-28} no scored test queries"
-                : $"  {d.Name,-28} nDCG@10 {d.Means["nDCG@10"]:F3}  MRR@10 {d.Means["MRR@10"]:F3}  judged@10 {d.Means["judged@10"]:F2}");
+                : $"  {d.Name,-28} nDCG@10 {d.Means["nDCG@10"]:F3}  MRR@10 {d.Means["MRR@10"]:F3}  judged@10 {d.Means["judged@10"]:F2}"
+                    + string.Concat(d.Kinds.Select(k => $"\n    {k.Kind,-26} nDCG@10 {k.Means["nDCG@10"]:F3}  Recall@10 {k.Means["Recall@10"]:F3}  (n={k.Queries})")));
         Console.WriteLine($"  {"portfolio",-28} nDCG@10 {scores.Portfolio["nDCG@10"]:F3}");
         return scores.Datasets.Any(d => d.Invalid) ? 1 : 0;
     }

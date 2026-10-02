@@ -37,6 +37,20 @@ fails-loudly check for files Connapse cannot read; and a no-silent-failure check
 - Every run writes `documents/<dataset>.jsonl` (one row per file) and `checks/<dataset>.jsonl` (one row per
   check and level).
 
+## PDF question answering
+
+`pdfqa-v1` asks questions whose answers sit in a table cell, a column, a sentence split by a running
+header, or a scan, and scores whether the passage holding the answer is retrieved. Use it to judge parser
+work by its effect on answers; re-run it after parsing changes and compare against the previous run.
+
+    dotnet run --project tests/Connapse.Eval -- datasets fetch --suite pdfqa-v1
+    dotnet run --project tests/Connapse.Eval -- run --suite pdfqa-v1 --config hybrid
+
+- Each retrieved chunk is judged against the question's evidence strings (`eval/datasets/pdfqa/card.md`);
+  rankings are over chunks, not documents.
+- Scores are broken down by question kind (`kind:table-ruled`, `kind:scan-degraded`, ...) in the console
+  and in `report.html`.
+
 ## Files and reports
 
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.
