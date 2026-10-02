@@ -1,7 +1,9 @@
 using System.IO.Compression;
 using System.Text;
 using System.Xml;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Microsoft.Extensions.Options;
 using VersOne.Epub;
 using VersOne.Epub.Options;
 
@@ -24,7 +26,7 @@ namespace Connapse.Ingestion.Parsers;
 /// as a page error, so the document is marked incomplete and a reindex retries it.
 /// </para>
 /// </summary>
-public class EpubParser : IDocumentParser
+public class EpubParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocumentParser
 {
     /// <summary>The two font-obfuscation algorithms, which encrypt fonts only.</summary>
     private static readonly HashSet<string> FontObfuscation = new(StringComparer.OrdinalIgnoreCase)
@@ -53,8 +55,7 @@ public class EpubParser : IDocumentParser
         try
         {
             long start = stream.Position;
-            if (EncryptedContent(stream) is { } encrypted)
-                throw new PermanentIngestionException($"the EPUB is DRM-protected: {encrypted} is encrypted [encrypted]");
+            var encrypted = EncryptedPaths(stream);
             stream.Position = start;
 
             var options = new EpubReaderOptions(EpubReaderOptionsPreset.RELAXED);
@@ -76,13 +77,30 @@ public class EpubParser : IDocumentParser
             if (author.Length > 0)
                 text.Append("**Author:** ").Append(author).Append("\n\n");
 
-            var chapters = book.GetReadingOrder();
+            // A spine may list one document many times; reading it once is all the text there is,
+            // and reading it again per entry would let a small book cost unbounded work.
+            var chapters = book.GetReadingOrder().DistinctBy(c => c.FilePath, StringComparer.Ordinal).ToList();
             metadata["ChapterCount"] = chapters.Count.ToString();
+
+            // Judged against the documents actually read: an encrypted chapter is ciphertext, while
+            // an encrypted resource the reading order never uses costs nothing.
+            if (chapters.FirstOrDefault(c => encrypted.Contains(NormalizePath(c.FilePath))) is { } locked)
+                throw new PermanentIngestionException($"the EPUB is DRM-protected: {locked.FilePath} is encrypted [encrypted]");
+
+            // The pipeline refuses output over this after the parse; stopping here keeps a book from
+            // building it first.
+            int maxCharacters = (limits?.CurrentValue ?? new UploadSettings()).MaxExtractedCharacters;
             int failed = 0;
             bool anyText = false;
             foreach (var chapter in chapters)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (text.Length > maxCharacters)
+                {
+                    throw new PermanentIngestionException(
+                        $"it yielded more than the {maxCharacters:N0} character limit [output_too_large]");
+                }
+
                 try
                 {
                     string markdown = HtmlParser.BodyToMarkdown(chapter.ReadContent(), warnings, cancellationToken);
@@ -124,15 +142,16 @@ public class EpubParser : IDocumentParser
     }
 
     /// <summary>
-    /// The first content file META-INF/encryption.xml says is encrypted by something other than
-    /// font obfuscation, or null. Read from the ZIP directly, before VersOne.Epub sees the book.
+    /// The archive paths META-INF/encryption.xml says are encrypted by something other than font
+    /// obfuscation, normalized. Read from the ZIP directly, before VersOne.Epub sees the book.
     /// </summary>
-    internal static string? EncryptedContent(Stream stream)
+    internal static HashSet<string> EncryptedPaths(Stream stream)
     {
+        var paths = new HashSet<string>(StringComparer.Ordinal);
         using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
         var entry = zip.GetEntry("META-INF/encryption.xml");
         if (entry is null)
-            return null;
+            return paths;
 
         using var xml = XmlReader.Create(entry.Open(), new XmlReaderSettings
         {
@@ -150,14 +169,37 @@ public class EpubParser : IDocumentParser
                 algorithm = xml.GetAttribute("Algorithm");
             else if (xml.LocalName == "CipherReference"
                 && xml.GetAttribute("URI") is { } uri
-                && (algorithm is null || !FontObfuscation.Contains(algorithm))
-                && IsTextContent(uri))
+                && (algorithm is null || !FontObfuscation.Contains(algorithm)))
             {
-                return uri;
+                paths.Add(NormalizePath(uri));
             }
         }
 
-        return null;
+        return paths;
+    }
+
+    /// <summary>
+    /// An archive path as encryption.xml and the package may each spell it: percent-decoded,
+    /// forward slashes, no leading slash, "./" and "dir/../" resolved.
+    /// </summary>
+    internal static string NormalizePath(string path)
+    {
+        string decoded = Uri.UnescapeDataString(path.Split('#', '?')[0]).Replace('\\', '/');
+        var parts = new List<string>();
+        foreach (string part in decoded.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == ".")
+                continue;
+            if (part == "..")
+            {
+                if (parts.Count > 0)
+                    parts.RemoveAt(parts.Count - 1);
+                continue;
+            }
+            parts.Add(part);
+        }
+
+        return string.Join('/', parts);
     }
 
     private static async Task<Stream> ViewOfAsync(Stream stream, CancellationToken ct)
@@ -169,15 +211,6 @@ public class EpubParser : IDocumentParser
         await stream.CopyToAsync(copy, ct);
         copy.Position = 0;
         return copy;
-    }
-
-    private static bool IsTextContent(string uri)
-    {
-        string extension = Path.GetExtension(uri.Split('#', '?')[0]);
-        return extension.Equals(".xhtml", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".html", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".htm", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".xml", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Normalize(string? text) =>

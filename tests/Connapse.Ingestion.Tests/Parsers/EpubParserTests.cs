@@ -4,6 +4,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Validation;
 using FluentAssertions;
+using NSubstitute;
 
 namespace Connapse.Ingestion.Tests.Parsers;
 
@@ -37,9 +38,10 @@ public class EpubParserTests
                 </container>
                 """);
 
-            var files = chapters.Select(c => c.File).Concat(spineOnly ?? []).ToList();
-            string manifest = string.Concat(files.Select((f, i) => $"""<item id="c{i}" href="{f}" media-type="application/xhtml+xml"/>"""));
-            string spine = string.Concat(files.Select((_, i) => $"""<itemref idref="c{i}"/>"""));
+            var spineFiles = chapters.Select(c => c.File).Concat(spineOnly ?? []).ToList();
+            var files = spineFiles.Distinct().ToList();
+            string manifest = string.Concat(files.Select((f, i) => $"""<item id="c{i}" href="{Uri.EscapeDataString(f)}" media-type="application/xhtml+xml"/>"""));
+            string spine = string.Concat(spineFiles.Select(f => $"""<itemref idref="c{files.IndexOf(f)}"/>"""));
             Add("OEBPS/content.opf", $"""
                 <?xml version="1.0" encoding="UTF-8"?>
                 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
@@ -61,7 +63,7 @@ public class EpubParserTests
                 <?xml version="1.0" encoding="UTF-8"?>
                 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
                 <head><title>Contents</title></head>
-                <body><nav epub:type="toc"><ol>{string.Concat(files.Select(f => $"""<li><a href="{f}">{f}</a></li>"""))}</ol></nav></body>
+                <body><nav epub:type="toc"><ol>{string.Concat(files.Select(f => $"""<li><a href="{Uri.EscapeDataString(f)}">{f}</a></li>"""))}</ol></nav></body>
                 </html>
                 """);
 
@@ -158,6 +160,56 @@ public class EpubParserTests
         var act = () => ParseAsync(book);
 
         (await act.Should().ThrowAsync<PermanentIngestionException>()).Which.Message.Should().Contain("[encrypted]");
+    }
+
+    [Theory]
+    [InlineData("OEBPS/chapter%20one.xhtml", "chapter one.xhtml")]
+    [InlineData("OEBPS/ch1.dat", "ch1.dat")]
+    [InlineData("OEBPS/text/../ch1.xhtml", "ch1.xhtml")]
+    public async Task ParseAsync_EncryptedChapterUnderAnySpelling_FailsAsEncrypted(string uri, string chapterFile)
+    {
+        // Matched against the chapters read, not by extension: a chapter need not end in .xhtml,
+        // and encryption.xml may percent-encode or dot-segment its path.
+        (string, string)[] chapters = [(chapterFile, "<p>Ciphertext in real life.</p>")];
+        byte[] book = Epub("Locked", "Author", chapters, extra: Encryption("http://www.w3.org/2001/04/xmlenc#aes128-cbc", uri));
+
+        var act = () => ParseAsync(book);
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[encrypted]*");
+    }
+
+    [Fact]
+    public async Task ParseAsync_EncryptedResourceOutsideTheReadingOrder_IsNotDrm()
+    {
+        byte[] book = Epub("Partly locked", "Author", TwoChapters,
+            extra: Encryption("http://www.w3.org/2001/04/xmlenc#aes128-cbc", "OEBPS/extras/answers.xhtml"));
+
+        var result = await ParseAsync(book);
+
+        result.Content.Should().Contain("The lighthouse stood");
+    }
+
+    [Fact]
+    public async Task ParseAsync_ChapterRepeatedInTheSpine_IsReadOnce()
+    {
+        byte[] book = Epub("Loop", "Author", TwoChapters, spineOnly: Enumerable.Repeat("ch1.xhtml", 5000).ToArray());
+
+        var result = await ParseAsync(book);
+
+        result.Content.Split("The lighthouse stood").Should().HaveCount(2, "one occurrence splits the text in two");
+    }
+
+    [Fact]
+    public async Task ParseAsync_TextOverTheExtractionLimit_StopsReading()
+    {
+        var monitor = NSubstitute.Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Core.UploadSettings>>();
+        monitor.CurrentValue.Returns(new Core.UploadSettings { MaxExtractedCharacters = 50 });
+        var parser = new EpubParser(monitor);
+        using var stream = new MemoryStream(Epub("Long", "Author", TwoChapters));
+
+        var act = () => parser.ParseAsync(stream, "book.epub");
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[output_too_large]*");
     }
 
     [Fact]
