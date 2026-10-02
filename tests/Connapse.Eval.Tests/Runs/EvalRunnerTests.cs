@@ -197,7 +197,7 @@ public class EvalRunnerTests : IDisposable
     {
         RepoPaths paths = new(_repo);
         byte[] questions = Encoding.UTF8.GetBytes(
-            """{"id":"q1","question":"one?","doc":"a.pdf","evidence":["answer one"],"answer":"one"}""" + "\n"
+            """{"id":"q1","question":"one?","doc":"a.pdf","evidence":["answer one"],"answer":"one","kind":"table-ruled"}""" + "\n"
             + """{"id":"q2","question":"two?","doc":"a.pdf","evidence":["answer two"],"answer":"two"}""" + "\n");
         Directory.CreateDirectory(Path.Combine(paths.DatasetsRoot, "pq"));
         File.WriteAllBytes(Path.Combine(paths.DatasetsRoot, "pq", "questions.jsonl"), questions);
@@ -227,6 +227,8 @@ public class EvalRunnerTests : IDisposable
         run.ReadQrels("pq").For("q1").Should().BeEquivalentTo(new Dictionary<string, int> { ["a.pdf#c1"] = 0, ["a.pdf#c2"] = 1 });
         run.ReadTitles("pq").Should().ContainKey("a.pdf#c2").WhoseValue.Should().Be("a");
         run.ReadResults("pq")[0].Passages.Should().HaveCount(2);
+        scores.Datasets.Single().Kinds.Should().ContainSingle().Which.Should().Match<KindScores>(k =>
+            k.Kind == "kind:table-ruled" && k.Queries == 1 && k.Means["MRR@10"] == 0.5);
     }
 
     [Fact]

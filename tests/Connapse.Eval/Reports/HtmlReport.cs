@@ -50,6 +50,13 @@ public static partial class HtmlReport
             foreach (string metric in MetricNames.All)
                 html.Append($"<td>{F(d.Means[metric])}</td>");
             html.Append($"<td>{d.TestQueries}</td><td>{d.NoAnswerQueries}</td><td>{d.ErrorQueries}</td><td>{d.LatencyP50Ms:F0}</td><td>{d.LatencyP95Ms:F0}</td></tr>");
+            foreach (KindScores kind in d.Kinds)
+            {
+                html.Append($"<tr><td class=muted>&nbsp;&nbsp;{E(kind.Kind)}</td>");
+                foreach (string metric in MetricNames.All)
+                    html.Append($"<td class=muted>{F(kind.Means[metric])}</td>");
+                html.Append($"<td class=muted>{kind.Queries}</td><td></td><td></td><td></td><td></td></tr>");
+            }
         }
         foreach ((string domain, IReadOnlyDictionary<string, double> means) in scores.Domains.OrderBy(p => p.Key, StringComparer.Ordinal))
             AppendMeansRow(html, domain, means);

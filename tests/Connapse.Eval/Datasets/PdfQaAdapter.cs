@@ -7,7 +7,8 @@ namespace Connapse.Eval.Datasets;
 /// <summary>
 /// Questions over real PDFs (#643). Every .pdf file in the entry is a document; questions.jsonl
 /// holds one question per line, with the PDF that answers it, the evidence strings the answering
-/// passage must contain, the answer, and the page it was read from.
+/// passage must contain, the answer, the page it was read from, and its kind (table-ruled, scan-typed,
+/// ...), which becomes a "kind:" tag the scores are broken down by.
 /// </summary>
 public sealed class PdfQaAdapter : IDatasetAdapter
 {
@@ -15,7 +16,8 @@ public sealed class PdfQaAdapter : IDatasetAdapter
 
     public string Name => "pdf-qa";
 
-    private sealed record QuestionLine(string Id, string Question, string Doc, IReadOnlyList<string> Evidence, string Answer, int? Page);
+    private sealed record QuestionLine(
+        string Id, string Question, string Doc, IReadOnlyList<string> Evidence, string Answer, int? Page, string? Kind);
 
     public async Task<EvalDataset> LoadAsync(string datasetName, DatasetEntry entry, string directory, CancellationToken ct)
     {
@@ -46,7 +48,7 @@ public sealed class PdfQaAdapter : IDatasetAdapter
                 throw new InvalidDataException($"{where} needs evidence strings with words in them.");
             if (!passages.TryAdd(q.Id, new PassageGold(q.Doc, q.Evidence, q.Answer)))
                 throw new InvalidDataException($"{where} repeats a question ID.");
-            queries.Add(new EvalQuery(q.Id, q.Question, Split.Test, []));
+            queries.Add(new EvalQuery(q.Id, q.Question, Split.Test, string.IsNullOrWhiteSpace(q.Kind) ? [] : [$"kind:{q.Kind}"]));
             qrels.Add(q.Id, q.Doc, 1);
         }
 

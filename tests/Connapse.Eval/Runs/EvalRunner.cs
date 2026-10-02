@@ -89,11 +89,12 @@ public sealed class EvalRunner(
                             PassageJudge.Judge(passages[query.Id], retrieved);
                         foreach ((string passageId, int grade) in judgments)
                             qrels.Add(query.Id, passageId, grade);
-                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, ranked, outcome.Trace, outcome.Error, retrieved));
+                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, ranked, outcome.Trace, outcome.Error, retrieved, query.Tags));
                     }
                     else
                     {
-                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, outcome.Ranked, outcome.Trace, outcome.Error));
+                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, outcome.Ranked, outcome.Trace, outcome.Error,
+                            Tags: query.Tags.Count > 0 ? query.Tags : null));
                     }
                     if (outcome.Candidates is not null)
                         captured.Add((query.Id, outcome.Candidates));
