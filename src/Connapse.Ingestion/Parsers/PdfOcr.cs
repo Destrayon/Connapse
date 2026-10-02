@@ -22,10 +22,8 @@ internal static class PdfOcr
     /// </summary>
     internal const int MaxRenderedSide = 4000;
 
-    /// <summary>The defaults, recognising one text line at a time: see <see cref="SessionOptions"/>.</summary>
-    private static readonly RapidOcrOptions Options = new() { RecMaxDegreeOfParallelism = 1 };
-
-    private static readonly Lazy<RapidOcr> Engine = new(Load, LazyThreadSafetyMode.ExecutionAndPublication);
+    /// <summary>The engine and the thread count it was loaded with; replaced when the setting changes.</summary>
+    private static (RapidOcr Engine, int Threads)? s_engine;
 
     // RapidOcr holds ONNX sessions and buffers per call; one page at a time per process. In the
     // parser host there is only one parse at a time anyway.
@@ -35,7 +33,7 @@ internal static class PdfOcr
     /// The page's text in reading order, empty when none was found, or null when the page is too
     /// large to render at a resolution text could be read at.
     /// </summary>
-    public static string? ReadPage(byte[] pdf, int pageIndex, int dpi, CancellationToken ct)
+    public static string? ReadPage(byte[] pdf, int pageIndex, int dpi, int threads, CancellationToken ct)
     {
         if (RenderDpi(pdf, pageIndex, dpi) is not int renderDpi)
             return null;
@@ -45,7 +43,11 @@ internal static class PdfOcr
 
         lock (Gate)
         {
-            var result = Engine.Value.Detect(bitmap, Options, ct);
+            threads = Math.Max(1, threads);
+            var engine = EngineFor(threads);
+
+            // Recognition of the page's lines runs on the same number of threads as inference.
+            var result = engine.Detect(bitmap, RapidOcrOptions.Default with { RecMaxDegreeOfParallelism = threads }, ct);
             return OcrLayout.Arrange(result.TextBlocks.Select(ToLine).ToList());
         }
     }
@@ -83,7 +85,19 @@ internal static class PdfOcr
         return chosen < MinReadableDpi ? null : chosen;
     }
 
-    private static RapidOcr Load()
+    /// <summary>Called under <see cref="Gate"/>.</summary>
+    private static RapidOcr EngineFor(int threads)
+    {
+        if (s_engine is { } loaded && loaded.Threads == threads)
+            return loaded.Engine;
+
+        s_engine?.Engine.Dispose();
+        var engine = Load(threads);
+        s_engine = (engine, threads);
+        return engine;
+    }
+
+    private static RapidOcr Load(int threads)
     {
         // Absolute paths: RapidOcrNet's defaults are relative to the working directory, which for
         // the web process and the parser host is not where the models are deployed.
@@ -94,28 +108,25 @@ internal static class PdfOcr
             Path.Combine(models, "ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx"),
             Path.Combine(models, "latin_PP-OCRv5_rec_mobile_infer.onnx"),
             Path.Combine(models, "ppocrv5_latin_dict.txt"),
-            SessionOptionsForOcr());
+            SessionOptionsForOcr(threads));
         return engine;
     }
 
     /// <summary>
-    /// One thread, no spinning, no memory arena. ONNX Runtime otherwise takes every core it can see
-    /// -- one OCR'd page kept three busy, measured -- and every ingestion worker runs its own parser
-    /// process, so a batch of scans would take the whole machine from search and the web app. Set
-    /// this way, OCR uses at most one core per ingestion worker. Its threads also spin between runs
-    /// by default, burning CPU in a process that sits idle in the pool, and its arena keeps the
-    /// memory of the largest page it has seen for the life of the process.
+    /// A fixed thread count (UploadSettings.PdfOcrThreads, default one), no spinning, no memory
+    /// arena. ONNX Runtime otherwise takes every core it can see -- one OCR'd page kept three busy,
+    /// measured -- and every ingestion worker runs its own parser process, so a batch of scans would
+    /// take the whole machine from search and the web app. At one thread, OCR uses at most one core
+    /// per ingestion worker. Its threads also spin between runs by default, burning CPU in a process
+    /// that sits idle in the pool, and its arena keeps the memory of the largest page it has seen
+    /// for the life of the process.
     /// </summary>
-    private static SessionOptions SessionOptionsForOcr()
+    private static SessionOptions SessionOptionsForOcr(int threads)
     {
-        var options = new SessionOptions
-        {
-            // Both counts explicit: only then does ONNX Runtime skip pinning threads to cores.
-            IntraOpNumThreads = 1,
-            InterOpNumThreads = 1,
-            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
-            EnableCpuMemArena = false,
-        };
+        // RapidOcrNet's own options, which set both thread counts explicitly -- only then does ONNX
+        // Runtime skip pinning threads to cores -- at the graph optimisation level it uses.
+        var options = RapidOcr.GetDefaultSessionOptions(threads);
+        options.EnableCpuMemArena = false;
         options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
         options.AddSessionConfigEntry("session.inter_op.allow_spinning", "0");
         return options;

@@ -237,7 +237,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             watch.Start();
             try
             {
-                string? ocr = PdfOcr.ReadPage(pdf, i - 1, settings.PdfOcrDpi, ct);
+                string? ocr = PdfOcr.ReadPage(pdf, i - 1, settings.PdfOcrDpi, settings.PdfOcrThreads, ct);
                 read++;
                 if (ocr is null)
                 {

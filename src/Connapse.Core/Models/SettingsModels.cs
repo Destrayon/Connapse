@@ -479,6 +479,14 @@ public record UploadSettings
     /// </summary>
     public int MaxOcrPagesPerDocument { get; set; } = 50;
 
+    /// <summary>
+    /// CPU threads each OCR'd page may use (default: 1). Every ingestion worker can OCR at once, so
+    /// OCR can occupy this many cores per worker; one keeps a scan batch from starving search on a
+    /// small server. Raise it on a machine with cores to spare: a page took 9 s on one thread of a
+    /// desktop CPU and 3.6 s unrestricted, and 15 s in a container limited to two CPUs.
+    /// </summary>
+    public int PdfOcrThreads { get; set; } = 1;
+
     /// <summary>Resolution PDF pages are rendered at for OCR (default: 200 dpi).</summary>
     public int PdfOcrDpi { get; set; } = 200;
 
