@@ -271,6 +271,16 @@ public class ReindexService : IReindexService
                 StoredHash: doc.ContentHash);
         }
 
+        if (doc.Metadata.ContainsKey(Pipeline.IngestionPipeline.MetadataKeyExtractionIncomplete))
+        {
+            return new ReindexCheck(
+                documentId,
+                NeedsReindex: true,
+                Reason: ReindexReason.ExtractionIncomplete,
+                CurrentHash: currentHash,
+                StoredHash: doc.ContentHash);
+        }
+
         // Check if never indexed
         if (!doc.LastIndexedAt.HasValue || doc.IngestionStatus != DocumentStatus.Ready)
         {
@@ -428,6 +438,12 @@ public class ReindexService : IReindexService
                         parserCheck.current);
 
                     return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ParserChanged, ct);
+                }
+
+                if (doc.Metadata.ContainsKey(Pipeline.IngestionPipeline.MetadataKeyExtractionIncomplete))
+                {
+                    _logger.LogInformation("Document {DocumentId} has pages that failed to extract; retrying", doc.Id);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ExtractionIncomplete, ct);
                 }
             }
 

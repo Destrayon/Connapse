@@ -195,6 +195,157 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
             .WhoseValue.Should().Contain("Page 2 contains no extractable text");
     }
 
+    [Fact]
+    public async Task IngestAsync_UnchangedPdfWhosePageNowThrows_KeepsThePreviousIndex()
+    {
+        // #597: a reindex whose parse loses a page to an exception must not swap a complete index
+        // for a partial one. The bytes are the same, so the old chunks are still right.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
+        var pipeline = sp.GetRequiredService<IKnowledgeIngester>();
+        var options = new IngestionOptions(
+            DocumentId: documentId.ToString(), FileName: "report.pdf", ContentType: "application/pdf",
+            ContainerId: containerId.ToString(), Path: "/report.pdf");
+
+        await pipeline.IngestAsync(new MemoryStream(TwoPagePdf(breakSecondPage: false)), options);
+
+        // Pretend the stored bytes were these all along, as when a newer parser re-reads a file.
+        byte[] broken = TwoPagePdf(breakSecondPage: true);
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var ctx = await dbFactory.CreateDbContextAsync())
+        {
+            var doc = await ctx.Documents.SingleAsync(d => d.Id == documentId);
+            doc.ContentHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(broken));
+            await ctx.SaveChangesAsync();
+        }
+
+        var result = await pipeline.IngestAsync(new MemoryStream(broken), options);
+
+        result.Warnings.Should().Contain(w => w.Contains("previous index was kept"));
+        var after = await ReadAsync(sp, documentId);
+        after.IngestionStatus.Should().Be(DocumentStatus.Ready);
+        after.Metadata.Should().ContainKey(IngestionPipeline.MetadataKeyExtractionIncomplete,
+            "the failed re-read must be visible, and is what makes reindex retry it");
+        after.Metadata[IngestionPipeline.MetadataKeyParserWarnings].Should().Contain("previous index was kept");
+        await using var check = await dbFactory.CreateDbContextAsync();
+        string chunks = string.Join(" ", await check.Chunks.Where(c => c.DocumentId == documentId).Select(c => c.Content).ToListAsync());
+        chunks.Should().Contain("Renewals carried the second half", "the second page's text must survive the failed re-read");
+    }
+
+    [Fact]
+    public async Task IngestAsync_UnchangedPdfWhoseOnlyPageNowThrows_KeepsThePreviousIndexRatherThanFailing()
+    {
+        // Every page throwing yields no text at all, which used to fail the document before the
+        // keep-the-old-index check was reached.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
+        var pipeline = sp.GetRequiredService<IKnowledgeIngester>();
+        var options = new IngestionOptions(
+            DocumentId: documentId.ToString(), FileName: "memo.pdf", ContentType: "application/pdf",
+            ContainerId: containerId.ToString(), Path: "/memo.pdf");
+
+        await pipeline.IngestAsync(new MemoryStream(OnePagePdf(broken: false)), options);
+        DateTime? indexedAt = (await ReadAsync(sp, documentId)).LastIndexedAt;
+
+        byte[] broken = OnePagePdf(broken: true);
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var ctx = await dbFactory.CreateDbContextAsync())
+        {
+            var doc = await ctx.Documents.SingleAsync(d => d.Id == documentId);
+            doc.ContentHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(broken));
+            await ctx.SaveChangesAsync();
+        }
+
+        await pipeline.IngestAsync(new MemoryStream(broken), options);
+
+        var after = await ReadAsync(sp, documentId);
+        after.IngestionStatus.Should().Be(DocumentStatus.Ready);
+        after.ChunkCount.Should().BeGreaterThan(0);
+        after.LastIndexedAt.Should().Be(indexedAt, "the chunks are the old ones, so the old index time stands");
+    }
+
+    [Fact]
+    public async Task IngestAsync_ChangedPdfThatLosesAPage_IsMarkedIncomplete()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
+
+        await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(
+            new MemoryStream(TwoPagePdf(breakSecondPage: true)),
+            new IngestionOptions(
+                DocumentId: documentId.ToString(), FileName: "report.pdf", ContentType: "application/pdf",
+                ContainerId: containerId.ToString(), Path: "/report.pdf"));
+
+        var after = await ReadAsync(sp, documentId);
+        after.IngestionStatus.Should().Be(DocumentStatus.Ready, "the pages that did extract are still worth searching");
+        after.Metadata[IngestionPipeline.MetadataKeyExtractionIncomplete].Should().Be("1");
+    }
+
+    private static byte[] OnePagePdf(bool broken)
+    {
+        string content = (broken ? "/CS0 cs 0.5 sc\n" : "")
+            + "BT /F1 12 Tf 72 720 Td (A short memo about the renewal schedule for next year.) Tj ET";
+        string resources = broken
+            ? "<< /Font << /F1 4 0 R >> /ColorSpace << /CS0 /Bogus >> >>"
+            : "<< /Font << /F1 4 0 R >> >>";
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources {resources} /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",
+        };
+        var body = new System.Text.StringBuilder("%PDF-1.4\n");
+        var offsets = new List<int>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(body.Length);
+            body.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+        int xref = body.Length;
+        body.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int offset in offsets) body.Append($"{offset:D10} 00000 n \n");
+        body.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return System.Text.Encoding.ASCII.GetBytes(body.ToString());
+    }
+
+    /// <summary>Two text pages; optionally the second refers to a colour space that does not exist.</summary>
+    private static byte[] TwoPagePdf(bool breakSecondPage)
+    {
+        const string first = "BT /F1 12 Tf 72 720 Td (Quarterly revenue grew twelve percent on the strength of renewals.) Tj ET";
+        string second = (breakSecondPage ? "/CS0 cs 0.5 sc\n" : "")
+            + "BT /F1 12 Tf 72 720 Td (Renewals carried the second half of the year for every region.) Tj ET";
+        string secondResources = breakSecondPage
+            ? "<< /Font << /F1 4 0 R >> /ColorSpace << /CS0 /Bogus >> >>"
+            : "<< /Font << /F1 4 0 R >> >>";
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            $"<< /Length {first.Length} >>\nstream\n{first}\nendstream",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources {secondResources} /Contents 7 0 R >>",
+            $"<< /Length {second.Length} >>\nstream\n{second}\nendstream",
+        };
+        var body = new System.Text.StringBuilder("%PDF-1.4\n");
+        var offsets = new List<int>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(body.Length);
+            body.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+        int xref = body.Length;
+        body.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int offset in offsets) body.Append($"{offset:D10} 00000 n \n");
+        body.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return System.Text.Encoding.ASCII.GetBytes(body.ToString());
+    }
+
     private static byte[] PdfWithABlankSecondPage()
     {
         const string text = "BT /F1 12 Tf 72 720 Td (Quarterly revenue grew twelve percent on the strength of renewals.) Tj ET";

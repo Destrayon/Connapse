@@ -163,7 +163,9 @@ public enum ReindexReason
     /// <summary>Error occurred during evaluation.</summary>
     Error,
     /// <summary>A different parser, or a newer version of it, would now read the file.</summary>
-    ParserChanged
+    ParserChanged,
+    /// <summary>Pages failed to extract last time; the chunks are partial or an older parse.</summary>
+    ExtractionIncomplete
 }
 
 /// <summary>

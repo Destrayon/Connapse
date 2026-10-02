@@ -496,6 +496,20 @@ public record UploadSettings
     /// allocates per entry, so millions of empty entries exhaust memory before any size check.
     /// </summary>
     public int MaxZipEntries { get; set; } = 10_000;
+
+    public const string DefaultPdfTextMode = "ContentOrder";
+
+    /// <summary>
+    /// How PDF pages become text: Raw, ContentOrder, XYCut or Docstrum (default: ContentOrder,
+    /// the best of the four on extract-v1, 2026-10-01). See PdfTextMode in Connapse.Ingestion.
+    /// </summary>
+    public string PdfTextMode { get; set; } = DefaultPdfTextMode;
+
+    /// <summary>
+    /// Drop running headers, footers and page numbers -- text repeating at the edges of the pages
+    /// -- in PDFs of three or more pages (default: true).
+    /// </summary>
+    public bool PdfRemoveRepeatedHeadersAndFooters { get; set; } = true;
 }
 
 /// <summary>
