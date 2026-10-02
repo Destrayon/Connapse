@@ -19,6 +19,12 @@ public class OfficeParser : IDocumentParser
 
     public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
 
+    /// <summary>
+    /// 2: DOCX as Markdown in document order -- tables once, headings, lists, headers, footers,
+    /// footnotes, endnotes and text boxes; tracked deletions excluded (#599).
+    /// </summary>
+    public int Version => 2;
+
     public async Task<ParsedDocument> ParseAsync(
         Stream stream,
         string fileName,
@@ -80,47 +86,13 @@ public class OfficeParser : IDocumentParser
         if (coreProps.Created.HasValue)
             metadata["CreationDate"] = coreProps.Created.Value.ToString("O");
 
-        var body = document.MainDocumentPart?.Document?.Body;
-        if (body == null)
+        if (document.MainDocumentPart?.Document?.Body is null)
         {
             warnings.Add("Document body is empty or inaccessible");
             return new ParsedDocument(string.Empty, metadata, warnings);
         }
 
-        var textBuilder = new StringBuilder();
-
-        // Extract text from paragraphs
-        foreach (var paragraph in body.Descendants<Paragraph>())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var paragraphText = paragraph.InnerText;
-            if (!string.IsNullOrWhiteSpace(paragraphText))
-            {
-                textBuilder.AppendLine(paragraphText);
-            }
-        }
-
-        // Extract text from tables
-        foreach (var table in body.Descendants<DocumentFormat.OpenXml.Wordprocessing.Table>())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            foreach (var row in table.Descendants<TableRow>())
-            {
-                var rowTexts = row.Descendants<TableCell>()
-                    .Select(cell => cell.InnerText.Trim())
-                    .Where(text => !string.IsNullOrWhiteSpace(text));
-
-                var rowText = string.Join(" | ", rowTexts);
-                if (!string.IsNullOrWhiteSpace(rowText))
-                {
-                    textBuilder.AppendLine(rowText);
-                }
-            }
-        }
-
-        var content = textBuilder.ToString();
+        var content = DocxMarkdown.Convert(document, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(content))
         {
