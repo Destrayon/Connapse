@@ -275,7 +275,7 @@ public class IngestionPipeline : IKnowledgeIngester
             IReadOnlyList<ChunkInfo> chunks = [];
             if (!keepPreviousIndex)
             {
-                chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
+                chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, options.StrategyIsExplicit, ct);
 
                 // Cleaned again per chunk: a chunker cutting at a token or character offset can split a
                 // surrogate pair, and the half left at either edge breaks both the embedder's Unicode
@@ -505,7 +505,8 @@ public class IngestionPipeline : IKnowledgeIngester
         // DocumentAware actually ran — breaking reindex-detection and misleading consumers.
         metadata[MetadataKeyChunkingStrategy] = IngestionPipelineStrategyResolver.Resolve(
             fallbackStrategy: options.Strategy.ToString(),
-            fileName: options.FileName);
+            fileName: options.FileName,
+            strategyIsExplicit: options.StrategyIsExplicit);
         metadata[MetadataKeyChunkingMaxSize] = chunkSettings.MaxChunkSize.ToString();
         metadata[MetadataKeyChunkingOverlap] = chunkSettings.Overlap.ToString();
         metadata[MetadataKeyEmbeddingProvider] = embedSettings.Provider;
@@ -918,12 +919,14 @@ public class IngestionPipeline : IKnowledgeIngester
         ParsedDocument parsedDocument,
         ChunkingStrategy strategyType,
         string? fileName,
+        bool strategyIsExplicit,
         CancellationToken ct)
     {
         ChunkingSettings settings = _chunkingSettings.CurrentValue;
         string strategyName = IngestionPipelineStrategyResolver.Resolve(
             fallbackStrategy: strategyType.ToString(),
-            fileName: fileName);
+            fileName: fileName,
+            strategyIsExplicit: strategyIsExplicit);
 
         IChunkingStrategy? strategy = _chunkingStrategies.FirstOrDefault(s =>
             s.Name.Equals(strategyName, StringComparison.OrdinalIgnoreCase));
@@ -960,19 +963,26 @@ internal static class IngestionPipelineStrategyResolver
     private static readonly HashSet<string> MarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".md", ".markdown", ".mdx",
+    };
 
-        // Their parsers write Markdown -- headings, tables, slide sections (#597, #599) -- which
-        // the configured Semantic chunker re-joins with spaces, flattening the tables.
+    /// <summary>
+    /// Formats whose parsers write Markdown -- headings, tables, slide sections (#597, #599) --
+    /// which the configured Semantic chunker re-joins with spaces, flattening the tables. Routed
+    /// to the heading-aware chunker unless the caller chose a strategy themselves (#633).
+    /// </summary>
+    private static readonly HashSet<string> ParsedMarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
         ".pdf", ".docx", ".pptx",
     };
 
-    public static string Resolve(string fallbackStrategy, string? fileName)
+    public static string Resolve(string fallbackStrategy, string? fileName, bool strategyIsExplicit = false)
     {
         // A record is markdown too, but its shape is the reason it was given this strategy.
         if (IsContentPinned(fallbackStrategy)) return fallbackStrategy;
         if (string.IsNullOrEmpty(fileName)) return fallbackStrategy;
         string ext = System.IO.Path.GetExtension(fileName);
-        return MarkdownExtensions.Contains(ext) ? "DocumentAware" : fallbackStrategy;
+        if (MarkdownExtensions.Contains(ext)) return "DocumentAware";
+        return ParsedMarkdownExtensions.Contains(ext) && !strategyIsExplicit ? "DocumentAware" : fallbackStrategy;
     }
 
     /// <summary>

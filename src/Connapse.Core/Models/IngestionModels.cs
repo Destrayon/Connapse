@@ -16,6 +16,12 @@ public record IngestionOptions(
     /// taken to be a container.
     /// </summary>
     public OwnerRef? Owner { get; init; }
+
+    /// <summary>
+    /// True when the caller chose <see cref="Strategy"/> rather than inheriting a default. The
+    /// pipeline routes PDF, DOCX and PPTX to the heading-aware chunker only when this is false.
+    /// </summary>
+    public bool StrategyIsExplicit { get; init; }
 }
 
 public record IngestionResult(

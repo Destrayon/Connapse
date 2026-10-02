@@ -27,6 +27,17 @@ public class IngestionPipelineRoutingTests
         actual.Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("file.pdf", "Semantic")]
+    [InlineData("deck.pptx", "Semantic")]
+    [InlineData("notes.md", "DocumentAware")]
+    public void Resolve_ExplicitStrategy_IsHonouredForParsedMarkdownFormats(string fileName, string expected)
+    {
+        // A caller who picked a strategy for a PDF keeps it; .md has always gone to DocumentAware.
+        IngestionPipelineStrategyResolver.Resolve("Semantic", fileName, strategyIsExplicit: true)
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void Resolve_AndMetadataRecording_StaySynchronized()
     {
