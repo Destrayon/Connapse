@@ -64,7 +64,7 @@ public class EmailParser(
     /// </summary>
     private static readonly HashSet<string> MarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".md", ".markdown", ".pdf", ".docx", ".pptx", ".html", ".htm",
+        ".md", ".markdown", ".pdf", ".docx", ".pptx", ".html", ".htm", ".epub",
     };
 
     private static readonly Regex ExtraBlankLines = new(@"\n{3,}", RegexOptions.CultureInvariant);

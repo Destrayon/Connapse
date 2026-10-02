@@ -333,6 +333,7 @@ Bucket: knowledge-files
 | `OfficeParser` | .docx, .pptx | OpenXML SDK | Paragraphs, tables, slides, properties |
 | `HtmlParser` | .html, .htm | SmartReader (Readability), ReverseMarkdown | Main content as Markdown: headings, lists, tables |
 | `EmailParser` | .eml, .msg | MimeKit, MsgReader | Subject, From/To/Cc/Date, body, attachments parsed recursively |
+| `EpubParser` | .epub | VersOne.Epub | Chapters in reading order as Markdown under the book title |
 
 **Future**: `.xlsx`, code files with syntax-aware parsing.
 

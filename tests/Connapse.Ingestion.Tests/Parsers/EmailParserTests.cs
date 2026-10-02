@@ -20,7 +20,7 @@ public class EmailParserTests
     {
         var monitor = Substitute.For<IOptionsMonitor<UploadSettings>>();
         monitor.CurrentValue.Returns(settings);
-        IDocumentParser[] others = [new TextParser(), new PdfParser(), new OfficeParser(), new HtmlParser()];
+        IDocumentParser[] others = [new TextParser(), new PdfParser(), new OfficeParser(), new HtmlParser(), new EpubParser()];
         EmailParser? parser = null;
         parser = new EmailParser(() => [.. others, parser!], monitor);
         return parser;
@@ -178,6 +178,26 @@ public class EmailParserTests
 
         result.Content.Should().Contain("The parent body survives.").And.Contain("So does this attachment.");
         result.Warnings.Should().Contain(w => w.Contains($"'{name}'"));
+    }
+
+    [Fact]
+    public async Task ParseAsync_DrmProtectedEpubAttachment_CostsOnlyItself()
+    {
+        // EpubParser fails a DRM book permanently; inside a message that is one skipped attachment.
+        byte[] locked = EpubParserTests.Epub("Locked", "Author", [("ch1.xhtml", "<p>Ciphertext.</p>")], extra: zip =>
+        {
+            using var writer = new StreamWriter(zip.CreateEntry("META-INF/encryption.xml").Open());
+            writer.Write("<encryption xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\" xmlns:enc=\"http://www.w3.org/2001/04/xmlenc#\"><enc:EncryptedData><enc:EncryptionMethod Algorithm=\"http://www.w3.org/2001/04/xmlenc#aes128-cbc\"/><enc:CipherData><enc:CipherReference URI=\"OEBPS/ch1.xhtml\"/></enc:CipherData></enc:EncryptedData></encryption>");
+        });
+
+        var result = await ParseAsync(Bytes(Message("Reading list", "The body survives.", attach: b =>
+        {
+            b.Attachments.Add("locked.epub", locked);
+            b.Attachments.Add("notes.txt", Encoding.UTF8.GetBytes("So does the other attachment."));
+        })));
+
+        result.Content.Should().Contain("The body survives.").And.Contain("So does the other attachment.");
+        result.Warnings.Should().Contain(w => w.Contains("'locked.epub'") && w.Contains("[encrypted]"));
     }
 
     [Fact]
