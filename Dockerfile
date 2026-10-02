@@ -10,6 +10,14 @@ RUN dotnet restore src/Connapse.Web/Connapse.Web.csproj
 COPY . .
 RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore
 
+# The publish is portable, so it carries native libraries for every platform its packages ship
+# (ONNX Runtime, SkiaSharp, PDFium, libgit2): Windows, macOS, Android and iOS among them, ~700 MB.
+# Only this image's own Linux architecture is ever loaded. TARGETARCH is set by BuildKit, per
+# platform in a multi-platform build.
+ARG TARGETARCH
+RUN case "${TARGETARCH:-amd64}" in arm64) rid=linux-arm64 ;; *) rid=linux-x64 ;; esac \
+    && find /app/publish/runtimes -mindepth 1 -maxdepth 1 -type d ! -name "$rid" -exec rm -rf {} +
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
