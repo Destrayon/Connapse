@@ -482,8 +482,8 @@ public record UploadSettings
     /// <summary>
     /// CPU threads each OCR'd page may use (default: 1). Every ingestion worker can OCR at once, so
     /// OCR can occupy this many cores per worker; one keeps a scan batch from starving search on a
-    /// small server. Raise it on a machine with cores to spare: a page took 9 s on one thread of a
-    /// desktop CPU and 3.6 s unrestricted, and 15 s in a container limited to two CPUs.
+    /// small server. More threads mostly spin rather than speed a page up: measured, a scanned page
+    /// took 3.8 s on one thread against 3.6 s on three, and 2.3 to 7 s in a two-CPU container.
     /// </summary>
     public int PdfOcrThreads { get; set; } = 1;
 
