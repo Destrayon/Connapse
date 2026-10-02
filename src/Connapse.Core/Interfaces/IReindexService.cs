@@ -73,6 +73,19 @@ public record ReindexOptions
     /// Chunking strategy to use for reindex. Null = use current settings.
     /// </summary>
     public ChunkingStrategy? Strategy { get; init; }
+
+    /// <summary>
+    /// Evaluate every document and report what would be re-queued, by reason, without
+    /// enqueuing anything. A parser-version bump or a settings change can re-parse and re-embed
+    /// a whole corpus; this shows the size of that before it starts.
+    /// </summary>
+    public bool DryRun { get; init; }
+
+    /// <summary>
+    /// Enqueue at most this many documents; the rest that need it are reported as deferred and
+    /// picked up by the next run. Null = no cap. Lets a large re-parse go out in batches.
+    /// </summary>
+    public int? MaxDocuments { get; init; }
 }
 
 /// <summary>
@@ -104,6 +117,15 @@ public record ReindexResult
     /// Number of documents that failed during evaluation.
     /// </summary>
     public int FailedCount { get; init; }
+
+    /// <summary>Dry run only: documents that would have been enqueued.</summary>
+    public int PlannedCount { get; init; }
+
+    /// <summary>Documents that need reindexing but were held back by MaxDocuments.</summary>
+    public int DeferredCount { get; init; }
+
+    /// <summary>True when nothing was enqueued because the run was a dry run.</summary>
+    public bool DryRun { get; init; }
 
     /// <summary>
     /// Reasons why documents were enqueued.
@@ -138,7 +160,11 @@ public enum ReindexAction
     /// <summary>Document was skipped (no changes detected).</summary>
     Skipped,
     /// <summary>Document evaluation failed.</summary>
-    Failed
+    Failed,
+    /// <summary>Dry run: the document would have been enqueued.</summary>
+    Planned,
+    /// <summary>The document needs reindexing but the run's MaxDocuments cap was reached.</summary>
+    Deferred
 }
 
 /// <summary>
@@ -165,7 +191,9 @@ public enum ReindexReason
     /// <summary>A different parser, or a newer version of it, would now read the file.</summary>
     ParserChanged,
     /// <summary>Pages failed to extract last time; the chunks are partial or an older parse.</summary>
-    ExtractionIncomplete
+    ExtractionIncomplete,
+    /// <summary>Already queued or being ingested; enqueueing it again would supersede that job.</summary>
+    AlreadyQueued
 }
 
 /// <summary>

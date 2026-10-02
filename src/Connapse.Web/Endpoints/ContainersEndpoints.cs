@@ -228,7 +228,9 @@ public static class ContainersEndpoints
                 ContainerId = containerId.ToString(),
                 Force = request?.Force ?? false,
                 DetectSettingsChanges = request?.DetectSettingsChanges ?? true,
-                Strategy = request?.Strategy
+                Strategy = request?.Strategy,
+                DryRun = request?.DryRun ?? false,
+                MaxDocuments = request?.MaxDocuments is > 0 ? request.MaxDocuments : null,
             };
 
             var result = await reindexService.ReindexAsync(options, ct);
@@ -240,10 +242,15 @@ public static class ContainersEndpoints
                 enqueuedCount = result.EnqueuedCount,
                 skippedCount = result.SkippedCount,
                 failedCount = result.FailedCount,
+                plannedCount = result.PlannedCount,
+                deferredCount = result.DeferredCount,
+                dryRun = result.DryRun,
                 reasonCounts = result.ReasonCounts.ToDictionary(
                     kvp => kvp.Key.ToString(),
                     kvp => kvp.Value),
-                message = $"Reindex complete: {result.EnqueuedCount} enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed"
+                message = result.DryRun
+                    ? $"Dry run: {result.PlannedCount} would be enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed"
+                    : $"Reindex complete: {result.EnqueuedCount} enqueued, {result.DeferredCount} deferred, {result.SkippedCount} skipped, {result.FailedCount} failed"
             });
         })
         .WithName("ReindexContainer")
@@ -411,4 +418,6 @@ public record CreateContainerApiRequest(
 public record ContainerReindexRequest(
     bool? Force = null,
     bool? DetectSettingsChanges = null,
-    ChunkingStrategy? Strategy = null);
+    ChunkingStrategy? Strategy = null,
+    bool? DryRun = null,
+    int? MaxDocuments = null);

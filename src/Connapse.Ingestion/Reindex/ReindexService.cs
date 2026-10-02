@@ -130,9 +130,10 @@ public class ReindexService : IReindexService
         var results = new List<ReindexDocumentResult>();
         var reasonCounts = new Dictionary<ReindexReason, int>();
 
+        var run = new ReindexRun(options.DryRun, options.MaxDocuments);
         foreach (var doc in documents)
         {
-            var result = await EvaluateAndEnqueueDocumentAsync(doc, options, batchId, ct);
+            var result = await EvaluateAndEnqueueDocumentAsync(doc, options, batchId, run, ct);
             results.Add(result);
 
             // Track reason counts
@@ -148,6 +149,9 @@ public class ReindexService : IReindexService
             EnqueuedCount = results.Count(r => r.Action == ReindexAction.Enqueued),
             SkippedCount = results.Count(r => r.Action == ReindexAction.Skipped),
             FailedCount = results.Count(r => r.Action == ReindexAction.Failed),
+            PlannedCount = results.Count(r => r.Action == ReindexAction.Planned),
+            DeferredCount = results.Count(r => r.Action == ReindexAction.Deferred),
+            DryRun = options.DryRun,
             ReasonCounts = reasonCounts,
             Documents = results
         };
@@ -330,6 +334,7 @@ public class ReindexService : IReindexService
         DocumentEntity doc,
         ReindexOptions options,
         string batchId,
+        ReindexRun run,
         CancellationToken ct)
     {
         try
@@ -337,7 +342,16 @@ public class ReindexService : IReindexService
             // If force mode, always enqueue
             if (options.Force)
             {
-                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.Forced, ct);
+                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.Forced, ct, run: run);
+            }
+
+            // A document still queued or being ingested is mid-reindex already. Without this a
+            // capped rollout's next run re-queued its own previous batch -- not Ready yet, so it
+            // read as never indexed -- and the deferred documents never got their turn.
+            if (doc.IngestionStatus.IsInFlight())
+            {
+                return new ReindexDocumentResult(
+                    doc.Id.ToString(), doc.FileName, ReindexAction.Skipped, ReindexReason.AlreadyQueued);
             }
 
             // Source-owned documents are read through their source's connector, which this service
@@ -393,7 +407,7 @@ public class ReindexService : IReindexService
                         doc.ContentHash?[..Math.Min(8, doc.ContentHash?.Length ?? 0)],
                         currentHash[..Math.Min(8, currentHash.Length)]);
 
-                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ContentChanged, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ContentChanged, ct, run: run);
                 }
             }
 
@@ -410,7 +424,7 @@ public class ReindexService : IReindexService
                         chunkingCheck.stored,
                         chunkingCheck.current);
 
-                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ChunkingSettingsChanged, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ChunkingSettingsChanged, ct, run: run);
                 }
 
                 // Check embedding settings
@@ -423,7 +437,7 @@ public class ReindexService : IReindexService
                         embeddingCheck.stored,
                         embeddingCheck.current);
 
-                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.EmbeddingSettingsChanged, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.EmbeddingSettingsChanged, ct, run: run);
                 }
 
                 // A parser that now reads the same bytes differently: the content hash cannot
@@ -437,13 +451,13 @@ public class ReindexService : IReindexService
                         parserCheck.stored,
                         parserCheck.current);
 
-                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ParserChanged, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ParserChanged, ct, run: run);
                 }
 
                 if (doc.Metadata.ContainsKey(Pipeline.IngestionPipeline.MetadataKeyExtractionIncomplete))
                 {
                     _logger.LogInformation("Document {DocumentId} has pages that failed to extract; retrying", doc.Id);
-                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ExtractionIncomplete, ct);
+                    return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.ExtractionIncomplete, ct, run: run);
                 }
             }
 
@@ -455,7 +469,7 @@ public class ReindexService : IReindexService
                     doc.Id,
                     doc.IngestionStatus);
 
-                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.NeverIndexed, ct);
+                return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.NeverIndexed, ct, run: run);
             }
 
             // No reindex needed
@@ -520,8 +534,19 @@ public class ReindexService : IReindexService
         ReindexOptions options,
         ReindexReason reason,
         CancellationToken ct,
-        bool resetAttempts = true)
+        bool resetAttempts = true,
+        ReindexRun? run = null)
     {
+        // The one point every reason reaches before a job is enqueued, so a dry run and the cap
+        // apply to forced, content, settings and parser reindexes alike.
+        if (run is not null)
+        {
+            if (run.DryRun)
+                return new ReindexDocumentResult(doc.Id.ToString(), doc.FileName, ReindexAction.Planned, reason);
+            if (run.MaxDocuments is int max && run.Enqueued >= max)
+                return new ReindexDocumentResult(doc.Id.ToString(), doc.FileName, ReindexAction.Deferred, reason);
+        }
+
         // The chunks stay where they are. IngestionPipeline purges them itself on a reindex,
         // once the file has been read and the row updated — which is the only moment at which
         // dropping them is safe. Deleting here instead meant every way the work could fail
@@ -569,6 +594,9 @@ public class ReindexService : IReindexService
             },
             BatchId: batchId,
             ResetAttempts: resetAttempts), ct);
+
+        if (run is not null)
+            run.Enqueued++;
 
         _logger.LogInformation(
             "Enqueued document {DocumentId} ({FileName}) for reindex, reason: {Reason}",
@@ -678,5 +706,13 @@ public class ReindexService : IReindexService
 
         var hashBytes = await sha256.ComputeHashAsync(content, ct);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    /// <summary>One reindex run's dry-run flag, cap, and how many it has enqueued so far.</summary>
+    private sealed class ReindexRun(bool dryRun, int? maxDocuments)
+    {
+        public bool DryRun { get; } = dryRun;
+        public int? MaxDocuments { get; } = maxDocuments;
+        public int Enqueued { get; set; }
     }
 }

@@ -164,6 +164,90 @@ public class ParserVersionReindexTests(SharedWebAppFixture fixture)
         queue.Jobs.Should().ContainSingle().Which.DocumentId.Should().Be(id.ToString());
     }
 
+    /// <summary>Three text documents indexed before parser versions were recorded (#627).</summary>
+    private static async Task<List<Guid>> SeedLegacyTextDocumentsAsync(IServiceProvider sp)
+    {
+        Guid sourceId = await SeedSourceAsync(sp);
+        string folder = $"/pv-{Guid.NewGuid():N}";
+        var ids = new List<Guid>();
+        for (int i = 0; i < 3; i++)
+            ids.Add(await IngestAsync(sp, sourceId, $"{folder}/legacy{i}.txt", $"Legacy note number {i}."));
+
+        await using var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        foreach (var doc in await ctx.Documents.Where(d => ids.Contains(d.Id)).ToListAsync())
+        {
+            doc.Metadata = doc.Metadata
+                .Where(kv => kv.Key is not IngestionPipeline.MetadataKeyParser and not IngestionPipeline.MetadataKeyParserVersion)
+                .ToDictionary();
+        }
+        await ctx.SaveChangesAsync();
+        return ids;
+    }
+
+    [Fact]
+    public async Task Reindex_DryRun_ReportsWhatWouldBeQueuedAndQueuesNothing()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var ids = await SeedLegacyTextDocumentsAsync(sp);
+
+        var queue = new RecordingIngestionQueue();
+        await using var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var result = await Reindexer(sp, ctx, queue, new TextParser()).ReindexAsync(
+            new ReindexOptions { DetectSettingsChanges = true, DryRun = true, DocumentIds = ids.Select(i => i.ToString()).ToList() },
+            CancellationToken.None);
+
+        queue.Jobs.Should().BeEmpty();
+        result.DryRun.Should().BeTrue();
+        result.PlannedCount.Should().Be(3);
+        result.ReasonCounts[ReindexReason.ParserChanged].Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Reindex_WithACap_QueuesUpToItAndDefersTheRest()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var ids = await SeedLegacyTextDocumentsAsync(sp);
+
+        var queue = new RecordingIngestionQueue();
+        await using var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var result = await Reindexer(sp, ctx, queue, new TextParser()).ReindexAsync(
+            new ReindexOptions { DetectSettingsChanges = true, MaxDocuments = 2, DocumentIds = ids.Select(i => i.ToString()).ToList() },
+            CancellationToken.None);
+
+        queue.Jobs.Should().HaveCount(2);
+        result.EnqueuedCount.Should().Be(2);
+        result.DeferredCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Reindex_DocumentAlreadyQueued_IsNotQueuedAgain()
+    {
+        // A capped rollout's next run must move on to the deferred documents rather than
+        // re-queue the batch still in flight.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var ids = await SeedLegacyTextDocumentsAsync(sp);
+
+        var factory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var mark = await factory.CreateDbContextAsync())
+        {
+            var doc = await mark.Documents.SingleAsync(d => d.Id == ids[0]);
+            doc.IngestionStatus = DocumentStatus.Queued;
+            await mark.SaveChangesAsync();
+        }
+
+        var queue = new RecordingIngestionQueue();
+        await using var ctx = await factory.CreateDbContextAsync();
+        var result = await Reindexer(sp, ctx, queue, new TextParser()).ReindexAsync(
+            new ReindexOptions { DetectSettingsChanges = true, DocumentIds = ids.Select(i => i.ToString()).ToList() },
+            CancellationToken.None);
+
+        queue.Jobs.Select(j => j.DocumentId).Should().NotContain(ids[0].ToString());
+        result.Documents.Should().Contain(d => d.DocumentId == ids[0].ToString() && d.Reason == ReindexReason.AlreadyQueued);
+    }
+
     /// <summary>A different parser, by name, for chosen extensions.</summary>
     private sealed class Renamed(string name, int version, params string[] extensions) : IDocumentParser
     {
