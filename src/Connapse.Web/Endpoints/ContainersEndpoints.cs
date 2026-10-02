@@ -415,6 +415,8 @@ public static class ContainersEndpoints
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ".eml" => "message/rfc822",
+            ".msg" => "application/vnd.ms-outlook",
             _ => null
         };
 

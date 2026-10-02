@@ -132,7 +132,15 @@ public class HtmlParser : IDocumentParser
         }
     }
 
-    private static string Convert(string html, Dictionary<string, string> metadata, List<string> warnings, CancellationToken ct)
+    /// <summary>
+    /// An HTML email body as Markdown: converted whole, since Readability scores a message as a page
+    /// and can drop the reply that is the point of it, and with no title heading of its own.
+    /// </summary>
+    internal static string BodyToMarkdown(string html, List<string> warnings, CancellationToken ct) =>
+        Convert(html, [], warnings, ct, wholeBody: true);
+
+    private static string Convert(
+        string html, Dictionary<string, string> metadata, List<string> warnings, CancellationToken ct, bool wholeBody = false)
     {
         // Measured on the markup before any DOM is built: parsing is itself quadratic in depth.
         if (HtmlMarkup.NestsDeeperThan(html, MaxConvertibleDepth))
@@ -150,7 +158,7 @@ public class HtmlParser : IDocumentParser
         if (title.Length > 0)
             metadata["Title"] = title;
 
-        string? body = ExtractArticle(page, title, metadata, ct);
+        string? body = wholeBody ? null : ExtractArticle(page, title, metadata, ct);
         if (body is null)
         {
             // Readability edits the page as it scores it, so the whole-page fallback starts again
@@ -166,7 +174,7 @@ public class HtmlParser : IDocumentParser
 
         // Readability takes the title heading out of the article, and a page converted whole may
         // have none; either way the title is what most searches for the page will name.
-        if (title.Length > 0 && !HasTopLevelHeading(markdown))
+        if (!wholeBody && title.Length > 0 && !HasTopLevelHeading(markdown))
             markdown = $"# {MarkdownText.EscapeLine(title)}\n\n{markdown}";
 
         return markdown;
