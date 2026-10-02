@@ -15,8 +15,9 @@ namespace Connapse.Ingestion.Isolation;
 /// <list type="bullet">
 /// <item>Files: read-only access to the .NET runtime, the system libraries, and the app's own
 /// assemblies, native runtimes and OCR models. Nothing else -- not <c>appsettings*.json</c>, not
-/// <c>appdata</c>, not the knowledge store, not the temp directory -- and no writes anywhere but
-/// <c>/dev/null</c>. The file arrives over stdin, so the host needs no file of its own.</item>
+/// <c>appdata</c>, not the knowledge store, not the shared temp directory -- and no writes
+/// anywhere but <c>/dev/null</c> and a private temp folder the pool makes for each host (ONNX
+/// Runtime writes a log to <c>$TMPDIR</c>). The file itself arrives over stdin.</item>
 /// <item>Network (Landlock ABI 4+): no TCP connect or bind.</item>
 /// <item>Other processes (ABI 6+): no signals to, and no abstract Unix sockets of, processes outside
 /// the sandbox. Landlock also denies ptrace and <c>/proc/&lt;pid&gt;/environ</c> or <c>mem</c> of any
@@ -31,6 +32,9 @@ public static class ParserSandbox
 {
     /// <summary>The environment variable carrying the mode from the pool to the host.</summary>
     public const string ModeVariable = "CONNAPSE_PARSERHOST_SANDBOX";
+
+    /// <summary>The host's private temp folder, made by the pool: the one place it may write.</summary>
+    public const string TempVariable = "CONNAPSE_PARSERHOST_TEMP";
 
     private const long SysLandlockCreateRuleset = 444;
     private const long SysLandlockAddRule = 445;
@@ -95,6 +99,11 @@ public static class ParserSandbox
                 foreach (string path in ReadablePaths())
                     Allow(ruleset, path, Execute | ReadFile | ReadDir);
                 Allow(ruleset, "/dev/null", ReadFile | WriteFile | (abi >= 3 ? Truncate : 0));
+
+                // Its own temp folder, and only when the pool made one: a host started any other
+                // way gets no writable folder at all, rather than the shared one.
+                if (Environment.GetEnvironmentVariable(TempVariable) is { Length: > 0 } temp && Directory.Exists(temp))
+                    Allow(ruleset, temp, handledFs);
 
                 if (Prctl(PrSetNoNewPrivs, 1, 0, 0, 0) != 0)
                     return (false, $"none: no_new_privs failed (errno {Marshal.GetLastPInvokeError()})");

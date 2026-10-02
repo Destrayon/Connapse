@@ -314,6 +314,19 @@ public sealed class ParserProcessPool : IDisposable
         start.Environment["DOTNET_gcServer"] = "0";
         start.Environment[ParentProcessIdVariable] = (parentProcessId ?? Environment.ProcessId).ToString();
         start.Environment[ParserSandbox.ModeVariable] = sandboxMode.ToString();
+
+        // A temp folder of the host's own, the only place the sandbox lets it write: ONNX Runtime
+        // writes a log to $TMPDIR and crashes when it cannot. The shared temp folder stays closed,
+        // because it holds other users' uploads in flight.
+        string temp = Path.Combine(Path.GetTempPath(), $"connapse-parserhost-{Guid.NewGuid():N}");
+        if (OperatingSystem.IsWindows())
+            Directory.CreateDirectory(temp);
+        else
+            Directory.CreateDirectory(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        start.Environment["TMPDIR"] = temp;
+        start.Environment["TEMP"] = temp;
+        start.Environment["TMP"] = temp;
+        start.Environment[ParserSandbox.TempVariable] = temp;
         return start;
     }
 
@@ -357,6 +370,9 @@ public sealed class ParserProcessPool : IDisposable
 
         public ParserSandboxMode SandboxMode { get; }
 
+        /// <summary>The host's private temp folder, removed when the host ends.</summary>
+        private string? TempDirectory { get; init; }
+
         public int ProcessId { get; }
         public int MemoryLimitMb { get; }
 
@@ -390,7 +406,10 @@ public sealed class ParserProcessPool : IDisposable
         public static Host Start(ProcessStartInfo start, int memoryLimitMb, ParserSandboxMode sandboxMode)
         {
             var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {start.ArgumentList[0]}.");
-            var host = new Host(process, memoryLimitMb, sandboxMode);
+            var host = new Host(process, memoryLimitMb, sandboxMode)
+            {
+                TempDirectory = start.Environment.TryGetValue(ParserSandbox.TempVariable, out string? temp) ? temp : null,
+            };
             process.ErrorDataReceived += (sender, e) =>
             {
                 if (e.Data is null)
@@ -459,6 +478,21 @@ public sealed class ParserProcessPool : IDisposable
             finally
             {
                 _process.Dispose();
+                DeleteTemp();
+            }
+        }
+
+        private void DeleteTemp()
+        {
+            if (TempDirectory is null)
+                return;
+            try
+            {
+                Directory.Delete(TempDirectory, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A file still open on Windows, or already gone: temp is cleaned eventually anyway.
             }
         }
 
