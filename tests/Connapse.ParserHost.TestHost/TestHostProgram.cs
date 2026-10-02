@@ -52,6 +52,7 @@ internal static class TestHostProgram
             new Behaving("Test.Throw", _ => throw new InvalidOperationException("the parser met content it cannot read")),
             new Behaving("Test.ProcessId", content => new ParsedDocument(
                 Environment.ProcessId.ToString(), new() { ["Bytes"] = content.Length.ToString() }, [])),
+            new Behaving("Test.Huge", _ => new ParsedDocument(new string('x', 100_000), [], [])),
             new Behaving("Test.SlowProcessId", _ =>
             {
                 Thread.Sleep(500);

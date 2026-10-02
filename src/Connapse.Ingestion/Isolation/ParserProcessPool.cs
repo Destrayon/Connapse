@@ -29,8 +29,11 @@ namespace Connapse.Ingestion.Isolation;
 /// </summary>
 public sealed class ParserProcessPool : IDisposable
 {
-    /// <summary>A reply is the extracted text; no limit Connapse sets lets one come near this.</summary>
-    private const int MaxResponseFrame = 1024 * 1024 * 1024;
+    /// <summary>The environment variable that tells a host which process to outlive by no more than a second.</summary>
+    public const string ParentProcessIdVariable = "CONNAPSE_PARSERHOST_PARENT_PID";
+
+    /// <summary>Room in a reply for its JSON, metadata and the warnings the host keeps.</summary>
+    private const long ResponseOverheadBytes = 8L * 1024 * 1024;
 
     private readonly ILogger<ParserProcessPool> _logger;
     private readonly SemaphoreSlim _slots;
@@ -93,24 +96,33 @@ public sealed class ParserProcessPool : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         string name = Path.GetFileName(fileName);
 
-        await _slots.WaitAsync(ct);
+        // The deadline covers the whole parse, the wait for a free host included: otherwise a file
+        // queued behind stuck parses waits out their deadlines before its own starts.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(timeout);
+        try
+        {
+            await _slots.WaitAsync(deadline.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw Timeout(name, timeout, ex);
+        }
+
         Host? host = null;
         try
         {
             host = Take(settings);
 
-            // The deadline covers the whole exchange, start-up included. Killing the process is
-            // what ends it: a pipe read does not reliably observe a token, but it does end when the
-            // writer dies.
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(timeout);
+            // Killing the process is what ends the exchange at the deadline: a pipe read does not
+            // reliably observe a token, but it does end when the writer dies.
             Host current = host;
             using var kill = deadline.Token.Register(() => current.Kill());
 
             ParseResponse response;
             try
             {
-                response = await host.ExchangeAsync(new ParseRequest(parser.Name, fileName, settings), content, deadline.Token);
+                response = await host.ExchangeAsync(new ParseRequest(parser.Name, fileName, settings), content, MaxResponseFrame(settings), deadline.Token);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -123,8 +135,7 @@ public sealed class ParserProcessPool : IDisposable
                 {
                     _logger.LogWarning("ParserHostKilled {Parser} on {FileName} at the {TimeoutSeconds} s deadline",
                         parser.Name, LogSanitizer.Sanitize(name), timeout.TotalSeconds);
-                    throw new PermanentIngestionException(
-                        $"Could not parse {name}: parsing did not finish within {timeout.TotalSeconds:0} seconds [parse_timeout]", ex);
+                    throw Timeout(name, timeout, ex);
                 }
 
                 if (stderr.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase))
@@ -155,6 +166,16 @@ public sealed class ParserProcessPool : IDisposable
         }
     }
 
+    /// <summary>
+    /// The host refuses text over MaxExtractedCharacters before it replies, so a reply is at most
+    /// that many characters -- six bytes each if every one is JSON-escaped -- plus the rest.
+    /// </summary>
+    private static int MaxResponseFrame(UploadSettings settings) =>
+        (int)Math.Min(int.MaxValue, Math.Max(0, settings.MaxExtractedCharacters) * 6L + ResponseOverheadBytes);
+
+    private static PermanentIngestionException Timeout(string name, TimeSpan timeout, Exception? inner) =>
+        new($"Could not parse {name}: parsing did not finish within {timeout.TotalSeconds:0} seconds [parse_timeout]", inner);
+
     private static PermanentIngestionException OutOfMemory(string name, UploadSettings settings, Exception? inner) =>
         new($"Could not parse {name}: it needed more than the {settings.ParserMemoryLimitMb:N0} MB the parser may use [parse_out_of_memory]", inner);
 
@@ -169,7 +190,7 @@ public sealed class ParserProcessPool : IDisposable
             _all.TryRemove(idle, out _);
         }
 
-        var host = Host.Start(HostPath, settings.ParserMemoryLimitMb);
+        var host = Host.Start(StartInfo(HostPath, settings.ParserMemoryLimitMb), settings.ParserMemoryLimitMb);
         _all[host] = 0;
         return host;
     }
@@ -196,6 +217,31 @@ public sealed class ParserProcessPool : IDisposable
         host.Kill();
         _all.TryRemove(host, out _);
         host = null;
+    }
+
+    /// <summary>
+    /// How a host is started: by the dotnet host, with its heap capped and told which process is
+    /// its parent, so that it exits if the web process dies mid-parse instead of spinning on.
+    /// </summary>
+    internal static ProcessStartInfo StartInfo(string hostPath, int memoryLimitMb, int? parentProcessId = null)
+    {
+        var start = new ProcessStartInfo(Host.DotnetMuxer())
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        start.ArgumentList.Add(hostPath);
+
+        // A hard cap on the managed heap: past it, allocations throw OutOfMemoryException in the
+        // host instead of growing until the machine or container runs out.
+        long bytes = Math.Max(64, memoryLimitMb) * 1024L * 1024L;
+        start.Environment["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X");
+        start.Environment["DOTNET_gcServer"] = "0";
+        start.Environment[ParentProcessIdVariable] = (parentProcessId ?? Environment.ProcessId).ToString();
+        return start;
     }
 
     public void Dispose()
@@ -246,25 +292,9 @@ public sealed class ParserProcessPool : IDisposable
             return string.Join('\n', _errorTail);
         }
 
-        public static Host Start(string hostPath, int memoryLimitMb)
+        public static Host Start(ProcessStartInfo start, int memoryLimitMb)
         {
-            var start = new ProcessStartInfo(DotnetMuxer())
-            {
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            start.ArgumentList.Add(hostPath);
-
-            // A hard cap on the managed heap: past it, allocations throw OutOfMemoryException in
-            // the host instead of growing until the machine or container runs out.
-            long bytes = Math.Max(64, memoryLimitMb) * 1024L * 1024L;
-            start.Environment["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X");
-            start.Environment["DOTNET_gcServer"] = "0";
-
-            var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {hostPath}.");
+            var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {start.ArgumentList[0]}.");
             var host = new Host(process, memoryLimitMb);
             process.ErrorDataReceived += (sender, e) =>
             {
@@ -278,14 +308,14 @@ public sealed class ParserProcessPool : IDisposable
             return host;
         }
 
-        public async Task<ParseResponse> ExchangeAsync(ParseRequest request, ReadOnlyMemory<byte> content, CancellationToken ct)
+        public async Task<ParseResponse> ExchangeAsync(ParseRequest request, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct)
         {
             Stream input = _process.StandardInput.BaseStream;
             await WriteJsonAsync(input, request, ct);
             await WriteFrameAsync(input, content, ct);
             await input.FlushAsync(ct);
 
-            byte[] reply = await ReadFrameAsync(_process.StandardOutput.BaseStream, MaxResponseFrame, ct)
+            byte[] reply = await ReadFrameAsync(_process.StandardOutput.BaseStream, maxResponse, ct)
                 ?? throw new EndOfStreamException("The parser host exited without replying.");
             return Deserialize<ParseResponse>(reply);
         }
@@ -314,7 +344,7 @@ public sealed class ParserProcessPool : IDisposable
         /// host (production runs "dotnet Connapse.Web.dll"), else the one that launched the build,
         /// else the one beside the running shared framework.
         /// </summary>
-        private static string DotnetMuxer()
+        internal static string DotnetMuxer()
         {
             string exe = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "dotnet.exe" : "dotnet";
             if (Environment.ProcessPath is { } self && Path.GetFileName(self).Equals(exe, StringComparison.OrdinalIgnoreCase))

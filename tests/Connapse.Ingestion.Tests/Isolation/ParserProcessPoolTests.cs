@@ -161,6 +161,50 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task ParseAsync_OutputOverTheLimit_IsRefusedInTheHost()
+    {
+        // The web process never receives the text: the host refuses it before replying.
+        var act = () => ParseAsync(_pool, "Test.Huge", settings: Settings with { MaxExtractedCharacters = 1_000 });
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*100,000 characters*[output_too_large]*");
+    }
+
+    [Fact]
+    public async Task ParseAsync_WaitForAFreeHost_CountsAgainstTheDeadline()
+    {
+        using var pool = Pool(workers: 1);
+        var stuck = ParseAsync(pool, "Test.Spin", timeout: TimeSpan.FromSeconds(8));
+        await Task.Delay(500);
+
+        var watch = Stopwatch.StartNew();
+        var act = () => ParseAsync(pool, "Test.ProcessId", timeout: TimeSpan.FromSeconds(1));
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[parse_timeout]*");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "it fails at its own deadline, not after the stuck parse's");
+        await stuck.Invoking(t => t).Should().ThrowAsync<PermanentIngestionException>();
+    }
+
+    [Fact]
+    public async Task Host_WhoseParentDiesMidParse_ExitsInsteadOfSpinningOn()
+    {
+        // A stand-in parent: another host, idle on its stdin until it is killed.
+        using var parent = Process.Start(ParserProcessPool.StartInfo(TestHostPath, 256))!;
+        using var host = Process.Start(ParserProcessPool.StartInfo(TestHostPath, 256, parentProcessId: parent.Id))!;
+        host.BeginErrorReadLine();
+
+        Stream input = host.StandardInput.BaseStream;
+        await ParserProtocol.WriteJsonAsync(input, new ParserProtocol.ParseRequest("Test.Spin", "file.txt", Settings), CancellationToken.None);
+        await ParserProtocol.WriteFrameAsync(input, "spin"u8.ToArray(), CancellationToken.None);
+        await input.FlushAsync();
+        await Task.Delay(1000);
+        host.HasExited.Should().BeFalse("it is spinning on the file");
+
+        parent.Kill(entireProcessTree: true);
+
+        host.WaitForExit(TimeSpan.FromSeconds(10)).Should().BeTrue("it watches its parent and leaves with it");
+    }
+
+    [Fact]
     public async Task Dispose_KillsIdleHosts()
     {
         var pool = Pool(workers: 2);
