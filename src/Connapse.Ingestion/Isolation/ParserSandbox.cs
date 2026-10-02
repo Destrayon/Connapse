@@ -72,11 +72,56 @@ public static class ParserSandbox
     /// <summary>How this process was confined, once <see cref="Apply"/> has run.</summary>
     public static string? Current { get; private set; }
 
+    /// <summary>Set by the confined process for the image it re-executes into; never by the pool.</summary>
+    private const string ConfinedVariable = "CONNAPSE_PARSERHOST_CONFINED";
+
+    /// <summary>
+    /// Confines the process and re-executes it, or, in the re-executed process, reports how it was
+    /// confined. Returns only when the process will run unconfined, or is already confined.
+    /// <para>
+    /// Landlock restricts the thread that applies it and the threads that thread creates later --
+    /// not threads that already exist, and .NET has a thread pool, a finalizer and more running
+    /// before <c>Main</c>. Parsing on any of those would be unconfined, which the first version of
+    /// this did, and its tests caught. So the rules are applied on this thread, which then replaces
+    /// the whole process with execve: the new image starts as one confined thread, and every thread
+    /// the runtime then creates inherits the sandbox. The process id, and the pipes to the pool,
+    /// are unchanged.
+    /// </para>
+    /// </summary>
     public static (bool Applied, string Description) Apply(ParserSandboxMode mode)
     {
+        if (mode != ParserSandboxMode.Off && Environment.GetEnvironmentVariable(ConfinedVariable) is { Length: > 0 } confined)
+        {
+            Current = confined;
+            return (true, confined);
+        }
+
         var result = ApplyCore(mode);
+        if (result.Applied)
+            result = ReExecuteConfined(result.Description);
+
         Current = result.Description;
         return result;
+    }
+
+    /// <summary>Re-executes this process from the now-confined thread; returns only if that fails.</summary>
+    private static (bool Applied, string Description) ReExecuteConfined(string description)
+    {
+        string? exe = Environment.ProcessPath;
+        if (exe is null)
+            return (false, "none: could not tell how this process was started, to restart it confined");
+
+        // "dotnet host.dll": the arguments start with the assembly. An apphost: they start with itself.
+        string[] args = Environment.GetCommandLineArgs();
+        bool viaMuxer = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
+        string?[] argv = [exe, .. viaMuxer ? args : args.Skip(1), null];
+
+        _ = SetEnv(ConfinedVariable, description, overwrite: 1);
+        _ = ExecV(exe, argv);
+
+        // Still here: the restart failed. This thread is confined and the others are not, which is
+        // no sandbox at all.
+        return (false, $"none: restarting confined failed (errno {Marshal.GetLastPInvokeError()})");
     }
 
     private static (bool Applied, string Description) ApplyCore(ParserSandboxMode mode)
@@ -252,6 +297,15 @@ public static class ParserSandbox
 
     [DllImport("libc", EntryPoint = "close", SetLastError = true)]
     private static extern int Close(int fd);
+
+    [DllImport("libc", EntryPoint = "execv", SetLastError = true)]
+    private static extern int ExecV(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPUTF8Str)] string?[] argv);
+
+    [DllImport("libc", EntryPoint = "setenv", SetLastError = true)]
+    private static extern int SetEnv(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value, int overwrite);
 }
 
 /// <summary>Whether the parser host confines itself (see <see cref="ParserSandbox"/>).</summary>

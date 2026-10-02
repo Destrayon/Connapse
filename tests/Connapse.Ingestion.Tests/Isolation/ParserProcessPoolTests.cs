@@ -358,7 +358,8 @@ public sealed class ParserProcessPoolTests : IDisposable
         // the allow-list holds everything they need, and that their telemetry is off.
         byte[] scan = TestScanPdf.Build(pages: new TestPdf.Page([new(72, 700, "Quarterly harbour report")]));
 
-        var result = await _pool.ParseAsync(new PdfParser(), scan, "scan.pdf", Settings, TimeSpan.FromSeconds(60), CancellationToken.None);
+        var result = await _pool.ParseAsync(
+            new PdfParser(), scan, "scan.pdf", Settings with { ParserMemoryLimitMb = 2048 }, TimeSpan.FromSeconds(60), CancellationToken.None);
 
         result.Content.Should().Contain("harbour report");
     }
