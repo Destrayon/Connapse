@@ -22,8 +22,10 @@ public class OfficeParser : IDocumentParser
     /// <summary>
     /// 2: DOCX as Markdown in document order -- tables once, headings, lists, headers, footers,
     /// footnotes, endnotes and text boxes; tracked deletions excluded (#599).
+    /// 3: PPTX as Markdown -- a heading per slide with its title, paragraphs instead of one line
+    /// per run, tables, grouped shapes and speaker notes (#599).
     /// </summary>
-    public int Version => 2;
+    public int Version => 3;
 
     public async Task<ParsedDocument> ParseAsync(
         Stream stream,
@@ -138,37 +140,9 @@ public class OfficeParser : IDocumentParser
             return new ParsedDocument(string.Empty, metadata, warnings);
         }
 
-        var slideCount = slideIdList.Count();
-        metadata["SlideCount"] = slideCount.ToString();
+        metadata["SlideCount"] = slideIdList.Count().ToString();
 
-        var textBuilder = new StringBuilder();
-        int slideNumber = 1;
-
-        foreach (var slideId in slideIdList.Elements<SlideId>())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var slidePart = (SlidePart?)presentationPart.GetPartById(slideId.RelationshipId!);
-            if (slidePart?.Slide == null)
-                continue;
-
-            textBuilder.AppendLine($"--- Slide {slideNumber} ---");
-
-            // Extract text from all shapes on the slide
-            var texts = slidePart.Slide.Descendants<DocumentFormat.OpenXml.Drawing.Text>()
-                .Select(t => t.Text)
-                .Where(t => !string.IsNullOrWhiteSpace(t));
-
-            foreach (var text in texts)
-            {
-                textBuilder.AppendLine(text);
-            }
-
-            textBuilder.AppendLine();
-            slideNumber++;
-        }
-
-        var content = textBuilder.ToString();
+        var content = PptxMarkdown.Convert(presentationPart, warnings, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(content))
         {

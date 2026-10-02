@@ -93,8 +93,8 @@ public class OfficeParserTests
 
         var result = await _parser.ParseAsync(stream, "test.pptx");
 
-        result.Content.Should().Contain("--- Slide 1 ---");
-        result.Content.Should().Contain("--- Slide 2 ---");
+        result.Content.Should().Contain("## Slide 1");
+        result.Content.Should().Contain("## Slide 2");
     }
 
     [Fact]

@@ -130,7 +130,8 @@ internal static class DocxMarkdown
         if (properties?.NumberingProperties is not null)
             return "- " + text;
 
-        return text;
+        // The author's own text, so a leading "#" or "|" is escaped rather than read as structure.
+        return MarkdownText.EscapeLine(text);
     }
 
     /// <summary>
