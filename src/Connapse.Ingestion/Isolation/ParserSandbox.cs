@@ -70,18 +70,48 @@ public static class ParserSandbox
         "/dev/urandom", "/dev/random", "/dev/zero",
     ];
 
-    /// <summary>
-    /// Confines this process as far as the kernel allows, and says how: "landlock (ABI 7)", or why
-    /// not ("none: ..."). Called once, before the first request is read.
-    /// </summary>
     /// <summary>How this process was confined, once <see cref="Apply"/> has run.</summary>
     public static string? Current { get; private set; }
 
     /// <summary>Set by the confined process for the image it re-executes into; never by the pool.</summary>
     private const string ConfinedVariable = "CONNAPSE_PARSERHOST_CONFINED";
 
+    /// <summary>Set before a restart that follows an unverifiable marker, so a failure cannot loop.</summary>
+    private const string RestartedVariable = "CONNAPSE_PARSERHOST_RESTARTED";
+
     /// <summary>
-    /// Confines the process and re-executes it, or, in the re-executed process, reports how it was
+    /// True when this process demonstrably runs inside the sandbox: listing <c>/</c>, which no rule
+    /// allows, is refused, and so is opening an internet socket.
+    /// </summary>
+    internal static bool IsConfined()
+    {
+        if (!OperatingSystem.IsLinux())
+            return false;
+
+        int root = Open("/", 0); // O_RDONLY: a directory needs READ_DIR, which "/" is not granted.
+        if (root >= 0)
+        {
+            Close(root);
+            return false;
+        }
+
+        int socket = Socket(2, 2, 0); // AF_INET, SOCK_DGRAM
+        if (socket >= 0)
+        {
+            Close(socket);
+            return false;
+        }
+
+        return true;
+    }
+
+    [DllImport("libc", EntryPoint = "socket", SetLastError = true)]
+    private static extern int Socket(int domain, int type, int protocol);
+
+    /// <summary>
+    /// Confines this process as far as the kernel allows, and says how ("landlock (ABI 7) and
+    /// seccomp (no sockets)") or why not ("none: ..."). Called once, before the first request is
+    /// read. Confining ends in a re-exec; in the re-executed process this reports how it was
     /// confined. Returns only when the process will run unconfined, or is already confined.
     /// <para>
     /// Landlock restricts the thread that applies it and the threads that thread creates later --
@@ -97,8 +127,22 @@ public static class ParserSandbox
     {
         if (mode != ParserSandboxMode.Off && Environment.GetEnvironmentVariable(ConfinedVariable) is { Length: > 0 } confined)
         {
-            Current = confined;
-            return (true, confined);
+            // The marker only says the previous image meant to confine this one. Anything that can
+            // set an environment variable could forge it, so the sandbox is checked, not trusted.
+            if (IsConfined())
+            {
+                Current = confined;
+                return (true, confined);
+            }
+
+            // Forged, or the restart lost the sandbox. Confine now -- once: a second unverified
+            // restart means the kernel is not doing what it reports, and the host says so.
+            if (Environment.GetEnvironmentVariable(RestartedVariable) is { Length: > 0 })
+            {
+                Current = "none: confinement could not be verified after restarting";
+                return (false, Current);
+            }
+            _ = SetEnv(RestartedVariable, "1", overwrite: 1);
         }
 
         var result = ApplyCore(mode);

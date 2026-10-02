@@ -342,6 +342,41 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task Sandbox_ForgedConfinedMarker_IsCheckedNotTrusted()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        // The marker the confined image hands its successor; set by hand, it must not skip the sandbox.
+        var start = ParserProcessPool.StartInfo(TestHostPath, 256);
+        start.Environment["CONNAPSE_PARSERHOST_CONFINED"] = "landlock (forged)";
+        using var host = Process.Start(start)!;
+        host.BeginErrorReadLine();
+
+        string upload = Path.Combine(Path.GetTempPath(), $"sandbox-probe-{Guid.NewGuid():N}.tmp");
+        await File.WriteAllTextAsync(upload, "another user's upload");
+        try
+        {
+            async Task<string> AskAsync(string parser, string text)
+            {
+                await ParserProtocol.WriteJsonAsync(host.StandardInput.BaseStream, new ParserProtocol.ParseRequest(parser, "file.txt", Settings), CancellationToken.None);
+                await ParserProtocol.WriteFrameAsync(host.StandardInput.BaseStream, Encoding.UTF8.GetBytes(text), CancellationToken.None);
+                await host.StandardInput.BaseStream.FlushAsync();
+                byte[] reply = (await ParserProtocol.ReadFrameAsync(host.StandardOutput.BaseStream, 1 << 20, CancellationToken.None))!;
+                return ParserProtocol.Deserialize<ParserProtocol.ParseResponse>(reply).Content!;
+            }
+
+            (await AskAsync("Test.Sandbox", "")).Should().StartWith("landlock (ABI");
+            (await AskAsync("Test.ReadFile", upload)).Should().StartWith("denied");
+        }
+        finally
+        {
+            File.Delete(upload);
+            host.Kill(entireProcessTree: true);
+        }
+    }
+
+    [Fact]
     public async Task Sandbox_HostCannotSendUdp()
     {
         if (!await ConfinedAsync())
