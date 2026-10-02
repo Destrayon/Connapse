@@ -205,7 +205,12 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
                     candidates = null;
                 }
             }
-            return new SearchOutcome(ranked, new Trace(elapsed, NoStages), null) { Candidates = candidates };
+            List<RetrievedPassage> passages = result.Hits
+                .Where(h => docMap.ContainsKey(h.DocumentId))
+                .Take(k)
+                .Select(h => new RetrievedPassage(docMap[h.DocumentId], h.ChunkId, h.Content))
+                .ToList();
+            return new SearchOutcome(ranked, new Trace(elapsed, NoStages), null) { Candidates = candidates, Passages = passages };
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {

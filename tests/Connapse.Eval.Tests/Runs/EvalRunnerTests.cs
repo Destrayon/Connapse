@@ -193,6 +193,43 @@ public class EvalRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_PassageDataset_JudgesRetrievedChunksAndWritesThemAsQrels()
+    {
+        RepoPaths paths = new(_repo);
+        byte[] questions = Encoding.UTF8.GetBytes(
+            """{"id":"q1","question":"one?","doc":"a.pdf","evidence":["answer one"],"answer":"one"}""" + "\n"
+            + """{"id":"q2","question":"two?","doc":"a.pdf","evidence":["answer two"],"answer":"two"}""" + "\n");
+        Directory.CreateDirectory(Path.Combine(paths.DatasetsRoot, "pq"));
+        File.WriteAllBytes(Path.Combine(paths.DatasetsRoot, "pq", "questions.jsonl"), questions);
+        byte[] pdf = Encoding.UTF8.GetBytes("%PDF-");
+        _extraFiles["/a.pdf"] = pdf;
+        new EvalManifest(
+            new Dictionary<string, IReadOnlyList<string>> { ["p"] = ["pq"] },
+            new Dictionary<string, DatasetEntry>
+            {
+                ["pq"] = new("pdf-qa", "1", [],
+                [
+                    new DatasetFile("a.pdf", "https://x.test/a.pdf", Hash(pdf)),
+                    new DatasetFile("questions.jsonl", "repo:pq/questions.jsonl", Hash(questions)),
+                ]),
+            }).Save(paths.ManifestPath);
+        FakeSystem system = new(failPerDataset: 0)
+        {
+            // q1's answer is the second chunk; q2's answer is never retrieved.
+            Passages = [new RetrievedPassage("a.pdf", "c1", "nothing"), new RetrievedPassage("a.pdf", "c2", "Answer: one.")],
+        };
+
+        RunFolder run = await Runner(system).RunAsync(new RunRequest("p", "fake", "default", [], null, null), CancellationToken.None);
+
+        RunScores scores = Scoring.Score(run);
+        scores.Datasets.Single().PerQuery["q1"]["MRR@10"].Should().Be(0.5);
+        scores.Datasets.Single().PerQuery["q2"]["Recall@10"].Should().Be(0);
+        run.ReadQrels("pq").For("q1").Should().BeEquivalentTo(new Dictionary<string, int> { ["a.pdf#c1"] = 0, ["a.pdf#c2"] = 1 });
+        run.ReadTitles("pq").Should().ContainKey("a.pdf#c2").WhoseValue.Should().Be("a");
+        run.ReadResults("pq")[0].Passages.Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task RunAsync_LimitQueriesZero_ThrowsArgumentException()
     {
         Func<Task> act = () => Runner(new FakeSystem(failPerDataset: 0))
@@ -205,6 +242,7 @@ public class EvalRunnerTests : IDisposable
     {
         public List<string> Indexed { get; } = [];
         public List<string> Searched { get; } = [];
+        public IReadOnlyList<RetrievedPassage>? Passages { get; init; }
         public string Name => "fake";
         public IReadOnlyDictionary<string, string> Describe() => new Dictionary<string, string> { ["kind"] = kind };
 
@@ -219,7 +257,7 @@ public class EvalRunnerTests : IDisposable
         {
             Searched.Add(query.Id);
             return Task.FromResult(new SearchOutcome([new RankedDoc("d" + query.Id[1..], 1.0)],
-                new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null));
+                new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null) { Passages = Passages });
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

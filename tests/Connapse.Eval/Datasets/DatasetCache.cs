@@ -10,6 +10,9 @@ public sealed class ChecksumMismatchException(string path, string expected, stri
 public sealed class DatasetCache(string cacheRoot, HttpClient http, string? locksRoot = null)
 {
     public const string LockFileName = "files.sha256";
+
+    /// <summary>A file committed under eval/datasets, named by its path relative to that folder.</summary>
+    public const string RepoScheme = "repo:";
     private const int ParallelDownloads = 8;
 
     public string DirectoryFor(string dataset, DatasetEntry entry) =>
@@ -30,7 +33,15 @@ public sealed class DatasetCache(string cacheRoot, HttpClient http, string? lock
         foreach (DatasetFile file in entry.Files)
         {
             string path = Path.Combine(directory, file.Name);
-            if (!File.Exists(path))
+            // Committed beside the lock files (eval/datasets): copied fresh every time, so an edit
+            // shows up as a checksum mismatch that asks for a re-pin instead of a stale copy.
+            if (file.Url.StartsWith(RepoScheme, StringComparison.Ordinal))
+            {
+                string source = ContainedPath(locksRoot ?? throw new InvalidOperationException("DatasetCache needs locksRoot for repo: files."),
+                    file.Url[RepoScheme.Length..]);
+                File.Copy(source, path, overwrite: true);
+            }
+            else if (!File.Exists(path))
             {
                 // Built locally rather than downloaded (the dev suite): nothing to fetch.
                 if (file.Url.StartsWith("build:", StringComparison.Ordinal))

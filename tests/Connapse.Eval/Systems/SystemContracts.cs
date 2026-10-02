@@ -14,7 +14,13 @@ public sealed record SearchOutcome(IReadOnlyList<RankedDoc> Ranked, Trace Trace,
 {
     /// <summary>Each side's pooled candidates, when the config asks for them (fusion is replayed offline from these).</summary>
     public CandidateCapture? Candidates { get; init; }
+
+    /// <summary>The top chunks in rank order, before collapsing to documents; passage datasets are judged on these.</summary>
+    public IReadOnlyList<RetrievedPassage>? Passages { get; init; }
 }
+
+/// <summary>One retrieved chunk, with its dataset document ID.</summary>
+public sealed record RetrievedPassage(string DocId, string ChunkId, string Content);
 
 /// <summary>
 /// One query's hybrid candidates: each side's own top chunks in rank order, every one scored on both

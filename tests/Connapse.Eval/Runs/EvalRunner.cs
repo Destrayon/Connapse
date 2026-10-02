@@ -1,5 +1,6 @@
 using Connapse.Eval.Cli;
 using Connapse.Eval.Datasets;
+using Connapse.Eval.Metrics;
 using Connapse.Eval.Model;
 using Connapse.Eval.Systems;
 
@@ -75,17 +76,32 @@ public sealed class EvalRunner(
                     : dataset.Queries;
                 List<QueryResult> results = [];
                 List<(string QueryId, CandidateCapture Candidates)> captured = [];
+                // Passage judgments depend on what this run's parser and chunker produced, so they
+                // are made here and written as the run's qrels.
+                Qrels qrels = dataset.Passages is null ? dataset.Qrels : new Qrels();
                 foreach (EvalQuery query in queries)
                 {
                     SearchOutcome outcome = await system.SearchAsync(name, query, K, ct);
-                    results.Add(new QueryResult(name, query.Id, query.Text, query.Split, outcome.Ranked, outcome.Trace, outcome.Error));
+                    if (dataset.Passages is { } passages)
+                    {
+                        IReadOnlyList<RetrievedPassage> retrieved = outcome.Error is null ? outcome.Passages ?? [] : [];
+                        (IReadOnlyList<RankedDoc> ranked, IReadOnlyDictionary<string, int> judgments) =
+                            PassageJudge.Judge(passages[query.Id], retrieved);
+                        foreach ((string passageId, int grade) in judgments)
+                            qrels.Add(query.Id, passageId, grade);
+                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, ranked, outcome.Trace, outcome.Error, retrieved));
+                    }
+                    else
+                    {
+                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, outcome.Ranked, outcome.Trace, outcome.Error));
+                    }
                     if (outcome.Candidates is not null)
                         captured.Add((query.Id, outcome.Candidates));
                     if (results.Count % 50 == 0)
                         log.WriteLine($"[{name}] searched {results.Count}/{queries.Count}");
                 }
 
-                run.WriteDataset(name, dataset.Qrels, Titles(dataset, results), results);
+                run.WriteDataset(name, qrels, Titles(dataset, qrels, results), results);
                 if (captured.Count > 0)
                     run.WriteCandidates(name, captured);
                 RunDatasetInfo info = new(name, entry.Version, hashes[name], entry.Tags,
@@ -195,17 +211,21 @@ public sealed class EvalRunner(
         limit?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none";
 
     /// <summary>Titles for documents the report can show: judged ones and returned ones.</summary>
-    private static Dictionary<string, string> Titles(EvalDataset dataset, IReadOnlyList<QueryResult> results)
+    /// <remarks>Passage IDs take their document's title.</remarks>
+    private static Dictionary<string, string> Titles(EvalDataset dataset, Qrels qrels, IReadOnlyList<QueryResult> results)
     {
         HashSet<string> wanted = new(StringComparer.Ordinal);
         foreach (QueryResult result in results)
         {
-            wanted.UnionWith(dataset.Qrels.For(result.QueryId).Keys);
+            wanted.UnionWith(qrels.For(result.QueryId).Keys);
             wanted.UnionWith(result.Ranked.Select(r => r.DocId));
         }
-        return dataset.Corpus
-            .Where(d => wanted.Contains(d.Id))
-            .ToDictionary(d => d.Id, d => d.Title ?? Truncate(d.Text ?? "", 80), StringComparer.Ordinal);
+        Dictionary<string, string> titles = dataset.Corpus
+            .ToDictionary(d => d.Id, d => d.Title ?? Truncate(d.Text ?? Path.GetFileName(d.FilePath) ?? d.Id, 80), StringComparer.Ordinal);
+        return wanted
+            .Select(id => (Id: id, Doc: dataset.Passages is null ? id : PassageJudge.DocumentOf(id)))
+            .Where(x => titles.ContainsKey(x.Doc))
+            .ToDictionary(x => x.Id, x => titles[x.Doc], StringComparer.Ordinal);
     }
 
     private static string Truncate(string text, int length) =>

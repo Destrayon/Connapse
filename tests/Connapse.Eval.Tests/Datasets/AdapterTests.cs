@@ -177,6 +177,38 @@ public class AdapterTests : IDisposable
         await act.Should().ThrowAsync<InvalidDataException>().WithMessage(message);
     }
 
+    private static DatasetEntry PdfQaEntry() => new("pdf-qa", "rev1", [],
+        [new DatasetFile("a.pdf", "https://x.test/a.pdf", null), new DatasetFile("questions.jsonl", "repo:pdfqa/questions.jsonl", null)]);
+
+    [Fact]
+    public async Task PdfQa_Questions_LoadPdfsAsFilesAndQuestionsWithPassageGold()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_dir, "questions.jsonl"),
+            """{"id":"t1","question":"How many in Ohio?","doc":"a.pdf","evidence":["Ohio","4,213"],"answer":"4,213","page":3}""" + "\n");
+
+        EvalDataset dataset = await DatasetAdapters.Get("pdf-qa").LoadAsync("pdfqa", PdfQaEntry(), _dir, CancellationToken.None);
+
+        dataset.Corpus.Should().ContainSingle().Which.Should().Match<EvalDocument>(d =>
+            d.Id == "a.pdf" && d.Kind == DocumentKind.File && d.FilePath == Path.Combine(_dir, "a.pdf"));
+        dataset.Queries.Should().ContainSingle().Which.Text.Should().Be("How many in Ohio?");
+        dataset.Passages!["t1"].Should().BeEquivalentTo(new PassageGold("a.pdf", ["Ohio", "4,213"], "4,213"));
+        dataset.Qrels.For("t1").Should().ContainKey("a.pdf");
+    }
+
+    [Theory]
+    [InlineData("""{"id":"t1","question":"q","doc":"b.pdf","evidence":["x"],"answer":"x"}""", "*b.pdf*")]
+    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["|"],"answer":"x"}""", "*evidence*")]
+    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x"}""" + "\n"
+        + """{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x"}""", "*line 2*repeats*")]
+    public async Task PdfQa_BadQuestion_ThrowsNamingTheLine(string questions, string message)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_dir, "questions.jsonl"), questions);
+
+        Func<Task> act = () => DatasetAdapters.Get("pdf-qa").LoadAsync("pdfqa", PdfQaEntry(), _dir, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>().WithMessage(message);
+    }
+
     [Fact]
     public void Get_UnknownAdapter_ThrowsListingKnownAdapters()
     {
