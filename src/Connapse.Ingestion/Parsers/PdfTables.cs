@@ -4,6 +4,8 @@ using Tabula.Detectors;
 using Tabula.Extractors;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.ReadingOrderDetector;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
 namespace Connapse.Ingestion.Parsers;
@@ -45,25 +47,43 @@ internal static class PdfTables
         if (tables.Count == 0)
             return null;
 
-        // Everything outside the tables, as lines, placed with the tables by vertical position.
-        var elements = new List<(double Top, string Text, bool IsTable)>();
-        foreach (var table in tables)
-            elements.Add((table.Top, ToMarkdown(table), true));
-
         // Space glyphs are letters to PdfPig; left in, each becomes a "word" of its own.
         var letters = page.Letters.Where(l => !string.IsNullOrWhiteSpace(l.Value)).ToList();
         var words = NearestNeighbourWordExtractor.Instance.GetWords(letters)
             .Where(w => !tables.Any(t => Contains(t, w.BoundingBox.Centroid)))
             .ToList();
-        foreach (var (top, text) in GroupIntoLines(words))
-            elements.Add((top, text, false));
+
+        // The text outside the tables, as regions in reading order, so a two-column page around a
+        // table still reads each column to its end. Joining whole baselines across the page
+        // instead interleaved the columns into alternating fragments.
+        var regions = words.Count == 0
+            ? []
+            : UnsupervisedReadingOrderDetector.Instance.Get(RecursiveXYCut.Instance.GetBlocks(words)).ToList();
+
+        // Each table goes before the first region, in reading order, that starts below it and
+        // shares some of its width: that is where a reader moving down the column meets it.
+        var output = regions.Select(r => (Text: r.Text, IsTable: false)).ToList();
+        foreach (var table in tables.OrderBy(t => t.Top))
+        {
+            int at = regions.FindIndex(r =>
+                r.BoundingBox.Top <= table.Top && r.BoundingBox.Left < table.Right && r.BoundingBox.Right > table.Left);
+            var entry = (Text: ToMarkdown(table), IsTable: true);
+            if (at < 0)
+            {
+                output.Add(entry);
+            }
+            else
+            {
+                int index = output.IndexOf((regions[at].Text, false));
+                output.Insert(index < 0 ? output.Count : index, entry);
+            }
+        }
 
         var builder = new StringBuilder();
-        foreach (var (_, text, isTable) in elements.OrderByDescending(e => e.Top))
+        foreach (var (text, isTable) in output)
         {
-            if (isTable && builder.Length > 0) builder.AppendLine();
+            if (builder.Length > 0) builder.AppendLine();
             builder.AppendLine(text);
-            if (isTable) builder.AppendLine();
         }
 
         return builder.ToString().TrimEnd();
@@ -73,18 +93,25 @@ internal static class PdfTables
     {
         PageArea area = ObjectExtractor.ExtractPage(page);
 
-        var ruled = new SpreadsheetExtractionAlgorithm().Extract(area).Where(IsUsable).ToList();
-        if (ruled.Count > 0 || mode != PdfTableMode.RuledAndStream)
-            return ruled;
+        var tables = new SpreadsheetExtractionAlgorithm().Extract(area).Where(IsUsable).ToList();
+        if (mode != PdfTableMode.RuledAndStream)
+            return tables;
 
-        var stream = new List<Table>();
+        // Borderless tables elsewhere on the page too; a region a ruled table already covers is
+        // the same table found twice.
         foreach (var region in new SimpleNurminenDetectionAlgorithm().Detect(area))
         {
+            if (tables.Any(t => Overlaps(t, region)))
+                continue;
+
             var regionArea = area.GetArea(region.BoundingBox);
-            stream.AddRange(new BasicExtractionAlgorithm().Extract(regionArea).Where(IsUsable));
+            tables.AddRange(new BasicExtractionAlgorithm().Extract(regionArea).Where(IsUsable));
         }
-        return stream;
+        return tables;
     }
+
+    private static bool Overlaps(TableRectangle a, TableRectangle b) =>
+        a.Left < b.Right && a.Right > b.Left && a.Bottom < b.Top && a.Top > b.Bottom;
 
     /// <summary>
     /// At least two rows and two columns, most cells filled, and cells that read like cells
@@ -132,22 +159,4 @@ internal static class PdfTables
 
     private static string Escape(string text) =>
         string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace("|", "\\|");
-
-    /// <summary>Words grouped into lines by baseline, top to bottom, each read left to right.</summary>
-    private static IEnumerable<(double Top, string Text)> GroupIntoLines(List<Word> words)
-    {
-        var lines = new List<List<Word>>();
-        foreach (var word in words.OrderByDescending(w => w.BoundingBox.Bottom))
-        {
-            var line = lines.LastOrDefault();
-            double tolerance = Math.Max(1, word.BoundingBox.Height * 0.5);
-            if (line is not null && Math.Abs(line[0].BoundingBox.Bottom - word.BoundingBox.Bottom) <= tolerance)
-                line.Add(word);
-            else
-                lines.Add([word]);
-        }
-
-        foreach (var line in lines)
-            yield return (line.Max(w => w.BoundingBox.Top), string.Join(' ', line.OrderBy(w => w.BoundingBox.Left).Select(w => w.Text)));
-    }
 }

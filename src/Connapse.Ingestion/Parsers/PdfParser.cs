@@ -94,7 +94,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
                     try
                     {
-                        pages[i - 1] = ExtractPage(document.GetPage(i), mode, tableMode);
+                        pages[i - 1] = ExtractPage(document.GetPage(i), i, mode, tableMode, warnings);
                     }
                     catch (Exception ex)
                     {
@@ -205,11 +205,15 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             .Select(p => p?.LineText.Split('\n').Select(l => l.TrimEnd('\r')).ToList())
             .ToArray();
 
+        // A table repeated at the top of each page has the same header row and separator on
+        // every one; removing them as a running header left the rows without their columns.
+        static bool IsTableLine(string line) => line.TrimStart().StartsWith('|');
+
         var pagesPerEdgeLine = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var lines in linesPerPage)
         {
             if (lines is null) continue;
-            foreach (string key in EdgeKeys(lines).Distinct())
+            foreach (string key in EdgeKeys(lines.Where(l => !IsTableLine(l)).ToList()).Distinct())
                 pagesPerEdgeLine[key] = pagesPerEdgeLine.GetValueOrDefault(key) + 1;
         }
 
@@ -225,7 +229,8 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
             var nonBlank = lines.Select((line, index) => (line, index)).Where(x => x.line.Trim().Length > 0).ToList();
             var edge = nonBlank.Take(EdgeLines).Concat(nonBlank.TakeLast(EdgeLines)).Select(x => x.index).ToHashSet();
-            var kept = lines.Where((line, index) => !(edge.Contains(index) && repeated.Contains(EdgeKey(line)))).ToList();
+            var kept = lines.Where((line, index) =>
+                IsTableLine(line) || !(edge.Contains(index) && repeated.Contains(EdgeKey(line)))).ToList();
 
             if (kept.Any(l => l.Trim().Length > 0))
                 page.LineText = string.Join("\n", kept);
@@ -252,14 +257,23 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex PageNumberLine();
 
-    private static PageText ExtractPage(Page page, PdfTextMode mode, PdfTableMode tableMode)
+    private static PageText ExtractPage(Page page, int pageNumber, PdfTextMode mode, PdfTableMode tableMode, List<string> warnings)
     {
         // Tables take over a page they appear on, for the line-based modes: the page is then read
-        // line by line around them. The block modes order their own regions and keep doing so.
-        if (mode is PdfTextMode.Raw or PdfTextMode.ContentOrder &&
-            PdfTables.ExtractWithTables(page, tableMode) is { } withTables)
+        // in regions around them. The block modes order their own regions and keep doing so.
+        if (mode is PdfTextMode.Raw or PdfTextMode.ContentOrder && tableMode != PdfTableMode.Off)
         {
-            return new PageText(withTables, null);
+            try
+            {
+                if (PdfTables.ExtractWithTables(page, tableMode) is { } withTables)
+                    return new PageText(withTables, null);
+            }
+            catch (Exception ex)
+            {
+                // Table extraction is an improvement on a page that already reads; its failure
+                // must not cost the page. The plain extractor below reads it instead.
+                warnings.Add($"Table extraction failed on page {pageNumber}, read as plain text: {ex.Message}");
+            }
         }
 
         switch (mode)
