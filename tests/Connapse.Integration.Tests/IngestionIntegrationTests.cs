@@ -178,6 +178,39 @@ public class IngestionIntegrationTests : IAsyncLifetime
         body!.Error.Should().Contain("empty");
     }
 
+    [Fact]
+    public async Task UploadIngestSearch_HtmlPage_IndexesTheArticleAsText()
+    {
+        // #600: .html was offered by the upload picker but had no parser.
+        var paragraphs = string.Concat(Enumerable.Range(1, 6).Select(i =>
+            $"<p>Section {i}: the lighthouse keeper logs barometric pressure every four hours and " +
+            "radios the reading to the coastguard station on the mainland before dawn.</p>"));
+        var html = $"""
+            <html><head><title>Lighthouse logbook</title><script>var zebracornTracker = 1;</script></head>
+            <body><nav class="menu"><a href="/">Home</a> <a href="/shop">Shop</a></nav>
+            <article><h1>Lighthouse logbook</h1>{paragraphs}</article>
+            <footer class="site-footer">Contact us</footer></body></html>
+            """;
+
+        var documentId = await UploadDocument("logbook.html", html);
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
+
+        var document = await _fixture.AdminClient.GetFromJsonAsync<DocumentDto>(
+            $"/api/containers/{_containerId}/files/{documentId}", JsonOptions);
+        document!.Metadata["IndexedWith:Parser"].Should().Be("HtmlParser");
+
+        var hits = await _fixture.AdminClient.GetFromJsonAsync<SearchResultDto>(
+            $"/api/containers/{_containerId}/search?q={Uri.EscapeDataString("barometric pressure")}&mode=Keyword&topK=5", JsonOptions);
+        var hit = hits!.Hits.Should().Contain(h => h.DocumentId == documentId).Subject;
+        hit.Content.Should().NotContain("<p>");
+
+        var script = await _fixture.AdminClient.GetFromJsonAsync<SearchResultDto>(
+            $"/api/containers/{_containerId}/search?q=zebracornTracker&mode=Keyword&topK=5", JsonOptions);
+        script!.Hits.Should().NotContain(h => h.DocumentId == documentId);
+
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
+    }
+
     private record ErrorResponse(string Error);
 
     private async Task<string> UploadDocument(string fileName, string content)

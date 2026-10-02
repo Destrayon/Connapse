@@ -103,7 +103,7 @@ public class TextParser : IDocumentParser
     /// place rather than copied: a second full copy of every large text file would double the
     /// worker's peak memory for nothing.
     /// </summary>
-    private static async Task<ReadOnlyMemory<byte>> ReadAllBytesAsync(Stream stream, CancellationToken ct)
+    internal static async Task<ReadOnlyMemory<byte>> ReadAllBytesAsync(Stream stream, CancellationToken ct)
     {
         if (stream is MemoryStream memory && memory.TryGetBuffer(out ArraySegment<byte> segment))
         {

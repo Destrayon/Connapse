@@ -15,6 +15,8 @@ public class IngestionPipelineRoutingTests
     [InlineData("file.pdf", "DocumentAware")]
     [InlineData("report.DOCX", "DocumentAware")]
     [InlineData("deck.pptx", "DocumentAware")]
+    [InlineData("page.html", "DocumentAware")]
+    [InlineData("page.HTM", "DocumentAware")]
     [InlineData("data.csv", "Recursive")]
     [InlineData(null, "Recursive")]
     [InlineData("", "Recursive")]
