@@ -449,6 +449,19 @@ public record UploadSettings
     /// </summary>
     public int ParseTimeoutSeconds { get; set; } = 300;
 
+    /// <summary>
+    /// Run the built-in parsers in Connapse.ParserHost processes that can be killed at the deadline
+    /// and are capped in memory (default: true). Off, they run inside the web process, where a
+    /// parser that ignores its deadline keeps its thread until the process restarts.
+    /// </summary>
+    public bool IsolateParsers { get; set; } = true;
+
+    /// <summary>Managed heap each parser process may use before a parse fails as <c>parse_out_of_memory</c> (default: 2,048 MiB).</summary>
+    public int ParserMemoryLimitMb { get; set; } = 2048;
+
+    /// <summary>Files a parser process handles before it is replaced with a fresh one (default: 50).</summary>
+    public int ParserFilesPerProcess { get; set; } = 50;
+
     /// <summary>Largest file that is parsed at all (default: 256 MiB).</summary>
     public long MaxFileBytes { get; set; } = 256L * 1024 * 1024;
 

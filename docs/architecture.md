@@ -337,6 +337,8 @@ Bucket: knowledge-files
 
 **Future**: `.xlsx`, code files with syntax-aware parsing.
 
+Parsing runs in `Connapse.ParserHost` processes, not in the web process. `ParserProcessPool` keeps up to `Hangfire:IngestionWorkerCount` of them, caps each one's managed heap (`Knowledge:Upload:ParserMemoryLimitMb`), replaces each after `Knowledge:Upload:ParserFilesPerProcess` files, and kills one at the parse deadline. A parse that spins, runs out of memory or crashes fails its document as `parse_timeout`, `parse_out_of_memory` or `parse_crashed`, and leaves nothing running. `Knowledge:Upload:IsolateParsers=false` parses in-process instead.
+
 ### Chunking (IChunkingStrategy)
 
 | Strategy | Description | Best For | Settings |
