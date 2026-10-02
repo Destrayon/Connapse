@@ -28,7 +28,8 @@ public sealed class PdfQaAdapter : IDatasetAdapter
     };
 
     private sealed record QuestionLine(
-        string Id, string Question, string Doc, IReadOnlyList<string> Evidence, string Answer, int? Page, string? Kind);
+        string Id, string Question, string Doc, IReadOnlyList<string> Evidence, string Answer, int? Page, string? Kind,
+        int? MaxGapWords);
 
     public async Task<EvalDataset> LoadAsync(string datasetName, DatasetEntry entry, string directory, CancellationToken ct)
     {
@@ -59,7 +60,9 @@ public sealed class PdfQaAdapter : IDatasetAdapter
                 throw new InvalidDataException($"{where} needs evidence strings with words in them.");
             if (q.Kind is null || !Kinds.TryGetValue(q.Kind, out int maxGap))
                 throw new InvalidDataException($"{where} needs a kind: one of {string.Join(", ", Kinds.Keys)}.");
-            if (!passages.TryAdd(q.Id, new PassageGold(q.Doc, q.Evidence, q.Answer, maxGap)))
+            // A row whose cells are prose puts more words between label and value; such a question
+            // sets its own gap, measured on the intact row.
+            if (!passages.TryAdd(q.Id, new PassageGold(q.Doc, q.Evidence, q.Answer, q.MaxGapWords ?? maxGap)))
                 throw new InvalidDataException($"{where} repeats a question ID.");
             queries.Add(new EvalQuery(q.Id, q.Question, Split.Test, [$"kind:{q.Kind}"]));
             qrels.Add(q.Id, q.Doc, 1);
