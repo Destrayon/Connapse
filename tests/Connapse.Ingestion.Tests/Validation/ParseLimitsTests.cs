@@ -78,14 +78,18 @@ public class ParseLimitsTests
         // A parser stuck in a synchronous loop that ignores its token, like PdfPig on a
         // malformed content stream.
         var release = new ManualResetEventSlim();
+        var started = new ManualResetEventSlim();
         var parser = Substitute.For<IDocumentParser>();
         parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(_ => { release.Wait(TimeSpan.FromSeconds(30)); return new ParsedDocument("", [], []); });
+            .Returns(_ => { started.Set(); release.Wait(TimeSpan.FromSeconds(30)); return new ParsedDocument("", [], []); });
 
+        // Long enough for a busy thread pool to start the parse: one cancelled before it ever ran
+        // is not abandoned, and would leave nothing here to count.
         var act = () => IngestionPipeline.ParseWithDeadlineAsync(
-            parser, new MemoryStream(), "stuck.pdf", TimeSpan.FromMilliseconds(200), CancellationToken.None);
+            parser, new MemoryStream(), "stuck.pdf", TimeSpan.FromSeconds(2), CancellationToken.None);
 
         (await act.Should().ThrowAsync<PermanentIngestionException>()).Which.Message.Should().EndWith("[parse_timeout]");
+        started.IsSet.Should().BeTrue("the parse must have been running when the deadline passed");
         IngestionPipeline.AbandonedParses.Should().BeGreaterThan(0, "the stuck parse is still running and must be visible");
 
         release.Set();
