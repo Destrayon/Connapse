@@ -5,6 +5,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.Options;
+using Microsoft.ML.OnnxRuntime;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.DocumentLayoutAnalysis;
@@ -117,6 +118,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
                     : Enum.Parse<PdfTableMode>(UploadSettings.DefaultPdfTableMode);
                 var pages = new PageText?[document.NumberOfPages];
                 var failedPages = new HashSet<int>();
+                var layout = mode == PdfTextMode.Layout ? new LayoutRun(pdf, settings, parseClock) : null;
 
                 for (int i = 1; i <= document.NumberOfPages; i++)
                 {
@@ -124,7 +126,9 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
                     try
                     {
-                        pages[i - 1] = ExtractPage(document.GetPage(i), i, mode, tableMode, warnings);
+                        Page page = document.GetPage(i);
+                        pages[i - 1] = layout?.Extract(page, i, warnings, cancellationToken)
+                                       ?? ExtractPage(page, i, mode == PdfTextMode.Layout ? PdfTextMode.ContentOrder : mode, tableMode, warnings);
                     }
                     catch (Exception ex)
                     {
@@ -138,6 +142,8 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
                 if (failedPages.Count > 0)
                     metadata[MetadataKeyPageErrors] = failedPages.Count.ToString();
+
+                layout?.Report(metadata, warnings);
 
                 if (settings.PdfRemoveRepeatedHeadersAndFooters)
                 {
@@ -321,6 +327,86 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// <summary>The share of the parse deadline OCR may spend, leaving the rest for extraction and the reply.</summary>
     private const double OcrShareOfParseTimeout = 0.6;
 
+    /// <summary>
+    /// The share of the parse deadline the layout model may spend. Past it, pages are read in content
+    /// order, as without the model; OCR's own share is measured from the same start, so a scan in a
+    /// long document still gets its turn.
+    /// </summary>
+    private const double LayoutShareOfParseTimeout = 0.4;
+
+    /// <summary>Parser metadata key: pages read with the layout model.</summary>
+    public const string MetadataKeyLayoutPages = "LayoutPages";
+
+    /// <summary>
+    /// The layout model's pass over a document's pages (#642): each page with a text layer is
+    /// rendered and labelled, then read region by region. A page the model cannot do -- rotated, past
+    /// the time budget, or the model failed or is missing -- returns null and is read in content
+    /// order instead, as without it.
+    /// </summary>
+    private sealed class LayoutRun(byte[] pdf, UploadSettings settings, Stopwatch parseClock)
+    {
+        private readonly TimeSpan _budget = TimeSpan.FromSeconds(Math.Max(1, settings.ParseTimeoutSeconds) * LayoutShareOfParseTimeout);
+        private readonly Stopwatch _watch = new();
+        private int _read;
+        private int _skipped;
+        private string? _unavailable;
+
+        public PageText? Extract(Page page, int pageNumber, List<string> warnings, CancellationToken ct)
+        {
+            // A rotated page renders turned while its text layer keeps unrotated coordinates.
+            if (_unavailable is not null || page.Rotation.Value != 0 || !page.Letters.Any(l => !string.IsNullOrWhiteSpace(l.Value)))
+                return null;
+            if (parseClock.Elapsed >= _budget)
+            {
+                _skipped++;
+                return null;
+            }
+
+            _watch.Start();
+            try
+            {
+                var regions = PdfLayout.Detect(pdf, pageNumber - 1, settings.PdfOcrThreads, ct);
+                string? text = PdfLayoutText.Extract(page, regions);
+                if (text is null)
+                    return null;
+                _read++;
+                return new PageText(text, null);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or TypeInitializationException
+                                           or BadImageFormatException or FileNotFoundException or OnnxRuntimeException)
+            {
+                _unavailable = ex.GetBaseException().Message;
+                return null;
+            }
+            catch (Exception ex)
+            {
+                warnings.Add($"Layout analysis failed on page {pageNumber}, read in content order: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                _watch.Stop();
+            }
+        }
+
+        public void Report(Dictionary<string, string> metadata, List<string> warnings)
+        {
+            if (_read > 0)
+            {
+                metadata[MetadataKeyLayoutPages] = _read.ToString(CultureInfo.InvariantCulture);
+                metadata["LayoutSecondsPerPage"] = (_watch.Elapsed.TotalSeconds / _read).ToString("F2", CultureInfo.InvariantCulture);
+            }
+            if (_unavailable is not null)
+                warnings.Add($"Layout analysis is unavailable in this deployment, so pages were read in content order: {_unavailable}");
+            if (_skipped > 0)
+                warnings.Add($"{_skipped} page(s) were read in content order: layout analysis stopped {parseClock.Elapsed.TotalSeconds:0} seconds into the parse to finish within its deadline.");
+        }
+    }
+
     private static byte[] AsArray(ReadOnlyMemory<byte> bytes) =>
         MemoryMarshal.TryGetArray(bytes, out ArraySegment<byte> segment) && segment.Offset == 0 && segment.Count == segment.Array!.Length
             ? segment.Array
@@ -497,6 +583,12 @@ public enum PdfTextMode
 
     /// <summary>Nearest-neighbour words, Docstrum blocks, unsupervised reading order.</summary>
     Docstrum,
+
+    /// <summary>
+    /// Regions, their reading order, and running headers and footers from a layout model run on the
+    /// rendered page (PP-DocLayout v3); tables in table regions. Pages it cannot do read as ContentOrder.
+    /// </summary>
+    Layout,
 }
 
 internal static class PdfTextModes

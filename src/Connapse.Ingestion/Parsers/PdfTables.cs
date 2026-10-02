@@ -120,7 +120,7 @@ internal static class PdfTables
     /// rather than paragraphs. Stream detection otherwise turns ordinary prose into one-column
     /// or ragged "tables".
     /// </summary>
-    private static bool IsUsable(Table table)
+    internal static bool IsUsable(Table table)
     {
         if (table.RowCount < 2 || table.ColumnCount < 2)
             return false;
