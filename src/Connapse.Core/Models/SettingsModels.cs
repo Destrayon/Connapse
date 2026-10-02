@@ -510,6 +510,15 @@ public record UploadSettings
     /// -- in PDFs of three or more pages (default: true).
     /// </summary>
     public bool PdfRemoveRepeatedHeadersAndFooters { get; set; } = true;
+
+    public const string DefaultPdfTableMode = "Ruled";
+
+    /// <summary>
+    /// Which PDF tables become Markdown tables: Off, Ruled (drawn with lines) or RuledAndStream
+    /// (also borderless tables found from text alignment) (default: Ruled). See PdfTableMode in
+    /// Connapse.Ingestion.
+    /// </summary>
+    public string PdfTableMode { get; set; } = DefaultPdfTableMode;
 }
 
 /// <summary>

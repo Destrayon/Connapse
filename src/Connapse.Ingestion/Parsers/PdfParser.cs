@@ -34,8 +34,9 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// <summary>
     /// 2: content-order text with word spacing and repeated header and footer removal, replacing
     /// page.Text (#597). Raised the olmOCR native-PDF score from 39.9% to 44.0%.
+    /// 3: ruled tables as Markdown tables via Tabula (#597); 44.0% to 47.4%.
     /// </summary>
-    public int Version => 2;
+    public int Version => 3;
 
     private static readonly UploadSettings DefaultLimits = new();
 
@@ -81,6 +82,9 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
                 }
 
                 PdfTextMode mode = PdfTextModes.Parse(settings.PdfTextMode);
+                PdfTableMode tableMode = Enum.TryParse(settings.PdfTableMode, ignoreCase: true, out PdfTableMode parsedTables)
+                    ? parsedTables
+                    : Enum.Parse<PdfTableMode>(UploadSettings.DefaultPdfTableMode);
                 var pages = new PageText?[document.NumberOfPages];
                 int pageErrors = 0;
 
@@ -90,7 +94,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
                     try
                     {
-                        pages[i - 1] = ExtractPage(document.GetPage(i), mode);
+                        pages[i - 1] = ExtractPage(document.GetPage(i), mode, tableMode);
                     }
                     catch (Exception ex)
                     {
@@ -248,8 +252,16 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex PageNumberLine();
 
-    private static PageText ExtractPage(Page page, PdfTextMode mode)
+    private static PageText ExtractPage(Page page, PdfTextMode mode, PdfTableMode tableMode)
     {
+        // Tables take over a page they appear on, for the line-based modes: the page is then read
+        // line by line around them. The block modes order their own regions and keep doing so.
+        if (mode is PdfTextMode.Raw or PdfTextMode.ContentOrder &&
+            PdfTables.ExtractWithTables(page, tableMode) is { } withTables)
+        {
+            return new PageText(withTables, null);
+        }
+
         switch (mode)
         {
             case PdfTextMode.Raw:
