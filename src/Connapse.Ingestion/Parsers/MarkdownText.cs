@@ -11,22 +11,35 @@ namespace Connapse.Ingestion.Parsers;
 /// </summary>
 internal static class MarkdownText
 {
-    /// <summary>Escapes a leading heading, table, quote or rule marker with a backslash.</summary>
+    /// <summary>
+    /// Escapes a leading heading, table, quote or rule marker with a backslash. Markdown allows up
+    /// to three spaces before one, so the marker is looked for after them.
+    /// </summary>
     public static string EscapeLine(string line)
     {
-        if (line.Length == 0)
+        int indent = LeadingSpaces(line);
+        if (indent == line.Length || indent > 3)
             return line;
 
-        char first = line[0];
+        string rest = line[indent..];
+        char first = rest[0];
         if (first is '#' or '|' or '>')
-            return "\\" + line;
+            return line[..indent] + "\\" + rest;
 
         // A line of only dashes, equals signs or asterisks is a rule, or underlines the line
         // above it into a heading.
-        if (line.Length >= 3 && line.All(c => c is '-' or '=' or '*' or ' ') && line.Trim().Length >= 3)
-            return "\\" + line;
+        if (rest.Length >= 3 && rest.All(c => c is '-' or '=' or '*' or ' ') && rest.Trim().Length >= 3)
+            return line[..indent] + "\\" + rest;
 
         return line;
+    }
+
+    private static int LeadingSpaces(string line)
+    {
+        int count = 0;
+        while (count < line.Length && line[count] == ' ')
+            count++;
+        return count;
     }
 
     /// <summary>
@@ -47,16 +60,18 @@ internal static class MarkdownText
                 continue;
             }
 
-            if (inFence || line.Length == 0 || line[0] != '#')
+            int indent = LeadingSpaces(line);
+            if (inFence || indent > 3 || indent == line.Length || line[indent] != '#')
                 continue;
 
-            int depth = 0;
-            while (depth < line.Length && line[depth] == '#')
-                depth++;
-            if (depth > 6 || (depth < line.Length && line[depth] != ' '))
+            int marker = indent;
+            while (marker < line.Length && line[marker] == '#')
+                marker++;
+            int depth = marker - indent;
+            if (depth > 6 || (marker < line.Length && line[marker] != ' '))
                 continue;
 
-            lines[i] = new string('#', Math.Min(6, depth + levels)) + line[depth..];
+            lines[i] = new string('#', Math.Min(6, depth + levels)) + line[marker..];
         }
 
         return string.Join('\n', lines);

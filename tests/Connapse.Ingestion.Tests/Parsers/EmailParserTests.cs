@@ -1,8 +1,11 @@
 using System.Text;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Parsers;
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using MimeKit;
+using NSubstitute;
 
 namespace Connapse.Ingestion.Tests.Parsers;
 
@@ -11,10 +14,16 @@ public class EmailParserTests
 {
     private readonly EmailParser _parser;
 
-    public EmailParserTests()
+    public EmailParserTests() => _parser = Create(new UploadSettings());
+
+    private static EmailParser Create(UploadSettings settings)
     {
+        var monitor = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        monitor.CurrentValue.Returns(settings);
         IDocumentParser[] others = [new TextParser(), new PdfParser(), new OfficeParser(), new HtmlParser()];
-        _parser = new EmailParser(() => [.. others, _parser!]);
+        EmailParser? parser = null;
+        parser = new EmailParser(() => [.. others, parser!], monitor);
+        return parser;
     }
 
     private static MimeMessage Message(string subject, string? text = "Body text.", string? html = null, Action<BodyBuilder>? attach = null)
@@ -156,6 +165,94 @@ public class EmailParserTests
         result.Warnings.Should().NotBeEmpty();
     }
 
+    [Theory]
+    [InlineData("forwarded.msg")]
+    [InlineData("forwarded.eml")]
+    public async Task ParseAsync_UnreadableAttachedMessage_KeepsTheRestOfTheEmail(string name)
+    {
+        var result = await ParseAsync(Bytes(Message("Fwd", "The parent body survives.", attach: b =>
+        {
+            b.Attachments.Add(name, new byte[] { 0x00, 0x01, 0x02, 0x03 });
+            b.Attachments.Add("notes.txt", Encoding.UTF8.GetBytes("So does this attachment."));
+        })));
+
+        result.Content.Should().Contain("The parent body survives.").And.Contain("So does this attachment.");
+        result.Warnings.Should().Contain(w => w.Contains($"'{name}'"));
+    }
+
+    [Fact]
+    public async Task ParseAsync_MoreThanTheAttachmentCap_SkipsTheRestWithAWarning()
+    {
+        var result = await ParseAsync(Bytes(Message("Many", attach: b =>
+        {
+            for (int i = 0; i < EmailParser.MaxAttachments + 5; i++)
+                b.Attachments.Add($"part{i}.txt", Encoding.UTF8.GetBytes($"Part {i}."));
+        })));
+
+        result.Content.Should().Contain($"Part {EmailParser.MaxAttachments - 1}.").And.NotContain($"Part {EmailParser.MaxAttachments}.");
+        result.Warnings.Should().Contain(w => w.Contains("Skipped 5 attachments"));
+        result.Metadata["AttachmentCount"].Should().Be((EmailParser.MaxAttachments + 5).ToString());
+    }
+
+    [Fact]
+    public async Task ParseAsync_AttachmentOverTheUploadLimit_IsSkippedBeforeItIsParsed()
+    {
+        var parser = Create(new UploadSettings { MaxFileBytes = 1_000 });
+        byte[] bytes = Bytes(Message("Big", attach: b => b.Attachments.Add("big.txt", new byte[5_000])));
+
+        using var stream = new MemoryStream(bytes);
+        var result = await parser.ParseAsync(stream, "mail.eml");
+
+        result.Content.Should().NotContain("Attachment: big.txt");
+        result.Warnings.Should().Contain(w => w.Contains("'big.txt'") && w.Contains("[file_too_large]"));
+    }
+
+    [Fact]
+    public async Task ParseAsync_AttachmentsOverTheMessageBudget_StopAtIt()
+    {
+        var parser = Create(new UploadSettings { MaxFileBytes = 1_000, MaxDecompressedBytes = 1_500 });
+        byte[] bytes = Bytes(Message("Budget", attach: b =>
+        {
+            b.Attachments.Add("one.txt", Encoding.UTF8.GetBytes(new string('a', 800)));
+            b.Attachments.Add("two.txt", Encoding.UTF8.GetBytes(new string('b', 800)));
+        }));
+
+        using var stream = new MemoryStream(bytes);
+        var result = await parser.ParseAsync(stream, "mail.eml");
+
+        result.Content.Should().Contain("Attachment: one.txt").And.NotContain("Attachment: two.txt");
+        result.Warnings.Should().Contain(w => w.Contains("'two.txt'") && w.Contains("[decompressed_too_large]"));
+    }
+
+    [Fact]
+    public async Task ParseAsync_BodySplitAroundAnAttachment_KeepsBothHalves()
+    {
+        // Apple Mail writes an inline attachment between two text parts of one body.
+        var message = Message("Split", text: null);
+        message.Body = new Multipart("mixed")
+        {
+            new TextPart("plain") { Text = "First half of the note." },
+            new MimePart("application", "octet-stream") { Content = new MimeContent(new MemoryStream([1, 2, 3])), FileName = "blob.bin" },
+            new TextPart("plain") { Text = "Second half of the note." },
+        };
+
+        var result = await ParseAsync(Bytes(message));
+
+        result.Content.Should().Contain("First half of the note.").And.Contain("Second half of the note.");
+    }
+
+    [Fact]
+    public async Task ParseAsync_IndentedHeadingsInBodyOrTextAttachments_AreEscaped()
+    {
+        var result = await ParseAsync(Bytes(Message("Injection", "Hello.\n   # injected heading", attach: b =>
+            b.Attachments.Add("plain.txt", Encoding.UTF8.GetBytes("# not a heading either")))));
+
+        var lines = result.Content.Split('\n');
+        lines.Should().Contain("   \\# injected heading");
+        lines.Should().Contain("\\# not a heading either");
+        lines.Should().NotContain(l => l.TrimStart().StartsWith("# inj") || l.StartsWith("### not"));
+    }
+
     private static byte[] Msg(Action<MsgKit.Email> build)
     {
         using var email = new MsgKit.Email(new MsgKit.Sender("ada@example.com", "Ada Lovelace"), "Outlook freight report");
@@ -204,8 +301,20 @@ public class EmailParserTests
     [InlineData("##### Deep", "###### Deep")]
     [InlineData("#hashtag\n\\# escaped", "#hashtag\n\\# escaped")]
     [InlineData("```\n# comment in code\n```\n# Real", "```\n# comment in code\n```\n### Real")]
+    [InlineData("  # Indented", "### Indented")]
     public void DemoteHeadings_ShiftsOnlyRealHeadings(string markdown, string expected)
     {
         MarkdownText.DemoteHeadings(markdown, 2).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("# heading", "\\# heading")]
+    [InlineData("   # heading", "   \\# heading")]
+    [InlineData("  > quote", "  \\> quote")]
+    [InlineData("    # code block", "    # code block")]
+    [InlineData("plain", "plain")]
+    public void EscapeLine_EscapesMarkersAfterUpToThreeSpaces(string line, string expected)
+    {
+        MarkdownText.EscapeLine(line).Should().Be(expected);
     }
 }
