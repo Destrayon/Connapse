@@ -462,6 +462,22 @@ public record UploadSettings
     /// <summary>Files a parser process handles before it is replaced with a fresh one (default: 50).</summary>
     public int ParserFilesPerProcess { get; set; } = 50;
 
+    /// <summary>
+    /// OCR PDF pages that have no text layer, or one too garbled to read, on the CPU (default:
+    /// true). Off, a PDF with no text at all fails as <c>no_text_layer</c> rather than being
+    /// indexed as empty.
+    /// </summary>
+    public bool PdfOcr { get; set; } = true;
+
+    /// <summary>
+    /// Most pages of one PDF that are OCR'd (default: 50). OCR costs seconds a page, so the rest of
+    /// a long scan is left unread, with a warning, rather than running past the parse deadline.
+    /// </summary>
+    public int MaxOcrPagesPerDocument { get; set; } = 50;
+
+    /// <summary>Resolution PDF pages are rendered at for OCR (default: 200 dpi).</summary>
+    public int PdfOcrDpi { get; set; } = 200;
+
     /// <summary>Largest file that is parsed at all (default: 256 MiB).</summary>
     public long MaxFileBytes { get; set; } = 256L * 1024 * 1024;
 

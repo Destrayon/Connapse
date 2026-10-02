@@ -15,6 +15,9 @@
     <PackageReference Include="MimeKit" Version="4.18.1" />
     <PackageReference Include="MsgReader" Version="6.1.2" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
+    <!-- 5.2.1, not later: 5.3+ moves to SkiaSharp 4, and RapidOcrNet is built against SkiaSharp 3. -->
+    <PackageReference Include="PDFtoImage" Version="5.2.1" />
+    <PackageReference Include="RapidOcrNet" Version="4.2.0" GeneratePathProperty="true" />
     <PackageReference Include="PragmaticSegmenterNet" Version="1.0.5" />
     <PackageReference Include="ReverseMarkdown" Version="6.2.1" />
     <PackageReference Include="SmartReader" Version="0.11.1" />
@@ -28,6 +31,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <!--
+    RapidOcrNet copies its PP-OCRv5 models only into projects that reference it directly. As
+    content of this project they also reach Connapse.Web, Connapse.ParserHost (where OCR runs) and
+    their publish output, at models/v5 beside the assemblies, where PdfOcr loads them.
+  -->
+  <ItemGroup>
+    <None Include="$(PkgRapidOcrNet)/models/v5/*.*" Link="models/v5/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Connapse.Ingestion.Tests" />

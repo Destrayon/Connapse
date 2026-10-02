@@ -9,10 +9,10 @@ namespace Connapse.Ingestion.Tests.Parsers;
 [Trait("Category", "Unit")]
 public class PdfParserLayoutTests
 {
-    private static PdfParser Parser(string mode, bool removeDecorations = true)
+    private static PdfParser Parser(string mode, bool removeDecorations = true, bool ocr = true)
     {
         var settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
-        settings.CurrentValue.Returns(new UploadSettings { PdfTextMode = mode, PdfRemoveRepeatedHeadersAndFooters = removeDecorations });
+        settings.CurrentValue.Returns(new UploadSettings { PdfTextMode = mode, PdfRemoveRepeatedHeadersAndFooters = removeDecorations, PdfOcr = ocr });
         return new PdfParser(settings);
     }
 
@@ -141,10 +141,25 @@ public class PdfParserLayoutTests
             new TestPdf.Page([new(72, 700, "The first page reads fine.")]),
             new TestPdf.Page([new(72, 700, "The second page cannot be built.")], RawPrefix: "/CS0 cs 0.5 sc", ColorSpaces: "/CS0 /Bogus"));
 
-        var parsed = await Parser(mode).ParseAsync(new MemoryStream(pdf), "broken.pdf");
+        var parsed = await Parser(mode, ocr: false).ParseAsync(new MemoryStream(pdf), "broken.pdf");
 
         parsed.Content.Should().Contain("The first page reads fine.");
         parsed.Metadata.Should().ContainKey(PdfParser.MetadataKeyPageErrors).WhoseValue.Should().Be("1");
+    }
+
+    [Fact]
+    public async Task ParseAsync_PageThatThrows_IsReadByOcrAndNoLongerAnError()
+    {
+        // PdfPig cannot build the page, but PDFium can draw it, and its text is on the drawing (#598).
+        byte[] pdf = TestPdf.Build(
+            new TestPdf.Page([new(72, 700, "The first page reads fine.")]),
+            new TestPdf.Page([new(72, 700, "The second page cannot be built.")], RawPrefix: "/CS0 cs 0.5 sc", ColorSpaces: "/CS0 /Bogus"));
+
+        var parsed = await Parser("ContentOrder").ParseAsync(new MemoryStream(pdf), "broken.pdf");
+
+        parsed.Content.Should().Contain("The second page cannot be built");
+        parsed.Metadata.Should().NotContainKey(PdfParser.MetadataKeyPageErrors);
+        parsed.Metadata[PdfParser.MetadataKeyOcrPages].Should().Be("1");
     }
 
     [Fact]

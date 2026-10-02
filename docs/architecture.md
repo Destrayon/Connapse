@@ -329,13 +329,15 @@ Bucket: knowledge-files
 | Parser | Supported Extensions | Library | Extracted |
 |--------|---------------------|---------|-----------|
 | `TextParser` | .txt, .md, .csv, .json, .xml, .yaml | Built-in | Raw text, line count, detected type |
-| `PdfParser` | .pdf | PdfPig | Text + metadata (title, author, pages) |
+| `PdfParser` | .pdf | PdfPig; PDFium + RapidOcrNet for OCR | Text + metadata (title, author, pages); OCR for pages with no or garbled text |
 | `OfficeParser` | .docx, .pptx | OpenXML SDK | Paragraphs, tables, slides, properties |
 | `HtmlParser` | .html, .htm | SmartReader (Readability), ReverseMarkdown | Main content as Markdown: headings, lists, tables |
 | `EmailParser` | .eml, .msg | MimeKit, MsgReader | Subject, From/To/Cc/Date, body, attachments parsed recursively |
 | `EpubParser` | .epub | VersOne.Epub | Chapters in reading order as Markdown under the book title |
 
 **Future**: `.xlsx`, code files with syntax-aware parsing.
+
+A PDF page with no text layer, or one too garbled to read (the #595 quality check), is rendered with PDFium and OCR'd on the CPU by RapidOcrNet (PaddleOCR PP-OCRv5 models on ONNX Runtime). Its lines are put in reading order with a recursive XY-cut. At most `Knowledge:Upload:MaxOcrPagesPerDocument` pages (default 50) are OCR'd per document, at `Knowledge:Upload:PdfOcrDpi` (default 200, lowered so no page renders past 4,000 pixels). With `Knowledge:Upload:PdfOcr=false`, a PDF with no text fails as `no_text_layer`.
 
 Parsing runs in `Connapse.ParserHost` processes, not in the web process. `ParserProcessPool` keeps up to `Hangfire:IngestionWorkerCount` of them, caps each one's managed heap (`Knowledge:Upload:ParserMemoryLimitMb`), replaces each after `Knowledge:Upload:ParserFilesPerProcess` files, and kills one at the parse deadline. A parse that spins, runs out of memory or crashes fails its document as `parse_timeout`, `parse_out_of_memory` or `parse_crashed`, and leaves nothing running. `Knowledge:Upload:IsolateParsers=false` parses in-process instead.
 
