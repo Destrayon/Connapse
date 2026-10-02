@@ -74,3 +74,6 @@ eval/.cache/
 eval/runs/
 
 __pycache__/
+
+# Model files downloaded at build (Connapse.Ingestion.csproj)
+.models/
