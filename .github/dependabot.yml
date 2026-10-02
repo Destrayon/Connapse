@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # PDFium (bblanchon.PDFium.*) renders untrusted PDFs and ships security fixes often (#641);
+  # NuGet updates are grouped weekly so they arrive as one PR.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      pdfium:
+        patterns:
+          - "bblanchon.PDFium.*"
