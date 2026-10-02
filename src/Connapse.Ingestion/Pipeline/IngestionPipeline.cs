@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
@@ -43,6 +44,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IDocumentLifecycle _lifecycle;
     private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
     private readonly ILogger<IngestionPipeline> _logger;
+    private readonly ParserProcessPool? _parserPool;
 
     // Metadata keys for tracking indexing settings
     public const string MetadataKeyChunkingStrategy = "IndexedWith:ChunkingStrategy";
@@ -144,8 +146,10 @@ public class IngestionPipeline : IKnowledgeIngester
         IConnectorFactory connectorFactory,
         IDocumentLifecycle lifecycle,
         IOptionsMonitor<UploadSettings> uploadSettings,
-        ILogger<IngestionPipeline> logger)
+        ILogger<IngestionPipeline> logger,
+        ParserProcessPool? parserPool = null)
     {
+        _parserPool = parserPool;
         _context = context;
         _fileSystem = fileSystem;
         _embeddingProvider = embeddingProvider;
@@ -796,7 +800,9 @@ public class IngestionPipeline : IKnowledgeIngester
             throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {tooLarge}");
 
         var timeout = TimeSpan.FromSeconds(Math.Max(1, limits.ParseTimeoutSeconds));
-        ParsedDocument parsed = await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct, _logger);
+        ParsedDocument parsed = limits.IsolateParsers && _parserPool is not null && _parserPool.CanRun(parser)
+            ? await _parserPool.ParseAsync(parser, BufferOf(content), fileName, limits, timeout, ct)
+            : await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct, _logger);
 
         if (parsed.Content.Length > limits.MaxExtractedCharacters)
             throw new PermanentIngestionException(
@@ -804,6 +810,17 @@ public class IngestionPipeline : IKnowledgeIngester
                 $"over the {limits.MaxExtractedCharacters:N0} limit [output_too_large]");
 
         return parsed;
+    }
+
+    /// <summary>The bytes from the stream's position on, without a copy when it is already a MemoryStream.</summary>
+    private static ReadOnlyMemory<byte> BufferOf(Stream content)
+    {
+        if (content is MemoryStream memory && memory.TryGetBuffer(out ArraySegment<byte> buffer))
+            return buffer.AsMemory((int)memory.Position, (int)(memory.Length - memory.Position));
+
+        using var copy = new MemoryStream();
+        content.CopyTo(copy);
+        return copy.ToArray();
     }
 
     /// <summary>

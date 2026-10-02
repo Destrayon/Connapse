@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\Connapse.Ingestion\Connapse.Ingestion.csproj" />
     <ProjectReference Include="..\..\src\Connapse.Core\Connapse.Core.csproj" />
     <ProjectReference Include="..\..\src\Connapse.Storage\Connapse.Storage.csproj" />
+    <ProjectReference Include="..\Connapse.ParserHost.TestHost\Connapse.ParserHost.TestHost.csproj" />
   </ItemGroup>
 
 </Project>

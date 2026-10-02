@@ -1,5 +1,6 @@
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Chunking;
+using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
@@ -15,6 +16,24 @@ namespace Connapse.Ingestion.Extensions;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
+    /// <summary>The built-in document parsers.</summary>
+    public static IServiceCollection AddDocumentParsers(this IServiceCollection services)
+    {
+        // Shared with Connapse.ParserHost, which runs these same parsers in a child process.
+        services.AddSingleton<IDocumentParser, TextParser>();
+        services.AddSingleton<IDocumentParser, PdfParser>();
+        services.AddSingleton<IDocumentParser, OfficeParser>();
+        services.AddSingleton<IDocumentParser, HtmlParser>();
+        services.AddSingleton<IDocumentParser>(sp => new EpubParser(
+            sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.UploadSettings>>()));
+        // Attachments are parsed by the other parsers, looked up when a message is parsed: taking
+        // IEnumerable<IDocumentParser> in the constructor would include EmailParser itself.
+        services.AddSingleton<IDocumentParser>(sp => new EmailParser(
+            () => sp.GetServices<IDocumentParser>(),
+            sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.UploadSettings>>()));
+        return services;
+    }
+
     /// <summary>
     /// Registers services required for document ingestion into the provided service collection:
     /// parsers, chunking strategies, the ingestion pipeline, the reindex service, and the
@@ -27,19 +46,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITokenCounter, TiktokenTokenCounter>();
         services.AddSingleton<ISentenceSegmenter, PragmaticSentenceSegmenter>();
 
-        // Register document parsers
-        services.AddSingleton<IDocumentParser, TextParser>();
-        services.AddSingleton<IDocumentParser, PdfParser>();
-        services.AddSingleton<IDocumentParser, OfficeParser>();
-        services.AddSingleton<IDocumentParser, HtmlParser>();
-        services.AddSingleton<IDocumentParser>(sp => new EpubParser(
-            sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.UploadSettings>>()));
-        // Attachments are parsed by the other parsers, looked up when a message is parsed: taking
-        // IEnumerable<IDocumentParser> in the constructor would include EmailParser itself.
-        services.AddSingleton<IDocumentParser>(sp => new EmailParser(
-            () => sp.GetServices<IDocumentParser>(),
-            sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.UploadSettings>>()));
+        services.AddDocumentParsers();
         services.AddSingleton<IFileTypeValidator, FileTypeValidator>();
+        services.AddSingleton<ParserProcessPool>();
 
         // Register chunking strategies
         services.AddSingleton<IChunkingStrategy, FixedSizeChunker>();
