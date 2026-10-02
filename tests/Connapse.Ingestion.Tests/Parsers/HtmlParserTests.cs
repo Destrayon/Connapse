@@ -182,6 +182,46 @@ public class HtmlParserTests
         HtmlMarkup.NestsDeeperThan(html, 40).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("<div/>")]
+    [InlineData("<noscript><div>")]
+    [InlineData("<template><div>")]
+    public void NestsDeeperThan_MarkupAParserNests_CountsAsDepth(string repeated)
+    {
+        // "/>" on an HTML element is ignored, and noscript and template content is parsed as
+        // elements, so each repetition really is one level deeper.
+        HtmlMarkup.NestsDeeperThan(string.Concat(Enumerable.Repeat(repeated, 50)), 40).Should().BeTrue();
+    }
+
+    [Fact]
+    public void NestsDeeperThan_SelfClosingSvgShapes_AreNotDepth()
+    {
+        string html = "<svg>" + string.Concat(Enumerable.Repeat("<path d=\"M0 0\"/>", 1000)) + "</svg><p>ok</p>";
+
+        HtmlMarkup.NestsDeeperThan(html, 40).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ParseAsync_ThousandsOfSelfClosingDivs_AreReadAsPlainText()
+    {
+        var result = await ParseAsync(string.Concat(Enumerable.Repeat("<div/>", 100_000)) + "<p>Still here.</p>");
+
+        result.Metadata["ContentExtraction"].Should().Be("PlainText");
+        result.Content.Should().Contain("Still here.");
+    }
+
+    [Fact]
+    public async Task ParseAsync_CommentedOutCharset_DoesNotOutrankTheRealOne()
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(
+            "<html><head><!-- <meta charset=\"windows-1252\"> --><meta charset=\"utf-8\"></head><body><p>Café</p></body></html>");
+
+        var result = await ParseAsync(bytes);
+
+        result.Metadata["Encoding"].Should().Be("utf-8");
+        result.Content.Should().Contain("Café");
+    }
+
     [Fact]
     public void NestsDeeperThan_UnclosedParagraphsAndListItems_AreNotDepth()
     {

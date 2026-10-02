@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Connapse.Ingestion.Parsers;
 
@@ -32,10 +33,20 @@ internal static class HtmlMarkup
         "caption", "rb", "rt", "rp", "rtc", "html", "head", "body",
     };
 
-    /// <summary>Elements whose content is not markup, read up to their end tag.</summary>
+    /// <summary>
+    /// Elements whose content is not markup, read up to their end tag. Not noscript or template:
+    /// with scripting off, AngleSharp parses what is inside them as elements, so their content
+    /// nests like any other.
+    /// </summary>
     private static readonly HashSet<string> RawTextTags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "script", "style", "textarea", "title", "xmp", "noscript", "template", "iframe", "noembed", "noframes",
+        "script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "plaintext",
+    };
+
+    /// <summary>SVG and MathML, inside which "/>" really does close an element.</summary>
+    private static readonly HashSet<string> ForeignRootTags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "svg", "math",
     };
 
     /// <summary>Elements that start a new line when the page is read as plain text.</summary>
@@ -65,8 +76,10 @@ internal static class HtmlMarkup
                 if (index >= 0)
                     open.RemoveRange(index, open.Count - index);
             }
-            else if (!token.SelfClosing && !RawTextTags.Contains(token.Name))
+            else if (!RawTextTags.Contains(token.Name)
+                && !(token.SelfClosing && (ForeignRootTags.Contains(token.Name) || open.Exists(ForeignRootTags.Contains))))
             {
+                // An HTML element's "/>" is ignored: "<div/>" opens a div like "<div>" does.
                 open.Add(token.Name);
                 if (open.Count > limit)
                     return true;
@@ -75,6 +88,28 @@ internal static class HtmlMarkup
 
         return false;
     }
+
+    /// <summary>
+    /// The value of the first <c>charset</c> a real meta tag declares, or null. Comments and script
+    /// text are skipped, so a commented-out declaration cannot outrank the page's own.
+    /// </summary>
+    public static string? DeclaredCharset(string head)
+    {
+        foreach (var token in Tokens(head))
+        {
+            if (token.Name is not null && !token.IsEnd && token.Name.Equals("meta", StringComparison.OrdinalIgnoreCase)
+                && MetaCharset.Match(head, token.Start, token.Length) is { Success: true } match)
+            {
+                return match.Groups[1].Value;
+            }
+        }
+
+        return null;
+    }
+
+    private static readonly Regex MetaCharset = new(
+        @"charset\s*=\s*[""']?\s*([A-Za-z0-9_\-:.]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>The page's text, one paragraph per block element, without building a DOM.</summary>
     public static string PlainText(string html)

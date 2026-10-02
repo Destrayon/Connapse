@@ -49,10 +49,6 @@ public class HtmlParser : IDocumentParser
         "textarea", "button", "link", "meta",
     ];
 
-    private static readonly Regex MetaCharset = new(
-        @"<meta[^>]*?charset\s*=\s*[""']?\s*([A-Za-z0-9_\-:.]+)",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
     private static readonly Regex ExtraBlankLines = new(@"\n{3,}", RegexOptions.CultureInvariant);
 
     // A declared charset such as windows-1252 or Shift_JIS is looked up before TextDecoding,
@@ -119,13 +115,12 @@ public class HtmlParser : IDocumentParser
     private static Encoding? DeclaredEncoding(ReadOnlySpan<byte> bytes)
     {
         string head = Encoding.Latin1.GetString(bytes[..Math.Min(bytes.Length, 1024)]);
-        var match = MetaCharset.Match(head);
-        if (!match.Success)
+        if (HtmlMarkup.DeclaredCharset(head) is not { } charset)
             return null;
 
         try
         {
-            var encoding = Encoding.GetEncoding(match.Groups[1].Value);
+            var encoding = Encoding.GetEncoding(charset);
 
             // A UTF-16 declaration in bytes that were readable as ASCII is wrong by definition;
             // the HTML standard reads such a page as UTF-8.
