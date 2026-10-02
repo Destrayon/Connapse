@@ -42,7 +42,7 @@ public static partial class PassageJudge
             ranked.Add(new RankedDoc(id, passages.Count - ranked.Count));
             if (passage.DocId != gold.DocId)
                 continue;
-            bool relevant = !found && ContainsAll(passage.Content, evidence);
+            bool relevant = !found && ContainsWithin(passage.Content, evidence, gold.MaxGapWords);
             found |= relevant;
             judgments[id] = relevant ? 1 : 0;
         }
@@ -51,10 +51,44 @@ public static partial class PassageJudge
         return (ranked, judgments);
     }
 
-    public static bool ContainsAll(string text, IReadOnlyList<string> normalizedEvidence)
+    public static bool ContainsAll(string text, IReadOnlyList<string> normalizedEvidence) =>
+        ContainsWithin(text, normalizedEvidence, int.MaxValue);
+
+    /// <summary>
+    /// True when one occurrence of every evidence string fits in a window of the text with at most
+    /// <paramref name="maxGapWords"/> words that belong to none of them.
+    /// </summary>
+    public static bool ContainsWithin(string text, IReadOnlyList<string> normalizedEvidence, int maxGapWords)
     {
-        string haystack = $" {Normalize(text)} ";
-        return normalizedEvidence.All(e => haystack.Contains($" {e} ", StringComparison.Ordinal));
+        string[] words = Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        List<(int Start, int Length)[]> occurrences = [];
+        foreach (string evidence in normalizedEvidence)
+        {
+            string[] needle = evidence.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            (int, int)[] found = Enumerable.Range(0, Math.Max(0, words.Length - needle.Length + 1))
+                .Where(i => needle.AsSpan().SequenceEqual(words.AsSpan(i, needle.Length)))
+                .Select(i => (i, needle.Length))
+                .ToArray();
+            if (found.Length == 0)
+                return false;
+            occurrences.Add(found);
+        }
+        int evidenceWords = occurrences.Sum(o => o[0].Length);
+        return Windows(occurrences, 0, int.MaxValue, int.MinValue)
+            .Any(w => w.End - w.Start - evidenceWords <= maxGapWords);
+    }
+
+    // Every combination of one occurrence per evidence string; evidence lists are short.
+    private static IEnumerable<(int Start, int End)> Windows(List<(int Start, int Length)[]> occurrences, int index, int start, int end)
+    {
+        if (index == occurrences.Count)
+        {
+            yield return (start, end);
+            yield break;
+        }
+        foreach ((int s, int length) in occurrences[index])
+            foreach ((int Start, int End) window in Windows(occurrences, index + 1, Math.Min(start, s), Math.Max(end, s + length)))
+                yield return window;
     }
 
     /// <summary>

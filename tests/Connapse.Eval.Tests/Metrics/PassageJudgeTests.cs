@@ -24,6 +24,31 @@ public class PassageJudgeTests
     }
 
     [Fact]
+    public void Judge_EvidenceScatteredFurtherThanTheGapAllows_NotRelevant()
+    {
+        PassageGold tight = Gold with { MaxGapWords = 3 };
+        List<RetrievedPassage> passages =
+        [
+            new("report.pdf", "scrambled", "Ohio | Texas | Maine | Iowa | 12 | 31 | 4,213"),
+            new("report.pdf", "row", "Texas 9,001 | Ohio 812 4,213"),
+        ];
+
+        (_, IReadOnlyDictionary<string, int> judgments) = PassageJudge.Judge(tight, passages);
+
+        judgments["report.pdf#scrambled"].Should().Be(0);
+        judgments["report.pdf#row"].Should().Be(1);
+    }
+
+    [Fact]
+    public void ContainsWithin_MultiWordEvidence_GapExcludesEvidenceWords()
+    {
+        List<string> evidence = new[] { "not a citizen", "55,660" }.Select(PassageJudge.Normalize).ToList();
+
+        PassageJudge.ContainsWithin("Not a citizen 9,375 55,660", evidence, 1).Should().BeTrue();
+        PassageJudge.ContainsWithin("Not a citizen 9,375 1,564 55,660", evidence, 1).Should().BeFalse();
+    }
+
+    [Fact]
     public void Normalize_LineBreakHyphenationAndLigature_Joined()
     {
         PassageJudge.Normalize("the ﬁscal assess-\nment").Should().Be("the fiscal assessment");

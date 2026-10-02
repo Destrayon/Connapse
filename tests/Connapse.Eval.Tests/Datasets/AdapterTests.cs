@@ -184,22 +184,26 @@ public class AdapterTests : IDisposable
     public async Task PdfQa_Questions_LoadPdfsAsFilesAndQuestionsWithPassageGold()
     {
         await File.WriteAllTextAsync(Path.Combine(_dir, "questions.jsonl"),
-            """{"id":"t1","question":"How many in Ohio?","doc":"a.pdf","evidence":["Ohio","4,213"],"answer":"4,213","page":3}""" + "\n");
+            """{"id":"t1","question":"How many in Ohio?","doc":"a.pdf","evidence":["Ohio","4,213"],"answer":"4,213","page":3,"kind":"table-ruled"}""" + "\n");
 
         EvalDataset dataset = await DatasetAdapters.Get("pdf-qa").LoadAsync("pdfqa", PdfQaEntry(), _dir, CancellationToken.None);
 
         dataset.Corpus.Should().ContainSingle().Which.Should().Match<EvalDocument>(d =>
             d.Id == "a.pdf" && d.Kind == DocumentKind.File && d.FilePath == Path.Combine(_dir, "a.pdf"));
         dataset.Queries.Should().ContainSingle().Which.Text.Should().Be("How many in Ohio?");
-        dataset.Passages!["t1"].Should().BeEquivalentTo(new PassageGold("a.pdf", ["Ohio", "4,213"], "4,213"));
+        dataset.Passages!["t1"].Should().BeEquivalentTo(new PassageGold("a.pdf", ["Ohio", "4,213"], "4,213", PdfQaAdapter.Kinds["table-ruled"]));
         dataset.Qrels.For("t1").Should().ContainKey("a.pdf");
+        dataset.Queries[0].Tags.Should().Equal("kind:table-ruled");
+        dataset.Passages["t1"].MaxGapWords.Should().Be(PdfQaAdapter.Kinds["table-ruled"]);
     }
 
     [Theory]
-    [InlineData("""{"id":"t1","question":"q","doc":"b.pdf","evidence":["x"],"answer":"x"}""", "*b.pdf*")]
-    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["|"],"answer":"x"}""", "*evidence*")]
-    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x"}""" + "\n"
-        + """{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x"}""", "*line 2*repeats*")]
+    [InlineData("""{"id":"t1","question":"q","doc":"b.pdf","evidence":["x"],"answer":"x","kind":"columns"}""", "*b.pdf*")]
+    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["|"],"answer":"x","kind":"columns"}""", "*evidence*")]
+    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x","kind":"columns"}""" + "\n"
+        + """{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x","kind":"columns"}""", "*line 2*repeats*")]
+    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x"}""", "*needs a kind*")]
+    [InlineData("""{"id":"t1","question":"q","doc":"a.pdf","evidence":["x"],"answer":"x","kind":"tables"}""", "*needs a kind*")]
     public async Task PdfQa_BadQuestion_ThrowsNamingTheLine(string questions, string message)
     {
         await File.WriteAllTextAsync(Path.Combine(_dir, "questions.jsonl"), questions);

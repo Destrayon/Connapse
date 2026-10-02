@@ -16,6 +16,17 @@ public sealed class PdfQaAdapter : IDatasetAdapter
 
     public string Name => "pdf-qa";
 
+    /// <summary>
+    /// Question kinds and how many other words may sit between a question's evidence strings. A table
+    /// row's label and cell stay within a few cells of each other; prose evidence spans a sentence or
+    /// a column wrap.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, int> Kinds = new Dictionary<string, int>(StringComparer.Ordinal)
+    {
+        ["table-ruled"] = 15, ["table-borderless"] = 15,
+        ["columns"] = 60, ["header-break"] = 60, ["scan-typed"] = 60, ["scan-degraded"] = 60,
+    };
+
     private sealed record QuestionLine(
         string Id, string Question, string Doc, IReadOnlyList<string> Evidence, string Answer, int? Page, string? Kind);
 
@@ -46,9 +57,11 @@ public sealed class PdfQaAdapter : IDatasetAdapter
                 throw new InvalidDataException($"{where} names '{q.Doc}', which is not a PDF in the dataset.");
             if (q.Evidence is not { Count: > 0 } || q.Evidence.Any(e => PassageJudge.Normalize(e).Length == 0))
                 throw new InvalidDataException($"{where} needs evidence strings with words in them.");
-            if (!passages.TryAdd(q.Id, new PassageGold(q.Doc, q.Evidence, q.Answer)))
+            if (q.Kind is null || !Kinds.TryGetValue(q.Kind, out int maxGap))
+                throw new InvalidDataException($"{where} needs a kind: one of {string.Join(", ", Kinds.Keys)}.");
+            if (!passages.TryAdd(q.Id, new PassageGold(q.Doc, q.Evidence, q.Answer, maxGap)))
                 throw new InvalidDataException($"{where} repeats a question ID.");
-            queries.Add(new EvalQuery(q.Id, q.Question, Split.Test, string.IsNullOrWhiteSpace(q.Kind) ? [] : [$"kind:{q.Kind}"]));
+            queries.Add(new EvalQuery(q.Id, q.Question, Split.Test, [$"kind:{q.Kind}"]));
             qrels.Add(q.Id, q.Doc, 1);
         }
 
