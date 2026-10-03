@@ -24,7 +24,7 @@ public class UploadSettingsTabTests
         string source = Source("UploadSettingsTab.razor");
 
         source.Should().Contain("disabled=\"@(WeakensIsolation && !confirmedWeakerIsolation)\"");
-        source.Should().Contain("if (WeakensIsolation && !confirmedWeakerIsolation)\n            return;".Replace("\n", Environment.NewLine.Length == 2 && source.Contains("\r\n") ? "\r\n" : "\n"));
+        source.Should().Contain("if (WeakensIsolation && !confirmedWeakerIsolation)", "the submit handler refuses too, not only the button");
     }
 
     [Fact]
