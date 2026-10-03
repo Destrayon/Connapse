@@ -75,6 +75,14 @@
     <Move SourceFiles="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" DestinationFiles="$(LayoutModelPath)" />
   </Target>
 
+  <!-- Every build, not only after a download: a file restored from a cache or left in .models must match too. -->
+  <Target Name="VerifyLayoutModel" AfterTargets="DownloadLayoutModel" BeforeTargets="BeforeBuild;AssignTargetPaths">
+    <GetFileHash Files="$(LayoutModelPath)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Hash" PropertyName="ExistingLayoutModelSha256" />
+    </GetFileHash>
+    <Error Condition="'$(ExistingLayoutModelSha256.ToLowerInvariant())' != '$(LayoutModelSha256)'" Text="$(LayoutModelPath) has SHA-256 $(ExistingLayoutModelSha256), expected $(LayoutModelSha256). Delete it to download it again." />
+  </Target>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Connapse.Ingestion.Tests" />
   </ItemGroup>

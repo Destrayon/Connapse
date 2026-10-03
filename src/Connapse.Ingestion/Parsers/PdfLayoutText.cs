@@ -29,7 +29,21 @@ internal static class PdfLayoutText
     internal sealed record PlacedWord(
         string Text, double X, double Y, double Left, double Right, double Baseline, double Height, int Sequence = 0);
 
-    /// <summary>The page as text, or null when the page has no words, which leaves it to the other extractors.</summary>
+    /// <summary>A table region written as Markdown, and the box in PDF points that table covers.</summary>
+    internal sealed record TableText(string Markdown, double Left, double Bottom, double Right, double Top)
+    {
+        public bool Covers(PlacedWord word)
+        {
+            double x = (word.Left + word.Right) / 2, y = word.Baseline + word.Height / 2;
+            return x >= Left - 1 && x <= Right + 1 && y >= Bottom - 1 && y <= Top + 1;
+        }
+    }
+
+    /// <summary>
+    /// The page as text, or null when the page has no words, or when layout would leave none of them
+    /// -- every region labelled header, footer or page number -- which leaves it to the other
+    /// extractors rather than indexing a page with a text layer as empty.
+    /// </summary>
     /// <param name="tables">False when table extraction is off: table regions are read in content order.</param>
     public static string? Extract(Page page, IReadOnlyList<PdfLayout.Region> regions, bool tables = true)
     {
@@ -55,7 +69,7 @@ internal static class PdfLayoutText
         PageArea? area = null;
         List<Table>? ruled = null;
         var used = new HashSet<Table>();
-        return Compose(words, regions, region =>
+        string text = Compose(words, regions, region =>
         {
             if (!tables)
                 return null;
@@ -63,6 +77,7 @@ internal static class PdfLayoutText
             ruled ??= new SpreadsheetExtractionAlgorithm().Extract(area).Where(PdfTables.IsUsable).ToList();
             return Table(area, ruled, used, crop, region);
         });
+        return text.Length == 0 ? null : text;
     }
 
     /// <summary>
@@ -70,7 +85,7 @@ internal static class PdfLayoutText
     /// as Markdown, or returns null to read it as lines.
     /// </summary>
     internal static string Compose(
-        IReadOnlyList<PlacedWord> words, IReadOnlyList<PdfLayout.Region> regions, Func<PdfLayout.Region, string?> table)
+        IReadOnlyList<PlacedWord> words, IReadOnlyList<PdfLayout.Region> regions, Func<PdfLayout.Region, TableText?> table)
     {
         var byRegion = regions.ToDictionary(r => r, _ => new List<PlacedWord>());
         var orphans = new List<PlacedWord>();
@@ -107,7 +122,23 @@ internal static class PdfLayoutText
             // A table no reader could split into cells is read in content-stream order, which for
             // most generators is cell by cell: a wrapped cell stays together, where reading across
             // the page would interleave the columns' lines.
-            blocks.Add(region.Label == "table" ? table(region) ?? ContentOrderLines(inside) : Lines(inside));
+            if (region.Label != "table")
+            {
+                blocks.Add(Lines(inside));
+                continue;
+            }
+            if (table(region) is not { } written)
+            {
+                blocks.Add(ContentOrderLines(inside));
+                continue;
+            }
+            blocks.Add(written.Markdown);
+
+            // Words in the region the table does not cover -- a note under it, a cell Tabula
+            // missed -- are kept after it rather than lost with the region.
+            var uncovered = inside.Where(w => !written.Covers(w)).ToList();
+            if (uncovered.Count > 0)
+                blocks.Add(ContentOrderLines(uncovered));
         }
 
         // Text the model put in no region is kept, after the regions: dropping it would lose words
@@ -205,11 +236,13 @@ internal static class PdfLayoutText
 
     /// <summary>
     /// The region's table as Markdown: the page's ruled table that overlaps it most, else Tabula's
-    /// alignment-based reading of the region, now that the region says a table is there; null when
+    /// alignment-based reading of the region, now that the region says a table is there (in the
+    /// Ruled table mode too: the model's region, not the page's text alignment, decides there is a
+    /// table, which is what made alignment reading misfire on prose); null when
     /// neither finds a usable table. A ruled table two regions overlap is written once, for the first;
     /// the second writes nothing, since its words are in that table.
     /// </summary>
-    private static string? Table(PageArea page, List<Table> ruled, HashSet<Table> used, PdfRectangle crop, PdfLayout.Region region)
+    private static TableText? Table(PageArea page, List<Table> ruled, HashSet<Table> used, PdfRectangle crop, PdfLayout.Region region)
     {
         // Back to PDF points, bottom-left origin, with a little margin for glyphs on the box edge.
         const double Margin = 2;
@@ -224,14 +257,17 @@ internal static class PdfLayoutText
             .Where(t => Overlap(t, left, bottom, right, top) > 0.5 * Math.Min((t.Right - t.Left) * (t.Top - t.Bottom), (right - left) * (top - bottom)))
             .MaxBy(t => Overlap(t, left, bottom, right, top));
         if (ruledTable is not null)
-            return used.Add(ruledTable) ? PdfTables.ToMarkdown(ruledTable) : "";
+            return Written(used.Add(ruledTable) ? PdfTables.ToMarkdown(ruledTable) : "", ruledTable);
 
         PageArea area = page.GetArea(new PdfRectangle(left, bottom, right, top));
         Table? found = new BasicExtractionAlgorithm().Extract(area)
             .Where(t => PdfTables.IsUsable(t) && !HasWrappedCells(t))
             .MaxBy(t => t.RowCount * t.ColumnCount);
-        return found is null ? null : PdfTables.ToMarkdown(found);
+        return found is null ? null : Written(PdfTables.ToMarkdown(found), found);
     }
+
+    private static TableText Written(string markdown, Table table) =>
+        new(markdown, table.Left, table.Bottom, table.Right, table.Top);
 
     /// <summary>
     /// Reading by alignment puts each line of a wrapped cell in a row of its own. Past the first few

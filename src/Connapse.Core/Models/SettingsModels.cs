@@ -569,7 +569,9 @@ public record UploadSettings
     /// <summary>
     /// Which PDF tables become Markdown tables: Off, Ruled (drawn with lines) or RuledAndStream
     /// (also borderless tables found from text alignment) (default: Ruled). See PdfTableMode in
-    /// Connapse.Ingestion.
+    /// Connapse.Ingestion. In the Layout text mode, Ruled and RuledAndStream behave alike: a table
+    /// the layout model finds is read by alignment when it has no ruling lines, since the model, not
+    /// the page's text alignment, has decided it is a table; Off writes no tables.
     /// </summary>
     public string PdfTableMode { get; set; } = DefaultPdfTableMode;
 }

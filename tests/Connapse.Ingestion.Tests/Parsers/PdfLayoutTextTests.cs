@@ -45,9 +45,35 @@ public class PdfLayoutTextTests
         PdfLayoutText.PlacedWord[] words = [Word("cell", 0.5, 0.5), Word("Intro", 0.5, 0.1)];
         PdfLayout.Region[] regions = [Region("text", 0, 0, 1, 0.2f, 0), Region("table", 0, 0.3f, 1, 0.7f, 1)];
 
-        string text = PdfLayoutText.Compose(words, regions, r => r.Label == "table" ? "| a | b |" : null);
+        string text = PdfLayoutText.Compose(words, regions, r => r.Label == "table" ? new("| a | b |", 0, 0, 612, 792) : null);
 
         text.Should().Be("Intro\n\n| a | b |");
+    }
+
+    [Fact]
+    public void Compose_TableCoversPartOfItsRegion_KeepsTheUncoveredWords()
+    {
+        // "cell" sits inside the written table's box; "Note" sits below it, in the region but not the table.
+        PdfLayoutText.PlacedWord[] words = [Word("cell", 0.5, 0.4), Word("Note", 0.5, 0.65)];
+        PdfLayout.Region[] regions = [Region("table", 0, 0.3f, 1, 0.7f, 0)];
+        double tableBottom = (1 - 0.5) * 792, tableTop = (1 - 0.3) * 792;
+
+        string text = PdfLayoutText.Compose(words, regions, _ => new("| cell |", 0, tableBottom, 612, tableTop));
+
+        text.Should().Be("| cell |\n\nNote");
+    }
+
+    [Fact]
+    public async Task ParseAsync_LayoutLabelsEverythingDecoration_FallsBackToContentOrder()
+    {
+        // A one-line page: whatever the model calls it, the line must not vanish.
+        var settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        settings.CurrentValue.Returns(new UploadSettings { PdfTextMode = "Layout" });
+        byte[] pdf = TestPdf.Build(new TestPdf.Page([new(300, 40, "Page 12 of 40")]));
+
+        var parsed = await new PdfParser(settings).ParseAsync(new MemoryStream(pdf), "one-line.pdf");
+
+        parsed.Content.Should().Contain("Page 12 of 40");
     }
 
     [Fact]
