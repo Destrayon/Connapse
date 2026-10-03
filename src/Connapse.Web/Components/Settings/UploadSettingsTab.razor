@@ -1,13 +1,200 @@
 @using Connapse.Core
+@using Connapse.Ingestion.Isolation
+@using Connapse.Ingestion.Parsers
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
 
     <div class="row g-3">
+        <div class="col-12"><h6 class="mb-0">Ingestion</h6></div>
+
         <div class="col-md-6">
-            <label class="form-label">Parallel Workers</label>
-            <InputNumber @bind-Value="localSettings.ParallelWorkers" class="form-control" />
-            <small class="form-text text-muted">Number of concurrent ingestion workers</small>
+            <label class="form-label" for="parallelWorkers">Parallel Workers</label>
+            <InputNumber @bind-Value="localSettings.ParallelWorkers" class="form-control" id="parallelWorkers" min="1" />
+            <small class="form-text text-muted">Number of concurrent ingestion workers (default 4).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="parseTimeout">Parse Timeout (seconds)</label>
+            <InputNumber @bind-Value="localSettings.ParseTimeoutSeconds" class="form-control" id="parseTimeout" min="1" />
+            <small class="form-text text-muted">
+                Longest one file may spend in its parser before it fails as <code>parse_timeout</code> (default 300).
+                OCR and PDF layout analysis stop early within it and keep what they have read.
+            </small>
+        </div>
+
+        <div class="col-12 mt-4"><h6 class="mb-0">PDF</h6></div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="pdfTextMode">Text Mode</label>
+            <InputSelect @bind-Value="localSettings.PdfTextMode" class="form-select" id="pdfTextMode">
+                @foreach (string mode in Enum.GetNames<PdfTextMode>())
+                {
+                    <option value="@mode">@mode</option>
+                }
+            </InputSelect>
+            <small class="form-text text-muted">@Describe(TextModes, localSettings.PdfTextMode)</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="pdfTableMode">Tables</label>
+            <InputSelect @bind-Value="localSettings.PdfTableMode" class="form-select" id="pdfTableMode">
+                @foreach (string mode in Enum.GetNames<PdfTableMode>())
+                {
+                    <option value="@mode">@mode</option>
+                }
+            </InputSelect>
+            <small class="form-text text-muted">@Describe(TableModes, localSettings.PdfTableMode)</small>
+        </div>
+
+        <div class="col-md-6">
+            <div class="form-check mt-2">
+                <InputCheckbox @bind-Value="localSettings.PdfRemoveRepeatedHeadersAndFooters" class="form-check-input" id="pdfHeaders" />
+                <label class="form-check-label" for="pdfHeaders">Remove repeated headers and footers</label>
+            </div>
+            <small class="form-text text-muted">
+                Drop running headers, footers and page numbers that repeat at the edges of the pages, in PDFs of three or more pages.
+            </small>
+        </div>
+
+        <div class="col-12 mt-4"><h6 class="mb-0">OCR</h6></div>
+
+        <div class="col-md-6">
+            <div class="form-check mt-2">
+                <InputCheckbox @bind-Value="localSettings.PdfOcr" class="form-check-input" id="pdfOcr" />
+                <label class="form-check-label" for="pdfOcr">OCR scanned PDF pages</label>
+            </div>
+            <small class="form-text text-muted">
+                Read pages with no text layer, or a garbled one, from their pixels on the CPU (seconds a page).
+                Off, a PDF with no text fails as <code>no_text_layer</code>.
+            </small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="maxOcrPages">Max OCR Pages per Document</label>
+            <InputNumber @bind-Value="localSettings.MaxOcrPagesPerDocument" class="form-control" id="maxOcrPages" min="0" />
+            <small class="form-text text-muted">The rest of a longer scan is left unread, with a warning (default 50).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="ocrDpi">OCR Resolution (dpi)</label>
+            <InputNumber @bind-Value="localSettings.PdfOcrDpi" class="form-control" id="ocrDpi" min="50" />
+            <small class="form-text text-muted">Pages are rendered at this resolution, lowered for very large pages (default 200).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="ocrThreads">OCR and Layout Threads</label>
+            <InputNumber @bind-Value="localSettings.PdfOcrThreads" class="form-control" id="ocrThreads" min="1" />
+            <small class="form-text text-muted">
+                CPU threads each page may use, per ingestion worker (default 1). More threads rarely speed a page up
+                and can starve search on a small server.
+            </small>
+        </div>
+
+        <div class="col-12 mt-4"><h6 class="mb-0">Limits</h6></div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="maxFile">Max File Size (MiB)</label>
+            <InputNumber @bind-Value="MaxFileMib" class="form-control" id="maxFile" min="1" />
+            <small class="form-text text-muted">Larger files are rejected before parsing (default 256).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="maxPdfPages">Max PDF Pages</label>
+            <InputNumber @bind-Value="localSettings.MaxPdfPages" class="form-control" id="maxPdfPages" min="1" />
+            <small class="form-text text-muted">PDFs with more pages fail as <code>too_many_pages</code> (default 5,000).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="maxDecompressed">Max Decompressed Size (MiB)</label>
+            <InputNumber @bind-Value="MaxDecompressedMib" class="form-control" id="maxDecompressed" min="1" />
+            <small class="form-text text-muted">Most a DOCX or PPTX may expand to; both are ZIP packages (default 512).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="maxRatio">Max Compression Ratio</label>
+            <InputNumber @bind-Value="localSettings.MaxCompressionRatio" class="form-control" id="maxRatio" min="1" />
+            <small class="form-text text-muted">
+                Highest ratio a DOCX or PPTX may expand by once past 10 MiB (default 100). Zip bombs sit far above it.
+            </small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="maxZipEntries">Max ZIP Entries</label>
+            <InputNumber @bind-Value="localSettings.MaxZipEntries" class="form-control" id="maxZipEntries" min="1" />
+            <small class="form-text text-muted">Most entries a DOCX or PPTX package may list (default 10,000).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="maxChars">Max Extracted Characters</label>
+            <InputNumber @bind-Value="localSettings.MaxExtractedCharacters" class="form-control" id="maxChars" min="1" />
+            <small class="form-text text-muted">Most characters one file may produce (default 20,000,000).</small>
+        </div>
+
+        <div class="col-12 mt-4"><h6 class="mb-0">Text Quality</h6></div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="garbledSuspicious">Garbled: Unreadable Share</label>
+            <InputNumber @bind-Value="localSettings.GarbledSuspiciousRatio" class="form-control" id="garbledSuspicious" step="0.05" min="0" max="1" />
+            <small class="form-text text-muted">
+                PDF, DOCX and PPTX text with at least this share of unreadable glyphs fails as <code>garbled_text</code> (default 0.5).
+            </small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="garbledAlnum">Garbled: Minimum Letters and Digits</label>
+            <InputNumber @bind-Value="localSettings.GarbledMinAlphanumericRatio" class="form-control" id="garbledAlnum" step="0.05" min="0" max="1" />
+            <small class="form-text text-muted">Text with less than this share of letters and digits fails as <code>garbled_text</code> (default 0.25).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="warnSuspicious">Warning Threshold</label>
+            <InputNumber @bind-Value="localSettings.WarnSuspiciousRatio" class="form-control" id="warnSuspicious" step="0.05" min="0" max="1" />
+            <small class="form-text text-muted">Text with at least this share of unreadable characters is indexed with a warning (default 0.1).</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="minQuality">Minimum Length to Judge</label>
+            <InputNumber @bind-Value="localSettings.MinCharactersForQualityCheck" class="form-control" id="minQuality" min="0" />
+            <small class="form-text text-muted">Shorter text, in non-whitespace characters, is not judged (default 200).</small>
+        </div>
+
+        <div class="col-12 mt-4"><h6 class="mb-0">Parser Isolation</h6></div>
+
+        <div class="col-md-6">
+            <div class="form-check mt-2">
+                <InputCheckbox @bind-Value="localSettings.IsolateParsers" class="form-check-input" id="isolateParsers" />
+                <label class="form-check-label" for="isolateParsers">Parse in separate processes</label>
+            </div>
+            <small class="form-text text-muted">
+                Parsers run in processes that are killed at the deadline and capped in memory. Off, they run inside the web
+                process, where a stuck or malicious file can hold a thread or exhaust its memory.
+            </small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="parserSandbox">Sandbox</label>
+            <InputSelect @bind-Value="localSettings.ParserSandbox" class="form-select" id="parserSandbox">
+                @foreach (string mode in Enum.GetNames<ParserSandboxMode>())
+                {
+                    <option value="@mode">@mode</option>
+                }
+            </InputSelect>
+            <small class="form-text text-muted">@Describe(SandboxModes, localSettings.ParserSandbox)</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="parserMemory">Parser Memory Limit (MiB)</label>
+            <InputNumber @bind-Value="localSettings.ParserMemoryLimitMb" class="form-control" id="parserMemory" min="256" />
+            <small class="form-text text-muted">
+                Memory each parser process may use before its parse fails as <code>parse_out_of_memory</code> (default 2,048).
+            </small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="filesPerProcess">Files per Parser Process</label>
+            <InputNumber @bind-Value="localSettings.ParserFilesPerProcess" class="form-control" id="filesPerProcess" min="1" />
+            <small class="form-text text-muted">A parser process is replaced with a fresh one after this many files (default 50).</small>
         </div>
 
         <div class="col-12 mt-4">
@@ -29,6 +216,48 @@
     public EventCallback<UploadSettings> OnSave { get; set; }
 
     private UploadSettings localSettings = new();
+
+    private const long MiB = 1024 * 1024;
+
+    // Byte limits are edited in MiB; whole MiB is the only precision anyone sets them to.
+    private long MaxFileMib
+    {
+        get => localSettings.MaxFileBytes / MiB;
+        set => localSettings.MaxFileBytes = value * MiB;
+    }
+
+    private long MaxDecompressedMib
+    {
+        get => localSettings.MaxDecompressedBytes / MiB;
+        set => localSettings.MaxDecompressedBytes = value * MiB;
+    }
+
+    // Keyed by enum name; a value added later still shows, just without a description.
+    private static readonly Dictionary<string, string> TextModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Layout"] = "Reads each page by a layout model: columns in order, running headers dropped, tables kept as tables. About 1.6 s a page on one core.",
+        ["ContentOrder"] = "Reads text in the order the PDF draws it. Milliseconds a page; columns and tables can interleave.",
+        ["Raw"] = "PdfPig's raw page text; words often run together. For comparison only.",
+        ["XYCut"] = "Splits the page into blocks by whitespace and orders them. Slower than ContentOrder and scored lower on our evals.",
+        ["Docstrum"] = "Groups lines into blocks by their spacing and orders them. Scored lower than ContentOrder on our evals.",
+    };
+
+    private static readonly Dictionary<string, string> TableModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Off"] = "Tables come out as the text reader reads them.",
+        ["Ruled"] = "Tables drawn with ruling lines become Markdown tables.",
+        ["RuledAndStream"] = "Also borderless tables found from text alignment, which can mistake aligned prose for a table.",
+    };
+
+    private static readonly Dictionary<string, string> SandboxModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Auto"] = "On Linux, parser processes confine themselves (no settings or data files, no network) where the kernel allows, and warn where it does not.",
+        ["Required"] = "Refuse to parse without the sandbox: files fail as sandbox_unavailable on a host that cannot confine.",
+        ["Off"] = "Never confine. A parser exploit could read settings, data and the network.",
+    };
+
+    private static string Describe(Dictionary<string, string> descriptions, string? value) =>
+        value is not null && descriptions.TryGetValue(value, out string? text) ? text : "";
 
     protected override void OnParametersSet()
     {
