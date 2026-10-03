@@ -48,14 +48,16 @@ internal static partial class PdfTableStructure
         byte[] pdf, int pageIndex, double cropLeft, double cropTop, double left, double bottom, double right, double top,
         int threads, CancellationToken ct)
     {
-        // PDFtoImage's bounds are in points from the page's top-left corner, as displayed.
+        // PDFtoImage's bounds are in points from the page's top-left corner, as displayed. Without
+        // DpiRelativeToBounds the region is stretched to the whole page's size, distorting the table
+        // past what the model reads.
         var bounds = new RectangleF((float)(left - cropLeft), (float)(cropTop - top), (float)(right - left), (float)(top - bottom));
         if (bounds.Width <= 1 || bounds.Height <= 1)
             return null;
 
         var input = new DenseTensor<float>([1, 3, InputSide, InputSide]);
         int longest;
-        using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: RenderDpi, Bounds: bounds)))
+        using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: RenderDpi, Bounds: bounds, DpiRelativeToBounds: true)))
         {
             ct.ThrowIfCancellationRequested();
             longest = Math.Max(bitmap.Width, bitmap.Height);

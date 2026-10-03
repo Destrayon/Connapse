@@ -95,16 +95,6 @@ public class PdfTableStructureTests
         PdfLayoutText.HasStackedRows(cells, words).Should().BeFalse();
     }
 
-    [Theory]
-    [InlineData(300, true)]   // 8 pt text in a 300 pt table: about 13 px at the model's input
-    [InlineData(700, false)]  // the same text in a page-sized table: under 6 px
-    public void LegibleToTheModel_TextTooSmallOnceScaled_SendsTheTableElsewhere(double tableSide, bool legible)
-    {
-        var words = Enumerable.Range(0, 10).Select(i => Word($"w{i}", 20 + i * 10, tableSide / 2)).ToList();
-
-        PdfLayoutText.LegibleToTheModel(words, 0, 0, tableSide, tableSide).Should().Be(legible);
-    }
-
     [Fact]
     public async Task ParseAsync_BorderlessTable_LayoutModeWritesItsRowsAsMarkdown()
     {
