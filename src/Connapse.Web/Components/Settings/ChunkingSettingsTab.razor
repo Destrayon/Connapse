@@ -77,10 +77,7 @@
                     <div class="text-danger small">@separatorsError</div>
                 }
                 <small class="form-text text-muted">
-                    Where to split, tried in order, as a JSON list (default <code>["
-
-", "
-", ". ", " "]</code>)
+                    Where to split, tried in order, as a JSON list (default <code>["\n\n", "\n", ". ", " "]</code>)
                 </small>
             </div>
         }
@@ -192,7 +189,9 @@
 
     private async Task HandleSubmit()
     {
-        if (separatorsError is not null)
+        // Only while the separators are on screen: with another strategy the field is hidden, and
+        // the last valid list is what is saved.
+        if (separatorsError is not null && localSettings.Strategy == nameof(ChunkingStrategy.Recursive))
             return;
         await OnSave.InvokeAsync(localSettings);
     }

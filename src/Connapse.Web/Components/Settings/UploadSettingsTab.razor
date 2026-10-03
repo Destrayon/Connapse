@@ -95,7 +95,7 @@
 
         <div class="col-md-6">
             <label class="form-label" for="maxFile">Max File Size (MiB)</label>
-            <InputNumber @bind-Value="MaxFileMib" class="form-control" id="maxFile" min="1" />
+            <InputNumber @bind-Value="MaxFileMib" class="form-control" id="maxFile" min="0" step="any" />
             <small class="form-text text-muted">Larger files are rejected before parsing (default 256).</small>
         </div>
 
@@ -107,7 +107,7 @@
 
         <div class="col-md-6">
             <label class="form-label" for="maxDecompressed">Max Decompressed Size (MiB)</label>
-            <InputNumber @bind-Value="MaxDecompressedMib" class="form-control" id="maxDecompressed" min="1" />
+            <InputNumber @bind-Value="MaxDecompressedMib" class="form-control" id="maxDecompressed" min="0" step="any" />
             <small class="form-text text-muted">Most a DOCX or PPTX may expand to; both are ZIP packages (default 512).</small>
         </div>
 
@@ -234,17 +234,18 @@
 
     private const long MiB = 1024 * 1024;
 
-    // Byte limits are edited in MiB; whole MiB is the only precision anyone sets them to.
-    private long MaxFileMib
+    // Byte limits are edited in MiB, as decimals: a limit saved through the API need not be whole
+    // MiB, and must show as what it is. The bytes change only when the field is edited.
+    private double MaxFileMib
     {
-        get => localSettings.MaxFileBytes / MiB;
-        set => localSettings.MaxFileBytes = value * MiB;
+        get => (double)localSettings.MaxFileBytes / MiB;
+        set => localSettings.MaxFileBytes = (long)Math.Round(value * MiB);
     }
 
-    private long MaxDecompressedMib
+    private double MaxDecompressedMib
     {
-        get => localSettings.MaxDecompressedBytes / MiB;
-        set => localSettings.MaxDecompressedBytes = value * MiB;
+        get => (double)localSettings.MaxDecompressedBytes / MiB;
+        set => localSettings.MaxDecompressedBytes = (long)Math.Round(value * MiB);
     }
 
     // Keyed by enum name; a value added later still shows, just without a description.

@@ -10,7 +10,10 @@ namespace Connapse.Web.Tests.Components;
 /// Every setting an admin can change through the settings API is on the Settings page (#655). A
 /// settable property of a settings category must be bound in its tab, or listed here with the
 /// reason it is not. Source-scanned, like <see cref="SearchSettingsTabTests"/>: a property counts as
-/// bound when its tab mentions it as <c>.Name</c>.
+/// bound when its tab binds it (<c>@bind-Value="localSettings.Name"</c>), assigns it from a bound
+/// field (<c>localSettings.Name = ...</c>, as the MiB fields do), or sets it in the object a tab
+/// builds on save (a line starting <c>Name = ...</c>); a mention in help text or a comment does not
+/// count.
 /// </summary>
 [Trait("Category", "Unit")]
 public class SettingsCoverageTests
@@ -60,7 +63,8 @@ public class SettingsCoverageTests
             .Where(p => p.CanWrite && p.SetMethod!.IsPublic)
             .Select(p => p.Name)
             .Where(name => !Excluded.ContainsKey($"{type.Name}.{name}"))
-            .Where(name => !Regex.IsMatch(source, $@"\.{name}\b"))
+            .Where(name => !Regex.IsMatch(source,
+                $@"@bind-Value=""localSettings\.{name}""|localSettings\.{name}\s*=[^=]|(?m)^\s*{name}\s*=[^=]"))
             .ToList();
 
         missing.Should().BeEmpty(

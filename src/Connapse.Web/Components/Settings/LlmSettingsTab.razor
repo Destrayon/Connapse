@@ -32,7 +32,7 @@
                 <label class="form-label" for="maxConcurrent">Max Concurrent Requests</label>
                 <InputNumber @bind-Value="localSettings.MaxConcurrentRequests" class="form-control" id="maxConcurrent" min="1" />
                 <small class="form-text text-muted">
-                    Requests sent to Ollama at once (default 1). Ollama answers one at a time, so more queue there and can time out.
+                    Requests sent to Ollama at once (default 1). Ollama runs one at a time unless its <code>OLLAMA_NUM_PARALLEL</code> is raised; requests past that limit queue there and can time out.
                     Takes effect after a restart.
                 </small>
             </div>
