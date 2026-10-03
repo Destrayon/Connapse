@@ -30,7 +30,8 @@ internal static class PdfLayoutText
         string Text, double X, double Y, double Left, double Right, double Baseline, double Height, int Sequence = 0);
 
     /// <summary>The page as text, or null when the page has no words, which leaves it to the other extractors.</summary>
-    public static string? Extract(Page page, IReadOnlyList<PdfLayout.Region> regions)
+    /// <param name="tables">False when table extraction is off: table regions are read in content order.</param>
+    public static string? Extract(Page page, IReadOnlyList<PdfLayout.Region> regions, bool tables = true)
     {
         var letters = page.Letters.Where(l => !string.IsNullOrWhiteSpace(l.Value)).ToList();
         if (letters.Count == 0)
@@ -56,6 +57,8 @@ internal static class PdfLayoutText
         var used = new HashSet<Table>();
         return Compose(words, regions, region =>
         {
+            if (!tables)
+                return null;
             area ??= ObjectExtractor.ExtractPage(page);
             ruled ??= new SpreadsheetExtractionAlgorithm().Extract(area).Where(PdfTables.IsUsable).ToList();
             return Table(area, ruled, used, crop, region);

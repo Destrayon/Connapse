@@ -546,11 +546,15 @@ public record UploadSettings
     /// </summary>
     public int MaxZipEntries { get; set; } = 10_000;
 
-    public const string DefaultPdfTextMode = "ContentOrder";
+    public const string DefaultPdfTextMode = "Layout";
 
     /// <summary>
-    /// How PDF pages become text: Raw, ContentOrder, XYCut or Docstrum (default: ContentOrder,
-    /// the best of the four on extract-v1, 2026-10-01). See PdfTextMode in Connapse.Ingestion.
+    /// How PDF pages become text: Raw, ContentOrder, XYCut, Docstrum or Layout (default: Layout).
+    /// Layout runs a layout model on each page with a text layer, about 1.6 s a page on one core:
+    /// on extract-v1 it lifted olmOCR's header and footer checks from 37% to 88% and table checks
+    /// from 20% to 39% over ContentOrder (#642). ContentOrder, the best of the other four, reads a
+    /// page in milliseconds; choose it where ingestion speed matters more. See PdfTextMode in
+    /// Connapse.Ingestion.
     /// </summary>
     public string PdfTextMode { get; set; } = DefaultPdfTextMode;
 

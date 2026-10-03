@@ -40,8 +40,9 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// page.Text (#597). Raised the olmOCR native-PDF score from 39.9% to 44.0%.
     /// 3: ruled tables as Markdown tables via Tabula (#597); 44.0% to 47.4%.
     /// 4: OCR for pages with no text layer or a garbled one (#598).
+    /// 5: the Layout text mode, and table headings set on several lines merged into one header row (#642).
     /// </summary>
-    public int Version => 4;
+    public int Version => 5;
 
     /// <summary>
     /// Text mode, table mode, header and footer removal, and OCR on or off with its resolution.
@@ -118,7 +119,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
                     : Enum.Parse<PdfTableMode>(UploadSettings.DefaultPdfTableMode);
                 var pages = new PageText?[document.NumberOfPages];
                 var failedPages = new HashSet<int>();
-                var layout = mode == PdfTextMode.Layout ? new LayoutRun(pdf, settings, parseClock) : null;
+                var layout = mode == PdfTextMode.Layout ? new LayoutRun(pdf, settings, tableMode, parseClock) : null;
 
                 for (int i = 1; i <= document.NumberOfPages; i++)
                 {
@@ -343,7 +344,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// the time budget, or the model failed or is missing -- returns null and is read in content
     /// order instead, as without it.
     /// </summary>
-    private sealed class LayoutRun(byte[] pdf, UploadSettings settings, Stopwatch parseClock)
+    private sealed class LayoutRun(byte[] pdf, UploadSettings settings, PdfTableMode tableMode, Stopwatch parseClock)
     {
         private readonly TimeSpan _budget = TimeSpan.FromSeconds(Math.Max(1, settings.ParseTimeoutSeconds) * LayoutShareOfParseTimeout);
         private readonly Stopwatch _watch = new();
@@ -366,7 +367,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             try
             {
                 var regions = PdfLayout.Detect(pdf, pageNumber - 1, settings.PdfOcrThreads, ct);
-                string? text = PdfLayoutText.Extract(page, regions);
+                string? text = PdfLayoutText.Extract(page, regions, tables: tableMode != PdfTableMode.Off);
                 if (text is null)
                     return null;
                 _read++;
