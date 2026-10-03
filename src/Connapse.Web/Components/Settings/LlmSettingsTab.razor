@@ -27,6 +27,15 @@
                 <label class="form-label">Base URL</label>
                 <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="e.g. http://ollama:11434 (Docker) or http://localhost:11434 (local)" />
             </div>
+
+            <div class="col-md-6">
+                <label class="form-label" for="maxConcurrent">Max Concurrent Requests</label>
+                <InputNumber @bind-Value="localSettings.MaxConcurrentRequests" class="form-control" id="maxConcurrent" min="1" />
+                <small class="form-text text-muted">
+                    Requests sent to Ollama at once (default 1). Ollama runs one at a time unless its <code>OLLAMA_NUM_PARALLEL</code> is raised; requests past that limit queue there and can time out.
+                    Takes effect after a restart.
+                </small>
+            </div>
         }
         else if (IsOpenAi)
         {
@@ -74,6 +83,12 @@
             <div class="col-md-6">
                 <label class="form-label">Model</label>
                 <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="claude-sonnet-4-20250514" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label" for="anthropicBaseUrl">Base URL</label>
+                <InputText @bind-Value="localSettings.AnthropicBaseUrl" class="form-control" id="anthropicBaseUrl" placeholder="https://api.anthropic.com" />
+                <small class="form-text text-muted">Override for a proxy in front of Anthropic's API; leave empty for the default</small>
             </div>
         }
 

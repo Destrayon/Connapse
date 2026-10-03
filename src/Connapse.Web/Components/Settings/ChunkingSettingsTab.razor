@@ -7,10 +7,10 @@
         <div class="col-md-6">
             <label class="form-label">Strategy</label>
             <InputSelect @bind-Value="localSettings.Strategy" class="form-select">
-                <option value="FixedSize">Fixed Size</option>
-                <option value="Recursive">Recursive</option>
-                <option value="Semantic">Semantic</option>
-                <option value="DocumentAware">Document Aware</option>
+                @foreach (ChunkingStrategy strategy in ConfigurableStrategies)
+                {
+                    <option value="@strategy">@StrategyLabel(strategy)</option>
+                }
             </InputSelect>
         </div>
 
@@ -36,6 +36,75 @@
             <small class="form-text text-muted">For semantic chunking (0.0-1.0)</small>
         </div>
 
+        @if (localSettings.Strategy == nameof(ChunkingStrategy.Semantic))
+        {
+            <div class="col-md-6">
+                <label class="form-label" for="semanticBuffer">Semantic Context (sentences)</label>
+                <InputNumber @bind-Value="localSettings.SemanticBufferSize" class="form-control" id="semanticBuffer" min="0" />
+                <small class="form-text text-muted">Sentences on each side embedded with each sentence when finding topic shifts (default 1)</small>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label" for="breakpointMethod">Breakpoint Method</label>
+                <InputSelect @bind-Value="localSettings.SemanticBreakpointMethod" @bind-Value:after="OnBreakpointMethodChanged" class="form-select" id="breakpointMethod">
+                    <option value="Percentile">Percentile</option>
+                    <option value="StandardDeviation">Standard deviation</option>
+                    <option value="InterQuartile">Interquartile range</option>
+                    <option value="Gradient">Gradient</option>
+                </InputSelect>
+                <small class="form-text text-muted">
+                    How a big enough topic shift is decided. Gradient suits text whose sentences are all alike (legal, medical).
+                </small>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label" for="breakpointAmount">Breakpoint Amount</label>
+                <InputNumber @bind-Value="localSettings.SemanticBreakpointAmount" class="form-control" id="breakpointAmount" step="0.5" min="0" />
+                <small class="form-text text-muted">
+                    The percentile for Percentile and Gradient (default 95), the multiplier for Standard deviation (3) or
+                    Interquartile range (1.5)
+                </small>
+            </div>
+        }
+
+        @if (localSettings.Strategy == nameof(ChunkingStrategy.Recursive))
+        {
+            <div class="col-md-6">
+                <label class="form-label" for="recursiveSeparators">Separators</label>
+                <InputText @bind-Value="SeparatorsJson" class="form-control font-monospace" id="recursiveSeparators" />
+                @if (separatorsError is not null)
+                {
+                    <div class="text-danger small">@separatorsError</div>
+                }
+                <small class="form-text text-muted">
+                    Where to split, tried in order, as a JSON list (default <code>["\n\n", "\n", ". ", " "]</code>)
+                </small>
+            </div>
+        }
+
+        @if (localSettings.Strategy == nameof(ChunkingStrategy.DocumentAware))
+        {
+            <div class="col-md-6">
+                <div class="form-check mt-4">
+                    <InputCheckbox @bind-Value="localSettings.PrependHeaderPath" class="form-check-input" id="prependHeaderPath" />
+                    <label class="form-check-label" for="prependHeaderPath">Prepend heading path</label>
+                </div>
+                <small class="form-text text-muted d-block mt-1">
+                    Put each chunk's headings ("Engineering &gt; Deploy &gt; Rollback") in front of it before embedding. Usually the
+                    largest single retrieval gain, at 10–30 tokens a chunk.
+                </small>
+            </div>
+        }
+
+        @if (localSettings.Strategy == nameof(ChunkingStrategy.SentenceWindow))
+        {
+            <div class="col-md-6">
+                <label class="form-label" for="sentenceWindow">Window (sentences each side)</label>
+                <InputNumber @bind-Value="localSettings.SentenceWindowSize" class="form-control" id="sentenceWindow" min="0" />
+                <small class="form-text text-muted">Sentences kept on each side of each indexed sentence (default 3)</small>
+            </div>
+        }
+
         <div class="col-12 mt-4">
             <button type="submit" class="btn btn-primary me-2">
                 <span class="bi-save me-1"></span> Save Changes
@@ -56,18 +125,81 @@
 
     private ChunkingSettings localSettings = new();
 
+    // Record is chosen by connectors for issues and pull requests, never configured.
+    private static readonly ChunkingStrategy[] ConfigurableStrategies =
+        Enum.GetValues<ChunkingStrategy>().Where(s => s != ChunkingStrategy.Record).ToArray();
+
+    private static string StrategyLabel(ChunkingStrategy strategy) => strategy switch
+    {
+        ChunkingStrategy.FixedSize => "Fixed Size",
+        ChunkingStrategy.DocumentAware => "Document Aware",
+        ChunkingStrategy.SentenceWindow => "Sentence Window",
+        _ => strategy.ToString(),
+    };
+
+    /// <summary>
+    /// Each method reads the amount differently -- a percentile for Percentile and Gradient, a
+    /// multiplier for the others -- so a kept amount would mean something else: 95 as a percentile is
+    /// a 95x multiplier, which never breaks. Switching method starts from that method's default.
+    /// </summary>
+    private void OnBreakpointMethodChanged()
+    {
+        localSettings.SemanticBreakpointAmount = localSettings.SemanticBreakpointMethod switch
+        {
+            "StandardDeviation" => 3,
+            "InterQuartile" => 1.5,
+            _ => 95,
+        };
+    }
+
+    private string? separatorsText;
+    private string? separatorsError;
+
+    // Edited as JSON so newlines and trailing spaces in separators stay visible and exact.
+    private string SeparatorsJson
+    {
+        get => separatorsText ??= System.Text.Json.JsonSerializer.Serialize(localSettings.RecursiveSeparators);
+        set
+        {
+            separatorsText = value;
+            try
+            {
+                string[]? parsed = System.Text.Json.JsonSerializer.Deserialize<string[]>(value);
+                if (parsed is not { Length: > 0 } || parsed.Any(string.IsNullOrEmpty))
+                {
+                    separatorsError = "Give at least one separator, none empty.";
+                    return;
+                }
+                localSettings.RecursiveSeparators = parsed;
+                separatorsError = null;
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                separatorsError = "Not a JSON list of strings, e.g. [\"\\n\\n\", \". \"].";
+            }
+        }
+    }
+
     protected override void OnParametersSet()
     {
         localSettings = Settings with { };
+        separatorsText = null;
+        separatorsError = null;
     }
 
     private async Task HandleSubmit()
     {
+        // Only while the separators are on screen: with another strategy the field is hidden, and
+        // the last valid list is what is saved.
+        if (separatorsError is not null && localSettings.Strategy == nameof(ChunkingStrategy.Recursive))
+            return;
         await OnSave.InvokeAsync(localSettings);
     }
 
     private void Reset()
     {
         localSettings = Settings with { };
+        separatorsText = null;
+        separatorsError = null;
     }
 }

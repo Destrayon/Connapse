@@ -83,6 +83,57 @@
             </small>
         </div>
 
+        <div class="col-md-6">
+            <div class="form-check mt-4">
+                <InputCheckbox @bind-Value="localSettings.SentenceWindowSubstituteOnSearch" class="form-check-input" id="sentenceWindowSubstitute" />
+                <label class="form-check-label" for="sentenceWindowSubstitute">
+                    Return sentence windows
+                </label>
+            </div>
+            <small class="form-text text-muted d-block mt-1">
+                For documents chunked with Sentence Window, return each hit's surrounding sentences instead of the single
+                sentence that matched. Ranking still uses the sentence.
+            </small>
+        </div>
+
+        @if (localSettings.KeywordRanker == "Bm25")
+        {
+            <div class="col-md-3">
+                <label class="form-label" for="bm25K1">BM25 k1</label>
+                <InputNumber @bind-Value="localSettings.Bm25K1" class="form-control" id="bm25K1" step="0.1" min="0" />
+                <small class="form-text text-muted">How quickly repeated words stop adding score (default 1.2)</small>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label" for="bm25B">BM25 b</label>
+                <InputNumber @bind-Value="localSettings.Bm25B" class="form-control" id="bm25B" step="0.05" min="0" max="1" />
+                <small class="form-text text-muted">How much long chunks are penalised, 0 to 1 (default 0.75)</small>
+            </div>
+        }
+
+        <div class="col-12">
+            <hr />
+            <h6>Vector Index</h6>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="vectorIndexMin">Index From (vectors)</label>
+            <InputNumber @bind-Value="localSettings.VectorIndexMinVectors" class="form-control" id="vectorIndexMin" min="1" />
+            <small class="form-text text-muted">
+                A container gets an approximate (HNSW) index once it holds this many vectors for a model (default 20,000).
+                Below it, search is exact and already fast. Indexes are built in the background.
+            </small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="efSearch">Index Search Breadth (ef_search)</label>
+            <InputNumber @bind-Value="localSettings.VectorIndexEfSearch" class="form-control" id="efSearch" min="1" max="1000" />
+            <small class="form-text text-muted">
+                Candidates an indexed search keeps (default 800). Higher finds more of the true nearest matches at some latency;
+                200 found 94–97% of them, 800 found 99–100%.
+            </small>
+        </div>
+
         @if (localSettings.Reranker == "CrossEncoder")
         {
             <div class="col-12">
