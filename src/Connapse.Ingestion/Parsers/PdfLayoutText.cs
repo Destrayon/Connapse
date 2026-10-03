@@ -3,7 +3,6 @@ using Tabula;
 using Tabula.Extractors;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
-using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
 namespace Connapse.Ingestion.Parsers;
 
@@ -14,6 +13,9 @@ namespace Connapse.Ingestion.Parsers;
 /// </summary>
 internal static class PdfLayoutText
 {
+    /// <summary>How far outside a region, in page fractions, a word may sit and still belong to it.</summary>
+    internal const double NearRegion = 0.03;
+
     /// <summary>Regions whose text repeats on every page and answers nothing: dropped.</summary>
     internal static readonly IReadOnlySet<string> Decorations = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -39,15 +41,11 @@ internal static class PdfLayoutText
         if (width <= 0 || height <= 0)
             return null;
 
-        var sequence = new Dictionary<Letter, int>(ReferenceEqualityComparer.Instance);
-        for (int i = 0; i < letters.Count; i++)
-            sequence[letters[i]] = i;
-        var words = NearestNeighbourWordExtractor.Instance.GetWords(letters)
+        var words = ContentOrderWords(page.Letters)
             .Select(w => new PlacedWord(w.Text,
-                (w.BoundingBox.Centroid.X - crop.Left) / width,
-                (crop.Top - w.BoundingBox.Centroid.Y) / height,
-                w.BoundingBox.Left, w.BoundingBox.Right, w.BoundingBox.Bottom, w.BoundingBox.Height,
-                w.Letters.Count > 0 && sequence.TryGetValue(w.Letters[0], out int at) ? at : 0))
+                ((w.Left + w.Right) / 2 - crop.Left) / width,
+                (crop.Top - (w.Bottom + w.Top) / 2) / height,
+                w.Left, w.Right, w.Baseline, w.Top - w.Bottom, w.Sequence))
             .ToList();
 
         // Ruled tables are found on the whole page: cropped to a region, a table loses the rules on
@@ -81,6 +79,15 @@ internal static class PdfLayoutText
                 .Where(r => word.X >= r.Left && word.X <= r.Right && word.Y >= r.Top && word.Y <= r.Bottom)
                 .OrderBy(r => (r.Right - r.Left) * (r.Bottom - r.Top))
                 .FirstOrDefault();
+            // A word just outside every box -- the box drawn a little tight on a line's last word --
+            // belongs to the nearest region rather than to the end of the page.
+            owner ??= regions
+                .Select(r => (Region: r, Distance: Math.Max(Math.Max(r.Left - word.X, word.X - r.Right), 0)
+                                                   + Math.Max(Math.Max(r.Top - word.Y, word.Y - r.Bottom), 0)))
+                .Where(x => x.Distance <= NearRegion)
+                .OrderBy(x => x.Distance)
+                .Select(x => x.Region)
+                .FirstOrDefault();
             if (owner is null)
                 orphans.Add(word);
             else
@@ -106,6 +113,57 @@ internal static class PdfLayoutText
             blocks.Add(Lines(orphans));
 
         return string.Join("\n\n", blocks.Where(b => b.Length > 0));
+    }
+
+    /// <summary>A word read from the content stream, with its box in PDF points.</summary>
+    internal sealed record StreamWord(string Text, double Left, double Right, double Bottom, double Top, double Baseline, int Sequence);
+
+    /// <summary>
+    /// Words in content-stream order, split where PdfPig's ContentOrderTextExtractor puts a space or
+    /// a line break: a space glyph, a change of baseline, or a gap PdfPig judges whitespace for the
+    /// letter's size. Its nearest-neighbour word extractor instead ran whole lines together in PDFs
+    /// that space words by position alone -- "informationspecifiedonthedialogact" on olmOCR's
+    /// multi-column pages -- so the layout mode now splits words exactly where content order does.
+    /// </summary>
+    internal static List<StreamWord> ContentOrderWords(IReadOnlyList<Letter> letters)
+    {
+        var words = new List<StreamWord>();
+        var current = new List<Letter>();
+        int start = 0;
+        void Flush()
+        {
+            if (current.Count == 0)
+                return;
+            words.Add(new StreamWord(string.Concat(current.Select(l => l.Value)),
+                current.Min(l => l.GlyphRectangle.Left), current.Max(l => l.GlyphRectangle.Right),
+                current.Min(l => l.GlyphRectangle.Bottom), current.Max(l => l.GlyphRectangle.Top),
+                current[0].StartBaseLine.Y, start));
+            current.Clear();
+        }
+
+        for (int i = 0; i < letters.Count; i++)
+        {
+            Letter letter = letters[i];
+            if (string.IsNullOrWhiteSpace(letter.Value))
+            {
+                Flush();
+                continue;
+            }
+            if (current.Count > 0)
+            {
+                Letter previous = current[^1];
+                double size = Math.Max(1, Math.Max(previous.PointSize, letter.PointSize));
+                bool newLine = Math.Abs(letter.StartBaseLine.Y - previous.StartBaseLine.Y) > 0.5 * size;
+                double gap = letter.StartBaseLine.X - previous.EndBaseLine.X;
+                if (newLine || gap < -0.5 * size || UglyToad.PdfPig.Util.WhitespaceSizeStatistics.IsProbablyWhitespace(gap, previous))
+                    Flush();
+            }
+            if (current.Count == 0)
+                start = i;
+            current.Add(letter);
+        }
+        Flush();
+        return words;
     }
 
     /// <summary>Words in content-stream order, a new line wherever the baseline changes.</summary>
