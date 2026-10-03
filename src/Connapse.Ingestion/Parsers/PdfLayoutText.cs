@@ -11,7 +11,7 @@ namespace Connapse.Ingestion.Parsers;
 /// the region they sit in, regions are read in the layout model's order, running headers, footers
 /// and page numbers are dropped, and a table region becomes a Markdown table.
 /// </summary>
-internal static class PdfLayoutText
+internal static partial class PdfLayoutText
 {
     /// <summary>How far outside a region, in page fractions, a word may sit and still belong to it.</summary>
     internal const double NearRegion = 0.03;
@@ -45,7 +45,13 @@ internal static class PdfLayoutText
     /// extractors rather than indexing a page with a text layer as empty.
     /// </summary>
     /// <param name="tables">False when table extraction is off: table regions are read in content order.</param>
-    public static string? Extract(Page page, IReadOnlyList<PdfLayout.Region> regions, bool tables = true)
+    /// <param name="recognize">
+    /// Reads a table's structure from its pixels, given its box in PDF points (left, bottom, right,
+    /// top); null when no table-structure model is available.
+    /// </param>
+    public static string? Extract(
+        Page page, IReadOnlyList<PdfLayout.Region> regions, bool tables = true,
+        Func<double, double, double, double, PdfTableStructure.Structure?>? recognize = null)
     {
         var letters = page.Letters.Where(l => !string.IsNullOrWhiteSpace(l.Value)).ToList();
         if (letters.Count == 0)
@@ -75,7 +81,7 @@ internal static class PdfLayoutText
                 return null;
             area ??= ObjectExtractor.ExtractPage(page);
             ruled ??= new SpreadsheetExtractionAlgorithm().Extract(area).Where(PdfTables.IsUsable).ToList();
-            return Table(area, ruled, used, crop, region);
+            return Table(area, ruled, used, crop, region, words, recognize);
         });
         return text.Length == 0 ? null : text;
     }
@@ -235,14 +241,17 @@ internal static class PdfLayoutText
     }
 
     /// <summary>
-    /// The region's table as Markdown: the page's ruled table that overlaps it most, else Tabula's
-    /// alignment-based reading of the region, now that the region says a table is there (in the
+    /// The region's table as Markdown: the page's ruled table that overlaps it most, else the
+    /// table-structure model's reading of the region (#652), else Tabula's alignment-based reading
+    /// of the region, now that the region says a table is there (in the
     /// Ruled table mode too: the model's region, not the page's text alignment, decides there is a
     /// table, which is what made alignment reading misfire on prose); null when
     /// neither finds a usable table. A ruled table two regions overlap is written once, for the first;
     /// the second writes nothing, since its words are in that table.
     /// </summary>
-    private static TableText? Table(PageArea page, List<Table> ruled, HashSet<Table> used, PdfRectangle crop, PdfLayout.Region region)
+    private static TableText? Table(
+        PageArea page, List<Table> ruled, HashSet<Table> used, PdfRectangle crop, PdfLayout.Region region,
+        IReadOnlyList<PlacedWord> words, Func<double, double, double, double, PdfTableStructure.Structure?>? recognize)
     {
         // Back to PDF points, bottom-left origin, with a little margin for glyphs on the box edge.
         const double Margin = 2;
@@ -256,15 +265,86 @@ internal static class PdfLayoutText
         Table? ruledTable = ruled
             .Where(t => Overlap(t, left, bottom, right, top) > 0.5 * Math.Min((t.Right - t.Left) * (t.Top - t.Bottom), (right - left) * (top - bottom)))
             .MaxBy(t => Overlap(t, left, bottom, right, top));
-        if (ruledTable is not null)
+        if (ruledTable is not null && !HasStackedRows(ruledTable.Rows.SelectMany(r => r).Select(c => (c.Left, c.Bottom, c.Right, c.Top)), words))
             return Written(used.Add(ruledTable) ? PdfTables.ToMarkdown(ruledTable) : "", ruledTable);
+
+        if (recognize?.Invoke(left, bottom, right, top) is { } structure && FromStructure(structure, words, left, bottom, right, top) is { } read)
+            return read;
 
         PageArea area = page.GetArea(new PdfRectangle(left, bottom, right, top));
         Table? found = new BasicExtractionAlgorithm().Extract(area)
-            .Where(t => PdfTables.IsUsable(t) && !HasWrappedCells(t))
+            .Where(t => PdfTables.IsUsable(t) && !HasWrappedCells(t)
+                        && !HasStackedRows(t.Rows.SelectMany(r => r).Select(c => (c.Left, c.Bottom, c.Right, c.Top)), words))
             .MaxBy(t => t.RowCount * t.ColumnCount);
         return found is null ? null : Written(PdfTables.ToMarkdown(found), found);
     }
+
+    /// <summary>
+    /// A table read by the structure model, filled with the words inside the region. Null when the
+    /// structure is too thin to be a table -- one row or column -- when most of its cells are empty,
+    /// or when its rows ran together (<see cref="HasStackedRows"/>): the model failing rather than the
+    /// table being sparse. The region is then read the other ways.
+    /// </summary>
+    internal static TableText? FromStructure(
+        PdfTableStructure.Structure structure, IReadOnlyList<PlacedWord> words, double left, double bottom, double right, double top)
+    {
+        if (structure.Rows < 2 || structure.Columns < 2)
+            return null;
+
+        var inside = words
+            .Select(w => (w.Text, X: (w.Left + w.Right) / 2, Y: w.Baseline + w.Height / 2, w.Sequence))
+            .Where(w => w.X >= left && w.X <= right && w.Y >= bottom && w.Y <= top)
+            .ToList();
+        IReadOnlyList<IReadOnlyList<string>> grid = PdfTableStructure.Fill(structure, inside);
+        int filled = structure.Cells.Count(c => grid[c.Row][c.Column].Length > 0);
+        if (filled < 0.4 * structure.Cells.Count)
+            return null;
+
+        if (HasStackedRows(structure.Cells.Select(c => (c.Left, c.Bottom, c.Right, c.Top)), words))
+            return null;
+
+        return new TableText(PdfTables.ToMarkdown(grid, structure.HeaderRows > 0 ? structure.HeaderRows : null), left, bottom, right, top);
+    }
+
+    /// <summary>
+    /// True when the cells hold stacks of numbers: rows that ran together, so one "cell" holds a
+    /// column's values from several rows, one per line. Census tables rule only between sections, so
+    /// Tabula's ruled reading made each section one row (P60 Table A-3, and A-6); a long table scaled
+    /// to the structure model's input does the same. A wrapped prose cell -- several lines of words --
+    /// is a real cell and does not count.
+    /// </summary>
+    internal static bool HasStackedRows(IEnumerable<(double Left, double Bottom, double Right, double Top)> cells, IReadOnlyList<PlacedWord> words)
+    {
+        int nonEmpty = 0, stacked = 0;
+        foreach (var cell in cells)
+        {
+            var inside = words.Where(w =>
+            {
+                double x = (w.Left + w.Right) / 2, y = w.Baseline + w.Height / 2;
+                return x >= cell.Left && x <= cell.Right && y >= cell.Bottom && y <= cell.Top;
+            }).OrderByDescending(w => w.Baseline).ThenBy(w => w.Left).ToList();
+            if (inside.Count == 0)
+                continue;
+            nonEmpty++;
+
+            var lines = new List<List<PlacedWord>>();
+            foreach (PlacedWord word in inside)
+            {
+                if (lines.Count > 0 && Math.Abs(lines[^1][0].Baseline - word.Baseline) <= Math.Max(1, 0.5 * word.Height))
+                    lines[^1].Add(word);
+                else
+                    lines.Add([word]);
+            }
+            int numeric = lines.Count(l => NumericLine().IsMatch(string.Join(' ', l.Select(w => w.Text))));
+            if (lines.Count >= 3 && numeric * 3 >= lines.Count * 2)
+                stacked++;
+        }
+        return nonEmpty > 0 && stacked > 0.2 * nonEmpty;
+    }
+
+    /// <summary>A line that is one number, as tables print them: signs, stars, currency, percent, parentheses.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[\s*±+\-\u2013\u2212$(]*[\d.,]+[%)]?\s*$")]
+    private static partial System.Text.RegularExpressions.Regex NumericLine();
 
     private static TableText Written(string markdown, Table table) =>
         new(markdown, table.Left, table.Bottom, table.Right, table.Top);

@@ -367,7 +367,8 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             try
             {
                 var regions = PdfLayout.Detect(pdf, pageNumber - 1, settings.PdfOcrThreads, ct);
-                string? text = PdfLayoutText.Extract(page, regions, tables: tableMode != PdfTableMode.Off);
+                string? text = PdfLayoutText.Extract(page, regions, tables: tableMode != PdfTableMode.Off,
+                    recognize: (left, bottom, right, top) => RecognizeTable(page, pageNumber, left, bottom, right, top, warnings, ct));
                 if (text is null)
                     return null;
                 _read++;
@@ -394,8 +395,58 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             }
         }
 
+        private string? _tablesUnavailable;
+        private int _tables;
+        private readonly Stopwatch _tableWatch = new();
+
+        /// <summary>
+        /// The table-structure model's reading of a table region (#652); null -- the region read the
+        /// other ways -- when the model is missing, fails, or the time budget is spent.
+        /// </summary>
+        private PdfTableStructure.Structure? RecognizeTable(
+            Page page, int pageNumber, double left, double bottom, double right, double top, List<string> warnings, CancellationToken ct)
+        {
+            if (_tablesUnavailable is not null || parseClock.Elapsed >= _budget)
+                return null;
+
+            _tableWatch.Start();
+            try
+            {
+                var crop = page.CropBox.Bounds;
+                var structure = PdfTableStructure.Recognize(pdf, pageNumber - 1, crop.Left, crop.Top, left, bottom, right, top, settings.PdfOcrThreads, ct);
+                _tables++;
+                return structure;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or TypeInitializationException
+                                           or BadImageFormatException or FileNotFoundException or OnnxRuntimeException)
+            {
+                _tablesUnavailable = ex.GetBaseException().Message;
+                return null;
+            }
+            catch (Exception ex)
+            {
+                warnings.Add($"Table structure recognition failed on page {pageNumber}, read by alignment: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                _tableWatch.Stop();
+            }
+        }
+
         public void Report(Dictionary<string, string> metadata, List<string> warnings)
         {
+            if (_tables > 0)
+            {
+                metadata["LayoutTables"] = _tables.ToString(CultureInfo.InvariantCulture);
+                metadata["LayoutSecondsPerTable"] = (_tableWatch.Elapsed.TotalSeconds / _tables).ToString("F2", CultureInfo.InvariantCulture);
+            }
+            if (_tablesUnavailable is not null)
+                warnings.Add($"Table structure recognition is unavailable in this deployment, so tables were read by alignment: {_tablesUnavailable}");
             if (_read > 0)
             {
                 metadata[MetadataKeyLayoutPages] = _read.ToString(CultureInfo.InvariantCulture);

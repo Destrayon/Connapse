@@ -47,40 +47,52 @@
   </ItemGroup>
 
   <!--
-    PP-DocLayout v3 for PdfLayout (#642): PaddlePaddle's layout model, Apache-2.0, as packaged in ONNX
-    by RapidAI/RapidLayout v1.2.0. Too large for git and published in no NuGet package, so it is
-    downloaded once into .models/ at the repository root, checked against its SHA-256, and copied
-    like the OCR models to models/layout beside the assemblies.
+    ONNX models the PDF parser runs, too large for git and published in no NuGet package: downloaded
+    once into .models/ at the repository root, checked against their SHA-256 on every build, and
+    copied like the OCR models to models/layout beside the assemblies.
+    - PP-DocLayout v3 (#642): PaddlePaddle's layout model, Apache-2.0, packaged by RapidAI/RapidLayout v1.2.0.
+    - SLANet+ (#652): PaddleOCR's table-structure model, Apache-2.0, packaged by RapidAI/RapidTable v2.0.0.
   -->
   <PropertyGroup>
-    <LayoutModelUrl>https://www.modelscope.cn/models/RapidAI/RapidLayout/resolve/v1.2.0/onnx/pp_doc_layout/pp_doc_layoutv3.onnx</LayoutModelUrl>
-    <LayoutModelSha256>250dbad1dfb9e4983fab75e1bf5085cd56ec3f41d5c7d0f8623ec74856e7aa67</LayoutModelSha256>
-    <LayoutModelDir>$(MSBuildThisFileDirectory)../../.models/</LayoutModelDir>
-    <LayoutModelPath>$(LayoutModelDir)pp_doc_layoutv3.onnx</LayoutModelPath>
+    <PdfModelDir>$(MSBuildThisFileDirectory)../../.models/</PdfModelDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(LayoutModelPath)" Link="models/layout/pp_doc_layoutv3.onnx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <PdfModel Include="$(PdfModelDir)pp_doc_layoutv3.onnx">
+      <Url>https://www.modelscope.cn/models/RapidAI/RapidLayout/resolve/v1.2.0/onnx/pp_doc_layout/pp_doc_layoutv3.onnx</Url>
+      <Sha256>250dbad1dfb9e4983fab75e1bf5085cd56ec3f41d5c7d0f8623ec74856e7aa67</Sha256>
+    </PdfModel>
+    <PdfModel Include="$(PdfModelDir)slanet-plus.onnx">
+      <Url>https://www.modelscope.cn/models/RapidAI/RapidTable/resolve/v2.0.0/slanet-plus.onnx</Url>
+      <Sha256>d57a942af6a2f57d6a4a0372573c696a2379bf5857c45e2ac69993f3b334514b</Sha256>
+    </PdfModel>
+    <None Include="$(PdfModelDir)pp_doc_layoutv3.onnx" Link="models/layout/pp_doc_layoutv3.onnx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(PdfModelDir)slanet-plus.onnx" Link="models/layout/slanet-plus.onnx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
-  <Target Name="DownloadLayoutModel" BeforeTargets="BeforeBuild;AssignTargetPaths" Condition="!Exists('$(LayoutModelPath)')">
+  <Target Name="DownloadPdfModels" BeforeTargets="BeforeBuild;AssignTargetPaths">
+    <ItemGroup>
+      <MissingPdfModel Include="@(PdfModel)" Condition="!Exists('%(FullPath)')" />
+      <DownloadedPdfModel Include="@(MissingPdfModel->'%(FullPath).part')" />
+    </ItemGroup>
+    <MakeDir Directories="$(PdfModelDir)" Condition="'@(MissingPdfModel)' != ''" />
     <!-- curl, not MSBuild's DownloadFile: ModelScope redirects to a storage host that refuses DownloadFile (403). -->
-    <MakeDir Directories="$(LayoutModelDir)" />
-    <Exec Command="curl -fsSL --retry 3 -o &quot;$(LayoutModelDir)pp_doc_layoutv3.onnx.part&quot; &quot;$(LayoutModelUrl)&quot;" />
-    <GetFileHash Files="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" Algorithm="SHA256" HashEncoding="hex">
-      <Output TaskParameter="Hash" PropertyName="DownloadedLayoutModelSha256" />
+    <Exec Command="curl -fsSL --retry 3 -o &quot;%(MissingPdfModel.FullPath).part&quot; &quot;%(MissingPdfModel.Url)&quot;" Condition="'@(MissingPdfModel)' != ''" />
+    <GetFileHash Files="@(DownloadedPdfModel)" Algorithm="SHA256" HashEncoding="hex" Condition="'@(DownloadedPdfModel)' != ''">
+      <Output TaskParameter="Items" ItemName="HashedDownload" />
     </GetFileHash>
-    <Delete Files="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" Condition="'$(DownloadedLayoutModelSha256.ToLowerInvariant())' != '$(LayoutModelSha256)'" />
-    <Error Condition="'$(DownloadedLayoutModelSha256.ToLowerInvariant())' != '$(LayoutModelSha256)'" Text="The layout model downloaded from $(LayoutModelUrl) has SHA-256 $(DownloadedLayoutModelSha256), expected $(LayoutModelSha256)." />
-    <Move SourceFiles="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" DestinationFiles="$(LayoutModelPath)" />
+    <!-- MSBuild compares strings without case, so the hex case does not matter. -->
+    <Delete Files="%(HashedDownload.Identity)" Condition="'@(HashedDownload)' != '' And '%(HashedDownload.FileHash)' != '%(HashedDownload.Sha256)'" />
+    <Error Condition="'@(HashedDownload)' != '' And '%(HashedDownload.FileHash)' != '%(HashedDownload.Sha256)'" Text="%(HashedDownload.Url) downloaded with SHA-256 %(HashedDownload.FileHash), expected %(HashedDownload.Sha256)." />
+    <Move SourceFiles="@(HashedDownload)" DestinationFiles="@(HashedDownload->'%(RootDir)%(Directory)%(Filename)')" Condition="'@(HashedDownload)' != ''" />
   </Target>
 
   <!-- Every build, not only after a download: a file restored from a cache or left in .models must match too. -->
-  <Target Name="VerifyLayoutModel" AfterTargets="DownloadLayoutModel" BeforeTargets="BeforeBuild;AssignTargetPaths">
-    <GetFileHash Files="$(LayoutModelPath)" Algorithm="SHA256" HashEncoding="hex">
-      <Output TaskParameter="Hash" PropertyName="ExistingLayoutModelSha256" />
+  <Target Name="VerifyPdfModels" AfterTargets="DownloadPdfModels" BeforeTargets="BeforeBuild;AssignTargetPaths">
+    <GetFileHash Files="@(PdfModel)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="HashedPdfModel" />
     </GetFileHash>
-    <Error Condition="'$(ExistingLayoutModelSha256.ToLowerInvariant())' != '$(LayoutModelSha256)'" Text="$(LayoutModelPath) has SHA-256 $(ExistingLayoutModelSha256), expected $(LayoutModelSha256). Delete it to download it again." />
+    <Error Condition="'%(HashedPdfModel.FileHash)' != '%(HashedPdfModel.Sha256)'" Text="%(HashedPdfModel.FullPath) has SHA-256 %(HashedPdfModel.FileHash), expected %(HashedPdfModel.Sha256). Delete it to download it again." />
   </Target>
 
   <ItemGroup>
