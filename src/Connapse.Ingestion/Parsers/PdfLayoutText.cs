@@ -268,7 +268,8 @@ internal static partial class PdfLayoutText
         if (ruledTable is not null && !HasStackedRows(ruledTable.Rows.SelectMany(r => r).Select(c => (c.Left, c.Bottom, c.Right, c.Top)), words))
             return Written(used.Add(ruledTable) ? PdfTables.ToMarkdown(ruledTable) : "", ruledTable);
 
-        if (recognize?.Invoke(left, bottom, right, top) is { } structure && FromStructure(structure, words, left, bottom, right, top) is { } read)
+        if (recognize is not null && LegibleToTheModel(words, left, bottom, right, top)
+            && recognize(left, bottom, right, top) is { } structure && FromStructure(structure, words, left, bottom, right, top) is { } read)
             return read;
 
         PageArea area = page.GetArea(new PdfRectangle(left, bottom, right, top));
@@ -301,6 +302,13 @@ internal static partial class PdfLayoutText
             return null;
 
         if (HasStackedRows(structure.Cells.Select(c => (c.Left, c.Bottom, c.Right, c.Top)), words))
+            return null;
+
+        // A table of prose cells -- several sentences each, IRS Publication 15's section 15 grid --
+        // is beyond the model at 488 pixels, which scattered its words; content order reads it
+        // cell by cell instead.
+        var texts = structure.Cells.Select(c => grid[c.Row][c.Column]).Where(s => s.Length > 0).ToList();
+        if (texts.Count > 0 && texts.Average(s => s.Split(' ').Count(w => w.Any(char.IsLetter))) > MaxWordsPerCell)
             return null;
 
         return new TableText(PdfTables.ToMarkdown(grid, structure.HeaderRows > 0 ? structure.HeaderRows : null), left, bottom, right, top);
@@ -341,6 +349,30 @@ internal static partial class PdfLayoutText
         }
         return nonEmpty > 0 && stacked > 0.2 * nonEmpty;
     }
+
+    /// <summary>
+    /// Whether the region's text stays legible scaled to the structure model's 488-pixel input. A
+    /// table that fills a page shrinks its text to about 5 pixels, where the model misplaces columns
+    /// and runs rows together while still producing a plausible grid (Census P60 Table A-1); the
+    /// Census index table on page 20, at 8 pixels, reads perfectly.
+    /// </summary>
+    internal static bool LegibleToTheModel(IReadOnlyList<PlacedWord> words, double left, double bottom, double right, double top)
+    {
+        var heights = words
+            .Where(w => (w.Left + w.Right) / 2 >= left && (w.Left + w.Right) / 2 <= right
+                        && w.Baseline + w.Height / 2 >= bottom && w.Baseline + w.Height / 2 <= top && w.Height > 0)
+            .Select(w => w.Height).Order().ToList();
+        if (heights.Count == 0)
+            return false;
+        double scale = PdfTableStructure.InputSide / Math.Max(right - left, top - bottom);
+        return heights[heights.Count / 2] * scale >= MinInputTextPixels;
+    }
+
+    /// <summary>Median text height, in the model's input pixels, below which a table is too small for it.</summary>
+    internal const double MinInputTextPixels = 6;
+
+    /// <summary>Average words per cell past which a table is prose, read in content order rather than by the model.</summary>
+    internal const double MaxWordsPerCell = 8;
 
     /// <summary>A line that is one number, as tables print them: signs, stars, currency, percent, parentheses.</summary>
     [System.Text.RegularExpressions.GeneratedRegex(@"^[\s*±+\-\u2013\u2212$(]*[\d.,]+[%)]?\s*$")]
