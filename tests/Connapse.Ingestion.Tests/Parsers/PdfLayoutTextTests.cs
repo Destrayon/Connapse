@@ -51,6 +51,26 @@ public class PdfLayoutTextTests
     }
 
     [Fact]
+    public void HeaderRowCount_HeadingsOnSeveralLines_CountsRowsBeforeTheNumbers()
+    {
+        string[][] rows =
+        [
+            ["", "C-CPI-U", ""], ["Income", "Index", "Percent"], ["year", "(December", "change from"],
+            ["", "1999 = 100)", "year prior"], ["1947", "15.1", "X"], ["1948", "16.4", "8.6"],
+        ];
+
+        PdfTables.HeaderRowCount(rows).Should().Be(4);
+    }
+
+    [Fact]
+    public void HeaderRowCount_TableOfWords_KeepsOneHeaderRow()
+    {
+        string[][] rows = [["Class", "Treatment"], ["Interns", "Withhold"], ["Patients", "Exempt"], ["Students", "Taxable"]];
+
+        PdfTables.HeaderRowCount(rows).Should().Be(1);
+    }
+
+    [Fact]
     public void Lines_WordsOnOneBaseline_JoinedLeftToRight()
     {
         PdfLayoutText.PlacedWord[] words =
