@@ -46,6 +46,43 @@
     <None Include="$(PkgRapidOcrNet)/models/v5/*.*" Link="models/v5/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
+  <!--
+    PP-DocLayout v3 for PdfLayout (#642): PaddlePaddle's layout model, Apache-2.0, as packaged in ONNX
+    by RapidAI/RapidLayout v1.2.0. Too large for git and published in no NuGet package, so it is
+    downloaded once into .models/ at the repository root, checked against its SHA-256, and copied
+    like the OCR models to models/layout beside the assemblies.
+  -->
+  <PropertyGroup>
+    <LayoutModelUrl>https://www.modelscope.cn/models/RapidAI/RapidLayout/resolve/v1.2.0/onnx/pp_doc_layout/pp_doc_layoutv3.onnx</LayoutModelUrl>
+    <LayoutModelSha256>250dbad1dfb9e4983fab75e1bf5085cd56ec3f41d5c7d0f8623ec74856e7aa67</LayoutModelSha256>
+    <LayoutModelDir>$(MSBuildThisFileDirectory)../../.models/</LayoutModelDir>
+    <LayoutModelPath>$(LayoutModelDir)pp_doc_layoutv3.onnx</LayoutModelPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(LayoutModelPath)" Link="models/layout/pp_doc_layoutv3.onnx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="DownloadLayoutModel" BeforeTargets="BeforeBuild;AssignTargetPaths" Condition="!Exists('$(LayoutModelPath)')">
+    <!-- curl, not MSBuild's DownloadFile: ModelScope redirects to a storage host that refuses DownloadFile (403). -->
+    <MakeDir Directories="$(LayoutModelDir)" />
+    <Exec Command="curl -fsSL --retry 3 -o &quot;$(LayoutModelDir)pp_doc_layoutv3.onnx.part&quot; &quot;$(LayoutModelUrl)&quot;" />
+    <GetFileHash Files="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Hash" PropertyName="DownloadedLayoutModelSha256" />
+    </GetFileHash>
+    <Delete Files="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" Condition="'$(DownloadedLayoutModelSha256.ToLowerInvariant())' != '$(LayoutModelSha256)'" />
+    <Error Condition="'$(DownloadedLayoutModelSha256.ToLowerInvariant())' != '$(LayoutModelSha256)'" Text="The layout model downloaded from $(LayoutModelUrl) has SHA-256 $(DownloadedLayoutModelSha256), expected $(LayoutModelSha256)." />
+    <Move SourceFiles="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" DestinationFiles="$(LayoutModelPath)" />
+  </Target>
+
+  <!-- Every build, not only after a download: a file restored from a cache or left in .models must match too. -->
+  <Target Name="VerifyLayoutModel" AfterTargets="DownloadLayoutModel" BeforeTargets="BeforeBuild;AssignTargetPaths">
+    <GetFileHash Files="$(LayoutModelPath)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Hash" PropertyName="ExistingLayoutModelSha256" />
+    </GetFileHash>
+    <Error Condition="'$(ExistingLayoutModelSha256.ToLowerInvariant())' != '$(LayoutModelSha256)'" Text="$(LayoutModelPath) has SHA-256 $(ExistingLayoutModelSha256), expected $(LayoutModelSha256). Delete it to download it again." />
+  </Target>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Connapse.Ingestion.Tests" />
   </ItemGroup>

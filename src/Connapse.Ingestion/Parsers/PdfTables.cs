@@ -32,7 +32,7 @@ public enum PdfTableMode
 /// question about a table asks for. Before this, olmOCR-bench's table checks passed 0.1%.
 /// </para>
 /// </summary>
-internal static class PdfTables
+internal static partial class PdfTables
 {
     /// <summary>
     /// The page's text with its tables as Markdown, or null when no table was found, in which
@@ -120,7 +120,7 @@ internal static class PdfTables
     /// rather than paragraphs. Stream detection otherwise turns ordinary prose into one-column
     /// or ragged "tables".
     /// </summary>
-    private static bool IsUsable(Table table)
+    internal static bool IsUsable(Table table)
     {
         if (table.RowCount < 2 || table.ColumnCount < 2)
             return false;
@@ -138,26 +138,57 @@ internal static class PdfTables
         point.X >= table.Left - 1 && point.X <= table.Right + 1 &&
         point.Y >= table.Bottom - 1 && point.Y <= table.Top + 1;
 
-    /// <summary>The first row is the header, as Markdown requires; cells keep their own text.</summary>
+    /// <summary>
+    /// The header first, as Markdown requires; cells keep their own text. A column heading set on
+    /// several lines comes out of Tabula as several rows, of which only the first would be the
+    /// Markdown header -- the one row repeated on every chunk of a long table, so later chunks lost
+    /// "Income year" and kept only a fragment. Leading rows above the first row of numbers are
+    /// merged, column by column, into one header row (#642).
+    /// </summary>
     internal static string ToMarkdown(Table table)
     {
-        var builder = new StringBuilder();
-        bool header = true;
-        foreach (var row in table.Rows)
-        {
-            builder.Append('|');
-            foreach (var cell in row)
-                builder.Append(' ').Append(Escape(cell.GetText())).Append(" |");
-            builder.Append('\n');
+        var rows = table.Rows.Select(r => r.Select(c => Escape(c.GetText())).ToList()).ToList();
+        int headerRows = HeaderRowCount(rows);
+        int columns = rows.Max(r => r.Count);
+        var header = Enumerable.Range(0, columns)
+            .Select(c => string.Join(' ', rows.Take(headerRows).Select(r => c < r.Count ? r[c] : "").Where(s => s.Length > 0)))
+            .ToList();
 
-            if (header)
-            {
-                builder.Append('|').Append(string.Concat(Enumerable.Repeat(" --- |", row.Count))).Append('\n');
-                header = false;
-            }
-        }
+        var builder = new StringBuilder();
+        AppendRow(builder, header);
+        builder.Append('|').Append(string.Concat(Enumerable.Repeat(" --- |", columns))).Append('\n');
+        foreach (var row in rows.Skip(headerRows))
+            AppendRow(builder, row);
         return builder.ToString().TrimEnd('\n');
     }
+
+    private static void AppendRow(StringBuilder builder, List<string> cells)
+    {
+        builder.Append('|');
+        foreach (string cell in cells)
+            builder.Append(' ').Append(cell).Append(" |");
+        builder.Append('\n');
+    }
+
+    /// <summary>
+    /// How many leading rows are column headings: those before the first row whose cells after the
+    /// first are mostly numbers, at most five, leaving two rows of data. One when no row of numbers
+    /// comes that early -- a table of words, whose rows cannot be told from headings this way.
+    /// </summary>
+    internal static int HeaderRowCount(IReadOnlyList<IReadOnlyList<string>> rows)
+    {
+        const int MaxHeaderRows = 5;
+        for (int i = 0; i < Math.Min(MaxHeaderRows + 1, rows.Count - 1); i++)
+        {
+            var values = rows[i].Skip(1).Where(c => c.Length > 0).ToList();
+            if (values.Count > 0 && values.Count(c => NumberCell().IsMatch(c)) * 2 > values.Count)
+                return Math.Max(1, i);
+        }
+        return 1;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[-\u2013\u2212+$(]?\s*\d[\d,.\s]*%?\)?$|^[Xx\u2013-]$")]
+    private static partial System.Text.RegularExpressions.Regex NumberCell();
 
     private static string Escape(string text) =>
         string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace("|", "\\|");
