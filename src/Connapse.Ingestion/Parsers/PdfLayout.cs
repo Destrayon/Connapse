@@ -217,6 +217,7 @@ internal static class PdfLayout
             InterOpNumThreads = 1,
             ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
             EnableCpuMemArena = false,
+            EnableMemoryPattern = false,
         };
         // Same reasons as OCR: a fixed core budget per ingestion worker, no spinning while idle.
         options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
