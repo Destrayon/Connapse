@@ -64,7 +64,9 @@
   </ItemGroup>
 
   <Target Name="DownloadLayoutModel" BeforeTargets="BeforeBuild;AssignTargetPaths" Condition="!Exists('$(LayoutModelPath)')">
-    <DownloadFile SourceUrl="$(LayoutModelUrl)" DestinationFolder="$(LayoutModelDir)" DestinationFileName="pp_doc_layoutv3.onnx.part" Retries="3" />
+    <!-- curl, not MSBuild's DownloadFile: ModelScope redirects to a storage host that refuses DownloadFile (403). -->
+    <MakeDir Directories="$(LayoutModelDir)" />
+    <Exec Command="curl -fsSL --retry 3 -o &quot;$(LayoutModelDir)pp_doc_layoutv3.onnx.part&quot; &quot;$(LayoutModelUrl)&quot;" />
     <GetFileHash Files="$(LayoutModelDir)pp_doc_layoutv3.onnx.part" Algorithm="SHA256" HashEncoding="hex">
       <Output TaskParameter="Hash" PropertyName="DownloadedLayoutModelSha256" />
     </GetFileHash>
