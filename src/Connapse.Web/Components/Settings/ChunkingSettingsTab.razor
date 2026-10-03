@@ -46,7 +46,7 @@
 
             <div class="col-md-6">
                 <label class="form-label" for="breakpointMethod">Breakpoint Method</label>
-                <InputSelect @bind-Value="localSettings.SemanticBreakpointMethod" class="form-select" id="breakpointMethod">
+                <InputSelect @bind-Value="localSettings.SemanticBreakpointMethod" @bind-Value:after="OnBreakpointMethodChanged" class="form-select" id="breakpointMethod">
                     <option value="Percentile">Percentile</option>
                     <option value="StandardDeviation">Standard deviation</option>
                     <option value="InterQuartile">Interquartile range</option>
@@ -139,6 +139,21 @@
         ChunkingStrategy.SentenceWindow => "Sentence Window",
         _ => strategy.ToString(),
     };
+
+    /// <summary>
+    /// Each method reads the amount differently -- a percentile for Percentile and Gradient, a
+    /// multiplier for the others -- so a kept amount would mean something else: 95 as a percentile is
+    /// a 95x multiplier, which never breaks. Switching method starts from that method's default.
+    /// </summary>
+    private void OnBreakpointMethodChanged()
+    {
+        localSettings.SemanticBreakpointAmount = localSettings.SemanticBreakpointMethod switch
+        {
+            "StandardDeviation" => 3,
+            "InterQuartile" => 1.5,
+            _ => 95,
+        };
+    }
 
     private string? separatorsText;
     private string? separatorsError;

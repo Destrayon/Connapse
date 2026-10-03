@@ -28,9 +28,9 @@
         <div class="col-md-6">
             <label class="form-label" for="pdfTextMode">Text Mode</label>
             <InputSelect @bind-Value="localSettings.PdfTextMode" class="form-select" id="pdfTextMode">
-                @foreach (string mode in Enum.GetNames<PdfTextMode>())
+                @foreach ((string value, string label) in Options(Enum.GetNames<PdfTextMode>(), localSettings.PdfTextMode))
                 {
-                    <option value="@mode">@mode</option>
+                    <option value="@value">@label</option>
                 }
             </InputSelect>
             <small class="form-text text-muted">@Describe(TextModes, localSettings.PdfTextMode)</small>
@@ -39,9 +39,9 @@
         <div class="col-md-6">
             <label class="form-label" for="pdfTableMode">Tables</label>
             <InputSelect @bind-Value="localSettings.PdfTableMode" class="form-select" id="pdfTableMode">
-                @foreach (string mode in Enum.GetNames<PdfTableMode>())
+                @foreach ((string value, string label) in Options(Enum.GetNames<PdfTableMode>(), localSettings.PdfTableMode))
                 {
-                    <option value="@mode">@mode</option>
+                    <option value="@value">@label</option>
                 }
             </InputSelect>
             <small class="form-text text-muted">@Describe(TableModes, localSettings.PdfTableMode)</small>
@@ -175,9 +175,9 @@
         <div class="col-md-6">
             <label class="form-label" for="parserSandbox">Sandbox</label>
             <InputSelect @bind-Value="localSettings.ParserSandbox" class="form-select" id="parserSandbox">
-                @foreach (string mode in Enum.GetNames<ParserSandboxMode>())
+                @foreach ((string value, string label) in Options(Enum.GetNames<ParserSandboxMode>(), localSettings.ParserSandbox))
                 {
-                    <option value="@mode">@mode</option>
+                    <option value="@value">@label</option>
                 }
             </InputSelect>
             <small class="form-text text-muted">@Describe(SandboxModes, localSettings.ParserSandbox)</small>
@@ -197,8 +197,23 @@
             <small class="form-text text-muted">A parser process is replaced with a fresh one after this many files (default 50).</small>
         </div>
 
+        @if (WeakensIsolation)
+        {
+            <div class="col-12">
+                <div class="alert alert-warning mb-0">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="confirmIsolation" @bind="confirmedWeakerIsolation" />
+                        <label class="form-check-label" for="confirmIsolation">
+                            Save with weaker parser isolation. Uploaded files are untrusted: with parsers in the web process, or not
+                            sandboxed, a file that exploits a parser can reach this server's settings, data or network.
+                        </label>
+                    </div>
+                </div>
+            </div>
+        }
+
         <div class="col-12 mt-4">
-            <button type="submit" class="btn btn-primary me-2">
+            <button type="submit" class="btn btn-primary me-2" disabled="@(WeakensIsolation && !confirmedWeakerIsolation)">
                 <span class="bi-save me-1"></span> Save Changes
             </button>
             <button type="button" class="btn btn-secondary" @onclick="Reset">
@@ -257,7 +272,28 @@
     };
 
     private static string Describe(Dictionary<string, string> descriptions, string? value) =>
-        value is not null && descriptions.TryGetValue(value, out string? text) ? text : "";
+        value is not null && descriptions.TryGetValue(value, out string? text) ? text
+        : value is not null ? "Not a value this version recognises; files are read with the default until you choose one." : "";
+
+    /// <summary>
+    /// The choices, plus the saved value when it is none of them -- written by another version or by
+    /// hand -- so the list shows what is stored instead of silently selecting its first entry.
+    /// </summary>
+    private static IEnumerable<(string Value, string Label)> Options(IEnumerable<string> names, string? current)
+    {
+        var list = names.Select(n => (n, n)).ToList();
+        if (!string.IsNullOrEmpty(current) && !list.Any(o => string.Equals(o.Item1, current, StringComparison.OrdinalIgnoreCase)))
+            list.Insert(0, (current, $"{current} (not recognised)"));
+        return list;
+    }
+
+    private bool confirmedWeakerIsolation;
+
+    /// <summary>The form turns isolation or the sandbox off where the saved settings had them on.</summary>
+    private bool WeakensIsolation =>
+        (Settings.IsolateParsers && !localSettings.IsolateParsers)
+        || (!string.Equals(Settings.ParserSandbox, "Off", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(localSettings.ParserSandbox, "Off", StringComparison.OrdinalIgnoreCase));
 
     protected override void OnParametersSet()
     {
@@ -266,11 +302,15 @@
 
     private async Task HandleSubmit()
     {
+        if (WeakensIsolation && !confirmedWeakerIsolation)
+            return;
         await OnSave.InvokeAsync(localSettings);
+        confirmedWeakerIsolation = false;
     }
 
     private void Reset()
     {
         localSettings = Settings with { };
+        confirmedWeakerIsolation = false;
     }
 }
