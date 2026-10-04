@@ -393,6 +393,10 @@ public sealed class ParserProcessPoolTests : IDisposable
         await File.WriteAllTextAsync(upload, "another user's upload");
         try
         {
+            // A host says it is ready before it reads a request (#657).
+            byte[] ready = (await ParserProtocol.ReadFrameAsync(host.StandardOutput.BaseStream, 1 << 16, CancellationToken.None))!;
+            ParserProtocol.Deserialize<ParserProtocol.Ready>(ready).Sandbox.Should().StartWith("landlock");
+
             async Task<string> AskAsync(string parser, string text)
             {
                 await ParserProtocol.WriteJsonAsync(host.StandardInput.BaseStream, new ParserProtocol.ParseRequest(parser, "file.txt", Settings), CancellationToken.None);
