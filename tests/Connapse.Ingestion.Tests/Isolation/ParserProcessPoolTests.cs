@@ -134,6 +134,31 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task ParseAsync_FreshHostDiesBeforeReplying_RetriedOnceThenReportedWithItsExitCode()
+    {
+        int before = _pool.HostsStarted;
+
+        var act = () => ParseAsync(_pool, "Test.Crash");
+
+        // A fresh host's death may be a start-up failure (#657): one more host tries the file.
+        // Test.Crash takes that one down too, so the file fails, saying how the process ended.
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*exit code*[parse_crashed]*");
+        (_pool.HostsStarted - before).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ParseAsync_HostThatHadParsedFilesCrashes_NotRetried()
+    {
+        await ParseAsync(_pool, nameof(TextParser), "warm up");
+        int before = _pool.HostsStarted;
+
+        var act = () => ParseAsync(_pool, "Test.Crash");
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[parse_crashed]*");
+        _pool.HostsStarted.Should().Be(before, "the crash was on a host that had already parsed a file, so it is the file's");
+    }
+
+    [Fact]
     public async Task ParseAsync_PermanentFailureFromTheParser_KeepsItsMessage()
     {
         var act = () => ParseAsync(_pool, "Test.Permanent");
