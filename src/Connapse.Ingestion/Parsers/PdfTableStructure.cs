@@ -216,8 +216,17 @@ internal static partial class PdfTableStructure
     /// every grid position it spans, so each row and column keeps its label.
     /// </summary>
     internal static IReadOnlyList<IReadOnlyList<string>> Fill(
-        Structure structure, IReadOnlyList<(string Text, double X, double Y, int Sequence)> words)
+        Structure structure, IReadOnlyList<(string Text, double X, double Y, int Sequence)> words) =>
+        Fill(structure, words, out _);
+
+    /// <summary>How far outside every cell, in points, a word may sit before it counts as stray.</summary>
+    internal const double StrayDistance = 3;
+
+    /// <param name="stray">Words with a letter or digit farther than <see cref="StrayDistance"/> from every cell's box.</param>
+    internal static IReadOnlyList<IReadOnlyList<string>> Fill(
+        Structure structure, IReadOnlyList<(string Text, double X, double Y, int Sequence)> words, out int stray)
     {
+        stray = 0;
         var texts = structure.Cells.Select(_ => new List<(string Text, int Sequence)>()).ToList();
         foreach (var word in words)
         {
@@ -236,6 +245,10 @@ internal static partial class PdfTableStructure
                 }
             }
             texts[best].Add((word.Text, word.Sequence));
+            // Leader dots and rules between cells are punctuation, not values: they sit outside every
+            // box on purpose and say nothing about whether the boxes are right.
+            if (bestDistance > StrayDistance && word.Text.Any(char.IsLetterOrDigit))
+                stray++;
         }
 
         var grid = Enumerable.Range(0, structure.Rows).Select(_ => Enumerable.Repeat("", structure.Columns).ToArray()).ToArray();

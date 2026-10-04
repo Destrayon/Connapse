@@ -75,13 +75,13 @@ internal static partial class PdfLayoutText
         PageArea? area = null;
         List<Table>? ruled = null;
         var used = new HashSet<Table>();
-        string text = Compose(words, regions, region =>
+        string text = Compose(words, regions, (region, owned) =>
         {
             if (!tables)
                 return null;
             area ??= ObjectExtractor.ExtractPage(page);
             ruled ??= new SpreadsheetExtractionAlgorithm().Extract(area).Where(PdfTables.IsUsable).ToList();
-            return Table(area, ruled, used, crop, region, words, recognize);
+            return Table(area, ruled, used, crop, region, owned, recognize);
         });
         return text.Length == 0 ? null : text;
     }
@@ -91,7 +91,8 @@ internal static partial class PdfLayoutText
     /// as Markdown, or returns null to read it as lines.
     /// </summary>
     internal static string Compose(
-        IReadOnlyList<PlacedWord> words, IReadOnlyList<PdfLayout.Region> regions, Func<PdfLayout.Region, TableText?> table)
+        IReadOnlyList<PlacedWord> words, IReadOnlyList<PdfLayout.Region> regions,
+        Func<PdfLayout.Region, IReadOnlyList<PlacedWord>, TableText?> table)
     {
         var byRegion = regions.ToDictionary(r => r, _ => new List<PlacedWord>());
         var orphans = new List<PlacedWord>();
@@ -133,7 +134,9 @@ internal static partial class PdfLayoutText
                 blocks.Add(Lines(inside));
                 continue;
             }
-            if (table(region) is not { } written)
+            // The table sees only the words this region owns: a text region overlapping it keeps its
+            // own words, which would otherwise be written twice.
+            if (table(region, inside) is not { } written)
             {
                 blocks.Add(ContentOrderLines(inside));
                 continue;
@@ -295,7 +298,12 @@ internal static partial class PdfLayoutText
             .Select(w => (w.Text, X: (w.Left + w.Right) / 2, Y: w.Baseline + w.Height / 2, w.Sequence))
             .Where(w => w.X >= left && w.X <= right && w.Y >= bottom && w.Y <= top)
             .ToList();
-        IReadOnlyList<IReadOnlyList<string>> grid = PdfTableStructure.Fill(structure, inside);
+        IReadOnlyList<IReadOnlyList<string>> grid = PdfTableStructure.Fill(structure, inside, out int stray);
+
+        // Words well outside every predicted cell mean boxes are missing or shifted; filling them into
+        // the nearest cell would pair values with the wrong row or column.
+        if (stray > 0.1 * inside.Count(w => w.Text.Any(char.IsLetterOrDigit)))
+            return null;
         int filled = structure.Cells.Count(c => grid[c.Row][c.Column].Length > 0);
         if (filled < 0.4 * structure.Cells.Count)
             return null;

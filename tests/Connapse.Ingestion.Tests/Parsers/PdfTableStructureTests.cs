@@ -96,6 +96,27 @@ public class PdfTableStructureTests
     }
 
     [Fact]
+    public void FromStructure_BoxesAwayFromTheWords_Rejected()
+    {
+        // The model's cells sit at the top of the region; the words are 60 points below them.
+        string[] tokens = ["<tr>", "<td></td>", "<td></td>", "</tr>", "<tr>", "<td></td>", "<td></td>", "</tr>"];
+        var structure = PdfTableStructure.Build(tokens, [(0, 180, 100, 200), (100, 180, 200, 200), (0, 160, 100, 180), (100, 160, 200, 180)])!;
+        PdfLayoutText.PlacedWord[] words = [Word("Ohio", 50, 100), Word("4,213", 150, 100), Word("Iowa", 50, 85), Word("812", 150, 85)];
+
+        PdfLayoutText.FromStructure(structure, words, 0, 0, 200, 200).Should().BeNull();
+    }
+
+    [Fact]
+    public void ToMarkdown_HeadingSpanningBothHeaderRows_WrittenOnce()
+    {
+        string[][] rows = [["Region", "2021"], ["Region", "Estimate"], ["Ohio", "4,213"]];
+
+        string markdown = PdfTables.ToMarkdown(rows, headerRows: 2);
+
+        markdown.Split('\n')[0].Should().Be("| Region | 2021 Estimate |");
+    }
+
+    [Fact]
     public async Task ParseAsync_BorderlessTable_LayoutModeWritesItsRowsAsMarkdown()
     {
         // A report page with a borderless table: no ruling lines for Tabula, so the region is read by

@@ -160,7 +160,8 @@ internal static partial class PdfTables
         if (rows.Count == 1)
             headings = 1;
         var header = Enumerable.Range(0, columns)
-            .Select(c => string.Join(' ', rows.Take(headings).Select(r => c < r.Count ? r[c] : "").Where(s => s.Length > 0)))
+            // A heading spanning two of the merged rows appears in both; it is written once.
+            .Select(c => string.Join(' ', WithoutRepeats(rows.Take(headings).Select(r => c < r.Count ? r[c] : "").Where(s => s.Length > 0))))
             .ToList();
 
         var builder = new StringBuilder();
@@ -169,6 +170,17 @@ internal static partial class PdfTables
         foreach (var row in rows.Skip(headings))
             AppendRow(builder, row.Concat(Enumerable.Repeat("", columns - row.Count)).ToList());
         return builder.ToString().TrimEnd('\n');
+    }
+
+    private static IEnumerable<string> WithoutRepeats(IEnumerable<string> texts)
+    {
+        string? previous = null;
+        foreach (string text in texts)
+        {
+            if (text != previous)
+                yield return text;
+            previous = text;
+        }
     }
 
     private static void AppendRow(StringBuilder builder, List<string> cells)
