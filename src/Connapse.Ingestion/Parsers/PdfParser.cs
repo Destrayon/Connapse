@@ -41,8 +41,9 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// 3: ruled tables as Markdown tables via Tabula (#597); 44.0% to 47.4%.
     /// 4: OCR for pages with no text layer or a garbled one (#598).
     /// 5: the Layout text mode, and table headings set on several lines merged into one header row (#642).
+    /// 6: table regions without ruling lines read by the SLANet+ table-structure model (#652).
     /// </summary>
-    public int Version => 5;
+    public int Version => 6;
 
     /// <summary>
     /// Text mode, table mode, header and footer removal, and OCR on or off with its resolution.

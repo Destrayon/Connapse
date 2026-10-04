@@ -265,6 +265,9 @@ internal static partial class PdfTableStructure
             ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
             EnableCpuMemArena = false,
             EnableMemoryPattern = false,
+            // Errors only: SLANet+'s graph logs a shape warning at every decoding step, thousands a
+            // table, which crowds real errors out of the parser host's stderr tail.
+            LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR,
         };
         options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
         options.AddSessionConfigEntry("session.inter_op.allow_spinning", "0");

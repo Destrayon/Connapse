@@ -218,6 +218,9 @@ internal static class PdfLayout
             ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
             EnableCpuMemArena = false,
             EnableMemoryPattern = false,
+            // Errors only: SLANet+'s graph logs a shape warning at every decoding step, thousands a
+            // table, which crowds real errors out of the parser host's stderr tail.
+            LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR,
         };
         // Same reasons as OCR: a fixed core budget per ingestion worker, no spinning while idle.
         options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
