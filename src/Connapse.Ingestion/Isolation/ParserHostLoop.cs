@@ -44,6 +44,9 @@ public static class ParserHostLoop
                 outOfMemory = true;
         };
 
+        await WriteJsonAsync(output, new Ready(sandbox), CancellationToken.None);
+        await output.FlushAsync();
+
         while (true)
         {
             byte[]? header = await ReadFrameAsync(input, MaxRequestFrame, CancellationToken.None);

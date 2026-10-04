@@ -134,6 +134,42 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task ParseAsync_HostFailsToStart_FileGoesToANewHost()
+    {
+        int failures = 1;
+        _pool.StartInfoForTests = start =>
+        {
+            if (Interlocked.Decrement(ref failures) >= 0)
+                start.Environment["CONNAPSE_TEST_FAIL_TO_START"] = "1";
+            return start;
+        };
+        int before = _pool.HostsStarted;
+
+        var parsed = await ParseAsync(_pool, nameof(TextParser), "parsed by the second host");
+
+        // The first host ended before it was ready, so it never saw the file (#657).
+        parsed.Content.Should().Be("parsed by the second host");
+        (_pool.HostsStarted - before).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ParseAsync_HostDiesOnTheFile_NotRetriedAndReportedWithItsExitCode()
+    {
+        int before = _pool.HostsStarted;
+
+        var act = () => ParseAsync(_pool, "Test.Crash");
+
+        // The host was ready and died on the file: it may have been killed for memory before the
+        // watchdog saw it, so the file is not given to another host.
+        var failure = await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*exit code*[parse_crashed]*");
+        (_pool.HostsStarted - before).Should().Be(1);
+
+        // Environment.FailFast aborts: on Linux that is SIGABRT, which .NET reports as 128 + 6.
+        if (OperatingSystem.IsLinux())
+            failure.Which.Message.Should().Contain("signal 6 (SIGABRT)");
+    }
+
+    [Fact]
     public async Task ParseAsync_PermanentFailureFromTheParser_KeepsItsMessage()
     {
         var act = () => ParseAsync(_pool, "Test.Permanent");
@@ -357,6 +393,10 @@ public sealed class ParserProcessPoolTests : IDisposable
         await File.WriteAllTextAsync(upload, "another user's upload");
         try
         {
+            // A host says it is ready before it reads a request (#657).
+            byte[] ready = (await ParserProtocol.ReadFrameAsync(host.StandardOutput.BaseStream, 1 << 16, CancellationToken.None))!;
+            ParserProtocol.Deserialize<ParserProtocol.Ready>(ready).Sandbox.Should().StartWith("landlock");
+
             async Task<string> AskAsync(string parser, string text)
             {
                 await ParserProtocol.WriteJsonAsync(host.StandardInput.BaseStream, new ParserProtocol.ParseRequest(parser, "file.txt", Settings), CancellationToken.None);

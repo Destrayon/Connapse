@@ -92,6 +92,17 @@ public sealed class ParserProcessPool : IDisposable
     /// <summary>Host processes running now, busy or idle.</summary>
     internal IReadOnlyList<int> HostProcessIds => _all.Keys.Select(h => h.ProcessId).ToList();
 
+    /// <summary>A host ended, or broke its pipe, before it said it was ready: it never read the file.</summary>
+    private sealed class HostNotReadyException(string message, Exception? inner = null) : IOException(message, inner);
+
+    /// <summary>Lets tests change how hosts are started, such as making one fail to start.</summary>
+    internal Func<ProcessStartInfo, ProcessStartInfo>? StartInfoForTests { get; set; }
+
+    /// <summary>Hosts started since the pool was made, for tests of the retry.</summary>
+    internal int HostsStarted => Volatile.Read(ref _hostsStarted);
+
+    private int _hostsStarted;
+
     /// <summary>
     /// True for the parsers the host carries -- Connapse's own -- when the host is deployed.
     /// Anything else (a test double, a parser added by a later integration) runs in-process.
@@ -145,40 +156,57 @@ public sealed class ParserProcessPool : IDisposable
         Host? host = null;
         try
         {
-            host = Take(settings);
-
-            // Killing the process is what ends the exchange at the deadline: a pipe read does not
-            // reliably observe a token, but it does end when the writer dies.
-            Host current = host;
-            using var kill = deadline.Token.Register(() => current.Kill());
-
             ParseResponse response;
-            try
+            for (int attempt = 1; ; attempt++)
             {
-                response = await host.ExchangeAsync(new ParseRequest(parser.Name, fileName, settings), content, MaxResponseFrame(settings), deadline.Token);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                // Read before the kill: the host's last words say whether it ran out of memory.
-                string stderr = current.CollectErrors();
-                Discard(ref host);
-                if (current.KilledForMemory)
-                    throw OutOfMemory(name, MemoryLimitMb(settings), ex);
-                if (ct.IsCancellationRequested)
-                    throw new OperationCanceledException(ct);
-                if (deadline.IsCancellationRequested)
+                host = Take(settings);
+
+                // Killing the process is what ends the exchange at the deadline: a pipe read does not
+                // reliably observe a token, but it does end when the writer dies.
+                Host current = host;
+                using var kill = deadline.Token.Register(() => current.Kill());
+
+                try
                 {
-                    _logger.LogWarning("ParserHostKilled {Parser} on {FileName} at the {TimeoutSeconds} s deadline",
-                        parser.Name, LogSanitizer.Sanitize(name), timeout.TotalSeconds);
-                    throw Timeout(name, timeout, ex);
+                    response = await host.ExchangeAsync(new ParseRequest(parser.Name, fileName, settings), content, MaxResponseFrame(settings), deadline.Token);
+                    break;
                 }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    // Read before the kill: the host's last words say whether it ran out of memory.
+                    string stderr = current.CollectErrors();
+                    string exit = current.ExitDescription();
+                    Discard(ref host);
+                    if (current.KilledForMemory)
+                        throw OutOfMemory(name, MemoryLimitMb(settings), ex);
+                    if (ct.IsCancellationRequested)
+                        throw new OperationCanceledException(ct);
+                    if (deadline.IsCancellationRequested)
+                    {
+                        _logger.LogWarning("ParserHostKilled {Parser} on {FileName} at the {TimeoutSeconds} s deadline",
+                            parser.Name, LogSanitizer.Sanitize(name), timeout.TotalSeconds);
+                        throw Timeout(name, timeout, ex);
+                    }
 
-                if (stderr.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase))
-                    throw OutOfMemory(name, MemoryLimitMb(settings), ex);
+                    if (stderr.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase))
+                        throw OutOfMemory(name, MemoryLimitMb(settings), ex);
 
-                _logger.LogError(ex, "ParserHostCrashed {Parser} on {FileName}: {Stderr}",
-                    parser.Name, LogSanitizer.Sanitize(name), stderr);
-                throw new PermanentIngestionException($"Could not parse {name}: the parser process crashed [parse_crashed]", ex);
+                    // A host that died before saying it was ready never read the file: it failed to
+                    // start -- confining itself, re-executing, loading the runtime (#657). One new host
+                    // gets the file, within the same deadline. A host that died after it was ready
+                    // died on the file, perhaps killed for memory before the watchdog saw it, and is
+                    // not given it again.
+                    if (ex is HostNotReadyException && attempt == 1)
+                    {
+                        _logger.LogWarning(ex, "ParserHostFailedToStart before {Parser} on {FileName}, {Exit}; retrying on a new host: {Stderr}",
+                            parser.Name, LogSanitizer.Sanitize(name), exit, stderr);
+                        continue;
+                    }
+
+                    _logger.LogError(ex, "ParserHostCrashed {Parser} on {FileName}, {Exit}: {Stderr}",
+                        parser.Name, LogSanitizer.Sanitize(name), exit, stderr);
+                    throw new PermanentIngestionException($"Could not parse {name}: the parser process crashed ({exit}) [parse_crashed]", ex);
+                }
             }
 
             LogSandboxOnce(response.Sandbox);
@@ -244,7 +272,9 @@ public sealed class ParserProcessPool : IDisposable
 
         int limitMb = MemoryLimitMb(settings);
         ParserSandboxMode sandbox = SandboxModeOf(settings);
-        var host = Host.Start(StartInfo(HostPath, limitMb, sandboxMode: sandbox), limitMb, sandbox);
+        ProcessStartInfo start = StartInfo(HostPath, limitMb, sandboxMode: sandbox);
+        var host = Host.Start(StartInfoForTests?.Invoke(start) ?? start, limitMb, sandbox);
+        Interlocked.Increment(ref _hostsStarted);
         _all[host] = 0;
         return host;
     }
@@ -368,6 +398,10 @@ public sealed class ParserProcessPool : IDisposable
         private readonly Process _process;
         private readonly ConcurrentQueue<string> _errorTail = new();
         private int _killed;
+        private bool _ready;
+
+        /// <summary>A ready frame is a few dozen bytes; anything larger is not one.</summary>
+        private const int MaxReadyFrame = 64 * 1024;
 
         private Host(Process process, int memoryLimitMb, ParserSandboxMode sandboxMode)
         {
@@ -412,6 +446,39 @@ public sealed class ParserProcessPool : IDisposable
             return string.Join('\n', _errorTail);
         }
 
+        /// <summary>
+        /// How the process ended, for the crash report: its exit code, and on Linux and macOS the
+        /// signal a code above 128 stands for (.NET reports a signalled process as 128 + signal).
+        /// Call after <see cref="CollectErrors"/>, which waits for the process to end.
+        /// </summary>
+        public string ExitDescription()
+        {
+            try
+            {
+                if (!_process.HasExited)
+                    return "still running";
+                int code = _process.ExitCode;
+                return !OperatingSystem.IsWindows() && code > 128 && code < 128 + 65
+                    ? $"exit code {code}, signal {code - 128}{SignalName(code - 128)}"
+                    : $"exit code {code}";
+            }
+            catch (InvalidOperationException)
+            {
+                return "exit code unknown";
+            }
+        }
+
+        private static string SignalName(int signal) => signal switch
+        {
+            4 => " (SIGILL)",
+            6 => " (SIGABRT)",
+            7 => " (SIGBUS)",
+            9 => " (SIGKILL)",
+            11 => " (SIGSEGV)",
+            31 => " (SIGSYS, a blocked system call)",
+            _ => "",
+        };
+
         public static Host Start(ProcessStartInfo start, int memoryLimitMb, ParserSandboxMode sandboxMode)
         {
             var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {start.ArgumentList[0]}.");
@@ -454,6 +521,23 @@ public sealed class ParserProcessPool : IDisposable
                     // Exited or disposed between checks.
                 }
             }, null, MemoryCheckInterval, MemoryCheckInterval);
+
+            // The first exchange waits for the host to say it started; the file is only written
+            // once it has, so a host that fails to start never sees it.
+            if (!_ready)
+            {
+                try
+                {
+                    byte[] ready = await ReadFrameAsync(_process.StandardOutput.BaseStream, MaxReadyFrame, ct)
+                        ?? throw new HostNotReadyException("The parser host exited before it was ready.");
+                    Deserialize<Ready>(ready);
+                }
+                catch (Exception ex) when (ex is not (OperationCanceledException or HostNotReadyException))
+                {
+                    throw new HostNotReadyException("The parser host broke off before it was ready.", ex);
+                }
+                _ready = true;
+            }
 
             Stream input = _process.StandardInput.BaseStream;
             await WriteJsonAsync(input, request, ct);
