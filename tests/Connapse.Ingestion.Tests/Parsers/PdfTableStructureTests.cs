@@ -107,6 +107,21 @@ public class PdfTableStructureTests
     }
 
     [Fact]
+    public void FromStructure_OcrLineAcrossTwoCells_Rejected()
+    {
+        // Two columns; OCR read the second row's two cells as one line running across both.
+        string[] tokens = ["<tr>", "<td></td>", "<td></td>", "</tr>", "<tr>", "<td></td>", "<td></td>", "</tr>"];
+        var structure = PdfTableStructure.Build(tokens, [(0, 50, 100, 100), (100, 50, 200, 100), (0, 0, 100, 50), (100, 0, 200, 50)])!;
+        PdfLayoutText.PlacedWord[] lines =
+        [
+            new("Region", 0, 0, 10, 60, 70, 10, 0), new("Total", 0, 0, 110, 150, 70, 10, 1),
+            new("Ohio 4,213", 0, 0, 10, 170, 20, 10, 2),
+        ];
+
+        PdfLayoutText.FromStructure(structure, lines, 0, 0, 200, 100).Should().BeNull();
+    }
+
+    [Fact]
     public void ToMarkdown_HeadingSpanningBothHeaderRows_WrittenOnce()
     {
         string[][] rows = [["Region", "2021"], ["Region", "Estimate"], ["Ohio", "4,213"]];

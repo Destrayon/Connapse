@@ -345,6 +345,13 @@ internal static partial class PdfLayoutText
             .Select(w => (w.Text, X: (w.Left + w.Right) / 2, Y: w.Baseline + w.Height / 2, w.Sequence))
             .Where(w => w.X >= left && w.X <= right && w.Y >= bottom && w.Y <= top)
             .ToList();
+        // A word -- or an OCR'd line -- running across two cells of one row would land whole in
+        // one of them, putting one column's value in the other's: the recogniser can read two
+        // close cells as one line. Such a reading is rejected rather than filled.
+        int straddling = words.Count(w => w.Text.Any(char.IsLetterOrDigit) && Straddles(structure, w));
+        if (straddling > 0.05 * Math.Max(1, words.Count(w => w.Text.Any(char.IsLetterOrDigit))))
+            return null;
+
         IReadOnlyList<IReadOnlyList<string>> grid = PdfTableStructure.Fill(structure, inside, out int stray);
 
         // Words well outside every predicted cell mean boxes are missing or shifted; filling them into
@@ -403,6 +410,21 @@ internal static partial class PdfLayoutText
         }
         return nonEmpty > 0 && stacked > 0.2 * nonEmpty;
     }
+
+    /// <summary>
+    /// The word's box covers a good part (4 points or more) of two different cells side by side in
+    /// the row its middle sits in.
+    /// </summary>
+    internal static bool Straddles(PdfTableStructure.Structure structure, PlacedWord word)
+    {
+        double y = word.Baseline + word.Height / 2;
+        int covered = structure.Cells.Count(c =>
+            y >= c.Bottom && y <= c.Top
+            && Math.Min(word.Right, c.Right) - Math.Max(word.Left, c.Left) >= Math.Min(StraddleOverlap, 0.5 * (c.Right - c.Left)));
+        return covered >= 2;
+    }
+
+    private const double StraddleOverlap = 4;
 
     /// <summary>Average words per cell past which a table is prose, read in content order rather than by the model.</summary>
     internal const double MaxWordsPerCell = 8;
