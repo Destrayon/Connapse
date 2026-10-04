@@ -42,8 +42,10 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// 4: OCR for pages with no text layer or a garbled one (#598).
     /// 5: the Layout text mode, and table headings set on several lines merged into one header row (#642).
     /// 6: table regions without ruling lines read by the SLANet+ table-structure model (#652).
+    /// 7: OCR'd pages read by layout region too: running headers dropped, regions ordered, tables
+    /// read by SLANet+ (#653).
     /// </summary>
-    public int Version => 6;
+    public int Version => 7;
 
     /// <summary>
     /// Text mode, table mode, header and footer removal, and OCR on or off with its resolution.
