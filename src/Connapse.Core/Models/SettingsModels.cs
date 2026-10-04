@@ -574,6 +574,14 @@ public record UploadSettings
     /// the page's text alignment, has decided it is a table; Off writes no tables.
     /// </summary>
     public string PdfTableMode { get; set; } = DefaultPdfTableMode;
+
+    /// <summary>
+    /// In the Layout text mode, also read OCR'd pages by layout region: running headers and footers
+    /// dropped, columns ordered, tables read (default: true, #653). It roughly doubles the time a
+    /// scanned page takes (about 2.2 to 4.1 s on one core); turn it off where most PDFs are scans
+    /// and ingestion speed matters more. Off, OCR'd pages are arranged by position.
+    /// </summary>
+    public bool PdfLayoutOnOcrPages { get; set; } = true;
 }
 
 /// <summary>

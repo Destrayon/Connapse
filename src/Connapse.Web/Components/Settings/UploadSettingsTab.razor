@@ -71,6 +71,18 @@
         </div>
 
         <div class="col-md-6">
+            <div class="form-check mt-2">
+                <InputCheckbox @bind-Value="localSettings.PdfLayoutOnOcrPages" class="form-check-input" id="pdfLayoutOnOcr" />
+                <label class="form-check-label" for="pdfLayoutOnOcr">Layout analysis on scanned pages</label>
+            </div>
+            <small class="form-text text-muted">
+                With Text Mode set to Layout, also read scanned pages by region: running headers dropped, columns in order,
+                tables kept as tables. Roughly doubles the time a scanned page takes (about 2 s more on one core); turn off
+                for libraries that are mostly scans.
+            </small>
+        </div>
+
+        <div class="col-md-6">
             <label class="form-label" for="maxOcrPages">Max OCR Pages per Document</label>
             <InputNumber @bind-Value="localSettings.MaxOcrPagesPerDocument" class="form-control" id="maxOcrPages" min="0" />
             <small class="form-text text-muted">The rest of a longer scan is left unread, with a warning (default 50).</small>

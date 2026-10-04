@@ -43,6 +43,7 @@ public class PdfOcrTests
         Parser(new UploadSettings { PdfTableMode = "Off" }).OutputSettings.Should().NotBe(baseline);
         Parser(new UploadSettings { PdfOcr = false }).OutputSettings.Should().NotBe(baseline);
         Parser(new UploadSettings { PdfOcrDpi = 300 }).OutputSettings.Should().NotBe(baseline);
+        Parser(new UploadSettings { PdfLayoutOnOcrPages = false }).OutputSettings.Should().NotBe(baseline);
         Parser(new UploadSettings { PdfOcrThreads = 4, MaxOcrPagesPerDocument = 5 }).OutputSettings.Should().Be(baseline,
             "threads do not change the text, and pages the budget skipped already mark the document incomplete");
     }
