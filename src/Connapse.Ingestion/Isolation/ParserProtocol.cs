@@ -6,12 +6,21 @@ namespace Connapse.Ingestion.Isolation;
 
 /// <summary>
 /// The wire format between <see cref="ParserProcessPool"/> and a parser host process (#624):
-/// length-prefixed frames over the child's stdin and stdout. A request is two frames, a JSON
-/// <see cref="ParseRequest"/> and the file's bytes; the reply is one JSON <see cref="ParseResponse"/>.
+/// length-prefixed frames over the child's stdin and stdout. A host first sends one JSON
+/// <see cref="Ready"/> frame once it has started and confined itself (#657). Then a request is two
+/// frames, a JSON <see cref="ParseRequest"/> and the file's bytes; the reply is one JSON
+/// <see cref="ParseResponse"/>.
 /// </summary>
 public static class ParserProtocol
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Sent once, before the host reads anything: it has started, confined itself as far as it
+    /// could, and is ready for files. A host that dies before sending it failed to start; one that
+    /// dies after was killed by what it was given.
+    /// </summary>
+    public sealed record Ready(string? Sandbox);
 
     /// <summary>One file to parse with the parser of the given name, under the given limits.</summary>
     public sealed record ParseRequest(string Parser, string FileName, UploadSettings Settings);

@@ -92,6 +92,12 @@ public sealed class ParserProcessPool : IDisposable
     /// <summary>Host processes running now, busy or idle.</summary>
     internal IReadOnlyList<int> HostProcessIds => _all.Keys.Select(h => h.ProcessId).ToList();
 
+    /// <summary>A host ended, or broke its pipe, before it said it was ready: it never read the file.</summary>
+    private sealed class HostNotReadyException(string message, Exception? inner = null) : IOException(message, inner);
+
+    /// <summary>Lets tests change how hosts are started, such as making one fail to start.</summary>
+    internal Func<ProcessStartInfo, ProcessStartInfo>? StartInfoForTests { get; set; }
+
     /// <summary>Hosts started since the pool was made, for tests of the retry.</summary>
     internal int HostsStarted => Volatile.Read(ref _hostsStarted);
 
@@ -154,7 +160,6 @@ public sealed class ParserProcessPool : IDisposable
             for (int attempt = 1; ; attempt++)
             {
                 host = Take(settings);
-                bool fresh = host.FilesParsed == 0;
 
                 // Killing the process is what ends the exchange at the deadline: a pipe read does not
                 // reliably observe a token, but it does end when the writer dies.
@@ -186,13 +191,14 @@ public sealed class ParserProcessPool : IDisposable
                     if (stderr.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase))
                         throw OutOfMemory(name, MemoryLimitMb(settings), ex);
 
-                    // A host that dies before its first reply may have failed to start -- confining
-                    // itself, re-executing, loading the runtime (#657) -- rather than on the file.
-                    // One fresh host gets one more try, within the same deadline; a file that
-                    // crashes the parser crashes it again and fails below.
-                    if (fresh && attempt == 1)
+                    // A host that died before saying it was ready never read the file: it failed to
+                    // start -- confining itself, re-executing, loading the runtime (#657). One new host
+                    // gets the file, within the same deadline. A host that died after it was ready
+                    // died on the file, perhaps killed for memory before the watchdog saw it, and is
+                    // not given it again.
+                    if (ex is HostNotReadyException && attempt == 1)
                     {
-                        _logger.LogWarning(ex, "ParserHostDiedBeforeFirstReply {Parser} on {FileName}, {Exit}; retrying on a new host: {Stderr}",
+                        _logger.LogWarning(ex, "ParserHostFailedToStart before {Parser} on {FileName}, {Exit}; retrying on a new host: {Stderr}",
                             parser.Name, LogSanitizer.Sanitize(name), exit, stderr);
                         continue;
                     }
@@ -266,7 +272,8 @@ public sealed class ParserProcessPool : IDisposable
 
         int limitMb = MemoryLimitMb(settings);
         ParserSandboxMode sandbox = SandboxModeOf(settings);
-        var host = Host.Start(StartInfo(HostPath, limitMb, sandboxMode: sandbox), limitMb, sandbox);
+        ProcessStartInfo start = StartInfo(HostPath, limitMb, sandboxMode: sandbox);
+        var host = Host.Start(StartInfoForTests?.Invoke(start) ?? start, limitMb, sandbox);
         Interlocked.Increment(ref _hostsStarted);
         _all[host] = 0;
         return host;
@@ -391,6 +398,10 @@ public sealed class ParserProcessPool : IDisposable
         private readonly Process _process;
         private readonly ConcurrentQueue<string> _errorTail = new();
         private int _killed;
+        private bool _ready;
+
+        /// <summary>A ready frame is a few dozen bytes; anything larger is not one.</summary>
+        private const int MaxReadyFrame = 64 * 1024;
 
         private Host(Process process, int memoryLimitMb, ParserSandboxMode sandboxMode)
         {
@@ -510,6 +521,23 @@ public sealed class ParserProcessPool : IDisposable
                     // Exited or disposed between checks.
                 }
             }, null, MemoryCheckInterval, MemoryCheckInterval);
+
+            // The first exchange waits for the host to say it started; the file is only written
+            // once it has, so a host that fails to start never sees it.
+            if (!_ready)
+            {
+                try
+                {
+                    byte[] ready = await ReadFrameAsync(_process.StandardOutput.BaseStream, MaxReadyFrame, ct)
+                        ?? throw new HostNotReadyException("The parser host exited before it was ready.");
+                    Deserialize<Ready>(ready);
+                }
+                catch (Exception ex) when (ex is not (OperationCanceledException or HostNotReadyException))
+                {
+                    throw new HostNotReadyException("The parser host broke off before it was ready.", ex);
+                }
+                _ready = true;
+            }
 
             Stream input = _process.StandardInput.BaseStream;
             await WriteJsonAsync(input, request, ct);

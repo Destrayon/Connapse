@@ -134,32 +134,39 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
-    public async Task ParseAsync_FreshHostDiesBeforeReplying_RetriedOnceThenReportedWithItsExitCode()
+    public async Task ParseAsync_HostFailsToStart_FileGoesToANewHost()
+    {
+        int failures = 1;
+        _pool.StartInfoForTests = start =>
+        {
+            if (Interlocked.Decrement(ref failures) >= 0)
+                start.Environment["CONNAPSE_TEST_FAIL_TO_START"] = "1";
+            return start;
+        };
+        int before = _pool.HostsStarted;
+
+        var parsed = await ParseAsync(_pool, nameof(TextParser), "parsed by the second host");
+
+        // The first host ended before it was ready, so it never saw the file (#657).
+        parsed.Content.Should().Be("parsed by the second host");
+        (_pool.HostsStarted - before).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ParseAsync_HostDiesOnTheFile_NotRetriedAndReportedWithItsExitCode()
     {
         int before = _pool.HostsStarted;
 
         var act = () => ParseAsync(_pool, "Test.Crash");
 
-        // A fresh host's death may be a start-up failure (#657): one more host tries the file.
-        // Test.Crash takes that one down too, so the file fails, saying how the process ended.
+        // The host was ready and died on the file: it may have been killed for memory before the
+        // watchdog saw it, so the file is not given to another host.
         var failure = await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*exit code*[parse_crashed]*");
-        (_pool.HostsStarted - before).Should().Be(2);
+        (_pool.HostsStarted - before).Should().Be(1);
 
         // Environment.FailFast aborts: on Linux that is SIGABRT, which .NET reports as 128 + 6.
         if (OperatingSystem.IsLinux())
             failure.Which.Message.Should().Contain("signal 6 (SIGABRT)");
-    }
-
-    [Fact]
-    public async Task ParseAsync_HostThatHadParsedFilesCrashes_NotRetried()
-    {
-        await ParseAsync(_pool, nameof(TextParser), "warm up");
-        int before = _pool.HostsStarted;
-
-        var act = () => ParseAsync(_pool, "Test.Crash");
-
-        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[parse_crashed]*");
-        _pool.HostsStarted.Should().Be(before, "the crash was on a host that had already parsed a file, so it is the file's");
     }
 
     [Fact]
