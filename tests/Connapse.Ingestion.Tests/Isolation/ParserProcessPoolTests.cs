@@ -142,8 +142,12 @@ public sealed class ParserProcessPoolTests : IDisposable
 
         // A fresh host's death may be a start-up failure (#657): one more host tries the file.
         // Test.Crash takes that one down too, so the file fails, saying how the process ended.
-        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*exit code*[parse_crashed]*");
+        var failure = await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*exit code*[parse_crashed]*");
         (_pool.HostsStarted - before).Should().Be(2);
+
+        // Environment.FailFast aborts: on Linux that is SIGABRT, which .NET reports as 128 + 6.
+        if (OperatingSystem.IsLinux())
+            failure.Which.Message.Should().Contain("signal 6 (SIGABRT)");
     }
 
     [Fact]
