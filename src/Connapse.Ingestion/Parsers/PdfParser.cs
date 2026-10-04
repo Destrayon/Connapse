@@ -62,7 +62,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
                 : Enum.Parse<PdfTableMode>(UploadSettings.DefaultPdfTableMode);
             string ocr = settings.PdfOcr ? $"{settings.PdfOcrDpi}dpi" : "off";
             return $"text={PdfTextModes.Parse(settings.PdfTextMode)};tables={tables};" +
-                   $"headers={settings.PdfRemoveRepeatedHeadersAndFooters};ocr={ocr}";
+                   $"headers={settings.PdfRemoveRepeatedHeadersAndFooters};ocr={ocr};ocrLayout={settings.PdfLayoutOnOcrPages}";
         }
     }
 
@@ -271,7 +271,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             {
                 PdfOcr.OcrPage? lines = PdfOcr.ReadLines(pdf, i - 1, settings.PdfOcrDpi, settings.PdfOcrThreads, ct);
                 string? ocr = lines is null ? null : OcrLayout.Arrange(lines.Lines);
-                if (lines is not null && layout is not null && !string.IsNullOrWhiteSpace(ocr))
+                if (lines is not null && layout is not null && settings.PdfLayoutOnOcrPages && !string.IsNullOrWhiteSpace(ocr))
                     laidOut.Add((i, lines));
                 read++;
                 if (ocr is null)

@@ -158,4 +158,17 @@ public class PdfLayoutTextTests
         text.IndexOf("long delay", StringComparison.Ordinal).Should().BeGreaterThan(0)
             .And.BeLessThan(text.IndexOf("Rainfall in the northern", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task ParseAsync_LayoutOnOcrPagesOff_ScanArrangedByPosition()
+    {
+        byte[] scan = TestScanPdf.Build(200, PdfLayoutTests.TwoColumnPage());
+        var settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        settings.CurrentValue.Returns(new UploadSettings { PdfTextMode = "Layout", PdfLayoutOnOcrPages = false });
+
+        var parsed = await new PdfParser(settings).ParseAsync(new MemoryStream(scan), "scan.pdf");
+
+        parsed.Metadata.Should().ContainKey(PdfParser.MetadataKeyOcrPages).And.NotContainKey("LayoutOcrPages");
+        parsed.Content.Should().Contain("Rainfall in the northern");
+    }
 }
