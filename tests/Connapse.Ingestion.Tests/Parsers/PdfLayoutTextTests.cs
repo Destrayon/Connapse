@@ -34,7 +34,7 @@ public class PdfLayoutTextTests
             Region("number", 0.45f, 0.95f, 0.55f, 1, 3),
         ];
 
-        string text = PdfLayoutText.Compose(words, regions, _ => null);
+        string text = PdfLayoutText.Compose(words, regions, (_, _) => null);
 
         text.Should().Be("left\n\nright\n\nstray");
     }
@@ -45,9 +45,27 @@ public class PdfLayoutTextTests
         PdfLayoutText.PlacedWord[] words = [Word("cell", 0.5, 0.5), Word("Intro", 0.5, 0.1)];
         PdfLayout.Region[] regions = [Region("text", 0, 0, 1, 0.2f, 0), Region("table", 0, 0.3f, 1, 0.7f, 1)];
 
-        string text = PdfLayoutText.Compose(words, regions, r => r.Label == "table" ? new("| a | b |", 0, 0, 612, 792) : null);
+        string text = PdfLayoutText.Compose(words, regions, (r, _) => r.Label == "table" ? new("| a | b |", 0, 0, 612, 792) : null);
 
         text.Should().Be("Intro\n\n| a | b |");
+    }
+
+    [Fact]
+    public void Compose_TextRegionOverlappingATable_KeepsItsWordsOutOfTheTable()
+    {
+        // "caption" sits in both boxes; the smaller text region owns it, so the table never sees it.
+        PdfLayoutText.PlacedWord[] words = [Word("caption", 0.5, 0.32), Word("cell", 0.5, 0.5)];
+        PdfLayout.Region[] regions = [Region("table", 0, 0.3f, 1, 0.7f, 1), Region("text", 0.3f, 0.3f, 0.7f, 0.34f, 0)];
+        var seen = new List<string>();
+
+        string text = PdfLayoutText.Compose(words, regions, (r, owned) =>
+        {
+            seen.AddRange(owned.Select(w => w.Text));
+            return new("| cell |", 0, 0, 612, 792);
+        });
+
+        seen.Should().Equal("cell");
+        text.Should().Be("caption\n\n| cell |");
     }
 
     [Fact]
@@ -58,7 +76,7 @@ public class PdfLayoutTextTests
         PdfLayout.Region[] regions = [Region("table", 0, 0.3f, 1, 0.7f, 0)];
         double tableBottom = (1 - 0.5) * 792, tableTop = (1 - 0.3) * 792;
 
-        string text = PdfLayoutText.Compose(words, regions, _ => new("| cell |", 0, tableBottom, 612, tableTop));
+        string text = PdfLayoutText.Compose(words, regions, (_, _) => new("| cell |", 0, tableBottom, 612, tableTop));
 
         text.Should().Be("| cell |\n\nNote");
     }

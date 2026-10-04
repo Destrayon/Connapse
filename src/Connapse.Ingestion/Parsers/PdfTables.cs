@@ -145,21 +145,42 @@ internal static partial class PdfTables
     /// "Income year" and kept only a fragment. Leading rows above the first row of numbers are
     /// merged, column by column, into one header row (#642).
     /// </summary>
-    internal static string ToMarkdown(Table table)
+    internal static string ToMarkdown(Table table) =>
+        ToMarkdown(table.Rows.Select(r => r.Select(c => c.GetText()).ToList()).ToList());
+
+    /// <summary>
+    /// A grid of cell texts as a Markdown table. <paramref name="headerRows"/> says how many leading
+    /// rows are headings, when the source knows; otherwise <see cref="HeaderRowCount"/> judges.
+    /// </summary>
+    internal static string ToMarkdown(IReadOnlyList<IReadOnlyList<string>> cells, int? headerRows = null)
     {
-        var rows = table.Rows.Select(r => r.Select(c => Escape(c.GetText())).ToList()).ToList();
-        int headerRows = HeaderRowCount(rows);
+        var rows = cells.Select(r => r.Select(Escape).ToList()).ToList();
         int columns = rows.Max(r => r.Count);
+        int headings = Math.Clamp(headerRows ?? HeaderRowCount(rows), 1, Math.Max(1, rows.Count - 1));
+        if (rows.Count == 1)
+            headings = 1;
         var header = Enumerable.Range(0, columns)
-            .Select(c => string.Join(' ', rows.Take(headerRows).Select(r => c < r.Count ? r[c] : "").Where(s => s.Length > 0)))
+            // A heading spanning two of the merged rows appears in both; it is written once.
+            .Select(c => string.Join(' ', WithoutRepeats(rows.Take(headings).Select(r => c < r.Count ? r[c] : "").Where(s => s.Length > 0))))
             .ToList();
 
         var builder = new StringBuilder();
         AppendRow(builder, header);
         builder.Append('|').Append(string.Concat(Enumerable.Repeat(" --- |", columns))).Append('\n');
-        foreach (var row in rows.Skip(headerRows))
-            AppendRow(builder, row);
+        foreach (var row in rows.Skip(headings))
+            AppendRow(builder, row.Concat(Enumerable.Repeat("", columns - row.Count)).ToList());
         return builder.ToString().TrimEnd('\n');
+    }
+
+    private static IEnumerable<string> WithoutRepeats(IEnumerable<string> texts)
+    {
+        string? previous = null;
+        foreach (string text in texts)
+        {
+            if (text != previous)
+                yield return text;
+            previous = text;
+        }
     }
 
     private static void AppendRow(StringBuilder builder, List<string> cells)

@@ -26,13 +26,13 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    # The PDF layout model (130 MB, #642) is downloaded by the Ingestion build into .models/; keyed
-    # by its SHA-256 so a new model version downloads once and every other run restores it.
+    # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
+    # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
     - name: Cache layout model
       uses: actions/cache@v4
       with:
         path: .models
-        key: layout-model-250dbad1dfb9e4983fab75e1bf5085cd56ec3f41d5c7d0f8623ec74856e7aa67
+        key: pdf-models-250dbad1-d57a942a
 
     - name: Restore dependencies
       run: dotnet restore
@@ -144,13 +144,13 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    # The PDF layout model (130 MB, #642) is downloaded by the Ingestion build into .models/; keyed
-    # by its SHA-256 so a new model version downloads once and every other run restores it.
+    # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
+    # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
     - name: Cache layout model
       uses: actions/cache@v4
       with:
         path: .models
-        key: layout-model-250dbad1dfb9e4983fab75e1bf5085cd56ec3f41d5c7d0f8623ec74856e7aa67
+        key: pdf-models-250dbad1-d57a942a
 
     - name: Restore dependencies
       run: dotnet restore
