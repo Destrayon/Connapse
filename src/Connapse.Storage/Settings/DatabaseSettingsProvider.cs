@@ -13,6 +13,9 @@ public class DatabaseSettingsProvider : ConfigurationProvider
 {
     private readonly Action<DbContextOptionsBuilder> _optionsAction;
 
+    /// <summary>One load or reload at a time: see <see cref="Load"/> and <see cref="Reload"/>.</summary>
+    private readonly Lock _reloadGate = new();
+
     /// <summary>
     /// Maps DB category names to their configuration section prefixes.
     /// Categories not listed here default to "Knowledge:{category}".
@@ -43,7 +46,20 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     /// </remarks>
     public bool LastLoadSucceeded { get; private set; }
 
+    /// <remarks>
+    /// Under the same lock as <see cref="Reload"/>, which it re-enters: the configuration root's own
+    /// Reload calls this directly, and a load that read the table before a save must not publish
+    /// after it. Loads take turns, so the later one reads the later table.
+    /// </remarks>
     public override void Load()
+    {
+        lock (_reloadGate)
+        {
+            LoadUnderLock();
+        }
+    }
+
+    private void LoadUnderLock()
     {
         LastLoadSucceeded = false;
 
@@ -60,8 +76,10 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         {
             var settings = context.Settings.AsNoTracking().ToList();
 
-            Data.Clear();
-
+            // Built aside and swapped in with one assignment (#632): readers -- change-token
+            // callbacks of an earlier reload among them -- see the old set or the new one, never
+            // one being cleared and refilled under them.
+            var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             foreach (var setting in settings)
             {
                 // Flatten JSONB values into configuration keys
@@ -71,9 +89,10 @@ public class DatabaseSettingsProvider : ConfigurationProvider
                 var prefix = CategoryPrefixMap.TryGetValue(setting.Category, out var mapped)
                     ? mapped
                     : $"Knowledge:{setting.Category}";
-                FlattenJsonDocument(prefix, setting.Values);
+                FlattenJsonElement(data, prefix, setting.Values.RootElement);
             }
 
+            Data = data;
             LastLoadSucceeded = true;
         }
         catch (Exception)
@@ -87,19 +106,14 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         }
     }
 
-    private void FlattenJsonDocument(string prefix, JsonDocument document)
-    {
-        FlattenJsonElement(prefix, document.RootElement);
-    }
-
-    private void FlattenJsonElement(string prefix, JsonElement element)
+    private static void FlattenJsonElement(Dictionary<string, string?> data, string prefix, JsonElement element)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
                 foreach (var property in element.EnumerateObject())
                 {
-                    FlattenJsonElement($"{prefix}:{property.Name}", property.Value);
+                    FlattenJsonElement(data, $"{prefix}:{property.Name}", property.Value);
                 }
                 break;
 
@@ -107,26 +121,26 @@ public class DatabaseSettingsProvider : ConfigurationProvider
                 var index = 0;
                 foreach (var item in element.EnumerateArray())
                 {
-                    FlattenJsonElement($"{prefix}:{index}", item);
+                    FlattenJsonElement(data, $"{prefix}:{index}", item);
                     index++;
                 }
                 break;
 
             case JsonValueKind.String:
-                Data[prefix] = element.GetString() ?? string.Empty;
+                data[prefix] = element.GetString() ?? string.Empty;
                 break;
 
             case JsonValueKind.Number:
-                Data[prefix] = element.GetRawText();
+                data[prefix] = element.GetRawText();
                 break;
 
             case JsonValueKind.True:
             case JsonValueKind.False:
-                Data[prefix] = element.GetBoolean().ToString();
+                data[prefix] = element.GetBoolean().ToString();
                 break;
 
             case JsonValueKind.Null:
-                Data[prefix] = string.Empty;
+                data[prefix] = string.Empty;
                 break;
         }
     }
@@ -135,10 +149,18 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     /// Reloads settings from the database and triggers change tokens.
     /// Call this after updating settings to propagate changes to IOptionsMonitor.
     /// </summary>
+    /// <remarks>
+    /// Serialised (#632): two settings saved at once each reload, and one reload's change-token
+    /// callbacks failed with "Collection was modified" while the other was loading. Holding the
+    /// lock across the callbacks also keeps <see cref="LastLoadSucceeded"/> belonging to this load.
+    /// </remarks>
     public bool Reload()
     {
-        Load();
-        OnReload();
-        return LastLoadSucceeded;
+        lock (_reloadGate)
+        {
+            Load();
+            OnReload();
+            return LastLoadSucceeded;
+        }
     }
 }
