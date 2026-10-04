@@ -90,10 +90,17 @@ internal static partial class PdfLayoutText
     /// The page's text from placed words and regions. <paramref name="table"/> writes a table region
     /// as Markdown, or returns null to read it as lines.
     /// </summary>
+    /// <param name="read">
+    /// Writes a region's words as text; by default by baseline (<see cref="Lines"/>). OCR'd pages,
+    /// whose "words" are whole recognised lines, pass <see cref="OcrLayout.Arrange"/>'s reading,
+    /// which also rejoins hyphenated words and builds paragraphs.
+    /// </param>
     internal static string Compose(
         IReadOnlyList<PlacedWord> words, IReadOnlyList<PdfLayout.Region> regions,
-        Func<PdfLayout.Region, IReadOnlyList<PlacedWord>, TableText?> table)
+        Func<PdfLayout.Region, IReadOnlyList<PlacedWord>, TableText?> table,
+        Func<IReadOnlyList<PlacedWord>, string>? read = null)
     {
+        string Read(IReadOnlyList<PlacedWord> w) => read?.Invoke(w) ?? Lines(w);
         var byRegion = regions.ToDictionary(r => r, _ => new List<PlacedWord>());
         var orphans = new List<PlacedWord>();
         foreach (PlacedWord word in words)
@@ -131,14 +138,14 @@ internal static partial class PdfLayoutText
             // the page would interleave the columns' lines.
             if (region.Label != "table")
             {
-                blocks.Add(Lines(inside));
+                blocks.Add(Read(inside));
                 continue;
             }
             // The table sees only the words this region owns: a text region overlapping it keeps its
             // own words, which would otherwise be written twice.
             if (table(region, inside) is not { } written)
             {
-                blocks.Add(ContentOrderLines(inside));
+                blocks.Add(read?.Invoke(inside) ?? ContentOrderLines(inside));
                 continue;
             }
             blocks.Add(written.Markdown);
@@ -147,15 +154,55 @@ internal static partial class PdfLayoutText
             // missed -- are kept after it rather than lost with the region.
             var uncovered = inside.Where(w => !written.Covers(w)).ToList();
             if (uncovered.Count > 0)
-                blocks.Add(ContentOrderLines(uncovered));
+                blocks.Add(read?.Invoke(uncovered) ?? ContentOrderLines(uncovered));
         }
 
         // Text the model put in no region is kept, after the regions: dropping it would lose words
         // the text layer has, and its place on the page is unknown.
         if (orphans.Count > 0)
-            blocks.Add(Lines(orphans));
+            blocks.Add(Read(orphans));
 
         return string.Join("\n\n", blocks.Where(b => b.Length > 0));
+    }
+
+    /// <summary>
+    /// An OCR'd page by layout region (#653): the recognised lines become placed words, regions are
+    /// read in the model's order without running headers, footers and page numbers, a table region
+    /// is read by <paramref name="recognize"/> and filled with the lines inside it, and each text
+    /// region is arranged as OCR text is. Null when the page has no lines or layout leaves none.
+    /// </summary>
+    /// <param name="pageWidth">The page's size in points, as PDFium renders it.</param>
+    internal static string? ComposeOcr(
+        PdfOcr.OcrPage ocr, double pageWidth, double pageHeight, IReadOnlyList<PdfLayout.Region> regions,
+        Func<double, double, double, double, PdfTableStructure.Structure?>? recognize)
+    {
+        var usable = ocr.Lines.Where(l => !string.IsNullOrWhiteSpace(l.Text)).ToList();
+        if (usable.Count == 0 || ocr.Width <= 0 || ocr.Height <= 0 || pageWidth <= 0 || pageHeight <= 0)
+            return null;
+
+        double sx = pageWidth / ocr.Width, sy = pageHeight / ocr.Height;
+        var words = usable.Select((l, i) => new PlacedWord(l.Text,
+                (l.Left + l.Right) / 2.0 / ocr.Width, (l.Top + l.Bottom) / 2.0 / ocr.Height,
+                l.Left * sx, l.Right * sx, pageHeight - l.Bottom * sy, (l.Bottom - l.Top) * sy, i))
+            .ToList();
+
+        // Back to the recogniser's lines, in tenths of a point so OcrLayout's integer boxes keep
+        // their precision, for its reading of a region.
+        static string Arrange(IReadOnlyList<PlacedWord> placed, double height) => OcrLayout.Arrange(placed
+            .Select(w => new OcrLayout.Line((int)(w.Left * 10), (int)((height - w.Baseline - w.Height) * 10),
+                (int)(w.Right * 10), (int)((height - w.Baseline) * 10), w.Text))
+            .ToList());
+
+        string text = Compose(words, regions, (region, owned) =>
+        {
+            if (recognize is null)
+                return null;
+            const double Margin = 2;
+            double left = region.Left * pageWidth - Margin, right = region.Right * pageWidth + Margin;
+            double top = pageHeight - region.Top * pageHeight + Margin, bottom = pageHeight - region.Bottom * pageHeight - Margin;
+            return recognize(left, bottom, right, top) is { } structure ? FromStructure(structure, owned, left, bottom, right, top) : null;
+        }, placed => Arrange(placed, pageHeight));
+        return text.Length == 0 ? null : text;
     }
 
     /// <summary>A word read from the content stream, with its box in PDF points.</summary>

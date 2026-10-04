@@ -141,4 +141,21 @@ public class PdfLayoutTextTests
         parsed.Metadata.Should().ContainKey(PdfParser.MetadataKeyLayoutPages).WhoseValue.Should().Be("1");
         text.Split('\n').Should().NotContain(l => l.Trim() == "7");
     }
+
+    [Fact]
+    public async Task ParseAsync_ScannedTwoColumnPage_LayoutOrdersTheOcrdColumnsAndDropsTheHeader()
+    {
+        // The same report page as an image only: OCR reads it, and its layout regions order it (#653).
+        byte[] scan = TestScanPdf.Build(200, PdfLayoutTests.TwoColumnPage());
+        var settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        settings.CurrentValue.Returns(new UploadSettings { PdfTextMode = "Layout" });
+
+        var parsed = await new PdfParser(settings).ParseAsync(new MemoryStream(scan), "scan.pdf");
+
+        string text = parsed.Content;
+        parsed.Metadata.Should().ContainKey("LayoutOcrPages");
+        text.Should().NotContain("Annual Report 2024");
+        text.IndexOf("long delay", StringComparison.Ordinal).Should().BeGreaterThan(0)
+            .And.BeLessThan(text.IndexOf("Rainfall in the northern", StringComparison.Ordinal));
+    }
 }

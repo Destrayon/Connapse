@@ -34,7 +34,17 @@ internal static class PdfOcr
     /// The page's text in reading order, empty when none was found, or null when the page is too
     /// large to render at a resolution text could be read at.
     /// </summary>
-    public static string? ReadPage(byte[] pdf, int pageIndex, int dpi, int threads, CancellationToken ct)
+    public static string? ReadPage(byte[] pdf, int pageIndex, int dpi, int threads, CancellationToken ct) =>
+        ReadLines(pdf, pageIndex, dpi, threads, ct) is { } page ? OcrLayout.Arrange(page.Lines) : null;
+
+    /// <summary>A page's recognised lines, in pixels of a render <paramref name="Width"/> by <paramref name="Height"/>.</summary>
+    internal sealed record OcrPage(IReadOnlyList<OcrLayout.Line> Lines, int Width, int Height);
+
+    /// <summary>
+    /// The page's recognised lines, unordered, with the size of the render they were read from; null
+    /// when the page is too large to render at a resolution text could be read at.
+    /// </summary>
+    internal static OcrPage? ReadLines(byte[] pdf, int pageIndex, int dpi, int threads, CancellationToken ct)
     {
         if (RenderDpi(pdf, pageIndex, dpi) is not int renderDpi)
             return null;
@@ -51,7 +61,7 @@ internal static class PdfOcr
 
             // Recognition of the page's lines runs on the same number of threads as inference.
             var result = engine.Detect(bitmap, RapidOcrOptions.Default with { RecMaxDegreeOfParallelism = threads }, ct);
-            return OcrLayout.Arrange(result.TextBlocks.Select(ToLine).ToList());
+            return new OcrPage(result.TextBlocks.Select(ToLine).ToList(), bitmap.Width, bitmap.Height);
         }
     }
 

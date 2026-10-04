@@ -140,7 +140,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
                 }
 
                 if (settings.PdfOcr)
-                    OcrUnreadablePages(pdf, pages, failedPages, settings, parseClock, metadata, warnings, cancellationToken);
+                    OcrUnreadablePages(pdf, pages, failedPages, settings, parseClock, metadata, warnings, layout, cancellationToken);
 
                 if (failedPages.Count > 0)
                     metadata[MetadataKeyPageErrors] = failedPages.Count.ToString();
@@ -232,7 +232,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
     /// </summary>
     private static void OcrUnreadablePages(
         byte[] pdf, PageText?[] pages, HashSet<int> incompletePages, UploadSettings settings, Stopwatch parseClock,
-        Dictionary<string, string> metadata, List<string> warnings, CancellationToken ct)
+        Dictionary<string, string> metadata, List<string> warnings, LayoutRun? layout, CancellationToken ct)
     {
         int budget = Math.Max(0, settings.MaxOcrPagesPerDocument);
         int read = 0;
@@ -266,7 +266,10 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             watch.Start();
             try
             {
-                string? ocr = PdfOcr.ReadPage(pdf, i - 1, settings.PdfOcrDpi, settings.PdfOcrThreads, ct);
+                // In Layout mode the page's regions order the OCR'd lines and drop its running
+                // headers (#653); otherwise, or when layout cannot, they are arranged by position.
+                PdfOcr.OcrPage? lines = PdfOcr.ReadLines(pdf, i - 1, settings.PdfOcrDpi, settings.PdfOcrThreads, ct);
+                string? ocr = lines is null ? null : layout?.ComposeOcr(i, lines, warnings, ct) ?? OcrLayout.Arrange(lines.Lines);
                 read++;
                 if (ocr is null)
                 {
@@ -369,7 +372,8 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             {
                 var regions = PdfLayout.Detect(pdf, pageNumber - 1, settings.PdfOcrThreads, ct);
                 string? text = PdfLayoutText.Extract(page, regions, tables: tableMode != PdfTableMode.Off,
-                    recognize: (left, bottom, right, top) => RecognizeTable(page, pageNumber, left, bottom, right, top, warnings, ct));
+                    recognize: (left, bottom, right, top) =>
+                        RecognizeTable(pageNumber, page.CropBox.Bounds.Left, page.CropBox.Bounds.Top, left, bottom, right, top, warnings, ct));
                 if (text is null)
                     return null;
                 _read++;
@@ -396,6 +400,50 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             }
         }
 
+        private int _ocrPages;
+
+        /// <summary>
+        /// An OCR'd page's lines by layout region (#653); null -- arranged by position instead --
+        /// past the time budget, when the model is missing or fails, or when layout leaves no text.
+        /// </summary>
+        public string? ComposeOcr(int pageNumber, PdfOcr.OcrPage ocr, List<string> warnings, CancellationToken ct)
+        {
+            if (_unavailable is not null || parseClock.Elapsed >= _budget)
+                return null;
+
+            _watch.Start();
+            try
+            {
+                var size = PDFtoImage.Conversion.GetPageSize(pdf, pageNumber - 1);
+                var regions = PdfLayout.Detect(pdf, pageNumber - 1, settings.PdfOcrThreads, ct);
+                string? text = PdfLayoutText.ComposeOcr(ocr, size.Width, size.Height, regions,
+                    tableMode == PdfTableMode.Off ? null
+                        : (left, bottom, right, top) => RecognizeTable(pageNumber, 0, size.Height, left, bottom, right, top, warnings, ct));
+                if (text is not null)
+                    _ocrPages++;
+                return text;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or TypeInitializationException
+                                           or BadImageFormatException or FileNotFoundException or OnnxRuntimeException)
+            {
+                _unavailable = ex.GetBaseException().Message;
+                return null;
+            }
+            catch (Exception ex)
+            {
+                warnings.Add($"Layout analysis failed on OCR'd page {pageNumber}, arranged by position: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                _watch.Stop();
+            }
+        }
+
         private string? _tablesUnavailable;
         private int _tables;
         private readonly Stopwatch _tableWatch = new();
@@ -405,7 +453,8 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
         /// other ways -- when the model is missing, fails, or the time budget is spent.
         /// </summary>
         private PdfTableStructure.Structure? RecognizeTable(
-            Page page, int pageNumber, double left, double bottom, double right, double top, List<string> warnings, CancellationToken ct)
+            int pageNumber, double cropLeft, double cropTop, double left, double bottom, double right, double top,
+            List<string> warnings, CancellationToken ct)
         {
             if (_tablesUnavailable is not null || parseClock.Elapsed >= _budget)
                 return null;
@@ -413,8 +462,7 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             _tableWatch.Start();
             try
             {
-                var crop = page.CropBox.Bounds;
-                var structure = PdfTableStructure.Recognize(pdf, pageNumber - 1, crop.Left, crop.Top, left, bottom, right, top, settings.PdfOcrThreads, ct);
+                var structure = PdfTableStructure.Recognize(pdf, pageNumber - 1, cropLeft, cropTop, left, bottom, right, top, settings.PdfOcrThreads, ct);
                 _tables++;
                 return structure;
             }
@@ -441,6 +489,8 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
 
         public void Report(Dictionary<string, string> metadata, List<string> warnings)
         {
+            if (_ocrPages > 0)
+                metadata["LayoutOcrPages"] = _ocrPages.ToString(CultureInfo.InvariantCulture);
             if (_tables > 0)
             {
                 metadata["LayoutTables"] = _tables.ToString(CultureInfo.InvariantCulture);
