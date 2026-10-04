@@ -105,6 +105,15 @@ def build():
 
     # One streaming pass: document lengths and term frequencies for query terms only.
     table = pq.read_table(docs_path, columns=["doc_id", "source_type", "title", "content"])
+    # Four IDs appear twice at this revision (three pair different sources, one is the same Jira
+    # ticket twice); the first copy is kept so every ID names one document.
+    seen, duplicates, mask = set(), [], []
+    for i in table.column("doc_id").to_pylist():
+        mask.append(i not in seen)
+        if i in seen:
+            duplicates.append(i)
+        seen.add(i)
+    table = table.filter(pa.array(mask))
     ids = table.column("doc_id").to_pylist()
     titles = table.column("title").to_pylist()
     contents = table.column("content").to_pylist()
@@ -152,6 +161,7 @@ def build():
         info = {
             "revision": REVISION,
             "documents": subset.num_rows,
+            "duplicates_dropped": sorted(duplicates),
             "by_source": dict(Counter(subset.column("source_type").to_pylist())),
             "files": {f: sha256(os.path.join(directory, f)) for f in ("documents.parquet", "questions.parquet")},
         }
