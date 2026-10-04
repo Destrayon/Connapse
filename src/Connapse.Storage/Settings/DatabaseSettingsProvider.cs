@@ -13,7 +13,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
 {
     private readonly Action<DbContextOptionsBuilder> _optionsAction;
 
-    /// <summary>One reload at a time: see <see cref="Reload"/>.</summary>
+    /// <summary>One load or reload at a time: see <see cref="Load"/> and <see cref="Reload"/>.</summary>
     private readonly Lock _reloadGate = new();
 
     /// <summary>
@@ -46,7 +46,20 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     /// </remarks>
     public bool LastLoadSucceeded { get; private set; }
 
+    /// <remarks>
+    /// Under the same lock as <see cref="Reload"/>, which it re-enters: the configuration root's own
+    /// Reload calls this directly, and a load that read the table before a save must not publish
+    /// after it. Loads take turns, so the later one reads the later table.
+    /// </remarks>
     public override void Load()
+    {
+        lock (_reloadGate)
+        {
+            LoadUnderLock();
+        }
+    }
+
+    private void LoadUnderLock()
     {
         LastLoadSucceeded = false;
 
