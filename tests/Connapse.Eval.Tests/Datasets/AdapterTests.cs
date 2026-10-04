@@ -213,6 +213,49 @@ public class AdapterTests : IDisposable
         await act.Should().ThrowAsync<InvalidDataException>().WithMessage(message);
     }
 
+    private async Task WriteEnterpriseAsync(EnterpriseDocumentRow[] documents, EnterpriseQuestionRow[] questions)
+    {
+        // Two documents per row group, so loading has to read more than one.
+        await ParquetSerializer.SerializeAsync(documents, Path.Combine(_dir, "documents.parquet"),
+            new Parquet.ParquetOptions { RowGroupSize = 2 });
+        await ParquetSerializer.SerializeAsync(questions, Path.Combine(_dir, "questions.parquet"));
+    }
+
+    private static EnterpriseDocumentRow Doc(string id, string source) =>
+        new() { DocId = id, SourceType = source, Title = $"title {id}", Content = $"content {id}" };
+
+    [Fact]
+    public async Task EnterpriseRagBench_LoadsEveryRowGroupTagsKindAndSourceAndSkipsQuestionsWithoutGold()
+    {
+        await WriteEnterpriseAsync(
+            [Doc("d1", "slack"), Doc("d2", "jira"), Doc("d3", "gmail"), Doc("d4", "slack"), Doc("d5", "github")],
+            [
+                new() { QuestionId = "q1", QuestionType = "basic", SourceTypes = ["slack"], Question = "where?", ExpectedDocIds = ["d4"] },
+                new() { QuestionId = "q2", QuestionType = "completeness", SourceTypes = ["jira", "gmail", "jira"], Question = "all?", ExpectedDocIds = ["d2", "d3"] },
+                new() { QuestionId = "q3", QuestionType = "info_not_found", SourceTypes = [], Question = "missing?", ExpectedDocIds = [] },
+            ]);
+
+        EvalDataset dataset = await DatasetAdapters.Get("enterprise-rag-bench").LoadAsync("erb", Entry("enterprise-rag-bench"), _dir, CancellationToken.None);
+
+        dataset.Corpus.Select(d => d.Id).Should().Equal("d1", "d2", "d3", "d4", "d5");
+        dataset.Corpus[3].Should().Match<EvalDocument>(d => d.Title == "title d4" && d.Text == "content d4" && d.Metadata["source"] == "slack");
+        dataset.Queries.Select(q => q.Id).Should().Equal("q1", "q2");
+        dataset.Queries[1].Tags.Should().Equal("kind:completeness", "source:jira", "source:gmail");
+        dataset.Qrels.For("q2").Keys.Should().BeEquivalentTo(["d2", "d3"]);
+    }
+
+    [Fact]
+    public async Task EnterpriseRagBench_GoldDocumentMissingFromTheCorpus_Throws()
+    {
+        await WriteEnterpriseAsync(
+            [Doc("d1", "slack")],
+            [new() { QuestionId = "q1", QuestionType = "basic", SourceTypes = ["slack"], Question = "where?", ExpectedDocIds = ["d9"] }]);
+
+        Func<Task> act = () => DatasetAdapters.Get("enterprise-rag-bench").LoadAsync("erb", Entry("enterprise-rag-bench"), _dir, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*1 gold documents*d9*");
+    }
+
     [Fact]
     public void Get_UnknownAdapter_ThrowsListingKnownAdapters()
     {

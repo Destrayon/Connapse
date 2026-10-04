@@ -17,7 +17,7 @@ public sealed record DatasetScores(
     double LatencyP95Ms,
     string? NotScoredReason)
 {
-    /// <summary>Means over the scored queries carrying each "kind:" tag, by tag.</summary>
+    /// <summary>Means over the scored queries carrying each "kind:" or "source:" tag, by tag.</summary>
     public IReadOnlyList<KindScores> Kinds { get; init; } = [];
 }
 
@@ -79,7 +79,7 @@ public static class Scoring
             List<double> latencies = test.Select(r => r.Trace.Total.TotalMilliseconds).ToList();
             List<KindScores> kinds = test
                 .Where(r => perQuery.ContainsKey(r.QueryId))
-                .SelectMany(r => (r.Tags ?? []).Where(t => t.StartsWith("kind:", StringComparison.Ordinal)).Select(t => (Kind: t, r.QueryId)))
+                .SelectMany(r => (r.Tags ?? []).Where(t => t.StartsWith("kind:", StringComparison.Ordinal) || t.StartsWith("source:", StringComparison.Ordinal)).Select(t => (Kind: t, r.QueryId)))
                 .GroupBy(x => x.Kind)
                 .OrderBy(g => g.Key, StringComparer.Ordinal)
                 .Select(g => new KindScores(g.Key, g.Count(),
