@@ -11,14 +11,30 @@ namespace Connapse.Ingestion.Utilities;
 /// </summary>
 public class PragmaticSentenceSegmenter(Language language = Language.English) : ISentenceSegmenter
 {
+    /// <summary>
+    /// Stands in for '$' while the library runs. The library builds Regex.Replace replacements out
+    /// of matched text without escaping them, and .NET reads $_ $&amp; $` $' there as the whole
+    /// input, the match, and the text before and after it: a `$_` inside parentheses spliced the
+    /// document into itself until ingestion ran out of memory or took hours (#663).
+    /// </summary>
+    private const char DollarPlaceholder = '';
+
     public IReadOnlyList<string> Split(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return Array.Empty<string>();
 
+        // Text that already holds the placeholder can't be restored unambiguously.
+        if (text.Contains(DollarPlaceholder))
+            return SplitOnTerminators(text);
+
         try
         {
-            return Segmenter.Segment(text, language);
+            if (!text.Contains('$'))
+                return Segmenter.Segment(text, language);
+            return Segmenter.Segment(text.Replace('$', DollarPlaceholder), language)
+                .Select(s => s.Replace(DollarPlaceholder, '$'))
+                .ToList();
         }
         catch (RegexMatchTimeoutException)
         {

@@ -59,6 +59,40 @@ public class PragmaticSentenceSegmenterTests
         result.Should().HaveCount(3);
     }
 
+    // The library puts matched text into Regex.Replace replacements unescaped, and .NET reads
+    // $_ $& $` $' there as the input, the match, and the text before and after it (#663).
+    [Theory]
+    [InlineData("Use (price $& more) here. Fine.", "Use (price $& more) here.", "Fine.")]
+    // The library writes every backtick as an apostrophe, with or without a '$'.
+    [InlineData("Set \"$` and stuff\" now. Ok.", "Set \"$' and stuff\" now.", "Ok.")]
+    [InlineData("Run \"echo $'x'\" now. Ok.", "Run \"echo $'x'\" now.", "Ok.")]
+    [InlineData("A (paren $_x) b. C.", "A (paren $_x) b.", "C.")]
+    [InlineData("Read \"$_GET['q']\" first. Then $$ and $1 stay.", "Read \"$_GET['q']\" first.", "Then $$ and $1 stay.")]
+    public void Split_DollarSequencesInQuotesOrParens_KeepTheTextAsWritten(string text, string first, string second)
+    {
+        _segmenter.Split(text).Should().Equal(first, second);
+    }
+
+    [Fact]
+    public void Split_ManyDollarUnderscoresInParens_StaysLinear()
+    {
+        // One `$_` in a 10 KB document took 9 minutes and returned 2.4 million sentences.
+        string text = string.Concat(Enumerable.Repeat("See (the $__rate_interval value) here. ", 200));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = _segmenter.Split(text);
+
+        result.Should().HaveCount(200).And.AllBe("See (the $__rate_interval value) here.");
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void Split_TextAlreadyHoldingThePlaceholder_FallsBackAndKeepsItsText()
+    {
+        _segmenter.Split("Odd  char (and $& here). Next.")
+            .Should().Equal("Odd  char (and $& here).", "Next.");
+    }
+
     // The fallback used when a library regex times out (#595). The timeout itself cannot be
     // exercised here: the test host initialises Regex before any test code can set its default.
     [Fact]
