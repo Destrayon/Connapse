@@ -16,7 +16,7 @@ public static class DatasetAdapters
         new IDatasetAdapter[]
         {
             new BeirParquetAdapter(), new BeirJsonlAdapter(), new RagBenchAdapter(),
-            new OlmOcrBenchAdapter(), new PypdfEncryptionAdapter(), new PdfQaAdapter(), new GeneratedNegativesAdapter(), new GeneratedEncodingsAdapter(),
+            new OlmOcrBenchAdapter(), new PypdfEncryptionAdapter(), new PdfQaAdapter(), new EnterpriseRagBenchAdapter(), new GeneratedNegativesAdapter(), new GeneratedEncodingsAdapter(),
         }
             .ToDictionary(a => a.Name, StringComparer.Ordinal);
 

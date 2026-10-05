@@ -51,6 +51,20 @@ work by its effect on answers; re-run it after parsing changes and compare again
 - Scores are broken down by question kind (`kind:table-ruled`, `kind:scan-degraded`, ...) in the console
   and in `report.html`.
 
+## Enterprise data
+
+`enterprise-v1` scores retrieval over the shapes Connapse's connectors bring in: Slack threads, email,
+Linear and Jira tickets, HubSpot records, meeting transcripts, GitHub pull requests, Confluence pages and
+Drive files, from EnterpriseRAG-Bench (`eval/datasets/erb-50k/card.md`). It is built locally, not
+downloaded (needs Python with `pyarrow`, `requests`, `numpy` and PyStemmer; about 20 minutes and 1.4 GB):
+
+    python eval/tools/build_enterprise_suite.py
+    dotnet run --project tests/Connapse.Eval -- run --suite enterprise-v1 --config hybrid
+
+- Scores break down by question category (`kind:`) and by the source holding the answer (`source:`).
+- `enterprise-full` is the whole 512,000-document corpus; use it to check that an `enterprise-v1` result
+  holds at scale.
+
 ## Files and reports
 
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.

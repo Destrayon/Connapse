@@ -36,6 +36,12 @@
     ],
     "pdfqa-v1": [
       "pdfqa"
+    ],
+    "enterprise-v1": [
+      "erb-50k"
+    ],
+    "enterprise-full": [
+      "erb-full"
     ]
   },
   "datasets": {
@@ -873,6 +879,46 @@
           "name": "questions.jsonl",
           "url": "repo:pdfqa/questions.jsonl",
           "sha256": "2925a40598e5a2957377f8ddcad7785afcb60814115aca47034a8fc96744c309"
+        }
+      ]
+    },
+    "erb-50k": {
+      "adapter": "enterprise-rag-bench",
+      "version": "69916e31c68a",
+      "tags": [
+        "domain:enterprise",
+        "source:enterprise-rag-bench"
+      ],
+      "files": [
+        {
+          "name": "documents.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "e64d935fe8038cf0bd84061e5630dae5df7670239eba9310496b70446fd3c59a"
+        },
+        {
+          "name": "questions.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "06845198ab5e8adde84fcedd688dd1066ede324c68b4a87dbe7c53390eaf7c50"
+        }
+      ]
+    },
+    "erb-full": {
+      "adapter": "enterprise-rag-bench",
+      "version": "69916e31c68a",
+      "tags": [
+        "domain:enterprise",
+        "source:enterprise-rag-bench"
+      ],
+      "files": [
+        {
+          "name": "documents.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "fc93181fc5571e8eab1bad959c425e043b2465fe785c31357eb3dee6872c2223"
+        },
+        {
+          "name": "questions.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "06845198ab5e8adde84fcedd688dd1066ede324c68b4a87dbe7c53390eaf7c50"
         }
       ]
     }
