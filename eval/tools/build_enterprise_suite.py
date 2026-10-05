@@ -7,7 +7,8 @@ HubSpot, Fireflies, GitHub, Jira, Confluence) in one Parquet row group, and 500 
 Two datasets come out, both rewritten in 10,000-row groups so the harness can stream them:
   erb-50k   every gold document, each scored question's top 100 by BM25 over the FULL corpus
             (the hard distractors a small corpus would otherwise lack), and the rest of 50,000
-            filled by a stable hash of the document ID, so each source keeps its share;
+            filled by a stable hash of the document ID. The pool follows what the questions ask
+            about, so sources don't keep their full-corpus shares (Slack 34% here, 56% there);
   erb-full  the whole corpus.
 Questions are copied unchanged; the adapter leaves out the ones with no gold documents.
 

@@ -56,7 +56,7 @@ work by its effect on answers; re-run it after parsing changes and compare again
 `enterprise-v1` scores retrieval over the shapes Connapse's connectors bring in: Slack threads, email,
 Linear and Jira tickets, HubSpot records, meeting transcripts, GitHub pull requests, Confluence pages and
 Drive files, from EnterpriseRAG-Bench (`eval/datasets/erb-50k/card.md`). It is built locally, not
-downloaded (needs Python with `pyarrow` and `requests`; about 20 minutes and 1.4 GB):
+downloaded (needs Python with `pyarrow`, `requests`, `numpy` and PyStemmer; about 20 minutes and 1.4 GB):
 
     python eval/tools/build_enterprise_suite.py
     dotnet run --project tests/Connapse.Eval -- run --suite enterprise-v1 --config hybrid
