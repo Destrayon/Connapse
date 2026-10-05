@@ -15,8 +15,9 @@ BM25 is the dev suite's (Lucene's k1 1.2, b 0.75, english-stemmed, stop-word-fre
 title + content, computed in one streaming pass that keeps postings for query terms only.
 
 Usage:
-    python eval/tools/build_enterprise_suite.py            # build both, then pin in MANIFEST.json
+    python eval/tools/build_enterprise_suite.py            # build both; pin them, or check existing pins
     python eval/tools/build_enterprise_suite.py --register # pin already-built files
+    python eval/tools/build_enterprise_suite.py --repin    # build and replace existing pins
 
 Outputs land in eval/.cache/datasets/<name>/<version>/ with build.json; eval/MANIFEST.json pins
 their sha256 under the "enterprise-v1" and "enterprise-full" suites.
@@ -139,11 +140,13 @@ def build():
     bm25_top = {}
     for qid, qtoks in query_tokens.items():
         scores = defaultdict(float)
-        for term in set(qtoks):
+        # Sorted terms fix the float accumulation order and (score, ID) breaks ties, so the pool
+        # doesn't depend on Python's per-process string hashing and the pins reproduce.
+        for term in sorted(set(qtoks)):
             idf = math.log(1 + (n_docs - df[term] + 0.5) / (df[term] + 0.5))
             for doc, n in tf.get(term, []):
                 scores[doc] += idf * n * (K1 + 1) / (n + K1 * (1 - B + B * lengths[doc] / avgdl))
-        bm25_top[qid] = [ids[d] for d, _ in sorted(scores.items(), key=lambda p: -p[1])[:TOP_K]]
+        bm25_top[qid] = [ids[d] for d, _ in sorted(scores.items(), key=lambda p: (-p[1], ids[p[0]]))[:TOP_K]]
 
     pooled = set().union(*bm25_top.values()) - gold
     rest = sorted((fraction(i), i) for i in ids if i not in gold and i not in pooled)
@@ -175,13 +178,20 @@ def build():
     return outputs
 
 
-def register():
+def register(repin):
     manifest_path = os.path.join(ROOT, "eval", "MANIFEST.json")
     with open(manifest_path, encoding="utf-8") as f:
         manifest = json.load(f)
     for name, suite in (("erb-50k", "enterprise-v1"), ("erb-full", "enterprise-full")):
         with open(os.path.join(ROOT, "eval", ".cache", "datasets", name, VERSION, "build.json")) as f:
             files = json.load(f)["files"]
+        pinned = manifest["datasets"].get(name)
+        if pinned and pinned["version"] == VERSION and not repin:
+            expected = {f["name"]: f["sha256"] for f in pinned["files"]}
+            if expected != files:
+                raise SystemExit(f"{name}: the build does not match the pinned files; pass --repin to replace the pins")
+            print(f"{name}: matches its pins")
+            continue
         manifest["datasets"][name] = {
             "adapter": "enterprise-rag-bench",
             "version": VERSION,
@@ -192,10 +202,10 @@ def register():
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print("pinned erb-50k and erb-full in eval/MANIFEST.json")
+    print("eval/MANIFEST.json up to date")
 
 
 if __name__ == "__main__":
     if "--register" not in sys.argv:
         build()
-    register()
+    register("--repin" in sys.argv)
