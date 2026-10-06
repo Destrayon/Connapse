@@ -624,7 +624,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Search__Mode` | Default search mode | `Hybrid` |
 | `Knowledge__Search__TopK` | Default result count | `10` |
 | `Knowledge__Search__FusionMethod` | Fusion method: ConvexCombination or DBSF | `ConvexCombination` |
-| `Knowledge__Search__FusionAlpha` | Semantic weight (0.0-1.0) | `0.75` |
+| `Knowledge__Search__FusionAlpha` | Semantic weight (0.0-1.0) | `0.65` |
 | `Knowledge__Search__KeywordRanker` | Keyword ranking: Bm25 or TsRank | `Bm25` |
 | `Knowledge__Search__Bm25K1` | BM25 term-frequency saturation | `1.2` |
 | `Knowledge__Search__Bm25B` | BM25 length normalisation (0.0-1.0) | `0.75` |
@@ -710,7 +710,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
       "Mode": "Hybrid",
       "TopK": 10,
       "FusionMethod": "ConvexCombination",
-      "FusionAlpha": 0.75,
+      "FusionAlpha": 0.65,
       "AutoCut": false
     },
     "Llm": {

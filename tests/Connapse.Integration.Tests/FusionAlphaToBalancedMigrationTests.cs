@@ -9,20 +9,19 @@ using Xunit;
 namespace Connapse.Integration.Tests;
 
 /// <summary>
-/// The #552 data migration on a database that already saved Search settings: a stored 0.3 (the old
-/// default) moves to 0.75, and any other stored weight is left alone. Owns its PostgreSQL container
+/// The #668 data migration on a database that already saved Search settings: a stored 0.75 (the old
+/// default) moves to 0.65, and any other stored weight is left alone. Owns its PostgreSQL container
 /// for the same reason as <see cref="ChunkOwnerMigrationTests"/>: it must stop before the migration.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
-public class FusionAlphaTowardDenseMigrationTests : IAsyncLifetime
+public class FusionAlphaToBalancedMigrationTests : IAsyncLifetime
 {
-    private const string Before = "20260928162620_ClearImplicitTsRankDefault";
-    private const string Target = "20260928183830_ShiftFusionAlphaTowardDense";
+    private const string Before = "20260928212837_UnifyDocumentStatus";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("connapse_alpha_dense_migration")
+        .WithDatabase("connapse_alpha_balanced_migration")
         .WithUsername("migration_test")
         .WithPassword("migration_test")
         .Build();
@@ -37,9 +36,9 @@ public class FusionAlphaTowardDenseMigrationTests : IAsyncLifetime
             .Options);
 
     [Theory]
-    [InlineData("0.3", 0.75)]
+    [InlineData("0.75", 0.65)]
     [InlineData("0.7", 0.7)]
-    [InlineData("0.5", 0.5)]
+    [InlineData("0.3", 0.3)]
     public async Task Migration_SavedSearchSettings_ShiftsOnlyTheOldDefault(string stored, double expected)
     {
         await using (var context = CreateContext())
@@ -51,8 +50,7 @@ public class FusionAlphaTowardDenseMigrationTests : IAsyncLifetime
             await context.Database.ExecuteSqlRawAsync(
                 "INSERT INTO settings (category, values) VALUES ('embedding', jsonb_build_object('fusionAlpha', 0.5))");
 
-            // Up to this migration only: #668 later moves 0.75 on to 0.65.
-            await context.GetService<IMigrator>().MigrateAsync(Target);
+            await context.GetService<IMigrator>().MigrateAsync();
         }
 
         await using (var context = CreateContext())
