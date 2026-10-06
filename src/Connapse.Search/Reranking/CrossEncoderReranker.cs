@@ -122,6 +122,13 @@ public class CrossEncoderReranker : ISearchReranker
 
             return rerankedHits;
         }
+        catch (BrokenCircuitException)
+        {
+            // The circuit is shared by every provider and URL, so an open one may belong to the
+            // endpoint configured before this one; it closes on its own and isn't held against this one.
+            _logger.LogDebug("Cross-encoder circuit is open, returning original order");
+            return hits;
+        }
         catch (Exception ex) when (IsUnreachable(ex, cancellationToken))
         {
             if (_availability.MarkUnreachable(endpoint))
@@ -140,15 +147,13 @@ public class CrossEncoderReranker : ISearchReranker
     }
 
     /// <summary>
-    /// Failures that say the service can't be reached: no connection or no answer in time (the
-    /// request was not cancelled by the caller), or the client's circuit breaker already open. An
-    /// error response is an answer, so it doesn't count.
+    /// Failures that say the service can't be reached: no connection, or no answer in time when the
+    /// caller didn't cancel the request. An error response is an answer, so it doesn't count.
     /// </summary>
     private static bool IsUnreachable(Exception ex, CancellationToken cancellationToken) => ex switch
     {
         HttpRequestException { StatusCode: null } => true,
         OperationCanceledException => !cancellationToken.IsCancellationRequested,
-        BrokenCircuitException => true,
         _ => false,
     };
 

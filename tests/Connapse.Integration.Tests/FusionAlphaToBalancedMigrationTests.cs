@@ -70,4 +70,27 @@ public class FusionAlphaToBalancedMigrationTests : IAsyncLifetime
             method.Should().Be("ConvexCombination", "the rest of the saved settings are kept");
         }
     }
+
+    [Fact]
+    public async Task Migration_OtherKeyCasing_ShiftsTheKeyItFinds()
+    {
+        // The settings readers match property names case-insensitively, so a PascalCase key overrides too.
+        await using (var context = CreateContext())
+        {
+            await context.GetService<IMigrator>().MigrateAsync(Before);
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO settings (category, values) VALUES ('Search', jsonb_build_object('FusionAlpha', 0.75))");
+
+            await context.GetService<IMigrator>().MigrateAsync();
+        }
+
+        await using (var context = CreateContext())
+        {
+            string values = await context.Database
+                .SqlQueryRaw<string>("SELECT values::text AS \"Value\" FROM settings WHERE category = 'Search'")
+                .SingleAsync();
+
+            values.Should().Be("{\"FusionAlpha\": 0.65}", "the key keeps its casing and no second key is added");
+        }
+    }
 }

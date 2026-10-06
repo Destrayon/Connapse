@@ -482,6 +482,23 @@ public class CrossEncoderRerankerTests
     }
 
     [Fact]
+    public async Task RerankAsync_CircuitOpen_DoesNotHoldItAgainstThisEndpoint()
+    {
+        // The circuit is shared by every endpoint; an open one may be the previous endpoint's.
+        bool open = true;
+        var handler = new ThrowingHttpHandler(
+            () => open ? new Polly.CircuitBreaker.BrokenCircuitException("open") : null,
+            "[{\"index\":0,\"score\":0.8}]");
+        var reranker = CreateReranker(handler, new ManualClock());
+
+        (await reranker.RerankAsync("q", [CreateHit("chunk1", 0.3f)]))[0].Score.Should().Be(0.3f);
+        open = false;
+        List<SearchHit> result = await reranker.RerankAsync("q", [CreateHit("chunk1", 0.3f)]);
+
+        result[0].Score.Should().Be(0.8f, "the next search goes straight to the endpoint");
+    }
+
+    [Fact]
     public void RerankerAvailability_EndpointsAreTrackedSeparately()
     {
         var availability = new RerankerAvailability(new ManualClock());
