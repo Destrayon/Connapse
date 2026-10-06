@@ -66,16 +66,38 @@ internal static class Commands
 {
     public static async Task<int> RunAsync(CliArgs cli, RepoPaths paths, HttpClient http, CancellationToken ct)
     {
-        RunRequest request = new(cli.Required("suite"), cli.Option("system") ?? "connapse", cli.Required("config"),
-            cli.List("datasets"), cli.Option("resume"), cli.PositiveInt("limit-queries"));
-        if (request.System != "connapse")
-            throw new ArgumentException($"Unknown system '{request.System}'. Known: connapse.");
+        IReadOnlyList<string> configs = cli.List("config");
+        if (configs.Count == 0)
+            throw new ArgumentException("--config is required.");
+        string system = cli.Option("system") ?? "connapse";
+        if (system != "connapse")
+            throw new ArgumentException($"Unknown system '{system}'. Known: connapse.");
 
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
         EvalRunner runner = new(paths, Console.Out, http, async (config, token) =>
             await ConnapseSearchSystem.StartAsync(config, paths.WebContentRoot, embeddings, Console.Out, null, token));
-        RunFolder run = await runner.RunAsync(request, ct);
 
+        // Several configs share an index wherever their index-time settings match (#667).
+        if (configs.Count > 1)
+        {
+            if (cli.Option("resume") is not null)
+                throw new ArgumentException("--resume takes one config; resume each run folder on its own.");
+            IReadOnlyList<RunFolder> runs = await runner.RunManyAsync(new MultiRunRequest(
+                cli.Required("suite"), system, configs, cli.List("datasets"), cli.PositiveInt("limit-queries")), ct);
+            int exit = 0;
+            foreach (RunFolder each in runs)
+                exit = Math.Max(exit, WriteScores(each));
+            return exit;
+        }
+
+        RunFolder run = await runner.RunAsync(new RunRequest(cli.Required("suite"), system, configs[0],
+            cli.List("datasets"), cli.Option("resume"), cli.PositiveInt("limit-queries")), ct);
+        return WriteScores(run);
+    }
+
+    /// <summary>Writes the run's report and prints its scores; 1 when a dataset is invalid.</summary>
+    private static int WriteScores(RunFolder run)
+    {
         RunScores scores = Scoring.Score(run);
         ReportWriter.Write(run, scores);
         Console.WriteLine(run.Path);
@@ -198,7 +220,8 @@ internal static class Commands
     {
         Console.Error.WriteLine("""
             usage: dotnet run --project tests/Connapse.Eval -- <command>
-              run      --suite <name> --config <name> [--system connapse] [--datasets a,b] [--resume <runDir>] [--limit-queries N]
+              run      --suite <name> --config <name>[,<name>...] [--system connapse] [--datasets a,b] [--resume <runDir>] [--limit-queries N]
+                       several configs index once per group with the same index-time settings
               extract  --suite <name> [--config extract] [--datasets a,b] [--resume <runDir>] [--real-embedder]
               compare  <runDirA> <runDirB> [--allow-dataset-mismatch]
               vector-index --suite <name> [--datasets a,b] [--limit-queries N]   (production index vs exact search)

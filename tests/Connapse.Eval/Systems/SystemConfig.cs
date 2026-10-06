@@ -48,6 +48,50 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
         }
     }
 
+    /// <summary>
+    /// <c>Knowledge:Search</c> settings read only when a query runs, so configs that differ only in
+    /// these (and in search mode or candidate capture) can search one index (#667). Anything not
+    /// listed — embedding, chunking, upload, <c>VectorIndexMinVectors</c>, a setting added later — is
+    /// treated as shaping the index.
+    /// </summary>
+    public static readonly IReadOnlySet<string> SearchTimeKeys = new HashSet<string>(
+        new[]
+        {
+            "Mode", "TopK", "Reranker", "FusionAlpha", "FusionMethod", "HybridCandidatePool", "VectorIndexEfSearch",
+            "KeywordRanker", "Bm25K1", "Bm25B", "MinimumScore", "AutoCut", "CrossEncoderProvider",
+            "CrossEncoderModel", "CrossEncoderBaseUrl", "CrossEncoderApiKey", "CrossEncoderTopN",
+            "RerankCandidates", "CrossEncoderTimeoutSeconds", "EnableCrossModelSearch",
+            "SentenceWindowSubstituteOnSearch",
+        }.Select(name => "Knowledge:Search:" + name),
+        StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsSearchTime(string key) => SearchTimeKeys.Contains(key);
+
+    /// <summary>The settings applied per search pass; the rest shape the index.</summary>
+    public IReadOnlyDictionary<string, string> SearchTimeSettings =>
+        Settings.Where(p => IsSearchTime(p.Key)).ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Identifies the index this config searches: equal keys mean one index serves both configs.</summary>
+    public string IndexKey
+    {
+        get
+        {
+            StringBuilder canonical = new();
+            canonical.Append("chunkingStrategy=").Append(ChunkingStrategy ?? "").Append('\n');
+            foreach ((string key, string value) in Settings.Where(p => !IsSearchTime(p.Key))
+                         .OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+                canonical.Append(key.ToLowerInvariant()).Append('=').Append(value).Append('\n');
+            return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))[..16];
+        }
+    }
+
+    /// <summary>This config with its search-time settings and candidate capture removed: what an index is built with.</summary>
+    public SystemConfig IndexOnly() =>
+        new(Name, SearchMode, Settings.Where(p => !IsSearchTime(p.Key)).ToDictionary(p => p.Key, p => p.Value))
+        {
+            ChunkingStrategy = ChunkingStrategy,
+        };
+
     public static SystemConfig Load(string evalRoot, string system, string name)
     {
         string path = Path.Combine(evalRoot, "systems", system, name + ".json");

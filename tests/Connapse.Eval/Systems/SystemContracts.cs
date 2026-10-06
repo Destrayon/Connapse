@@ -74,5 +74,12 @@ public interface ISystemUnderTest : IAsyncDisposable
 
     Task<IndexReport> IndexAsync(EvalDataset dataset, CancellationToken ct);
 
+    /// <summary>
+    /// Makes <paramref name="config"/>'s search-time settings and search mode the ones the next searches
+    /// use, over the index already built (#667). Only called by multi-config runs, whose system was
+    /// started with the shared index-time config.
+    /// </summary>
+    Task UseSearchConfigAsync(SystemConfig config, CancellationToken ct);
+
     Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct);
 }

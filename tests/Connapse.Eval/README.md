@@ -14,6 +14,21 @@ host ports, so run it on a trusted machine.
     dotnet run --project tests/Connapse.Eval -- compare eval/runs/<keyword-run> eval/runs/<hybrid-run>
     dotnet run --project tests/Connapse.Eval -- vector-index --suite dev   # production vector index vs exact search
 
+## Comparing configs
+
+Indexing is most of a run's time, and configs that differ only in how they search can share an index.
+Give `run` several configs to index each dataset once and search it under each:
+
+    dotnet run --project tests/Connapse.Eval -- run --suite enterprise-v1 --config hybrid,hybrid-rerank,hybrid-a075
+
+- Each config still gets its own run folder, so `compare` works as usual.
+- Configs are grouped by their index-time settings, and each group gets its own index:
+  - **Search-time:** the `Knowledge:Search:` keys in `SystemConfig.SearchTimeKeys`, plus `searchMode` and `captureCandidates`.
+  - **Index-time:** everything else, including embedding, chunking, upload settings and `chunkingStrategy`.
+  - A setting not on the search-time list counts as index-time.
+- Search settings are applied between passes through the Settings store, as the Settings page does. The run stops if the live settings don't match the config.
+- `--resume` takes one config. Resume each run folder on its own.
+
 ## Extraction runs
 
 `extract` checks what Connapse's parsers and chunker keep from raw files (PDF, DOCX, PPTX, text) before any

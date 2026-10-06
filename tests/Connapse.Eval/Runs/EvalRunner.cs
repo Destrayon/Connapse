@@ -14,6 +14,14 @@ public sealed record RunRequest(
     string? ResumeDir,
     int? LimitQueries);
 
+/// <summary>Several configs over one suite, sharing an index wherever their index-time settings match (#667).</summary>
+public sealed record MultiRunRequest(
+    string Suite,
+    string System,
+    IReadOnlyList<string> Configs,
+    IReadOnlyList<string> OnlyDatasets,
+    int? LimitQueries);
+
 public sealed class EvalRunner(
     RepoPaths paths,
     TextWriter log,
@@ -25,24 +33,9 @@ public sealed class EvalRunner(
 
     public async Task<RunFolder> RunAsync(RunRequest request, CancellationToken ct)
     {
-        if (request.LimitQueries is < 1)
-            throw new ArgumentException($"--limit-queries must be at least 1 (got {request.LimitQueries}).");
-
-        EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
-        IReadOnlyList<string> names = manifest.ResolveSuite(request.Suite, request.OnlyDatasets);
-        // Extraction datasets have no queries or relevance judgments; ranking them would index files,
-        // score nothing, and count expected failures against the dataset.
-        string[] extraction = names.Where(n => DatasetAdapters.Get(manifest.Datasets[n].Adapter) is IExtractionAdapter).ToArray();
-        if (extraction.Length > 0)
-            throw new ArgumentException(
-                $"{string.Join(", ", extraction)} {(extraction.Length == 1 ? "is an extraction dataset" : "are extraction datasets")}; "
-                + "score it with the 'extract' command, not 'run'.");
-        DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
-
-        // Verify every file before starting containers, so a checksum problem fails in seconds.
-        Dictionary<string, IReadOnlyDictionary<string, string>> hashes = new(StringComparer.Ordinal);
-        foreach (string name in names)
-            hashes[name] = await cache.EnsureAsync(name, manifest.Datasets[name], allowUnpinned: false, ct);
+        (EvalManifest manifest, IReadOnlyList<string> names, DatasetCache cache,
+            Dictionary<string, IReadOnlyDictionary<string, string>> hashes) =
+            await PrepareAsync(request.Suite, request.OnlyDatasets, request.LimitQueries, ct);
 
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, request.System, request.Config);
         (RunFolder run, RunManifest runManifest) = OpenOrCreate(request, config);
@@ -67,55 +60,157 @@ public sealed class EvalRunner(
                     .LoadAsync(name, entry, cache.DirectoryFor(name, entry), ct);
                 log.WriteLine($"[{name}] indexing {dataset.Corpus.Count} documents");
                 IndexReport index = await system.IndexAsync(dataset, ct);
-                bool invalid = dataset.Corpus.Count > 0 && (double)index.Failed / dataset.Corpus.Count > MaxFailedFraction;
-                if (invalid)
-                    log.WriteLine($"[{name}] INVALID: {index.Failed}/{dataset.Corpus.Count} documents failed to ingest");
-
-                IReadOnlyList<EvalQuery> queries = request.LimitQueries is int limit
-                    ? LimitPerSplit(dataset.Queries, limit)
-                    : dataset.Queries;
-                List<QueryResult> results = [];
-                List<(string QueryId, CandidateCapture Candidates)> captured = [];
-                // Passage judgments depend on what this run's parser and chunker produced, so they
-                // are made here and written as the run's qrels.
-                Qrels qrels = dataset.Passages is null ? dataset.Qrels : new Qrels();
-                foreach (EvalQuery query in queries)
-                {
-                    SearchOutcome outcome = await system.SearchAsync(name, query, K, ct);
-                    if (dataset.Passages is { } passages)
-                    {
-                        IReadOnlyList<RetrievedPassage> retrieved = outcome.Error is null ? outcome.Passages ?? [] : [];
-                        (IReadOnlyList<RankedDoc> ranked, IReadOnlyDictionary<string, int> judgments) =
-                            PassageJudge.Judge(passages[query.Id], retrieved);
-                        foreach ((string passageId, int grade) in judgments)
-                            qrels.Add(query.Id, passageId, grade);
-                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, ranked, outcome.Trace, outcome.Error, retrieved, query.Tags));
-                    }
-                    else
-                    {
-                        results.Add(new QueryResult(name, query.Id, query.Text, query.Split, outcome.Ranked, outcome.Trace, outcome.Error,
-                            Tags: query.Tags.Count > 0 ? query.Tags : null));
-                    }
-                    if (outcome.Candidates is not null)
-                        captured.Add((query.Id, outcome.Candidates));
-                    if (results.Count % 50 == 0)
-                        log.WriteLine($"[{name}] searched {results.Count}/{queries.Count}");
-                }
-
-                run.WriteDataset(name, qrels, Titles(dataset, qrels, results), results);
-                if (captured.Count > 0)
-                    run.WriteCandidates(name, captured);
-                RunDatasetInfo info = new(name, entry.Version, hashes[name], entry.Tags,
-                    dataset.Corpus.Count, index.Failed, invalid, queries.Count);
-                runManifest = runManifest with { Datasets = [.. runManifest.Datasets.Where(d => d.Name != name), info] };
-                run.WriteManifest(runManifest);
-                run.MarkComplete(name);
+                runManifest = await SearchDatasetAsync(system, name, entry, dataset, index, hashes[name],
+                    request.LimitQueries, run, runManifest, ct);
             }
         }
 
         runManifest = runManifest with { FinishedUtc = DateTimeOffset.UtcNow };
         run.WriteManifest(runManifest);
         return run;
+    }
+
+    /// <summary>
+    /// Runs every config over the suite, indexing each dataset once per group of configs whose
+    /// index-time settings match (<see cref="SystemConfig.IndexKey"/>), then searching that index under
+    /// each config in turn (#667). Each config gets its own run folder, as a separate <see cref="RunAsync"/>
+    /// would produce. Resuming is not supported: a run folder is resumed with <see cref="RunAsync"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<RunFolder>> RunManyAsync(MultiRunRequest request, CancellationToken ct)
+    {
+        if (request.Configs.Count == 0)
+            throw new ArgumentException("Give at least one config.");
+        string[] repeated = request.Configs.GroupBy(c => c, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToArray();
+        if (repeated.Length > 0)
+            throw new ArgumentException($"Config listed more than once: {string.Join(", ", repeated)}.");
+
+        (EvalManifest manifest, IReadOnlyList<string> names, DatasetCache cache,
+            Dictionary<string, IReadOnlyDictionary<string, string>> hashes) =
+            await PrepareAsync(request.Suite, request.OnlyDatasets, request.LimitQueries, ct);
+
+        List<(SystemConfig Config, RunFolder Run, RunManifest Manifest)> runs = [];
+        foreach (string name in request.Configs)
+        {
+            SystemConfig config = SystemConfig.Load(paths.EvalRoot, request.System, name);
+            (RunFolder run, RunManifest runManifest) = OpenOrCreate(
+                new RunRequest(request.Suite, request.System, name, request.OnlyDatasets, null, request.LimitQueries), config);
+            runs.Add((config, run, runManifest));
+        }
+
+        foreach (IGrouping<string, int> group in Enumerable.Range(0, runs.Count).GroupBy(i => runs[i].Config.IndexKey))
+        {
+            int[] members = group.ToArray();
+            log.WriteLine($"index shared by: {string.Join(", ", members.Select(i => runs[i].Config.Name))}");
+            await using ISystemUnderTest system = await systemFactory(runs[members[0]].Config.IndexOnly(), ct);
+            foreach (string name in names)
+            {
+                DatasetEntry entry = manifest.Datasets[name];
+                EvalDataset dataset = await DatasetAdapters.Get(entry.Adapter)
+                    .LoadAsync(name, entry, cache.DirectoryFor(name, entry), ct);
+                log.WriteLine($"[{name}] indexing {dataset.Corpus.Count} documents");
+                IndexReport index = await system.IndexAsync(dataset, ct);
+                foreach (int i in members)
+                {
+                    (SystemConfig config, RunFolder run, RunManifest runManifest) = runs[i];
+                    await system.UseSearchConfigAsync(config, ct);
+                    IReadOnlyDictionary<string, string> description = system.Describe();
+                    if (runManifest.SystemDescription.Count > 0 && !SameDescription(runManifest.SystemDescription, description))
+                        throw new InvalidOperationException(
+                            $"{config.Name}'s system changed between datasets: {Show(runManifest.SystemDescription)} became {Show(description)}.");
+                    runManifest = runManifest with { SystemDescription = description };
+                    // Written before searching, so a folder resumed after a failed search is still checked against it.
+                    run.WriteManifest(runManifest);
+                    log.WriteLine($"[{name}] searching under {config.Name}");
+                    runs[i] = (config, run, await SearchDatasetAsync(system, name, entry, dataset, index, hashes[name],
+                        request.LimitQueries, run, runManifest, ct));
+                }
+            }
+        }
+
+        List<RunFolder> folders = [];
+        foreach ((_, RunFolder run, RunManifest runManifest) in runs)
+        {
+            run.WriteManifest(runManifest with { FinishedUtc = DateTimeOffset.UtcNow });
+            folders.Add(run);
+        }
+        return folders;
+    }
+
+    /// <summary>Resolves the suite and verifies every dataset file before any container starts, so a checksum problem fails in seconds.</summary>
+    private async Task<(EvalManifest Manifest, IReadOnlyList<string> Names, DatasetCache Cache,
+        Dictionary<string, IReadOnlyDictionary<string, string>> Hashes)> PrepareAsync(
+        string suite, IReadOnlyList<string> onlyDatasets, int? limitQueries, CancellationToken ct)
+    {
+        if (limitQueries is < 1)
+            throw new ArgumentException($"--limit-queries must be at least 1 (got {limitQueries}).");
+
+        EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
+        IReadOnlyList<string> names = manifest.ResolveSuite(suite, onlyDatasets);
+        // Extraction datasets have no queries or relevance judgments; ranking them would index files,
+        // score nothing, and count expected failures against the dataset.
+        string[] extraction = names.Where(n => DatasetAdapters.Get(manifest.Datasets[n].Adapter) is IExtractionAdapter).ToArray();
+        if (extraction.Length > 0)
+            throw new ArgumentException(
+                $"{string.Join(", ", extraction)} {(extraction.Length == 1 ? "is an extraction dataset" : "are extraction datasets")}; "
+                + "score it with the 'extract' command, not 'run'.");
+        DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
+
+        Dictionary<string, IReadOnlyDictionary<string, string>> hashes = new(StringComparer.Ordinal);
+        foreach (string name in names)
+            hashes[name] = await cache.EnsureAsync(name, manifest.Datasets[name], allowUnpinned: false, ct);
+        return (manifest, names, cache, hashes);
+    }
+
+    /// <summary>Searches one indexed dataset under the system's current config and writes it to the run.</summary>
+    private async Task<RunManifest> SearchDatasetAsync(
+        ISystemUnderTest system, string name, DatasetEntry entry, EvalDataset dataset, IndexReport index,
+        IReadOnlyDictionary<string, string> fileHashes, int? limitQueries, RunFolder run, RunManifest runManifest,
+        CancellationToken ct)
+    {
+        bool invalid = dataset.Corpus.Count > 0 && (double)index.Failed / dataset.Corpus.Count > MaxFailedFraction;
+        if (invalid)
+            log.WriteLine($"[{name}] INVALID: {index.Failed}/{dataset.Corpus.Count} documents failed to ingest");
+
+        IReadOnlyList<EvalQuery> queries = limitQueries is int limit
+            ? LimitPerSplit(dataset.Queries, limit)
+            : dataset.Queries;
+        List<QueryResult> results = [];
+        List<(string QueryId, CandidateCapture Candidates)> captured = [];
+        // Passage judgments depend on what this run's parser and chunker produced, so they
+        // are made here and written as the run's qrels.
+        Qrels qrels = dataset.Passages is null ? dataset.Qrels : new Qrels();
+        foreach (EvalQuery query in queries)
+        {
+            SearchOutcome outcome = await system.SearchAsync(name, query, K, ct);
+            if (dataset.Passages is { } passages)
+            {
+                IReadOnlyList<RetrievedPassage> retrieved = outcome.Error is null ? outcome.Passages ?? [] : [];
+                (IReadOnlyList<RankedDoc> ranked, IReadOnlyDictionary<string, int> judgments) =
+                    PassageJudge.Judge(passages[query.Id], retrieved);
+                foreach ((string passageId, int grade) in judgments)
+                    qrels.Add(query.Id, passageId, grade);
+                results.Add(new QueryResult(name, query.Id, query.Text, query.Split, ranked, outcome.Trace, outcome.Error, retrieved, query.Tags));
+            }
+            else
+            {
+                results.Add(new QueryResult(name, query.Id, query.Text, query.Split, outcome.Ranked, outcome.Trace, outcome.Error,
+                    Tags: query.Tags.Count > 0 ? query.Tags : null));
+            }
+            if (outcome.Candidates is not null)
+                captured.Add((query.Id, outcome.Candidates));
+            if (results.Count % 50 == 0)
+                log.WriteLine($"[{name}] searched {results.Count}/{queries.Count}");
+        }
+
+        run.WriteDataset(name, qrels, Titles(dataset, qrels, results), results);
+        if (captured.Count > 0)
+            run.WriteCandidates(name, captured);
+        RunDatasetInfo info = new(name, entry.Version, fileHashes, entry.Tags,
+            dataset.Corpus.Count, index.Failed, invalid, queries.Count);
+        runManifest = runManifest with { Datasets = [.. runManifest.Datasets.Where(d => d.Name != name), info] };
+        run.WriteManifest(runManifest);
+        run.MarkComplete(name);
+        return runManifest;
     }
 
     /// <summary>

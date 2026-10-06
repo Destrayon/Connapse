@@ -42,4 +42,7 @@ public sealed class RerankerAvailability(TimeProvider clock)
 
     /// <summary>Ends the endpoint's outage. True when there was one.</summary>
     public bool MarkReachable(string endpoint) => _skipUntil.TryRemove(endpoint, out _);
+
+    /// <summary>Forgets every outage, so the next search tries each endpoint again.</summary>
+    public void Clear() => _skipUntil.Clear();
 }
