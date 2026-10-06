@@ -32,7 +32,8 @@ public sealed record RunManifest(
     IReadOnlyList<RunDatasetInfo> Datasets,
     int? LimitQueries,
     IReadOnlyList<RunResume> Resumes,
-    string? Kind = null)
+    string? Kind = null,
+    string? IndexCache = null)
 {
     /// <summary>Written as <see cref="Kind"/> on extract runs; ranking runs leave it null.</summary>
     public const string ExtractKind = "extract";

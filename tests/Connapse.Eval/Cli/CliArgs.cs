@@ -44,7 +44,7 @@ public sealed class CliArgs
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedOptions =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
-            ["run"] = ["suite", "config", "system", "datasets", "resume", "limit-queries"],
+            ["run"] = ["suite", "config", "system", "datasets", "resume", "limit-queries", "index-cache"],
             ["extract"] = ["suite", "config", "datasets", "resume", "real-embedder"],
             ["compare"] = ["allow-dataset-mismatch"],
             ["report"] = [],

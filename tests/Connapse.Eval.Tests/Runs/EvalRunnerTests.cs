@@ -244,9 +244,9 @@ public class EvalRunnerTests : IDisposable
     {
         FakeSystem system = new(failPerDataset: 0);
         List<SystemConfig> started = [];
-        EvalRunner runner = new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (config, _) =>
+        EvalRunner runner = new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (start, _) =>
         {
-            started.Add(config);
+            started.Add(start.Config);
             return Task.FromResult<ISystemUnderTest>(system);
         });
 
@@ -292,6 +292,82 @@ public class EvalRunnerTests : IDisposable
         await act.Should().ThrowAsync<ArgumentException>().WithMessage("*a*");
     }
 
+    // #672: a run that indexes a whole suite saves its index; a later one with the same key restores it.
+    private EvalRunner CachingRunner(FakeSystem system, List<SystemStart> starts) =>
+        new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (start, _) =>
+        {
+            starts.Add(start);
+            return Task.FromResult<ISystemUnderTest>(system);
+        })
+        { UseIndexCache = true };
+
+    [Fact]
+    public async Task RunAsync_IndexCacheOn_SavesTheIndexOfEveryDataset()
+    {
+        FakeSystem system = new(failPerDataset: 0);
+        List<SystemStart> starts = [];
+
+        RunFolder run = await CachingRunner(system, starts).RunAsync(new RunRequest("s", "fake", "default", [], null, null), CancellationToken.None);
+
+        starts.Single().IndexCacheKey.Should().NotBeNull();
+        system.Saves.Should().ContainSingle().Which.Should().Equal("one", "two");
+        run.ReadManifest().IndexCache.Should().Be("saved " + starts.Single().IndexCacheKey);
+    }
+
+    [Fact]
+    public async Task RunAsync_IndexCacheRestored_SearchesWithoutIndexing()
+    {
+        FakeSystem system = new(failPerDataset: 0)
+        {
+            Cached = new Dictionary<string, IndexReport> { ["one"] = new(2, 0, []), ["two"] = new(2, 0, []) },
+        };
+        List<SystemStart> starts = [];
+
+        RunFolder run = await CachingRunner(system, starts).RunAsync(new RunRequest("s", "fake", "default", [], null, null), CancellationToken.None);
+
+        system.Indexed.Should().BeEmpty();
+        system.Saves.Should().BeEmpty();
+        Scoring.Score(run).Portfolio["MRR@10"].Should().Be(1.0);
+        run.ReadManifest().IndexCache.Should().Be("restored " + starts.Single().IndexCacheKey);
+    }
+
+    [Fact]
+    public async Task RunAsync_ResumeIndexingPartOfTheSuite_DoesNotUseTheCache()
+    {
+        RunFolder run = await Runner(new FakeSystem(failPerDataset: 0))
+            .RunAsync(new RunRequest("s", "fake", "default", ["one"], null, null), CancellationToken.None);
+        FakeSystem system = new(failPerDataset: 0);
+        List<SystemStart> starts = [];
+
+        await CachingRunner(system, starts).RunAsync(new RunRequest("s", "fake", "default", [], run.Path, null), CancellationToken.None);
+
+        starts.Single().IndexCacheKey.Should().BeNull();
+        system.Saves.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunManyAsync_IndexCacheOn_KeysOnTheSharedIndexConfig()
+    {
+        FakeSystem system = new(failPerDataset: 0);
+        List<SystemStart> starts = [];
+
+        IReadOnlyList<RunFolder> runs = await CachingRunner(system, starts).RunManyAsync(
+            new MultiRunRequest("s", "fake", ["a", "b"], [], null), CancellationToken.None);
+
+        string key = starts.Single().IndexCacheKey!;
+        system.Saves.Should().ContainSingle();
+        runs.Should().OnlyContain(r => r.ReadManifest().IndexCache == "saved " + key);
+        (await IndexCacheKeyForAsync("default")).Should().Be(key, "a and b share default's index-time settings");
+    }
+
+    private async Task<string> IndexCacheKeyForAsync(string config)
+    {
+        List<SystemStart> starts = [];
+        await CachingRunner(new FakeSystem(failPerDataset: 0), starts)
+            .RunAsync(new RunRequest("s", "fake", config, [], null, null), CancellationToken.None);
+        return starts.Single().IndexCacheKey!;
+    }
+
     [Fact]
     public async Task RunAsync_LimitQueriesZero_ThrowsArgumentException()
     {
@@ -301,8 +377,19 @@ public class EvalRunnerTests : IDisposable
         await act.Should().ThrowAsync<ArgumentException>().WithMessage("*limit-queries*");
     }
 
-    private sealed class FakeSystem(int failPerDataset, string kind = "fake") : ISystemUnderTest
+    private sealed class FakeSystem(int failPerDataset, string kind = "fake") : ISystemUnderTest, IIndexCachingSystem
     {
+        public IReadOnlyDictionary<string, IndexReport> Cached { get; init; } = new Dictionary<string, IndexReport>();
+        public List<IReadOnlyList<string>> Saves { get; } = [];
+        public bool Restored => Cached.Count > 0;
+        public IndexReport? RestoredIndex(string dataset) => Cached.GetValueOrDefault(dataset);
+
+        public Task SaveIndexCacheAsync(IReadOnlyList<string> datasets, CancellationToken ct)
+        {
+            Saves.Add(datasets);
+            return Task.CompletedTask;
+        }
+
         public List<string> Indexed { get; } = [];
         public List<string> Searched { get; } = [];
         public List<string> Used { get; } = [];

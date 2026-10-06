@@ -29,6 +29,21 @@ Give `run` several configs to index each dataset once and search it under each:
 - Search settings are applied between passes through the Settings store, as the Settings page does. The run stops if the live settings don't match the config.
 - `--resume` takes one config. Resume each run folder on its own.
 
+## Index cache
+
+A run that indexes every dataset of its suite saves the built index, and a later run with the same key restores it in minutes instead of indexing for hours.
+
+- **Storage:** the PostgreSQL database goes into a Docker volume, `connapse-eval-index-<key>`. The harness's per-dataset state goes into `eval/.cache/index-snapshots/<key>.json`.
+- **What the key covers:**
+  - the datasets: names, versions and file hashes;
+  - the index-time settings and chunking strategy;
+  - non-search `Knowledge__` environment variables;
+  - the contents of the source that ingests documents: `src/**` except Connapse.Search and Connapse.Agents, plus `tests/Connapse.Eval/Systems` and the root build files.
+- **When the key changes:** changing search code keeps the key. Changing ingestion, storage, the web project or a dataset makes a new one. Uncommitted edits count.
+- **Recording:** the run manifest's `indexCache` says whether a run `saved` or `restored` its index.
+- **Turning it off:** `--index-cache off` neither reads nor writes the cache.
+- **Freeing space:** delete old snapshots with `docker volume rm connapse-eval-index-<key>` and the matching JSON file.
+
 ## Extraction runs
 
 `extract` checks what Connapse's parsers and chunker keep from raw files (PDF, DOCX, PPTX, text) before any
