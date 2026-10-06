@@ -28,9 +28,11 @@ public sealed record IndexCacheStore(string Root, string Key)
     }
 }
 
+/// <param name="Generation">The snapshot generation in the volume this metadata belongs to: written only after it is complete.</param>
 /// <param name="Description">The index-shaping part of the system's description when it was saved; a restore must match it.</param>
 public sealed record IndexCacheMetadata(
     string Key,
+    string Generation,
     IReadOnlyDictionary<string, string> Description,
     IReadOnlyDictionary<string, CachedDataset> Datasets);
 

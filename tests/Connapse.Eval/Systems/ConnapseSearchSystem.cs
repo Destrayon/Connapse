@@ -73,7 +73,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     {
         IndexCacheMetadata? cached = indexCache?.Load();
         EvalHost host = await EvalHost.StartAsync(config, webContentRoot, cache, embeddingOverride, ct,
-            indexCache?.VolumeName, restore: cached is not null);
+            indexCache?.VolumeName, cached?.Generation);
         ConnapseSearchSystem system = new(host, config, log, embeddingOverride, indexCache);
         system._searchBaseline = host.Services.GetRequiredService<IOptionsMonitor<SearchSettings>>().CurrentValue with { };
         if (host.Restored)
@@ -81,6 +81,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
             try
             {
                 system.Adopt(cached!);
+                await system.VerifyRestoredContainersAsync(ct);
             }
             catch
             {
@@ -109,6 +110,21 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         _log.WriteLine($"restored index cache {cached.Key}: {string.Join(", ", cached.Datasets.Keys)}");
     }
 
+    /// <summary>
+    /// Every container the metadata names must exist in the restored database: a database and metadata
+    /// from different saves would otherwise search empty containers and score near zero without an error.
+    /// </summary>
+    private async Task VerifyRestoredContainersAsync(CancellationToken ct)
+    {
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        IContainerStore containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+        foreach ((string name, (Guid containerId, _)) in _datasets)
+            if (await containers.GetAsync(containerId, ct) is null)
+                throw new InvalidOperationException(
+                    $"The restored index cache has no container for {name}; its database and metadata don't belong together. "
+                    + "Delete it or run with --index-cache off.");
+    }
+
     public async Task SaveIndexCacheAsync(IReadOnlyList<string> datasets, CancellationToken ct)
     {
         if (_indexCache is null)
@@ -117,8 +133,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         // restoring this snapshot must get its own config's, not those.
         await using (AsyncServiceScope scope = _host.Services.CreateAsyncScope())
             await scope.ServiceProvider.GetRequiredService<ISettingsStore>().ResetAsync("search", ct);
-        await _host.SaveSnapshotAsync(ct);
-        _indexCache.Save(new IndexCacheMetadata(_indexCache.Key, IndexDescription(),
+        string generation = Guid.NewGuid().ToString("N");
+        await _host.SaveSnapshotAsync(generation, ct);
+        _indexCache.Save(new IndexCacheMetadata(_indexCache.Key, generation, IndexDescription(),
             datasets.ToDictionary(name => name, name => new CachedDataset(
                 _datasets[name].ContainerId, _datasets[name].DocMap, _reports[name]), StringComparer.Ordinal)));
         _log.WriteLine($"saved index cache {_indexCache.Key}");

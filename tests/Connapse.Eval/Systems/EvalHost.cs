@@ -47,14 +47,14 @@ public sealed class EvalHost : IAsyncDisposable
     public bool Restored { get; }
 
     /// <param name="snapshotVolume">
-    /// A Docker volume mounted into PostgreSQL for index snapshots (#672). With <paramref name="restore"/>,
-    /// a complete snapshot in it is restored before Connapse starts, so its migrations find the schema
+    /// A Docker volume mounted into PostgreSQL for index snapshots (#672). With <paramref name="restoreGeneration"/>,
+    /// that generation's snapshot is restored before Connapse starts, so its migrations find the schema
     /// already current; an incomplete or missing one leaves the database empty.
     /// </param>
     public static async Task<EvalHost> StartAsync(
         SystemConfig config, string webContentRoot, EmbeddingDiskCache cache,
         IEmbeddingProvider? embeddingOverride, CancellationToken ct,
-        string? snapshotVolume = null, bool restore = false)
+        string? snapshotVolume = null, string? restoreGeneration = null)
     {
         PostgreSqlBuilder postgresBuilder = new PostgreSqlBuilder()
             .WithImage("pgvector/pgvector:pg17")
@@ -73,11 +73,11 @@ public sealed class EvalHost : IAsyncDisposable
         {
             await Task.WhenAll(postgres.StartAsync(ct), minio.StartAsync(ct));
             bool restored = false;
-            if (restore && snapshotVolume is not null
-                && (await postgres.ExecAsync(["test", "-f", $"{SnapshotMount}/complete"], ct)).ExitCode == 0)
+            if (restoreGeneration is not null && snapshotVolume is not null
+                && (await postgres.ExecAsync(["test", "-f", $"{SnapshotMount}/{restoreGeneration}/complete"], ct)).ExitCode == 0)
             {
                 await ShellAsync(postgres,
-                    $"PGPASSWORD=eval pg_restore -h localhost -U eval -d connapse_eval -j 8 --no-owner --exit-on-error {SnapshotMount}/db",
+                    $"PGPASSWORD=eval pg_restore -h localhost -U eval -d connapse_eval -j 8 --no-owner --exit-on-error {SnapshotMount}/{restoreGeneration}/db",
                     ct);
                 restored = true;
             }
@@ -140,17 +140,18 @@ public sealed class EvalHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Dumps the database into the snapshot volume, replacing what was there (#672). The "complete" marker
-    /// is written last, so an interrupted dump is never restored.
+    /// Dumps the database into its own generation directory of the snapshot volume (#672). The "complete"
+    /// marker is written last, so an interrupted dump is never restored, and a generation is written once:
+    /// two runs saving the same key at once never touch each other's dump.
     /// </summary>
-    public Task SaveSnapshotAsync(CancellationToken ct)
+    public Task SaveSnapshotAsync(string generation, CancellationToken ct)
     {
         if (_snapshotVolume is null)
             throw new InvalidOperationException("This host was started without a snapshot volume.");
         return ShellAsync(_postgres,
-            $"rm -rf {SnapshotMount}/db {SnapshotMount}/complete"
-            + $" && PGPASSWORD=eval pg_dump -h localhost -U eval -d connapse_eval -Fd -j 8 -Z 0 -f {SnapshotMount}/db"
-            + $" && touch {SnapshotMount}/complete",
+            $"mkdir -p {SnapshotMount}/{generation}"
+            + $" && PGPASSWORD=eval pg_dump -h localhost -U eval -d connapse_eval -Fd -j 8 -Z 0 -f {SnapshotMount}/{generation}/db"
+            + $" && touch {SnapshotMount}/{generation}/complete",
             ct);
     }
 

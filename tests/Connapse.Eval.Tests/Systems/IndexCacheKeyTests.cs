@@ -54,6 +54,8 @@ public class IndexCacheKeyTests : IDisposable
     [InlineData("src/Connapse.Ingestion/Chunker.cs")]
     [InlineData("src/Connapse.Web/Services/UploadService.cs")]
     [InlineData("tests/Connapse.Eval/Systems/ConnapseSearchSystem.cs")]
+    [InlineData("tests/Connapse.Eval/Datasets/RagBenchAdapter.cs")]
+    [InlineData("tests/Connapse.Eval/Model/EvalDocument.cs")]
     [InlineData("Directory.Packages.props")]
     public void SourceHash_IndexShapingSourceChanges_ChangesTheKey(string file)
     {

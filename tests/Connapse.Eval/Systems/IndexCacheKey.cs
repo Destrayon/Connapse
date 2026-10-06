@@ -12,8 +12,9 @@ namespace Connapse.Eval.Systems;
 /// <item>the config's index-time settings and chunking strategy (<see cref="SystemConfig.IndexKey"/>);</item>
 /// <item><c>Knowledge__</c> environment variables that aren't search-time, since they override configs;</item>
 /// <item>the content of the source that ingests documents: <c>src/**</c> except the search and agent
-/// projects, the harness's own systems code, and the root build files. File contents rather than the
-/// git commit, so uncommitted changes count too.</item>
+/// projects; the harness code that turns datasets into documents and uploads them (its Datasets, Model
+/// and Systems folders); and the root build files. File contents rather than the git commit, so
+/// uncommitted changes count too.</item>
 /// </list>
 /// </summary>
 public static class IndexCacheKey
@@ -63,9 +64,13 @@ public static class IndexCacheKey
             foreach (string project in Directory.EnumerateDirectories(src))
                 if (!SearchOnlyProjects.Contains(Path.GetFileName(project)))
                     files.AddRange(SourceFiles(project));
-        string systems = Path.Combine(repoRoot, "tests", "Connapse.Eval", "Systems");
-        if (Directory.Exists(systems))
-            files.AddRange(SourceFiles(systems));
+        // Adapters decide each document's text and ID; Systems uploads them.
+        foreach (string folder in new[] { "Datasets", "Model", "Systems" })
+        {
+            string path = Path.Combine(repoRoot, "tests", "Connapse.Eval", folder);
+            if (Directory.Exists(path))
+                files.AddRange(SourceFiles(path));
+        }
         files.AddRange(RootBuildFiles.Select(f => Path.Combine(repoRoot, f)).Where(File.Exists));
 
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
