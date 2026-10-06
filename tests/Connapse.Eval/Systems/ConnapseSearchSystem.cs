@@ -112,11 +112,28 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
             .Bind(expected);
         await store.SaveAsync("search", expected, ct);
 
-        if (monitor.CurrentValue != expected)
+        string[] differ = Differences(expected, monitor.CurrentValue);
+        if (differ.Length > 0)
             throw new InvalidOperationException(
-                $"{config.Name}'s search settings did not take effect: expected {expected}, the host has {monitor.CurrentValue}.");
+                $"{config.Name}'s search settings did not take effect: {string.Join(", ", differ)}.");
         _config = config;
     }
+
+    /// <summary>
+    /// The properties whose values differ, as "name: expected → actual". A null string and an empty one
+    /// count as equal: the settings provider reads a saved null back as an empty string. Key values
+    /// are not printed.
+    /// </summary>
+    public static string[] Differences(SearchSettings expected, SearchSettings actual) =>
+        typeof(SearchSettings).GetProperties()
+            .Select(p => (p.Name, Expected: Normalize(p.GetValue(expected)), Actual: Normalize(p.GetValue(actual))))
+            .Where(x => x.Expected != x.Actual)
+            .Select(x => x.Name.Contains("Key", StringComparison.Ordinal)
+                ? $"{x.Name} differs"
+                : $"{x.Name}: {x.Expected} → {x.Actual}")
+            .ToArray();
+
+    private static string Normalize(object? value) => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
 
     /// <summary>
     /// Uploads every document and waits for ingestion. <see cref="IngestionWait.RecordStalls"/> is for

@@ -91,4 +91,15 @@ public class SystemConfigTests
         indexOnly.CaptureCandidates.Should().BeNull();
         config.SearchTimeSettings.Should().Equal(new Dictionary<string, string> { ["Knowledge:Search:FusionAlpha"] = "0.5" });
     }
+
+    [Fact]
+    public void Differences_NullAndEmptyStringsAreEqualAndKeysAreNotPrinted()
+    {
+        SearchSettings expected = new() { CrossEncoderApiKey = null, FusionAlpha = 0.75f };
+        SearchSettings actual = expected with { CrossEncoderApiKey = "" };
+
+        ConnapseSearchSystem.Differences(expected, actual).Should().BeEmpty();
+        ConnapseSearchSystem.Differences(expected, actual with { FusionAlpha = 0.65f, CrossEncoderApiKey = "secret" })
+            .Should().Equal("FusionAlpha: 0.75 → 0.65", "CrossEncoderApiKey differs");
+    }
 }
