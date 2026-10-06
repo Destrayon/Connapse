@@ -1,0 +1,1 @@
+{ "searchMode": "hybrid", "settings": { "Knowledge:Search:Reranker": "CrossEncoder", "Knowledge:Search:CrossEncoderTimeoutSeconds": "60", "Knowledge:Search:FusionAlpha": "0.65", "Knowledge:Search:HybridCandidatePool": "50", "Knowledge:Search:RerankCandidates": "50" } }

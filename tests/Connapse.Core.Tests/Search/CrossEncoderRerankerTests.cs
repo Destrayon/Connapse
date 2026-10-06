@@ -238,7 +238,7 @@ public class CrossEncoderRerankerTests
         var monitor = Substitute.For<IOptionsMonitor<SearchSettings>>();
         monitor.CurrentValue.Returns(settings);
 
-        var reranker = new CrossEncoderReranker(monitor, httpClientFactory, _logger);
+        var reranker = new CrossEncoderReranker(monitor, httpClientFactory, new RerankerAvailability(TimeProvider.System), _logger);
         var hits = new List<SearchHit>
         {
             CreateHit("chunk1", 0.9f),
@@ -363,7 +363,7 @@ public class CrossEncoderRerankerTests
         var monitor = Substitute.For<IOptionsMonitor<SearchSettings>>();
         monitor.CurrentValue.Returns(settings);
 
-        var reranker = new CrossEncoderReranker(monitor, httpClientFactory, _logger);
+        var reranker = new CrossEncoderReranker(monitor, httpClientFactory, new RerankerAvailability(TimeProvider.System), _logger);
         var hits = new List<SearchHit>
         {
             CreateHit("chunk1", 0.9f),
@@ -404,6 +404,129 @@ public class CrossEncoderRerankerTests
         result[0].Score.Should().Be(0.75f);
     }
 
+    // A reranker that can't be reached is remembered for a while (#668), so searches don't each pay a
+    // retry and an error log while it is down. Only connection-level failures count.
+    [Fact]
+    public async Task RerankAsync_ServiceUnreachable_SkipsTheServiceUntilTheCooldownEnds()
+    {
+        var clock = new ManualClock();
+        var handler = new ThrowingHttpHandler(() => new HttpRequestException("Connection refused"));
+        var reranker = CreateReranker(handler, clock);
+        List<SearchHit> hits = [CreateHit("chunk1", 0.9f), CreateHit("chunk2", 0.5f)];
+
+        (await reranker.RerankAsync("q", hits)).Should().Equal(hits);
+        (await reranker.RerankAsync("q", hits)).Should().Equal(hits);
+        handler.Calls.Should().Be(1, "the second search skips the unreachable service");
+
+        clock.Advance(RerankerAvailability.Cooldown + TimeSpan.FromSeconds(1));
+        await reranker.RerankAsync("q", hits);
+        handler.Calls.Should().Be(2, "after the cooldown the service is tried again");
+    }
+
+    [Fact]
+    public async Task RerankAsync_ServiceTimesOut_IsSkippedLikeAnUnreachableOne()
+    {
+        var handler = new ThrowingHttpHandler(() => new TaskCanceledException("timed out"));
+        var reranker = CreateReranker(handler, new ManualClock());
+
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.9f)]);
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.9f)]);
+
+        handler.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task RerankAsync_ServiceAnswersWithAnError_IsNotSkipped()
+    {
+        var handler = new MockHttpHandler(HttpStatusCode.InternalServerError, "Server error");
+        var reranker = CreateReranker(handler, new ManualClock());
+
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.9f)]);
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.9f)]);
+
+        handler.Calls.Should().Be(2, "a service that answers is reachable; its errors are logged per search");
+    }
+
+    [Fact]
+    public async Task RerankAsync_SearchCancelled_DoesNotMarkTheServiceUnreachable()
+    {
+        var handler = new ThrowingHttpHandler(() => new TaskCanceledException("cancelled"));
+        var reranker = CreateReranker(handler, new ManualClock());
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.9f)], cancelled.Token);
+        int before = handler.Calls;
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.9f)]);
+
+        handler.Calls.Should().Be(before + 1, "a cancelled search says nothing about the service");
+    }
+
+    [Fact]
+    public async Task RerankAsync_ServiceRecovers_IsUsedAgainAfterTheCooldown()
+    {
+        var clock = new ManualClock();
+        bool down = true;
+        var handler = new ThrowingHttpHandler(() => down ? new HttpRequestException("Connection refused") : null,
+            "[{\"index\":0,\"score\":0.8}]");
+        var reranker = CreateReranker(handler, clock);
+
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.3f)]);
+        down = false;
+        clock.Advance(RerankerAvailability.Cooldown + TimeSpan.FromSeconds(1));
+        List<SearchHit> result = await reranker.RerankAsync("q", [CreateHit("chunk1", 0.3f)]);
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.3f)]);
+
+        result[0].Score.Should().Be(0.8f);
+        handler.Calls.Should().Be(3, "once it answers, every search uses it again");
+    }
+
+    [Fact]
+    public async Task RerankAsync_CircuitOpen_DoesNotHoldItAgainstThisEndpoint()
+    {
+        // The circuit is shared by every endpoint; an open one may be the previous endpoint's.
+        bool open = true;
+        var handler = new ThrowingHttpHandler(
+            () => open ? new Polly.CircuitBreaker.BrokenCircuitException("open") : null,
+            "[{\"index\":0,\"score\":0.8}]");
+        var reranker = CreateReranker(handler, new ManualClock());
+
+        (await reranker.RerankAsync("q", [CreateHit("chunk1", 0.3f)]))[0].Score.Should().Be(0.3f);
+        open = false;
+        List<SearchHit> result = await reranker.RerankAsync("q", [CreateHit("chunk1", 0.3f)]);
+
+        result[0].Score.Should().Be(0.8f, "the next search goes straight to the endpoint");
+    }
+
+    [Fact]
+    public void RerankerAvailability_EndpointsAreTrackedSeparately()
+    {
+        var availability = new RerankerAvailability(new ManualClock());
+
+        availability.MarkUnreachable("TEI|http://a").Should().BeTrue("the first failure starts an outage");
+        availability.MarkUnreachable("TEI|http://a").Should().BeFalse("later failures belong to the same outage");
+
+        availability.IsSkipped("TEI|http://a").Should().BeTrue();
+        availability.IsSkipped("TEI|http://b").Should().BeFalse();
+        availability.MarkReachable("TEI|http://a").Should().BeTrue("a recovery ends the outage");
+        availability.IsSkipped("TEI|http://a").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RerankerAvailability_ConcurrentFirstFailures_StartOneOutage()
+    {
+        var availability = new RerankerAvailability(TimeProvider.System);
+        using var start = new ManualResetEventSlim();
+
+        Task<bool>[] marks = Enumerable.Range(0, 32)
+            .Select(_ => Task.Run(() => { start.Wait(); return availability.MarkUnreachable("TEI|http://a"); }))
+            .ToArray();
+        start.Set();
+        bool[] started = await Task.WhenAll(marks);
+
+        started.Count(s => s).Should().Be(1, "one warning per outage");
+    }
+
     // --- Helpers ---
 
     [Fact]
@@ -412,7 +535,7 @@ public class CrossEncoderRerankerTests
         var handler = new MockHttpHandler(HttpStatusCode.OK, "[{\"index\":0,\"score\":0.7}]");
         var monitor = Substitute.For<IOptionsMonitor<SearchSettings>>();
         monitor.CurrentValue.Returns(new SearchSettings { CrossEncoderProvider = "TEI" });
-        var reranker = new CrossEncoderReranker(monitor, CreateHttpClientFactory(handler), _logger);
+        var reranker = new CrossEncoderReranker(monitor, CreateHttpClientFactory(handler), new RerankerAvailability(TimeProvider.System), _logger);
 
         await reranker.RerankAsync("q", [CreateHit("chunk1", 0.5f)]);
 
@@ -439,7 +562,21 @@ public class CrossEncoderRerankerTests
         var handler = new MockHttpHandler(HttpStatusCode.OK, httpResponse ?? "[]");
         var httpClientFactory = CreateHttpClientFactory(handler);
 
-        return new CrossEncoderReranker(monitor, httpClientFactory, _logger);
+        return new CrossEncoderReranker(monitor, httpClientFactory, new RerankerAvailability(TimeProvider.System), _logger);
+    }
+
+    private CrossEncoderReranker CreateReranker(HttpMessageHandler handler, TimeProvider clock)
+    {
+        var monitor = Substitute.For<IOptionsMonitor<SearchSettings>>();
+        monitor.CurrentValue.Returns(new SearchSettings
+        {
+            CrossEncoderProvider = "TEI",
+            CrossEncoderModel = "test",
+            CrossEncoderBaseUrl = "http://localhost:8080"
+        });
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient("CrossEncoder").Returns(_ => new HttpClient(handler, disposeHandler: false));
+        return new CrossEncoderReranker(monitor, factory, new RerankerAvailability(clock), _logger);
     }
 
     private static IHttpClientFactory CreateHttpClientFactory(MockHttpHandler handler)
@@ -467,9 +604,12 @@ public class CrossEncoderRerankerTests
     {
         public string? LastRequestBody { get; private set; }
 
+        public int Calls { get; private set; }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Calls++;
             if (request.Content is not null)
                 LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
 
@@ -478,5 +618,33 @@ public class CrossEncoderRerankerTests
                 Content = new StringContent(content, System.Text.Encoding.UTF8, "application/json")
             };
         }
+    }
+
+    /// <summary>Throws the exception the factory returns, or answers 200 with the body when it returns null.</summary>
+    private sealed class ThrowingHttpHandler(Func<Exception?> failure, string body = "[]") : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (failure() is Exception ex)
+                throw ex;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
+    private sealed class ManualClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 10, 6, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan by) => _now += by;
     }
 }

@@ -202,17 +202,20 @@ public record SearchSettings
     public string Reranker { get; set; } = "None";
 
     /// <summary>
-    /// Semantic weight for Convex Combination fusion (0.0-1.0, default: 0.75).
+    /// Semantic weight for Convex Combination fusion (0.0-1.0, default: 0.65).
     /// Higher values favor vector/semantic results, lower values favor keyword results.
     /// At extremes (0 or 1), hits from the zero-weighted source score 0 and may be
     /// filtered by MinimumScore. Clamped to [0,1] at fusion time.
-    /// The default was chosen on the 8-domain BEIR dev suite with nomic-embed-text (#552): macro
-    /// nDCG@10 peaks at 0.75 on a plateau from 0.65 to 0.8, and leave-one-domain-out picks 0.75 in
-    /// 7 of 8 folds. The earlier 0.3 was tuned while Ollama's nomic vectors were degraded by
-    /// missing lowercasing (#561), which made dense search look weaker than keyword search.
+    /// The default must hold with and without a reranker and on public and enterprise data (#668).
+    /// 0.65 is the weight with the smallest worst-case loss of rerank-pool recall across the 8 BEIR
+    /// dev domains and EnterpriseRAG-Bench (erb-50k), where keyword search is stronger on internal
+    /// names and codes. With the cross-encoder it scores erb-50k 0.677 against 0.660 at 0.75 and
+    /// leaves the dev suite unchanged; without it, erb-50k gains about 0.03 and dev-fever loses about
+    /// 0.02. The earlier 0.75 was the dev-suite peak without a reranker (#552), on a plateau from 0.65
+    /// to 0.8.
     /// </summary>
     [Range(0f, 1f)]
-    public float FusionAlpha { get; set; } = 0.75f;
+    public float FusionAlpha { get; set; } = 0.65f;
 
     /// <summary>
     /// Hybrid search: candidates each side (vector, keyword) retrieves before fusion (default: 30).

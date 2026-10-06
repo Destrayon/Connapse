@@ -562,7 +562,7 @@ public class HybridSearchFusionTests
     {
         var settings = new SearchSettings();
 
-        settings.FusionAlpha.Should().Be(0.75f);
+        settings.FusionAlpha.Should().Be(0.65f);
         settings.HybridCandidatePool.Should().Be(30);
     }
 
