@@ -25,6 +25,13 @@ public class EvalRunnerTests : IDisposable
         RepoPaths paths = new(_repo);
         Directory.CreateDirectory(Path.Combine(paths.EvalRoot, "systems", "fake"));
         File.WriteAllText(Path.Combine(paths.EvalRoot, "systems", "fake", "default.json"), "{\"searchMode\":\"hybrid\"}");
+        // a and b differ only in search-time settings; c changes the embedding model.
+        File.WriteAllText(Path.Combine(paths.EvalRoot, "systems", "fake", "a.json"),
+            "{\"searchMode\":\"hybrid\",\"settings\":{\"Knowledge:Search:FusionAlpha\":\"0.5\"}}");
+        File.WriteAllText(Path.Combine(paths.EvalRoot, "systems", "fake", "b.json"),
+            "{\"searchMode\":\"keyword\",\"settings\":{\"Knowledge:Search:Reranker\":\"CrossEncoder\"}}");
+        File.WriteAllText(Path.Combine(paths.EvalRoot, "systems", "fake", "c.json"),
+            "{\"searchMode\":\"hybrid\",\"settings\":{\"Knowledge:Embedding:Model\":\"other\"}}");
         DatasetEntry entry = new("beir-jsonl", "1", ["domain:test"],
         [
             new DatasetFile("corpus.jsonl", "https://x.test/c", Hash(Corpus)),
@@ -231,6 +238,60 @@ public class EvalRunnerTests : IDisposable
             k.Kind == "kind:table-ruled" && k.Queries == 1 && k.Means["MRR@10"] == 0.5);
     }
 
+    // #667: index once per group of configs that share index-time settings, search under each.
+    [Fact]
+    public async Task RunManyAsync_ConfigsSharingAnIndex_IndexOnceAndWriteARunPerConfig()
+    {
+        FakeSystem system = new(failPerDataset: 0);
+        List<SystemConfig> started = [];
+        EvalRunner runner = new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (config, _) =>
+        {
+            started.Add(config);
+            return Task.FromResult<ISystemUnderTest>(system);
+        });
+
+        IReadOnlyList<RunFolder> runs = await runner.RunManyAsync(
+            new MultiRunRequest("s", "fake", ["a", "b"], [], null), CancellationToken.None);
+
+        started.Should().ContainSingle().Which.Settings.Should().BeEmpty("the system starts with index-time settings only");
+        system.Indexed.Should().Equal("one", "two");
+        system.Used.Should().Equal("a", "b", "a", "b");
+        system.Searched.Should().HaveCount(8, "2 datasets x 2 queries x 2 configs");
+        runs.Select(r => r.ReadManifest().Config).Should().Equal("a", "b");
+        runs.Should().OnlyContain(r => r.ReadManifest().FinishedUtc != null && Scoring.Score(r).Portfolio["MRR@10"] == 1.0);
+        runs.Select(r => r.ReadManifest().ConfigHash).Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public async Task RunManyAsync_IndexTimeSettingDiffers_StartsASystemPerGroup()
+    {
+        List<FakeSystem> systems = [];
+        EvalRunner runner = new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (_, _) =>
+        {
+            FakeSystem system = new(failPerDataset: 0);
+            systems.Add(system);
+            return Task.FromResult<ISystemUnderTest>(system);
+        });
+
+        IReadOnlyList<RunFolder> runs = await runner.RunManyAsync(
+            new MultiRunRequest("s", "fake", ["a", "c", "b"], ["one"], null), CancellationToken.None);
+
+        systems.Should().HaveCount(2);
+        systems[0].Used.Should().Equal("a", "b");
+        systems[1].Used.Should().Equal("c");
+        systems.Should().OnlyContain(s => s.Indexed.SequenceEqual(new[] { "one" }));
+        runs.Select(r => r.ReadManifest().Config).Should().Equal("a", "c", "b");
+    }
+
+    [Fact]
+    public async Task RunManyAsync_ConfigListedTwice_Refuses()
+    {
+        Func<Task> act = () => Runner(new FakeSystem(failPerDataset: 0))
+            .RunManyAsync(new MultiRunRequest("s", "fake", ["a", "a"], [], null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentException>().WithMessage("*a*");
+    }
+
     [Fact]
     public async Task RunAsync_LimitQueriesZero_ThrowsArgumentException()
     {
@@ -244,6 +305,7 @@ public class EvalRunnerTests : IDisposable
     {
         public List<string> Indexed { get; } = [];
         public List<string> Searched { get; } = [];
+        public List<string> Used { get; } = [];
         public IReadOnlyList<RetrievedPassage>? Passages { get; init; }
         public string Name => "fake";
         public IReadOnlyDictionary<string, string> Describe() => new Dictionary<string, string> { ["kind"] = kind };
@@ -260,6 +322,12 @@ public class EvalRunnerTests : IDisposable
             Searched.Add(query.Id);
             return Task.FromResult(new SearchOutcome([new RankedDoc("d" + query.Id[1..], 1.0)],
                 new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null) { Passages = Passages });
+        }
+
+        public Task UseSearchConfigAsync(SystemConfig config, CancellationToken ct)
+        {
+            Used.Add(config.Name);
+            return Task.CompletedTask;
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

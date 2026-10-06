@@ -10,6 +10,7 @@ using Hangfire;
 using Hangfire.Common;
 using Hangfire.Storage;
 using Hangfire.Storage.Monitoring;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -28,7 +29,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
     private const int UploadBatchSize = 100;
 
     private readonly EvalHost _host;
-    private readonly SystemConfig _config;
+    private SystemConfig _config;
     private readonly TextWriter _log;
     private readonly IEmbeddingProvider? _embeddingOverride;
     private readonly Dictionary<string, (Guid ContainerId, Dictionary<string, string> DocMap)> _datasets = new(StringComparer.Ordinal);
@@ -84,6 +85,38 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
 
     public Task<IndexReport> IndexAsync(EvalDataset dataset, CancellationToken ct) =>
         IndexAsync(dataset, IngestionWait.ThrowOnStall, ct);
+
+    /// <summary>
+    /// Applies <paramref name="config"/>'s search-time settings the way the Settings page does: saved to
+    /// the "search" category, which reloads <see cref="IOptionsMonitor{SearchSettings}"/> without a
+    /// restart (#667). The category is reset first, so nothing carries over from the previous config,
+    /// and the live settings are checked afterwards: a config that didn't take effect would score the
+    /// wrong thing under its name.
+    /// </summary>
+    public async Task UseSearchConfigAsync(SystemConfig config, CancellationToken ct)
+    {
+        if (config.IndexKey != _config.IndexKey)
+            throw new InvalidOperationException(
+                $"{config.Name} needs an index built with different settings than this system was started with.");
+
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        ISettingsStore store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+        IOptionsMonitor<SearchSettings> monitor = scope.ServiceProvider.GetRequiredService<IOptionsMonitor<SearchSettings>>();
+
+        await store.ResetAsync("search", ct);
+        SearchSettings expected = monitor.CurrentValue with { };
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(config.SearchTimeSettings.Select(p => new KeyValuePair<string, string?>(p.Key, p.Value)))
+            .Build()
+            .GetSection("Knowledge:Search")
+            .Bind(expected);
+        await store.SaveAsync("search", expected, ct);
+
+        if (monitor.CurrentValue != expected)
+            throw new InvalidOperationException(
+                $"{config.Name}'s search settings did not take effect: expected {expected}, the host has {monitor.CurrentValue}.");
+        _config = config;
+    }
 
     /// <summary>
     /// Uploads every document and waits for ingestion. <see cref="IngestionWait.RecordStalls"/> is for
