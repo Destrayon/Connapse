@@ -65,6 +65,9 @@ services:
   # search-quality gain the 2026-09-24 retrieval evaluation found. Start it with
   # `--profile with-reranker`, then set Search → Reranker to Cross-Encoder in Settings. CPU build
   # by default; add -f docker-compose.reranker-gpu.yml for an NVIDIA GPU.
+  # Measured for 30 candidates (#668): about 45 ms per search on a GPU, about 9 s and 10 GB of RAM
+  # on CPU, so the CPU build suits trying it out rather than daily use. If the service stops,
+  # searches skip it for a minute at a time and return the un-reranked order.
   reranker:
     image: ${RERANKER_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
     command: ["--model-id", "Alibaba-NLP/gte-reranker-modernbert-base", "--max-client-batch-size", "128"]
