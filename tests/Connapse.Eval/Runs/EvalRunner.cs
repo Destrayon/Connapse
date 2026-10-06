@@ -118,6 +118,8 @@ public sealed class EvalRunner(
                         throw new InvalidOperationException(
                             $"{config.Name}'s system changed between datasets: {Show(runManifest.SystemDescription)} became {Show(description)}.");
                     runManifest = runManifest with { SystemDescription = description };
+                    // Written before searching, so a folder resumed after a failed search is still checked against it.
+                    run.WriteManifest(runManifest);
                     log.WriteLine($"[{name}] searching under {config.Name}");
                     runs[i] = (config, run, await SearchDatasetAsync(system, name, entry, dataset, index, hashes[name],
                         request.LimitQueries, run, runManifest, ct));
