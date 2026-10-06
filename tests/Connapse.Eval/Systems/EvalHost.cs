@@ -23,29 +23,47 @@ public sealed class EvalHost : IAsyncDisposable
     private const string AdminPassword = "EvalHarnessAdmin1!";
     private const string JwtSecret = "eval-harness-jwt-secret-used-only-inside-throwaway-containers-64";
 
+    /// <summary>Where a snapshot volume is mounted in the PostgreSQL container (#672).</summary>
+    private const string SnapshotMount = "/snapshot";
+
     private readonly PostgreSqlContainer _postgres;
     private readonly MinioContainer _minio;
     private readonly WebApplicationFactory<Program> _factory;
+    private readonly string? _snapshotVolume;
 
-    private EvalHost(PostgreSqlContainer postgres, MinioContainer minio, WebApplicationFactory<Program> factory)
+    private EvalHost(PostgreSqlContainer postgres, MinioContainer minio, WebApplicationFactory<Program> factory,
+        string? snapshotVolume, bool restored)
     {
         _postgres = postgres;
         _minio = minio;
         _factory = factory;
+        _snapshotVolume = snapshotVolume;
+        Restored = restored;
     }
 
     public IServiceProvider Services => _factory.Services;
 
+    /// <summary>True when the database was restored from <c>snapshotVolume</c> before Connapse started.</summary>
+    public bool Restored { get; }
+
+    /// <param name="snapshotVolume">
+    /// A Docker volume mounted into PostgreSQL for index snapshots (#672). With <paramref name="restore"/>,
+    /// a complete snapshot in it is restored before Connapse starts, so its migrations find the schema
+    /// already current; an incomplete or missing one leaves the database empty.
+    /// </param>
     public static async Task<EvalHost> StartAsync(
         SystemConfig config, string webContentRoot, EmbeddingDiskCache cache,
-        IEmbeddingProvider? embeddingOverride, CancellationToken ct)
+        IEmbeddingProvider? embeddingOverride, CancellationToken ct,
+        string? snapshotVolume = null, bool restore = false)
     {
-        PostgreSqlContainer postgres = new PostgreSqlBuilder()
+        PostgreSqlBuilder postgresBuilder = new PostgreSqlBuilder()
             .WithImage("pgvector/pgvector:pg17")
             .WithDatabase("connapse_eval")
             .WithUsername("eval")
-            .WithPassword("eval")
-            .Build();
+            .WithPassword("eval");
+        if (snapshotVolume is not null)
+            postgresBuilder = postgresBuilder.WithVolumeMount(snapshotVolume, SnapshotMount);
+        PostgreSqlContainer postgres = postgresBuilder.Build();
         // Chainguard's MinIO runs as a non-root user that cannot write /data, so run it as root.
         MinioContainer minio = new MinioBuilder()
             .WithImage("cgr.dev/chainguard/minio")
@@ -54,6 +72,15 @@ public sealed class EvalHost : IAsyncDisposable
         try
         {
             await Task.WhenAll(postgres.StartAsync(ct), minio.StartAsync(ct));
+            bool restored = false;
+            if (restore && snapshotVolume is not null
+                && (await postgres.ExecAsync(["test", "-f", $"{SnapshotMount}/complete"], ct)).ExitCode == 0)
+            {
+                await ShellAsync(postgres,
+                    $"PGPASSWORD=eval pg_restore -h localhost -U eval -d connapse_eval -j 8 --no-owner --exit-on-error {SnapshotMount}/db",
+                    ct);
+                restored = true;
+            }
 
             string minioHost = $"{minio.Hostname}:{minio.GetMappedPublicPort(9000)}";
             WebApplicationFactory<Program> factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -95,7 +122,7 @@ public sealed class EvalHost : IAsyncDisposable
             {
                 using HttpClient client = factory.CreateClient();
                 await WaitForHealthAsync(client, ct);
-                return new EvalHost(postgres, minio, factory);
+                return new EvalHost(postgres, minio, factory, snapshotVolume, restored);
             }
             catch
             {
@@ -110,6 +137,28 @@ public sealed class EvalHost : IAsyncDisposable
             await DisposeAllAsync(postgres, minio);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Dumps the database into the snapshot volume, replacing what was there (#672). The "complete" marker
+    /// is written last, so an interrupted dump is never restored.
+    /// </summary>
+    public Task SaveSnapshotAsync(CancellationToken ct)
+    {
+        if (_snapshotVolume is null)
+            throw new InvalidOperationException("This host was started without a snapshot volume.");
+        return ShellAsync(_postgres,
+            $"rm -rf {SnapshotMount}/db {SnapshotMount}/complete"
+            + $" && PGPASSWORD=eval pg_dump -h localhost -U eval -d connapse_eval -Fd -j 8 -Z 0 -f {SnapshotMount}/db"
+            + $" && touch {SnapshotMount}/complete",
+            ct);
+    }
+
+    private static async Task ShellAsync(PostgreSqlContainer postgres, string command, CancellationToken ct)
+    {
+        var result = await postgres.ExecAsync(["sh", "-c", command], ct);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"'{command}' failed in the PostgreSQL container: {result.Stderr.Trim()}");
     }
 
     public async ValueTask DisposeAsync() =>

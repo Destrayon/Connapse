@@ -61,6 +61,22 @@ public enum IngestionWait
     RecordStalls,
 }
 
+/// <summary>How the harness starts a system: its config, and the index cache key to restore or save under (#672).</summary>
+public sealed record SystemStart(SystemConfig Config, string? IndexCacheKey = null);
+
+/// <summary>A system that can start from a cached index and save the one it built (#672).</summary>
+public interface IIndexCachingSystem
+{
+    /// <summary>True when the system started from a cached index.</summary>
+    bool Restored { get; }
+
+    /// <summary>The index report of a dataset restored from the cache, or null when it must be indexed.</summary>
+    IndexReport? RestoredIndex(string dataset);
+
+    /// <summary>Saves the index of these datasets under the system's cache key.</summary>
+    Task SaveIndexCacheAsync(IReadOnlyList<string> datasets, CancellationToken ct);
+}
+
 /// <summary>
 /// A search system the harness can score. One instance per (system, config): settings are applied
 /// when the system starts. Future graph, image and agent systems implement this same contract.
