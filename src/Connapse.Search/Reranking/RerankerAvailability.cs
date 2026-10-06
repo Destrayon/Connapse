@@ -22,16 +22,22 @@ public sealed class RerankerAvailability(TimeProvider clock)
     public bool IsSkipped(string endpoint) =>
         _skipUntil.TryGetValue(endpoint, out DateTimeOffset until) && clock.GetUtcNow() < until;
 
-    /// <summary>Starts or extends the endpoint's cooldown. True when this failure starts an outage.</summary>
+    /// <summary>
+    /// Starts or extends the endpoint's cooldown. True for exactly one caller when this failure starts
+    /// an outage. An outage lasts until <see cref="MarkReachable"/>: a retry after the cooldown that
+    /// fails again extends it rather than starting a new one.
+    /// </summary>
     public bool MarkUnreachable(string endpoint)
     {
-        bool started = true;
-        _skipUntil.AddOrUpdate(endpoint, _ => clock.GetUtcNow() + Cooldown, (_, _) =>
+        while (true)
         {
-            started = false;
-            return clock.GetUtcNow() + Cooldown;
-        });
-        return started;
+            DateTimeOffset until = clock.GetUtcNow() + Cooldown;
+            if (_skipUntil.TryAdd(endpoint, until))
+                return true;
+            if (_skipUntil.TryGetValue(endpoint, out DateTimeOffset previous)
+                && _skipUntil.TryUpdate(endpoint, until, previous))
+                return false;
+        }
     }
 
     /// <summary>Ends the endpoint's outage. True when there was one.</summary>

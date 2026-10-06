@@ -117,6 +117,7 @@ Each experiment is one `run --suite enterprise-v1` against the baseline above, c
    - A reranker makes the final order much less sensitive to the fusion weight, so decide after item 1.
    - If it still matters, compare 0.75 against one alternative (for example 0.5) across every suite. Change the global default only if the alternative is no worse anywhere and clearly better on enterprise data.
    - Data that needs a different weight already has the per-container setting. Searching for the best alpha on enterprise questions alone would overfit, as #552 did when a single-domain dev set picked 0.1 and it lost on the full suite.
+   - Outcome: 0.65 was chosen across all suites and shipped in #669 (#668); see learned-query-fusion-2026-10-05.md.
 5. **Document-level candidate pool.** Gather candidates until N distinct documents exist (for example 100 chunks or 50 documents) before fusion and reranking. This targets completeness.
 6. **Stronger embedding model (#522).** Qwen3-Embedding-0.6B is cheap on the 16 GB card. It requires re-embedding and a re-tuned alpha, so do it after items 1–4.
 7. **Source/type filters from the query** ("Fireflies transcripts", "postmortems"). Connectors know the type, so expose it as a filter. Evidence is three questions; low priority.

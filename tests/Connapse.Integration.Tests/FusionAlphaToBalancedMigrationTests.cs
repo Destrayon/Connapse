@@ -93,4 +93,26 @@ public class FusionAlphaToBalancedMigrationTests : IAsyncLifetime
             values.Should().Be("{\"FusionAlpha\": 0.65}", "the key keeps its casing and no second key is added");
         }
     }
+
+    [Fact]
+    public async Task Migration_KeyStoredInTwoCasings_ShiftsBoth()
+    {
+        await using (var context = CreateContext())
+        {
+            await context.GetService<IMigrator>().MigrateAsync(Before);
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO settings (category, values) VALUES ('search', jsonb_build_object('FusionAlpha', 0.75, 'fusionAlpha', 0.75, 'topK', 10))");
+
+            await context.GetService<IMigrator>().MigrateAsync();
+        }
+
+        await using (var context = CreateContext())
+        {
+            string values = await context.Database
+                .SqlQueryRaw<string>("SELECT values::text AS \"Value\" FROM settings WHERE category = 'search'")
+                .SingleAsync();
+
+            values.Should().Be("{\"topK\": 10, \"FusionAlpha\": 0.65, \"fusionAlpha\": 0.65}");
+        }
+    }
 }

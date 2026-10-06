@@ -512,6 +512,21 @@ public class CrossEncoderRerankerTests
         availability.IsSkipped("TEI|http://a").Should().BeFalse();
     }
 
+    [Fact]
+    public async Task RerankerAvailability_ConcurrentFirstFailures_StartOneOutage()
+    {
+        var availability = new RerankerAvailability(TimeProvider.System);
+        using var start = new ManualResetEventSlim();
+
+        Task<bool>[] marks = Enumerable.Range(0, 32)
+            .Select(_ => Task.Run(() => { start.Wait(); return availability.MarkUnreachable("TEI|http://a"); }))
+            .ToArray();
+        start.Set();
+        bool[] started = await Task.WhenAll(marks);
+
+        started.Count(s => s).Should().Be(1, "one warning per outage");
+    }
+
     // --- Helpers ---
 
     [Fact]

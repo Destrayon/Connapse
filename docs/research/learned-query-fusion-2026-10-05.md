@@ -165,4 +165,6 @@ Splitting the two changes on dev attributes the NFCorpus drop to rerank depth 50
 
 The recall proxy predicted depth 50 would help everywhere. It doesn't: on NFCorpus the reranker promotes plausible wrong documents from the larger pool.
 
-**Recommended zero-configuration default:** reranker on, α 0.65, rerank depth 30. This is no worse on any dev dataset, +0.112 on enterprise and +0.026 on dev overall. Depth 50 needs a reranker that holds up on NFCorpus-like text before it can be a default. Also re-check on the v1 test suite before shipping.
+**Recommended zero-configuration default:** reranker on, α 0.65, rerank depth 30. This is no worse on any dev dataset, +0.112 on enterprise and +0.026 on dev overall. Depth 50 needs a reranker that holds up on NFCorpus-like text before it can be a default.
+
+Shipped in #669 as α 0.65, with the reranker left as a user choice. The v1 test-suite re-check was deferred: the decision on #668 rests on the dev and enterprise results above.
