@@ -4,6 +4,7 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Eval.Model;
+using Connapse.Search.Reranking;
 using Connapse.Search.Keyword;
 using Connapse.Search.Vector;
 using Hangfire;
@@ -30,6 +31,12 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
 
     private readonly EvalHost _host;
     private SystemConfig _config;
+
+    /// <summary>
+    /// The search settings the host started with, before any config's were saved: every config's
+    /// expected settings are built from this, never from what a previous config left behind.
+    /// </summary>
+    private SearchSettings? _searchBaseline;
     private readonly TextWriter _log;
     private readonly IEmbeddingProvider? _embeddingOverride;
     private readonly Dictionary<string, (Guid ContainerId, Dictionary<string, string> DocMap)> _datasets = new(StringComparer.Ordinal);
@@ -56,7 +63,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         IEmbeddingProvider? embeddingOverride, CancellationToken ct)
     {
         EvalHost host = await EvalHost.StartAsync(config, webContentRoot, cache, embeddingOverride, ct);
-        return new ConnapseSearchSystem(host, config, log, embeddingOverride);
+        ConnapseSearchSystem system = new(host, config, log, embeddingOverride);
+        system._searchBaseline = host.Services.GetRequiredService<IOptionsMonitor<SearchSettings>>().CurrentValue with { };
+        return system;
     }
 
     public IReadOnlyDictionary<string, string> Describe()
@@ -103,14 +112,16 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         ISettingsStore store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
         IOptionsMonitor<SearchSettings> monitor = scope.ServiceProvider.GetRequiredService<IOptionsMonitor<SearchSettings>>();
 
-        await store.ResetAsync("search", ct);
-        SearchSettings expected = monitor.CurrentValue with { };
+        SearchSettings expected = (_searchBaseline ?? throw new InvalidOperationException("No search settings baseline.")) with { };
         new ConfigurationBuilder()
             .AddInMemoryCollection(config.SearchTimeSettings.Select(p => new KeyValuePair<string, string?>(p.Key, p.Value)))
             .Build()
             .GetSection("Knowledge:Search")
             .Bind(expected);
+        await store.ResetAsync("search", ct);
         await store.SaveAsync("search", expected, ct);
+        // A reranker the previous config couldn't reach (or timed out on) must be tried again by this one.
+        scope.ServiceProvider.GetRequiredService<RerankerAvailability>().Clear();
 
         string[] differ = Differences(expected, monitor.CurrentValue);
         if (differ.Length > 0)
@@ -240,6 +251,13 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
                 ranked = HitCollapser.Collapse(result.Hits, docMap, k);
             }
             TimeSpan elapsed = stopwatch.Elapsed;
+            // A reranker that can't be reached, times out or is behind an open circuit hands the
+            // original order back; scored as reranked, that would mislabel the run.
+            if (!string.Equals(scope.ServiceProvider.GetRequiredService<IOptionsMonitor<SearchSettings>>().CurrentValue.Reranker,
+                    "None", StringComparison.OrdinalIgnoreCase)
+                && result.Hits.Count > 0 && !result.Hits.Any(h => h.Metadata.ContainsKey("reranker")))
+                return new SearchOutcome([], new Trace(elapsed, NoStages),
+                    "the reranker did not run (unreachable, timed out or circuit open)");
             CandidateCapture? candidates = null;
             if (_config.CaptureCandidates is int pool)
             {

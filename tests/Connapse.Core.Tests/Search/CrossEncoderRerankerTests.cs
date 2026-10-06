@@ -513,6 +513,19 @@ public class CrossEncoderRerankerTests
     }
 
     [Fact]
+    public void RerankerAvailability_Clear_ForgetsEveryOutage()
+    {
+        var availability = new RerankerAvailability(new ManualClock());
+        availability.MarkUnreachable("TEI|http://a");
+        availability.MarkUnreachable("Cohere|");
+
+        availability.Clear();
+
+        availability.IsSkipped("TEI|http://a").Should().BeFalse();
+        availability.MarkUnreachable("TEI|http://a").Should().BeTrue("a new failure starts a new outage");
+    }
+
+    [Fact]
     public async Task RerankerAvailability_ConcurrentFirstFailures_StartOneOutage()
     {
         var availability = new RerankerAvailability(TimeProvider.System);
