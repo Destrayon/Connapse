@@ -3,6 +3,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Search.Reranking.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly.CircuitBreaker;
 
 namespace Connapse.Search.Reranking;
 
@@ -14,6 +15,7 @@ public class CrossEncoderReranker : ISearchReranker
 {
     private readonly IOptionsMonitor<SearchSettings> _searchSettingsMonitor;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly RerankerAvailability _availability;
     private readonly ILogger<CrossEncoderReranker> _logger;
 
     public string Name => "CrossEncoder";
@@ -24,10 +26,12 @@ public class CrossEncoderReranker : ISearchReranker
     public CrossEncoderReranker(
         IOptionsMonitor<SearchSettings> searchSettings,
         IHttpClientFactory httpClientFactory,
+        RerankerAvailability availability,
         ILogger<CrossEncoderReranker> logger)
     {
         _searchSettingsMonitor = searchSettings;
         _httpClientFactory = httpClientFactory;
+        _availability = availability;
         _logger = logger;
     }
 
@@ -49,6 +53,14 @@ public class CrossEncoderReranker : ISearchReranker
             return hits;
         }
 
+        string endpoint = $"{settings.CrossEncoderProvider}|{settings.CrossEncoderBaseUrl}";
+        if (_availability.IsSkipped(endpoint))
+        {
+            _logger.LogDebug("Cross-encoder {Provider} was unreachable moments ago, returning original order",
+                settings.CrossEncoderProvider);
+            return hits;
+        }
+
         _logger.LogInformation(
             "Cross-encoder reranking {Count} hits using {Provider}/{Model}",
             hits.Count,
@@ -65,6 +77,9 @@ public class CrossEncoderReranker : ISearchReranker
                 documents,
                 settings.CrossEncoderTopN > 0 ? settings.CrossEncoderTopN : null,
                 cancellationToken);
+
+            if (_availability.MarkReachable(endpoint))
+                _logger.LogInformation("Cross-encoder {Provider} is reachable again", settings.CrossEncoderProvider);
 
             var scoreLookup = scores.ToDictionary(s => s.Index, s => s.Score);
 
@@ -107,12 +122,35 @@ public class CrossEncoderReranker : ISearchReranker
 
             return rerankedHits;
         }
+        catch (Exception ex) when (IsUnreachable(ex, cancellationToken))
+        {
+            if (_availability.MarkUnreachable(endpoint))
+                _logger.LogWarning(ex,
+                    "Cross-encoder {Provider} at {BaseUrl} is unreachable; searches return the un-reranked order and retry it every {Cooldown}",
+                    settings.CrossEncoderProvider, settings.CrossEncoderBaseUrl, RerankerAvailability.Cooldown);
+            else
+                _logger.LogDebug(ex, "Cross-encoder {Provider} still unreachable", settings.CrossEncoderProvider);
+            return hits;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Cross-encoder reranking failed, returning original order");
             return hits;
         }
     }
+
+    /// <summary>
+    /// Failures that say the service can't be reached: no connection or no answer in time (the
+    /// request was not cancelled by the caller), or the client's circuit breaker already open. An
+    /// error response is an answer, so it doesn't count.
+    /// </summary>
+    private static bool IsUnreachable(Exception ex, CancellationToken cancellationToken) => ex switch
+    {
+        HttpRequestException { StatusCode: null } => true,
+        OperationCanceledException => !cancellationToken.IsCancellationRequested,
+        BrokenCircuitException => true,
+        _ => false,
+    };
 
     private ICrossEncoderProvider CreateProvider(SearchSettings settings)
     {

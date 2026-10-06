@@ -33,6 +33,7 @@ public static class ServiceCollectionExtensions
 
         // Register rerankers
         services.AddScoped<ISearchReranker, CrossEncoderReranker>();
+        services.AddSingleton<RerankerAvailability>();
 
         // Named HttpClient for cross-encoder providers (TEI, Cohere, Jina)
         services.AddHttpClient("CrossEncoder").AddProviderResilience("cross-encoder");
