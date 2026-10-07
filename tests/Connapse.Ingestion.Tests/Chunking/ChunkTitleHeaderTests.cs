@@ -22,6 +22,8 @@ public class ChunkTitleHeaderTests
     [InlineData("Incident review - API gateway.txt", "Incident review - API gateway")]
     [InlineData(null, null)]
     [InlineData(".txt", null)]
+    [InlineData("0000042.txt", null)]
+    [InlineData("2026-10-07.md", null)]
     public void TitleOf_NoParserTitle_UsesTheFileNameWithoutItsExtension(string? fileName, string? expected)
     {
         ParsedDocument parsed = new("body", new Dictionary<string, string>(), []);

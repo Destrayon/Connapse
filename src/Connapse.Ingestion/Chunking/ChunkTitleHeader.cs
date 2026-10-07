@@ -9,13 +9,17 @@ namespace Connapse.Ingestion.Chunking;
 /// </summary>
 public static class ChunkTitleHeader
 {
-    /// <summary>The parser's title (email subject, HTML/Office/PDF/EPUB title), else the file name without its extension.</summary>
+    /// <summary>
+    /// The parser's title (email subject, HTML/Office/PDF/EPUB title), else the file name without its
+    /// extension when it has a letter in it: a name like "0000042" or "2026-10-07" says nothing about
+    /// the content and would only add noise to every chunk.
+    /// </summary>
     public static string? TitleOf(ParsedDocument parsed, string? fileName)
     {
         if (parsed.Metadata.TryGetValue("Title", out string? title) && !string.IsNullOrWhiteSpace(title))
             return title.Trim();
         string? stem = fileName is null ? null : Path.GetFileNameWithoutExtension(fileName).Trim();
-        return string.IsNullOrEmpty(stem) ? null : stem;
+        return string.IsNullOrEmpty(stem) || !stem.Any(char.IsLetter) ? null : stem;
     }
 
     /// <summary>
