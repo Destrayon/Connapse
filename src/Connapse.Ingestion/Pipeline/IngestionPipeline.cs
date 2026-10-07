@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Validation;
@@ -988,7 +989,12 @@ public class IngestionPipeline : IKnowledgeIngester
             strategy = _chunkingStrategies.First(s => s.Name == "FixedSize");
         }
 
-        return await strategy.ChunkAsync(parsedDocument, settings, ct);
+        if (!settings.PrependDocumentTitle)
+            return await strategy.ChunkAsync(parsedDocument, settings, ct);
+        // The chunker leaves room for the title line, so title + chunk still fits MaxChunkSize.
+        string? title = ChunkTitleHeader.TitleOf(parsedDocument, fileName);
+        IReadOnlyList<ChunkInfo> chunks = await strategy.ChunkAsync(parsedDocument, ChunkTitleHeader.Budget(settings, title), ct);
+        return ChunkTitleHeader.Prepend(chunks, title);
     }
 
     private static async Task<string> ComputeContentHashAsync(Stream content, CancellationToken ct)
