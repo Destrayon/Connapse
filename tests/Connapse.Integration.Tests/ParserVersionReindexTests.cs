@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
@@ -357,6 +358,49 @@ public class ParserVersionReindexTests(SharedWebAppFixture fixture)
         await using (var ctx = await factory.CreateDbContextAsync())
             await Reindexer(sp, ctx, queue, new WithSettings(new TextParser(), current)).ReindexAsync(
                 new ReindexOptions { DetectSettingsChanges = true, DocumentIds = [id.ToString()] }, CancellationToken.None);
+
+        queue.Jobs.Should().HaveCount(reparsed ? 1 : 0);
+    }
+
+    [Theory]
+    [InlineData("512", true)]
+    [InlineData("1024", false)]
+    public async Task Reindex_ReadWithoutLayout_ReparsesOnlyWhenParsersNowGetMoreMemory(string storedMb, bool reparsed)
+    {
+        // #676: a PDF read without the layout model for lack of memory. Its parser settings match, so
+        // only more memory than it had may queue it -- else every reindex would re-parse it.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid sourceId = await SeedSourceAsync(sp);
+        Guid id = await IngestAsync(sp, sourceId, $"/pv-{Guid.NewGuid():N}/notes.txt", "Notes on the quarterly plan.");
+
+        var factory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var ctx = await factory.CreateDbContextAsync())
+        {
+            var doc = await ctx.Documents.SingleAsync(d => d.Id == id);
+            doc.Metadata = new Dictionary<string, string>(doc.Metadata)
+            {
+                [IngestionPipeline.MetadataKeyReadWithoutLayout] = storedMb,
+            };
+            await ctx.SaveChangesAsync();
+        }
+
+        // A 2 GB container with four workers gives each parser 1,024 MB.
+        using var pool = new ParserProcessPool(containerLimitBytes: 2048L * 1024 * 1024);
+        var queue = new RecordingIngestionQueue();
+        await using (var ctx = await factory.CreateDbContextAsync())
+            await new ReindexService(ctx,
+                    sp.GetRequiredService<IKnowledgeFileSystem>(),
+                    sp.GetRequiredService<IManagedStorageProvider>(),
+                    sp.GetRequiredService<IContainerStore>(),
+                    queue,
+                    sp.GetRequiredService<IOptionsMonitor<ChunkingSettings>>(),
+                    sp.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>(),
+                    NullLogger<ReindexService>.Instance,
+                    [new TextParser()],
+                    pool,
+                    sp.GetRequiredService<IOptionsMonitor<UploadSettings>>())
+                .ReindexAsync(new ReindexOptions { DetectSettingsChanges = true, DocumentIds = [id.ToString()] }, CancellationToken.None);
 
         queue.Jobs.Should().HaveCount(reparsed ? 1 : 0);
     }

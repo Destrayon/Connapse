@@ -135,7 +135,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          # Parser hosts get this limit less 1 GB for the web process and the files waiting to be
+          # parsed, and are sized for a PDF layout parse (about 900 MB): 3G runs two at once. Below
+          # about 1.9G, PDFs are read without the layout model rather than failing (#676).
+          memory: 3G
           cpus: "2.0"
 
 volumes:

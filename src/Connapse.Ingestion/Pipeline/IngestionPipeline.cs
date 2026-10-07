@@ -69,6 +69,12 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyParserSettings = "IndexedWith:ParserSettings";
 
     /// <summary>
+    /// The PDF was read without the layout model for lack of memory (#676): the MB the parser had.
+    /// A reindex reads it again once parsers get more (ReindexService).
+    /// </summary>
+    public const string MetadataKeyReadWithoutLayout = "ReadWithoutLayout";
+
+    /// <summary>
     /// The parser version a document was indexed with. Documents indexed before versions were
     /// recorded carry none; they were parsed by what is now version 1.
     /// </summary>
@@ -357,6 +363,11 @@ public class IngestionPipeline : IKnowledgeIngester
                 else
                     metadata.Remove(MetadataKeyParserSettings);
             }
+
+            if (parsedDocument.Metadata.TryGetValue(MetadataKeyReadWithoutLayout, out var withoutLayoutMb))
+                metadata[MetadataKeyReadWithoutLayout] = withoutLayoutMb;
+            else
+                metadata.Remove(MetadataKeyReadWithoutLayout);
 
             if (warnings.Count > 0)
                 metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
@@ -824,9 +835,21 @@ public class IngestionPipeline : IKnowledgeIngester
         if (RefusalOutsideHost(limits, isolated, fileName) is { } refusal)
             throw new PermanentIngestionException(refusal);
 
-        ParsedDocument parsed = isolated
-            ? await _parserPool!.ParseAsync(parser, BufferOf(content), fileName, limits, timeout, ct)
-            : await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct, _logger);
+        ParsedDocument parsed;
+        if (isolated)
+        {
+            ReadOnlyMemory<byte> bytes = BufferOf(content);
+            // A layout parse that runs out of memory is read again; both share the one deadline.
+            var started = Stopwatch.StartNew();
+            parsed = await ParseWithinMemoryAsync(
+                settings => _parserPool!.ParseAsync(parser, bytes, fileName, settings,
+                    Max(TimeSpan.FromSeconds(1), timeout - started.Elapsed), ct),
+                limits, _parserPool!.MemoryLimitMb(limits), fileName, _logger);
+        }
+        else
+        {
+            parsed = await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct, _logger);
+        }
 
         if (parsed.Content.Length > limits.MaxExtractedCharacters)
             throw new PermanentIngestionException(
@@ -835,6 +858,59 @@ public class IngestionPipeline : IKnowledgeIngester
 
         return parsed;
     }
+
+    /// <summary>
+    /// Reads a PDF without the layout model when the parser host can't hold it (#676): up front when the
+    /// host's memory is below what a layout parse needs, else after a layout parse runs out of memory.
+    /// The document is indexed either way, with a warning; only a parse that runs out of memory without
+    /// the model fails. Other files and other failures pass through unchanged.
+    /// </summary>
+    internal static async Task<ParsedDocument> ParseWithinMemoryAsync(
+        Func<UploadSettings, Task<ParsedDocument>> parse, UploadSettings limits, int hostMemoryMb, string fileName,
+        ILogger logger)
+    {
+        bool layout = string.Equals(Path.GetExtension(fileName), ".pdf", StringComparison.OrdinalIgnoreCase)
+            && PdfTextModes.Parse(limits.PdfTextMode) == PdfTextMode.Layout;
+        if (!layout)
+            return await parse(limits);
+
+        if (hostMemoryMb < ParserProcessPool.LayoutHostMb)
+            return WithoutLayout(await parse(WithoutLayoutModel(limits)), hostMemoryMb,
+                $"read without the layout model: the parser has {hostMemoryMb:N0} MB and the model needs about " +
+                $"{ParserProcessPool.LayoutHostMb:N0} MB; give Connapse more memory and reindex to read it by layout");
+
+        try
+        {
+            return await parse(limits);
+        }
+        catch (PermanentIngestionException ex) when (ex.Message.Contains(OutOfMemoryCode, StringComparison.Ordinal))
+        {
+            logger.LogWarning("PdfLayoutOutOfMemory {File}: reading it again without the layout model",
+                LogSanitizer.Sanitize(Path.GetFileName(fileName)));
+            return WithoutLayout(await parse(WithoutLayoutModel(limits)), hostMemoryMb,
+                $"read without the layout model: it ran out of the {hostMemoryMb:N0} MB the parser has with it; " +
+                "give Connapse more memory and reindex to read it by layout");
+        }
+    }
+
+    /// <summary>The reason code a parse that ran out of memory carries.</summary>
+    internal const string OutOfMemoryCode = "[parse_out_of_memory]";
+
+    /// <summary>The same PDF settings with no model in the text path: content order, OCR'd pages by position.</summary>
+    internal static UploadSettings WithoutLayoutModel(UploadSettings limits) =>
+        limits with { PdfTextMode = nameof(PdfTextMode.ContentOrder), PdfLayoutOnOcrPages = false };
+
+    private static ParsedDocument WithoutLayout(ParsedDocument parsed, int hostMemoryMb, string warning) =>
+        parsed with
+        {
+            Warnings = [.. parsed.Warnings, warning],
+            Metadata = new Dictionary<string, string>(parsed.Metadata)
+            {
+                [MetadataKeyReadWithoutLayout] = hostMemoryMb.ToString(CultureInfo.InvariantCulture),
+            },
+        };
+
+    private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
 
     /// <summary>
     /// Required promises no file is parsed outside a confined host, so falling back to the web

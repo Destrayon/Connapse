@@ -25,10 +25,13 @@ namespace Connapse.Ingestion.Isolation;
 /// </para>
 /// <para>
 /// At most as many hosts run as there are ingestion workers (<c>Hangfire:IngestionWorkerCount</c>),
-/// the parses that could be in flight at once -- and fewer, with lower limits, when the memory
-/// available to the process (the container's limit, in a container) could not hold that many at
-/// their configured limit. Hosts together get at most half of it: the rest is the web process's,
-/// and in a container a host that crossed it would get both killed.
+/// the parses that could be in flight at once -- and fewer, with lower limits, when memory could not
+/// hold that many at their configured limit (#676). In a container the hosts get its memory limit
+/// (read from the cgroup) less <see cref="WebReserveMb"/> for the web process and
+/// <see cref="InputBufferMbPerWorker"/> for each worker's file waiting to be parsed; elsewhere half of the
+/// machine's memory. Each host is sized for a Layout PDF parse (<see cref="LayoutHostMb"/>): fewer
+/// hosts run rather than hosts too small for it, and when even one would be too small, PDFs are read
+/// without the layout model rather than failing (IngestionPipeline).
 /// </para>
 /// </summary>
 public sealed class ParserProcessPool : IDisposable
@@ -39,11 +42,27 @@ public sealed class ParserProcessPool : IDisposable
     /// <summary>Room in a reply for its JSON, metadata and the warnings the host keeps.</summary>
     private const long ResponseOverheadBytes = 8L * 1024 * 1024;
 
-    /// <summary>The share of the available memory all hosts together may use.</summary>
+    /// <summary>Outside a container, the share of the machine's memory all hosts together may use.</summary>
     private const double HostShareOfMemory = 0.5;
 
-    /// <summary>The least a host is given; below it OCR and large PDFs cannot run, so fewer hosts run.</summary>
+    /// <summary>In a container, the memory left to the web process; the hosts get the rest of the limit.</summary>
+    internal const int WebReserveMb = 512;
+
+    /// <summary>
+    /// In a container, the memory also left to the web process per ingestion worker: each holds the
+    /// file it is parsing in memory, including while it waits for a free host.
+    /// </summary>
+    internal const int InputBufferMbPerWorker = 128;
+
+    /// <summary>The least a host is given, however little memory there is.</summary>
     internal const int MinHostMemoryMb = 512;
+
+    /// <summary>
+    /// What a host needs to read a PDF with the layout model (#676): measured at about 650-670 MB at its
+    /// peak on a text PDF -- about 390 MB of per-page inference memory and 165 MB of weights -- plus
+    /// the table model and room for a heap that doesn't give memory straight back.
+    /// </summary>
+    public const int LayoutHostMb = 900;
 
     private readonly ILogger<ParserProcessPool> _logger;
     private readonly SemaphoreSlim _slots;
@@ -57,23 +76,132 @@ public sealed class ParserProcessPool : IDisposable
         IConfiguration? configuration = null,
         ILogger<ParserProcessPool>? logger = null,
         string? hostPath = null,
-        long? availableMemoryBytes = null)
+        long? availableMemoryBytes = null,
+        long? containerLimitBytes = null)
     {
         _logger = logger ?? NullLogger<ParserProcessPool>.Instance;
         int workers = int.TryParse(configuration?["Hangfire:IngestionWorkerCount"], out int n) && n > 0 ? n : 4;
 
-        // The GC reports the container's memory limit when there is one, else the machine's.
-        long available = availableMemoryBytes ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        long budgetMb = Math.Max(MinHostMemoryMb, (long)(available * HostShareOfMemory / (1024 * 1024)));
-        Slots = (int)Math.Clamp(budgetMb / MinHostMemoryMb, 1, workers);
-        _hostMemoryCeilingMb = (int)Math.Min(int.MaxValue, budgetMb / Slots);
+        // The cgroup's limit itself: the GC's view of a container is only a fraction of it. A limit
+        // above the machine's memory is only a cap, so the machine's memory is what there is.
+        long? container = containerLimitBytes;
+        if (container is null && availableMemoryBytes is null && OperatingSystem.IsLinux())
+        {
+            container = ContainerMemoryLimitBytes();
+            if (container is null)
+                _logger.LogDebug("ParserPool found no cgroup memory limit; sizing hosts from the memory the GC reports");
+            else if (MachineMemoryBytes(ReadOrNull("/proc/meminfo")) is { } machine && machine < container)
+                container = machine;
+        }
+        long available = container ?? availableMemoryBytes ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        (Slots, _hostMemoryCeilingMb) = Size(available / (1024 * 1024), container is not null, workers);
         _slots = new SemaphoreSlim(Slots, Slots);
         HostPath = hostPath ?? Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.dll");
 
         _logger.LogInformation(
-            "ParserPool runs up to {Slots} parser hosts of at most {CeilingMb} MB each, half of the {AvailableMb} MB available",
-            Slots, _hostMemoryCeilingMb, available / (1024 * 1024));
+            "ParserPool runs up to {Slots} parser hosts of at most {CeilingMb} MB each, from the {AvailableMb} MB {Source}",
+            Slots, _hostMemoryCeilingMb, available / (1024 * 1024), container is not null ? "container limit" : "available");
+        if (_hostMemoryCeilingMb < LayoutHostMb)
+            _logger.LogWarning(
+                "ParserPool hosts get {CeilingMb} MB, less than the {LayoutMb} MB the PDF layout model needs: PDFs are read without it. "
+                + "Give the container more memory to read them by layout.",
+                _hostMemoryCeilingMb, LayoutHostMb);
     }
+
+    /// <summary>
+    /// Hosts that may run at once and the memory each may use, from the memory there is (MB) and the
+    /// ingestion workers: as many hosts as fit at <see cref="LayoutHostMb"/>, at least one.
+    /// </summary>
+    internal static (int Slots, int HostMb) Size(long availableMb, bool isContainerLimit, int workers)
+    {
+        long budgetMb = isContainerLimit
+            ? availableMb - WebReserveMb - (long)InputBufferMbPerWorker * Math.Max(1, workers)
+            : (long)(availableMb * HostShareOfMemory);
+        budgetMb = Math.Max(MinHostMemoryMb, budgetMb);
+        int slots = (int)Math.Clamp(budgetMb / LayoutHostMb, 1, Math.Max(1, workers));
+        return (slots, (int)Math.Min(int.MaxValue, budgetMb / slots));
+    }
+
+    /// <summary>The memory limit of the cgroup this process runs in, or null when there is none.</summary>
+    private static long? ContainerMemoryLimitBytes() =>
+        ContainerMemoryLimitBytes("/sys/fs/cgroup", ReadOrNull("/proc/self/cgroup"));
+
+    private static string? ReadOrNull(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The machine's memory from <c>/proc/meminfo</c>'s content (<c>MemTotal</c>), or null.</summary>
+    internal static long? MachineMemoryBytes(string? meminfo)
+    {
+        foreach (string line in (meminfo ?? "").Split('\n'))
+        {
+            string[] fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length >= 2 && fields[0] == "MemTotal:" && long.TryParse(fields[1], out long kb) && kb > 0)
+                return kb * 1024;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The memory limit of the cgroup this process runs in, under the hierarchy mounted at
+    /// <paramref name="root"/>: the smallest limit on the path from the process's own cgroup (from
+    /// <paramref name="selfCgroup"/>, the content of <c>/proc/self/cgroup</c>) up to the root, since
+    /// any of them can kill it. cgroup v2's <c>memory.max</c>, else v1's <c>memory.limit_in_bytes</c>
+    /// under <c>memory/</c>. When the process's cgroup isn't visible under the mount, only the
+    /// mount's own limit is read. Null when there is no limit.
+    /// </summary>
+    internal static long? ContainerMemoryLimitBytes(string root, string? selfCgroup)
+    {
+        try
+        {
+            string[] lines = (selfCgroup ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string v2Path = lines.Select(l => l.Split(':', 3)).Where(f => f.Length == 3 && f[0] == "0" && f[1] == "")
+                .Select(f => f[2]).FirstOrDefault() ?? "/";
+            if (File.Exists(Path.Combine(root, "memory.max")) || File.Exists(Path.Combine(root, "cgroup.controllers")))
+                return SmallestLimit(root, v2Path, "memory.max");
+
+            string v1Path = lines.Select(l => l.Split(':', 3))
+                .Where(f => f.Length == 3 && f[1].Split(',').Contains("memory"))
+                .Select(f => f[2]).FirstOrDefault() ?? "/";
+            return SmallestLimit(Path.Combine(root, "memory"), v1Path, "memory.limit_in_bytes");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The smallest finite limit in <paramref name="file"/> from <paramref name="cgroup"/> up to <paramref name="mount"/>.</summary>
+    private static long? SmallestLimit(string mount, string cgroup, string file)
+    {
+        string leaf = Path.Combine(mount, cgroup.TrimStart('/'));
+        string mountFull = Path.GetFullPath(mount);
+        string? dir = Directory.Exists(leaf) ? Path.GetFullPath(leaf) : mountFull;
+
+        long? smallest = null;
+        while (dir is not null && dir.StartsWith(mountFull, StringComparison.Ordinal))
+        {
+            string path = Path.Combine(dir, file);
+            if (File.Exists(path) && long.TryParse(File.ReadAllText(path).Trim(), out long limit)
+                && limit > 0 && limit < (1L << 60))
+                smallest = smallest is null ? limit : Math.Min(smallest.Value, limit);
+            if (string.Equals(dir.TrimEnd(Path.DirectorySeparatorChar), mountFull.TrimEnd(Path.DirectorySeparatorChar), StringComparison.Ordinal))
+                break;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return smallest;
+    }
+
+    /// <summary>The memory each host may use at most, whatever the settings ask for.</summary>
+    internal int HostMemoryCeilingMb => _hostMemoryCeilingMb;
 
     /// <summary>Hosts that may run at once.</summary>
     internal int Slots { get; }
