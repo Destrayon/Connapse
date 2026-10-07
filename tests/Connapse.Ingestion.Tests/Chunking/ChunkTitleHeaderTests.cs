@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Chunking;
 using FluentAssertions;
@@ -37,9 +38,42 @@ public class ChunkTitleHeaderTests
         IReadOnlyList<ChunkInfo> result = ChunkTitleHeader.Prepend([Chunk("Later part of the page.", 3)], "Runbook");
 
         result.Single().Content.Should().Be("Runbook\n\nLater part of the page.");
+        result.Single().TokenCount.Should().Be(10 + ChunkTitleHeader.HeaderTokens("Runbook"));
         result.Single().PrecomputedEmbedding.Should().BeNull("the embedding must include the title");
         result.Single().Metadata["OffsetEstimated"].Should().Be("true");
         result.Single().ChunkIndex.Should().Be(3);
+    }
+
+    [Fact]
+    public void TitleOf_LongTitle_IsCutToTheTokenCap()
+    {
+        ParsedDocument parsed = new("body", new Dictionary<string, string> { ["Title"] = string.Join(' ', Enumerable.Repeat("word", 200)) }, []);
+
+        string title = ChunkTitleHeader.TitleOf(parsed, null)!;
+
+        ChunkTitleHeader.HeaderTokens(title).Should().BeLessThanOrEqualTo(ChunkTitleHeader.MaxTitleTokens + 2);
+        title.Should().StartWith("word word");
+    }
+
+    [Fact]
+    public void Budget_LeavesRoomForTheTitleLine()
+    {
+        ChunkingSettings settings = new() { MaxChunkSize = 512 };
+
+        ChunkTitleHeader.Budget(settings, "Runbook").MaxChunkSize.Should().Be(512 - ChunkTitleHeader.HeaderTokens("Runbook"));
+        ChunkTitleHeader.Budget(settings, null).Should().BeSameAs(settings);
+    }
+
+    [Fact]
+    public void Prepend_SentenceWindow_GetsTheTitleToo()
+    {
+        ChunkInfo sentence = Chunk("Third sentence.") with
+        {
+            Metadata = new Dictionary<string, string> { ["window"] = "Second sentence. Third sentence. Fourth sentence." },
+        };
+
+        ChunkTitleHeader.Prepend([sentence], "Runbook").Single().Metadata["window"]
+            .Should().Be("Runbook\n\nSecond sentence. Third sentence. Fourth sentence.", "search returns the window in place of the content");
     }
 
     [Fact]
