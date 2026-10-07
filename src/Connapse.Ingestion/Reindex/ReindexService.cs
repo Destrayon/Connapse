@@ -1,11 +1,13 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Globalization;
 using System.Security.Cryptography;
 using static Connapse.Core.Utilities.LogSanitizer;
 
@@ -26,6 +28,8 @@ public class ReindexService : IReindexService
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly ILogger<ReindexService> _logger;
     private readonly IReadOnlyList<IDocumentParser> _parsers;
+    private readonly ParserProcessPool? _parserPool;
+    private readonly IOptionsMonitor<UploadSettings>? _uploadSettings;
 
     public ReindexService(
         KnowledgeDbContext context,
@@ -36,9 +40,13 @@ public class ReindexService : IReindexService
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         ILogger<ReindexService> logger,
-        IEnumerable<IDocumentParser>? parsers = null)
+        IEnumerable<IDocumentParser>? parsers = null,
+        ParserProcessPool? parserPool = null,
+        IOptionsMonitor<UploadSettings>? uploadSettings = null)
     {
         _parsers = parsers?.ToList() ?? [];
+        _parserPool = parserPool;
+        _uploadSettings = uploadSettings;
         _context = context;
         _fileSystem = fileSystem;
         _managedStorage = managedStorage;
@@ -709,12 +717,31 @@ public class ReindexService : IReindexService
         string currentSettings = parser.OutputSettings;
         bool settingsChanged = doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyParserSettings, out var storedSettings)
             && !string.Equals(storedSettings, currentSettings, StringComparison.Ordinal);
-        bool changed = !sameParser || storedVersion < parser.Version || settingsChanged;
 
+        // A PDF read without the layout model for lack of memory (#676) is read again once parsers
+        // get more than it had -- not on every reindex, while they still don't.
+        int? parserMb = _parserPool is not null && _uploadSettings is not null
+            ? _parserPool.MemoryLimitMb(_uploadSettings.CurrentValue)
+            : null;
+        bool moreMemory = MoreMemoryThanItWasReadWith(doc.Metadata, parserMb);
+        bool changed = !sameParser || storedVersion < parser.Version || settingsChanged || moreMemory;
+
+        string withoutLayout = doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyReadWithoutLayout, out var storedMb)
+            ? $" (without layout, {storedMb} MB)" : "";
         return (changed,
-            $"{storedName ?? parser.Name} v{storedVersion} {storedSettings}".TrimEnd(),
-            $"{parser.Name} v{parser.Version} {currentSettings}".TrimEnd());
+            $"{storedName ?? parser.Name} v{storedVersion} {storedSettings}".TrimEnd() + withoutLayout,
+            $"{parser.Name} v{parser.Version} {currentSettings}".TrimEnd() + (moreMemory ? $" ({parserMb} MB)" : ""));
     }
+
+    /// <summary>
+    /// Whether a document read without the layout model for lack of memory would now get more
+    /// memory than it had. Never, when it wasn't, or when the parsers' memory isn't known.
+    /// </summary>
+    internal static bool MoreMemoryThanItWasReadWith(IReadOnlyDictionary<string, string> metadata, int? parserMb) =>
+        parserMb is not null
+        && metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyReadWithoutLayout, out var stored)
+        && int.TryParse(stored, NumberStyles.Integer, CultureInfo.InvariantCulture, out int storedMb)
+        && parserMb > storedMb;
 
     private (bool changed, string? stored, string? current) CheckEmbeddingSettingsChanged(DocumentEntity doc)
     {

@@ -299,16 +299,16 @@ public sealed class ParserProcessPoolTests : IDisposable
         pool.MemoryLimitMb(new UploadSettings { ParserMemoryLimitMb = 256 }).Should().Be(256, "a lower setting is kept");
     }
 
-    // #676: in a container the hosts get its limit less the web process's reserve, and fewer hosts run
-    // rather than hosts too small for a layout parse.
+    // #676: in a container the hosts get its limit less the web process's reserve and each worker's
+    // file waiting to be parsed, and fewer hosts run rather than hosts too small for a layout parse.
     [Theory]
     // container limit, workers -> hosts, MB each
     [InlineData(1024L, 4, 1, 512)]
-    [InlineData(2048L, 4, 1, 1536)]
-    [InlineData(3072L, 4, 2, 1280)]
-    [InlineData(4096L, 4, 3, 1194)]
-    [InlineData(16384L, 4, 4, 3968)]
-    [InlineData(4096L, 1, 1, 3584)]
+    [InlineData(2048L, 4, 1, 1024)]
+    [InlineData(3072L, 4, 2, 1024)]
+    [InlineData(4096L, 4, 3, 1024)]
+    [InlineData(16384L, 4, 4, 3840)]
+    [InlineData(4096L, 1, 1, 3456)]
     public void Size_ContainerLimit_GivesHostsTheLimitLessTheReserveAtLayoutSize(long limitMb, int workers, int hosts, int hostMb)
     {
         ParserProcessPool.Size(limitMb, isContainerLimit: true, workers).Should().Be((hosts, hostMb));
@@ -323,7 +323,7 @@ public sealed class ParserProcessPoolTests : IDisposable
             containerLimitBytes: 2048L * 1024 * 1024);
 
         pool.Slots.Should().Be(1);
-        pool.HostMemoryCeilingMb.Should().Be(1536);
+        pool.HostMemoryCeilingMb.Should().Be(1024);
     }
 
     [Theory]
@@ -343,7 +343,67 @@ public sealed class ParserProcessPoolTests : IDisposable
             else if (version == "v1")
                 File.WriteAllText(Path.Combine(root, "memory", "memory.limit_in_bytes"), content + "\n");
 
-            ParserProcessPool.ContainerMemoryLimitBytes(root).Should().Be(expected);
+            ParserProcessPool.ContainerMemoryLimitBytes(root, version == "v1" ? "4:memory:/\n" : "0::/\n").Should().Be(expected);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // Codex on #677: a process in a nested cgroup is killed by the smallest limit on its path, which
+    // the mount's own file need not hold.
+    [Theory]
+    // limits from the mount down to the process's cgroup ("max" = none) -> the limit that applies
+    [InlineData("v2", "max,max,1073741824", 1073741824L)]
+    [InlineData("v2", "max,2147483648,max", 2147483648L)]
+    [InlineData("v2", "4294967296,1073741824,2147483648", 1073741824L)]
+    [InlineData("v2", "max,max,max", null)]
+    [InlineData("v1", "9223372036854771712,1073741824,9223372036854771712", 1073741824L)]
+    public void ContainerMemoryLimitBytes_NestedCgroup_TakesTheSmallestLimitOnItsPath(string version, string limits, long? expected)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cgroup-" + Guid.NewGuid().ToString("N"));
+        string mount = version == "v1" ? Path.Combine(root, "memory") : root;
+        string file = version == "v1" ? "memory.limit_in_bytes" : "memory.max";
+        string[] levels = ["", "kubepods", Path.Combine("kubepods", "pod1")];
+        try
+        {
+            string[] values = limits.Split(',');
+            for (int i = 0; i < levels.Length; i++)
+            {
+                string dir = Path.Combine(mount, levels[i]);
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, file), values[i] + "\n");
+            }
+            string self = version == "v1" ? "12:cpu,cpuacct:/kubepods\n4:memory:/kubepods/pod1\n" : "0::/kubepods/pod1\n";
+
+            ParserProcessPool.ContainerMemoryLimitBytes(root, self).Should().Be(expected);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("MemTotal:       16303428 kB\nMemFree:            1000 kB\n", 16303428L * 1024)]
+    [InlineData("MemFree:            1000 kB\n", null)]
+    [InlineData(null, null)]
+    public void MachineMemoryBytes_ReadsMemTotal(string? meminfo, long? expected)
+    {
+        ParserProcessPool.MachineMemoryBytes(meminfo).Should().Be(expected);
+    }
+
+    [Fact]
+    public void ContainerMemoryLimitBytes_CgroupNotUnderTheMount_ReadsTheMountsOwnLimit()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cgroup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "memory.max"), "1073741824\n");
+
+            ParserProcessPool.ContainerMemoryLimitBytes(root, "0::/system.slice/docker-abc.scope\n").Should().Be(1073741824L);
         }
         finally
         {

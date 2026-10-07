@@ -69,8 +69,8 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyParserSettings = "IndexedWith:ParserSettings";
 
     /// <summary>
-    /// Parsed-document metadata: the PDF was read without the layout model for lack of memory (#676).
-    /// Its recorded parser settings are marked, so a reindex with more memory reads it again.
+    /// The PDF was read without the layout model for lack of memory (#676): the MB the parser had.
+    /// A reindex reads it again once parsers get more (ReindexService).
     /// </summary>
     public const string MetadataKeyReadWithoutLayout = "ReadWithoutLayout";
 
@@ -359,12 +359,15 @@ public class IngestionPipeline : IKnowledgeIngester
                 metadata[MetadataKeyParser] = usedParser.Name;
                 metadata[MetadataKeyParserVersion] = usedParser.Version.ToString(CultureInfo.InvariantCulture);
                 if (usedParser.OutputSettings is { Length: > 0 } outputSettings)
-                    metadata[MetadataKeyParserSettings] = parsedDocument.Metadata.ContainsKey(MetadataKeyReadWithoutLayout)
-                        ? outputSettings + ";readWithoutLayout=memory"
-                        : outputSettings;
+                    metadata[MetadataKeyParserSettings] = outputSettings;
                 else
                     metadata.Remove(MetadataKeyParserSettings);
             }
+
+            if (parsedDocument.Metadata.TryGetValue(MetadataKeyReadWithoutLayout, out var withoutLayoutMb))
+                metadata[MetadataKeyReadWithoutLayout] = withoutLayoutMb;
+            else
+                metadata.Remove(MetadataKeyReadWithoutLayout);
 
             if (warnings.Count > 0)
                 metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
@@ -836,8 +839,11 @@ public class IngestionPipeline : IKnowledgeIngester
         if (isolated)
         {
             ReadOnlyMemory<byte> bytes = BufferOf(content);
+            // A layout parse that runs out of memory is read again; both share the one deadline.
+            var started = Stopwatch.StartNew();
             parsed = await ParseWithinMemoryAsync(
-                settings => _parserPool!.ParseAsync(parser, bytes, fileName, settings, timeout, ct),
+                settings => _parserPool!.ParseAsync(parser, bytes, fileName, settings,
+                    Max(TimeSpan.FromSeconds(1), timeout - started.Elapsed), ct),
                 limits, _parserPool!.MemoryLimitMb(limits), fileName, _logger);
         }
         else
@@ -869,7 +875,7 @@ public class IngestionPipeline : IKnowledgeIngester
             return await parse(limits);
 
         if (hostMemoryMb < ParserProcessPool.LayoutHostMb)
-            return WithoutLayout(await parse(WithoutLayoutModel(limits)),
+            return WithoutLayout(await parse(WithoutLayoutModel(limits)), hostMemoryMb,
                 $"read without the layout model: the parser has {hostMemoryMb:N0} MB and the model needs about " +
                 $"{ParserProcessPool.LayoutHostMb:N0} MB; give Connapse more memory and reindex to read it by layout");
 
@@ -881,7 +887,7 @@ public class IngestionPipeline : IKnowledgeIngester
         {
             logger.LogWarning("PdfLayoutOutOfMemory {File}: reading it again without the layout model",
                 LogSanitizer.Sanitize(Path.GetFileName(fileName)));
-            return WithoutLayout(await parse(WithoutLayoutModel(limits)),
+            return WithoutLayout(await parse(WithoutLayoutModel(limits)), hostMemoryMb,
                 $"read without the layout model: it ran out of the {hostMemoryMb:N0} MB the parser has with it; " +
                 "give Connapse more memory and reindex to read it by layout");
         }
@@ -894,12 +900,17 @@ public class IngestionPipeline : IKnowledgeIngester
     internal static UploadSettings WithoutLayoutModel(UploadSettings limits) =>
         limits with { PdfTextMode = nameof(PdfTextMode.ContentOrder), PdfLayoutOnOcrPages = false };
 
-    private static ParsedDocument WithoutLayout(ParsedDocument parsed, string warning) =>
+    private static ParsedDocument WithoutLayout(ParsedDocument parsed, int hostMemoryMb, string warning) =>
         parsed with
         {
             Warnings = [.. parsed.Warnings, warning],
-            Metadata = new Dictionary<string, string>(parsed.Metadata) { [MetadataKeyReadWithoutLayout] = "memory" },
+            Metadata = new Dictionary<string, string>(parsed.Metadata)
+            {
+                [MetadataKeyReadWithoutLayout] = hostMemoryMb.ToString(CultureInfo.InvariantCulture),
+            },
         };
+
+    private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
 
     /// <summary>
     /// Required promises no file is parsed outside a confined host, so falling back to the web

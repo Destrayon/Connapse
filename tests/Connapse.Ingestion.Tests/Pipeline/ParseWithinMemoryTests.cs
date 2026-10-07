@@ -53,7 +53,7 @@ public class ParseWithinMemoryTests
         parser.Calls[0].PdfTextMode.Should().Be("ContentOrder");
         parser.Calls[0].PdfLayoutOnOcrPages.Should().BeFalse();
         result.Warnings.Should().ContainSingle().Which.Should().Contain("512 MB").And.Contain("without the layout model");
-        result.Metadata[IngestionPipeline.MetadataKeyReadWithoutLayout].Should().Be("memory");
+        result.Metadata[IngestionPipeline.MetadataKeyReadWithoutLayout].Should().Be("512");
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class ParseWithinMemoryTests
         result.Content.Should().Be("content order");
         parser.Calls.Select(c => c.PdfTextMode).Should().Equal("Layout", "ContentOrder");
         result.Warnings.Should().ContainSingle().Which.Should().Contain("ran out");
-        result.Metadata.Should().ContainKey(IngestionPipeline.MetadataKeyReadWithoutLayout);
+        result.Metadata[IngestionPipeline.MetadataKeyReadWithoutLayout].Should().Be("1024");
     }
 
     [Fact]
