@@ -26,10 +26,16 @@ public sealed class EvalRunner(
     RepoPaths paths,
     TextWriter log,
     HttpClient http,
-    Func<SystemConfig, CancellationToken, Task<ISystemUnderTest>> systemFactory)
+    Func<SystemStart, CancellationToken, Task<ISystemUnderTest>> systemFactory)
 {
     public const int K = 10;
     private const double MaxFailedFraction = 0.01;
+
+    /// <summary>
+    /// Restore an index cached by an earlier run with the same key instead of indexing, and cache the
+    /// index a run builds (#672). Only a run that indexes every dataset of its suite uses the cache.
+    /// </summary>
+    public bool UseIndexCache { get; init; }
 
     public async Task<RunFolder> RunAsync(RunRequest request, CancellationToken ct)
     {
@@ -44,7 +50,8 @@ public sealed class EvalRunner(
         RefuseMixedDatasetRevisions(names.Except(pending), runManifest, manifest, hashes, run);
         if (pending.Count > 0)
         {
-            await using ISystemUnderTest system = await systemFactory(config, ct);
+            string? cacheKey = pending.Count == names.Count ? CacheKey(config, names, manifest, hashes) : null;
+            await using ISystemUnderTest system = await systemFactory(new SystemStart(config, cacheKey), ct);
             IReadOnlyDictionary<string, string> description = system.Describe();
             if (runManifest.SystemDescription.Count > 0 && !SameDescription(runManifest.SystemDescription, description))
                 throw new InvalidOperationException(
@@ -58,11 +65,11 @@ public sealed class EvalRunner(
                 DatasetEntry entry = manifest.Datasets[name];
                 EvalDataset dataset = await DatasetAdapters.Get(entry.Adapter)
                     .LoadAsync(name, entry, cache.DirectoryFor(name, entry), ct);
-                log.WriteLine($"[{name}] indexing {dataset.Corpus.Count} documents");
-                IndexReport index = await system.IndexAsync(dataset, ct);
+                IndexReport index = await IndexAsync(system, name, dataset, ct);
                 runManifest = await SearchDatasetAsync(system, name, entry, dataset, index, hashes[name],
                     request.LimitQueries, run, runManifest, ct);
             }
+            runManifest = runManifest with { IndexCache = await FinishIndexCacheAsync(system, cacheKey, pending, ct) };
         }
 
         runManifest = runManifest with { FinishedUtc = DateTimeOffset.UtcNow };
@@ -101,14 +108,15 @@ public sealed class EvalRunner(
         {
             int[] members = group.ToArray();
             log.WriteLine($"index shared by: {string.Join(", ", members.Select(i => runs[i].Config.Name))}");
-            await using ISystemUnderTest system = await systemFactory(runs[members[0]].Config.IndexOnly(), ct);
+            SystemConfig indexConfig = runs[members[0]].Config.IndexOnly();
+            string? cacheKey = CacheKey(indexConfig, names, manifest, hashes);
+            await using ISystemUnderTest system = await systemFactory(new SystemStart(indexConfig, cacheKey), ct);
             foreach (string name in names)
             {
                 DatasetEntry entry = manifest.Datasets[name];
                 EvalDataset dataset = await DatasetAdapters.Get(entry.Adapter)
                     .LoadAsync(name, entry, cache.DirectoryFor(name, entry), ct);
-                log.WriteLine($"[{name}] indexing {dataset.Corpus.Count} documents");
-                IndexReport index = await system.IndexAsync(dataset, ct);
+                IndexReport index = await IndexAsync(system, name, dataset, ct);
                 foreach (int i in members)
                 {
                     (SystemConfig config, RunFolder run, RunManifest runManifest) = runs[i];
@@ -125,6 +133,9 @@ public sealed class EvalRunner(
                         request.LimitQueries, run, runManifest, ct));
                 }
             }
+            string? indexCache = await FinishIndexCacheAsync(system, cacheKey, names, ct);
+            foreach (int i in members)
+                runs[i] = runs[i] with { Manifest = runs[i].Manifest with { IndexCache = indexCache } };
         }
 
         List<RunFolder> folders = [];
@@ -134,6 +145,37 @@ public sealed class EvalRunner(
             folders.Add(run);
         }
         return folders;
+    }
+
+    /// <summary>Indexes a dataset, or takes it from the system's restored index cache.</summary>
+    private async Task<IndexReport> IndexAsync(ISystemUnderTest system, string name, EvalDataset dataset, CancellationToken ct)
+    {
+        if ((system as IIndexCachingSystem)?.RestoredIndex(name) is IndexReport restored)
+        {
+            log.WriteLine($"[{name}] index restored from the cache");
+            return restored;
+        }
+        log.WriteLine($"[{name}] indexing {dataset.Corpus.Count} documents");
+        return await system.IndexAsync(dataset, ct);
+    }
+
+    private string? CacheKey(SystemConfig config, IReadOnlyList<string> names, EvalManifest manifest,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> hashes) =>
+        UseIndexCache
+            ? IndexCacheKey.Compute(config, names.Select(n => (n, manifest.Datasets[n].Version, hashes[n])),
+                IndexCacheKey.SourceHash(paths.RepoRoot), IndexCacheKey.CurrentEnvironment())
+            : null;
+
+    /// <summary>Saves the index the system built under the cache key; what the manifest records about the cache.</summary>
+    private static async Task<string?> FinishIndexCacheAsync(
+        ISystemUnderTest system, string? cacheKey, IReadOnlyList<string> names, CancellationToken ct)
+    {
+        if (cacheKey is null || system is not IIndexCachingSystem caching)
+            return null;
+        if (caching.Restored)
+            return $"restored {cacheKey}";
+        await caching.SaveIndexCacheAsync(names, ct);
+        return $"saved {cacheKey}";
     }
 
     /// <summary>Resolves the suite and verifies every dataset file before any container starts, so a checksum problem fails in seconds.</summary>

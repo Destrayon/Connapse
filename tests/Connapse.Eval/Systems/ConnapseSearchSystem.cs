@@ -21,7 +21,7 @@ namespace Connapse.Eval.Systems;
 /// Connapse's own search: documents go through IUploadService (the user upload path, queue and
 /// background worker), queries through IKnowledgeSearch. One container per dataset.
 /// </summary>
-public sealed class ConnapseSearchSystem : ISystemUnderTest
+public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
 {
     public static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StallTimeout = TimeSpan.FromMinutes(30);
@@ -40,14 +40,23 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
     private readonly TextWriter _log;
     private readonly IEmbeddingProvider? _embeddingOverride;
     private readonly Dictionary<string, (Guid ContainerId, Dictionary<string, string> DocMap)> _datasets = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IndexReport> _reports = new(StringComparer.Ordinal);
+    private readonly IndexCacheStore? _indexCache;
+    private readonly Dictionary<string, IndexReport> _restored = new(StringComparer.Ordinal);
 
-    private ConnapseSearchSystem(EvalHost host, SystemConfig config, TextWriter log, IEmbeddingProvider? embeddingOverride)
+    private ConnapseSearchSystem(EvalHost host, SystemConfig config, TextWriter log, IEmbeddingProvider? embeddingOverride,
+        IndexCacheStore? indexCache)
     {
         _host = host;
         _config = config;
         _log = log;
         _embeddingOverride = embeddingOverride;
+        _indexCache = indexCache;
     }
+
+    public bool Restored => _host.Restored;
+
+    public IndexReport? RestoredIndex(string dataset) => _restored.GetValueOrDefault(dataset);
 
     public string Name => "connapse";
 
@@ -60,13 +69,85 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
 
     public static async Task<ConnapseSearchSystem> StartAsync(
         SystemConfig config, string webContentRoot, EmbeddingDiskCache cache, TextWriter log,
-        IEmbeddingProvider? embeddingOverride, CancellationToken ct)
+        IEmbeddingProvider? embeddingOverride, CancellationToken ct, IndexCacheStore? indexCache = null)
     {
-        EvalHost host = await EvalHost.StartAsync(config, webContentRoot, cache, embeddingOverride, ct);
-        ConnapseSearchSystem system = new(host, config, log, embeddingOverride);
+        IndexCacheMetadata? cached = indexCache?.Load();
+        EvalHost host = await EvalHost.StartAsync(config, webContentRoot, cache, embeddingOverride, ct,
+            indexCache?.VolumeName, cached?.Generation);
+        ConnapseSearchSystem system = new(host, config, log, embeddingOverride, indexCache);
         system._searchBaseline = host.Services.GetRequiredService<IOptionsMonitor<SearchSettings>>().CurrentValue with { };
+        if (host.Restored)
+        {
+            try
+            {
+                system.Adopt(cached!);
+                await system.VerifyRestoredContainersAsync(ct);
+            }
+            catch
+            {
+                await system.DisposeAsync();
+                throw;
+            }
+        }
         return system;
     }
+
+    /// <summary>Takes over the datasets of a restored index, after checking it was built the way this system would build it.</summary>
+    private void Adopt(IndexCacheMetadata cached)
+    {
+        IReadOnlyDictionary<string, string> description = IndexDescription();
+        if (description.Count != cached.Description.Count
+            || description.Any(p => cached.Description.GetValueOrDefault(p.Key) != p.Value))
+            throw new InvalidOperationException(
+                $"Index cache {cached.Key} was built with {Show(cached.Description)}, but this system has {Show(description)}. "
+                + "Delete it or run with --index-cache off.");
+        foreach ((string name, CachedDataset dataset) in cached.Datasets)
+        {
+            _datasets[name] = (dataset.ContainerId, new Dictionary<string, string>(dataset.DocMap, StringComparer.Ordinal));
+            _reports[name] = dataset.Report;
+            _restored[name] = dataset.Report;
+        }
+        _log.WriteLine($"restored index cache {cached.Key}: {string.Join(", ", cached.Datasets.Keys)}");
+    }
+
+    /// <summary>
+    /// Every container the metadata names must exist in the restored database: a database and metadata
+    /// from different saves would otherwise search empty containers and score near zero without an error.
+    /// </summary>
+    private async Task VerifyRestoredContainersAsync(CancellationToken ct)
+    {
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        IContainerStore containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+        foreach ((string name, (Guid containerId, _)) in _datasets)
+            if (await containers.GetAsync(containerId, ct) is null)
+                throw new InvalidOperationException(
+                    $"The restored index cache has no container for {name}; its database and metadata don't belong together. "
+                    + "Delete it or run with --index-cache off.");
+    }
+
+    public async Task SaveIndexCacheAsync(IReadOnlyList<string> datasets, CancellationToken ct)
+    {
+        if (_indexCache is null)
+            throw new InvalidOperationException("This system was started without an index cache.");
+        // A multi-config run leaves its last config's search settings saved in the database; a run
+        // restoring this snapshot must get its own config's, not those.
+        await using (AsyncServiceScope scope = _host.Services.CreateAsyncScope())
+            await scope.ServiceProvider.GetRequiredService<ISettingsStore>().ResetAsync("search", ct);
+        string generation = Guid.NewGuid().ToString("N");
+        await _host.SaveSnapshotAsync(generation, ct);
+        _indexCache.Save(new IndexCacheMetadata(_indexCache.Key, generation, IndexDescription(),
+            datasets.ToDictionary(name => name, name => new CachedDataset(
+                _datasets[name].ContainerId, _datasets[name].DocMap, _reports[name]), StringComparer.Ordinal)));
+        _log.WriteLine($"saved index cache {_indexCache.Key}");
+    }
+
+    /// <summary>The parts of <see cref="Describe"/> that shape an index.</summary>
+    private IReadOnlyDictionary<string, string> IndexDescription() =>
+        Describe().Where(p => p.Key.StartsWith("embedding.", StringComparison.Ordinal) || p.Key.StartsWith("chunking.", StringComparison.Ordinal))
+            .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+
+    private static string Show(IReadOnlyDictionary<string, string> description) =>
+        string.Join(", ", description.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"{p.Key}={p.Value}"));
 
     public IReadOnlyDictionary<string, string> Describe()
     {
@@ -228,7 +309,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         await using (AsyncServiceScope indexScope = _host.Services.CreateAsyncScope())
             await indexScope.ServiceProvider.GetRequiredService<Connapse.Storage.Vectors.VectorColumnManager>().EnsureIndexesAsync(ct, waitForOthers: true);
 
-        return new IndexReport(dataset.Corpus.Count, failed.Count, failed) { Outcomes = outcomes };
+        IndexReport report = new(dataset.Corpus.Count, failed.Count, failed) { Outcomes = outcomes };
+        _reports[dataset.Name] = report;
+        return report;
     }
 
     public async Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct)

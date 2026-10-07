@@ -73,9 +73,17 @@ internal static class Commands
         if (system != "connapse")
             throw new ArgumentException($"Unknown system '{system}'. Known: connapse.");
 
+        string indexCache = cli.Option("index-cache") ?? "on";
+        if (indexCache is not ("on" or "off"))
+            throw new ArgumentException($"--index-cache takes on or off (got '{indexCache}').");
+
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
-        EvalRunner runner = new(paths, Console.Out, http, async (config, token) =>
-            await ConnapseSearchSystem.StartAsync(config, paths.WebContentRoot, embeddings, Console.Out, null, token));
+        EvalRunner runner = new(paths, Console.Out, http, async (start, token) =>
+            await ConnapseSearchSystem.StartAsync(start.Config, paths.WebContentRoot, embeddings, Console.Out, null, token,
+                start.IndexCacheKey is string key ? new IndexCacheStore(Path.Combine(paths.CacheRoot, "index-snapshots"), key) : null))
+        {
+            UseIndexCache = indexCache == "on",
+        };
 
         // Several configs share an index wherever their index-time settings match (#667).
         if (configs.Count > 1)
@@ -220,7 +228,7 @@ internal static class Commands
     {
         Console.Error.WriteLine("""
             usage: dotnet run --project tests/Connapse.Eval -- <command>
-              run      --suite <name> --config <name>[,<name>...] [--system connapse] [--datasets a,b] [--resume <runDir>] [--limit-queries N]
+              run      --suite <name> --config <name>[,<name>...] [--system connapse] [--datasets a,b] [--resume <runDir>] [--limit-queries N] [--index-cache on|off]
                        several configs index once per group with the same index-time settings
               extract  --suite <name> [--config extract] [--datasets a,b] [--resume <runDir>] [--real-embedder]
               compare  <runDirA> <runDirB> [--allow-dataset-mismatch]
