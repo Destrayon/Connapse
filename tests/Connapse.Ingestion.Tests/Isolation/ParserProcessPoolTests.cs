@@ -284,7 +284,7 @@ public sealed class ParserProcessPoolTests : IDisposable
     // available, workers -> hosts at once, per-host limit for the default 2,048 MB setting
     [InlineData(64L * 1024, 4, 4, 2048)]
     [InlineData(8L * 1024, 4, 4, 1024)]
-    [InlineData(2L * 1024, 4, 2, 512)]
+    [InlineData(2L * 1024, 4, 1, 1024)]
     [InlineData(512L, 4, 1, 512)]
     public void Constructor_SizesHostsToHalfTheAvailableMemory(long availableMb, int workers, int hosts, int perHostMb)
     {
@@ -297,6 +297,58 @@ public sealed class ParserProcessPoolTests : IDisposable
         pool.Slots.Should().Be(hosts);
         pool.MemoryLimitMb(new UploadSettings()).Should().Be(perHostMb);
         pool.MemoryLimitMb(new UploadSettings { ParserMemoryLimitMb = 256 }).Should().Be(256, "a lower setting is kept");
+    }
+
+    // #676: in a container the hosts get its limit less the web process's reserve, and fewer hosts run
+    // rather than hosts too small for a layout parse.
+    [Theory]
+    // container limit, workers -> hosts, MB each
+    [InlineData(1024L, 4, 1, 512)]
+    [InlineData(2048L, 4, 1, 1536)]
+    [InlineData(3072L, 4, 2, 1280)]
+    [InlineData(4096L, 4, 3, 1194)]
+    [InlineData(16384L, 4, 4, 3968)]
+    [InlineData(4096L, 1, 1, 3584)]
+    public void Size_ContainerLimit_GivesHostsTheLimitLessTheReserveAtLayoutSize(long limitMb, int workers, int hosts, int hostMb)
+    {
+        ParserProcessPool.Size(limitMb, isContainerLimit: true, workers).Should().Be((hosts, hostMb));
+    }
+
+    [Fact]
+    public void Constructor_ContainerLimit_IsUsedInsteadOfTheGcView()
+    {
+        using var pool = new ParserProcessPool(
+            new ConfigurationBuilder().AddInMemoryCollection([new("Hangfire:IngestionWorkerCount", "4")]).Build(),
+            hostPath: TestHostPath,
+            containerLimitBytes: 2048L * 1024 * 1024);
+
+        pool.Slots.Should().Be(1);
+        pool.HostMemoryCeilingMb.Should().Be(1536);
+    }
+
+    [Theory]
+    [InlineData("v2", "1073741824", 1073741824L)]
+    [InlineData("v2", "max", null)]
+    [InlineData("v1", "2147483648", 2147483648L)]
+    [InlineData("v1", "9223372036854771712", null)]
+    [InlineData("none", "", null)]
+    public void ContainerMemoryLimitBytes_ReadsCgroupV2ThenV1(string version, string content, long? expected)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cgroup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "memory"));
+        try
+        {
+            if (version == "v2")
+                File.WriteAllText(Path.Combine(root, "memory.max"), content + "\n");
+            else if (version == "v1")
+                File.WriteAllText(Path.Combine(root, "memory", "memory.limit_in_bytes"), content + "\n");
+
+            ParserProcessPool.ContainerMemoryLimitBytes(root).Should().Be(expected);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     /// <summary>
