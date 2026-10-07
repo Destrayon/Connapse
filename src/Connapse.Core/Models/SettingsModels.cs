@@ -174,6 +174,14 @@ public record ChunkingSettings
     public bool PrependHeaderPath { get; set; } = true;
 
     /// <summary>
+    /// Prepend the document's title (the parser's title, else the file name without its extension) as
+    /// its own line to every chunk, so later chunks of a long document still say what they belong to,
+    /// for keyword and vector search alike (#671). Chunks that get the line are embedded with it, which
+    /// costs Semantic chunking its pooled vectors. Off while it is measured.
+    /// </summary>
+    public bool PrependDocumentTitle { get; set; }
+
+    /// <summary>
     /// For SentenceWindow chunking: number of sentences on each side of the
     /// indexed sentence to include in Metadata["window"] (total window = 2N+1).
     /// Default 3 matches LlamaIndex's SentenceWindowNodeParser default.

@@ -266,7 +266,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
                     }
                 }
                 List<UploadRequest> requests = opened.Select(o => new UploadRequest(
-                    containerId, UploadName(o.Doc, o.Index), o.Stream, Path: "/",
+                    containerId, UploadName(o.Doc, o.Index), o.Stream, Path: UploadFolder(o.Doc, o.Index),
                     ContentType: o.Doc.Kind == DocumentKind.Text ? "text/plain" : null,
                     Strategy: _config.ChunkingStrategy, IngestedVia: "Eval")).ToList();
                 BulkUploadResult result = requests.Count == 0
@@ -420,8 +420,29 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         : new MemoryStream(Encoding.UTF8.GetBytes(Compose(doc)));
 
     // The extension is kept as the dataset wrote it; parser selection lowercases it, as for a user upload.
-    private static string UploadName(EvalDocument doc, int index) =>
-        doc.Kind == DocumentKind.File ? $"{index:D7}{Path.GetExtension(doc.FilePath)}" : $"{index:D7}.txt";
+    // A titled text document is named after its title, as a user's file would be, in a folder of its own
+    // so names never collide (an upload to an existing path replaces that document) (#671).
+    public static string UploadName(EvalDocument doc, int index) =>
+        doc.Kind == DocumentKind.File ? $"{index:D7}{Path.GetExtension(doc.FilePath)}"
+        : SafeFileName(doc.Title) is string name ? name + ".txt"
+        : $"{index:D7}.txt";
+
+    public static string UploadFolder(EvalDocument doc, int index) =>
+        doc.Kind == DocumentKind.Text && SafeFileName(doc.Title) is not null ? $"/{index:D7}" : "/";
+
+    /// <summary>A title as a file name: path, reserved and control characters become spaces; null when nothing is left.</summary>
+    public static string? SafeFileName(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return null;
+        StringBuilder name = new(title.Length);
+        foreach (char c in title)
+            name.Append(char.IsControl(c) || "/\\:*?\"<>|".Contains(c) ? ' ' : c);
+        string cleaned = string.Join(' ', name.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim('.', ' ');
+        if (cleaned.Length > 200)
+            cleaned = cleaned[..200].TrimEnd('.', ' ');
+        return cleaned.Length == 0 ? null : cleaned;
+    }
 
     private static string Compose(EvalDocument doc) =>
         string.IsNullOrWhiteSpace(doc.Title) ? doc.Text ?? "" : $"{doc.Title}\n\n{doc.Text}";
