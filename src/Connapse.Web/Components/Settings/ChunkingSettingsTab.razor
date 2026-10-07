@@ -96,6 +96,17 @@
             </div>
         }
 
+        <div class="col-md-6">
+            <div class="form-check mt-4">
+                <InputCheckbox @bind-Value="localSettings.PrependDocumentTitle" class="form-check-input" id="prependDocumentTitle" />
+                <label class="form-check-label" for="prependDocumentTitle">Prepend document title</label>
+            </div>
+            <small class="form-text text-muted d-block mt-1">
+                Start every chunk with its document's title (or file name), so later parts of long pages, transcripts and
+                threads still say what they belong to. Applies to documents indexed after the change.
+            </small>
+        </div>
+
         @if (localSettings.Strategy == nameof(ChunkingStrategy.SentenceWindow))
         {
             <div class="col-md-6">

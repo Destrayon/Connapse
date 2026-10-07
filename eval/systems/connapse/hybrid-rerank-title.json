@@ -1,1 +1,0 @@
-{ "searchMode": "hybrid", "settings": { "Knowledge:Chunking:PrependDocumentTitle": "true", "Knowledge:Search:Reranker": "CrossEncoder", "Knowledge:Search:CrossEncoderTimeoutSeconds": "60" } }

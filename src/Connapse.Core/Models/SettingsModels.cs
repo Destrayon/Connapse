@@ -174,12 +174,14 @@ public record ChunkingSettings
     public bool PrependHeaderPath { get; set; } = true;
 
     /// <summary>
-    /// Prepend the document's title (the parser's title, else the file name without its extension) as
-    /// its own line to every chunk, so later chunks of a long document still say what they belong to,
-    /// for keyword and vector search alike (#671). Chunks that get the line are embedded with it, which
-    /// costs Semantic chunking its pooled vectors. Off while it is measured.
+    /// Prepend the document's title (the parser's title, else a file name with a letter in it) as its
+    /// own line to every chunk, so later chunks of a long document still say what they belong to, for
+    /// keyword and vector search alike (#671). Chunks that get the line are embedded with it, which costs
+    /// Semantic chunking its pooled vectors (one more embedding pass at ingestion). Default true:
+    /// EnterpriseRAG-Bench nDCG@10 0.600 to 0.619 without the reranker and 0.677 to 0.716 with it, the 8
+    /// BEIR dev domains unchanged, no dataset significantly worse.
     /// </summary>
-    public bool PrependDocumentTitle { get; set; }
+    public bool PrependDocumentTitle { get; set; } = true;
 
     /// <summary>
     /// For SentenceWindow chunking: number of sentences on each side of the
