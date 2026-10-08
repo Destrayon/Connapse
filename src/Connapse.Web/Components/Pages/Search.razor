@@ -42,6 +42,9 @@
                     @* Grouped rather than merged into one flat list: a container is storage
                        Connapse owns and a source mirrors somebody else's system, and which one
                        a result came from changes how much it can be trusted to be current. *@
+                    @* Without it the browser shows the first option while nothing is selected, and
+                       choosing that one fires no change, so search stays disabled (#678). *@
+                    <option value="" disabled>Choose a container or source</option>
                     @if (containers.Count > 0)
                     {
                         <optgroup label="Containers">
