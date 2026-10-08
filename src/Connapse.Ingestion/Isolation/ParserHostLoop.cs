@@ -24,15 +24,7 @@ public static class ParserHostLoop
 
     public static async Task RunAsync(Stream input, Stream output, IReadOnlyList<IDocumentParser>? extraParsers = null)
     {
-        WatchParent();
-
-        // Before the first untrusted byte is read. Required and unavailable means every request is
-        // refused, rather than parsed unconfined.
-        ParserSandboxMode mode = ParserSandbox.ModeFromEnvironment();
-        var (confined, sandbox) = ParserSandbox.Apply(mode);
-        string? refusal = mode == ParserSandboxMode.Required && !confined
-            ? $"the parser sandbox is required but unavailable ({sandbox}) [sandbox_unavailable]"
-            : null;
+        var (refusal, sandbox) = Confine();
 
         // An OutOfMemoryException is usually caught inside a parser and turned into a warning, so
         // the reply would look like an empty document. Seeing it first-chance keeps it a memory
@@ -126,6 +118,23 @@ public static class ParserHostLoop
         {
             return new ParseResponse(null, null, null, Error: ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Ties this process to its parent and confines it, before the first untrusted byte is read;
+    /// also used by the inference host (#680). Required and unavailable means every request is
+    /// refused, rather than served unconfined: the refusal is returned for the replies.
+    /// </summary>
+    internal static (string? Refusal, string? Sandbox) Confine()
+    {
+        WatchParent();
+
+        ParserSandboxMode mode = ParserSandbox.ModeFromEnvironment();
+        var (confined, sandbox) = ParserSandbox.Apply(mode);
+        string? refusal = mode == ParserSandboxMode.Required && !confined
+            ? $"the parser sandbox is required but unavailable ({sandbox}) [sandbox_unavailable]"
+            : null;
+        return (refusal, sandbox);
     }
 
     /// <summary>

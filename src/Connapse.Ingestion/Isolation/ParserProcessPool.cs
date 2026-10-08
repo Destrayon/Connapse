@@ -34,7 +34,7 @@ namespace Connapse.Ingestion.Isolation;
 /// without the layout model rather than failing (IngestionPipeline).
 /// </para>
 /// </summary>
-public sealed class ParserProcessPool : IDisposable
+public sealed partial class ParserProcessPool : IDisposable
 {
     /// <summary>The environment variable that tells a host which process to outlive by no more than a second.</summary>
     public const string ParentProcessIdVariable = "CONNAPSE_PARSERHOST_PARENT_PID";
@@ -626,7 +626,11 @@ public sealed class ParserProcessPool : IDisposable
             return host;
         }
 
-        public async Task<ParseResponse> ExchangeAsync(ParseRequest request, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct)
+        public async Task<ParseResponse> ExchangeAsync(ParseRequest request, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct) =>
+            Deserialize<ParseResponse>(await ExchangeAsync(Serialize(request), content, maxResponse, ct));
+
+        /// <summary>One request -- a JSON header and its content -- and the host's reply frame.</summary>
+        public async Task<byte[]> ExchangeAsync(ReadOnlyMemory<byte> header, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct)
         {
             // The heap limit covers managed memory only. ONNX Runtime, PDFium and Skia allocate
             // natively, and in a container that memory counts against the limit the web process
@@ -668,13 +672,12 @@ public sealed class ParserProcessPool : IDisposable
             }
 
             Stream input = _process.StandardInput.BaseStream;
-            await WriteJsonAsync(input, request, ct);
+            await WriteFrameAsync(input, header, ct);
             await WriteFrameAsync(input, content, ct);
             await input.FlushAsync(ct);
 
-            byte[] reply = await ReadFrameAsync(_process.StandardOutput.BaseStream, maxResponse, ct)
+            return await ReadFrameAsync(_process.StandardOutput.BaseStream, maxResponse, ct)
                 ?? throw new EndOfStreamException("The parser host exited without replying.");
-            return Deserialize<ParseResponse>(reply);
         }
 
         public void Kill()

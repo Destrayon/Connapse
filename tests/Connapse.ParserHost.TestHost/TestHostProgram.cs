@@ -12,7 +12,7 @@ internal static class TestHostProgram
     /// <summary>Set by ParserProcessPoolTests on a host that should fail to start (#657).</summary>
     internal const string FailToStartVariable = "CONNAPSE_TEST_FAIL_TO_START";
 
-    private static async Task Main()
+    private static async Task Main(string[] args)
     {
         // Ends before the loop says it is ready, as a host that cannot confine itself or load the
         // runtime would.
@@ -22,6 +22,12 @@ internal static class TestHostProgram
         Stream input = Console.OpenStandardInput();
         Stream output = Console.OpenStandardOutput();
         Console.SetOut(Console.Error);
+
+        if (args.Contains(InferenceHostLoop.Argument))
+        {
+            await InferenceHostLoop.RunAsync(input, output);
+            return;
+        }
 
         await ParserHostLoop.RunAsync(input, output,
         [
