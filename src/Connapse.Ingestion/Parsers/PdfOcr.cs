@@ -51,9 +51,19 @@ internal static class PdfOcr
 
         ct.ThrowIfCancellationRequested();
 
-        using SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: renderDpi));
+        PdfImage image;
+        using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: renderDpi)))
+        {
+            image = PdfImage.From(bitmap);
+        }
         ct.ThrowIfCancellationRequested();
+        return new OcrPage(PdfModels.Current.Ocr(image, threads, ct), image.Width, image.Height);
+    }
 
+    /// <summary>Recognises the text lines of a rendered page, in its pixels.</summary>
+    internal static IReadOnlyList<OcrLayout.Line> Infer(PdfImage page, int threads, CancellationToken ct)
+    {
+        using SKBitmap bitmap = page.ToBitmap();
         lock (Gate)
         {
             threads = Math.Max(1, threads);
@@ -61,7 +71,7 @@ internal static class PdfOcr
 
             // Recognition of the page's lines runs on the same number of threads as inference.
             var result = engine.Detect(bitmap, RapidOcrOptions.Default with { RecMaxDegreeOfParallelism = threads }, ct);
-            return new OcrPage(result.TextBlocks.Select(ToLine).ToList(), bitmap.Width, bitmap.Height);
+            return result.TextBlocks.Select(ToLine).ToList();
         }
     }
 
