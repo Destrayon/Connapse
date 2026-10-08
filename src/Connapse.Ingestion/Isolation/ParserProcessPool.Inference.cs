@@ -17,6 +17,24 @@ public sealed partial class ParserProcessPool
     private readonly SemaphoreSlim _inferenceGate = new(1, 1);
     private Host? _inference;
 
+    /// <summary>
+    /// A parser host's call made before its reply: given the frame, null when it is the reply
+    /// itself; else the answer to write back, after reading what follows the call with <c>next</c>.
+    /// </summary>
+    internal delegate Task<byte[]?> Relay(byte[] frame, Func<int, Task<byte[]>> next, CancellationToken ct);
+
+    /// <summary>Whether parser hosts run the PDF models in the shared inference host.</summary>
+    internal bool UseSharedInference { get; set; }
+
+    /// <summary>Answers a parser host's model run by running it in the inference host.</summary>
+    private async Task<byte[]?> RelayInferenceAsync(byte[] frame, Func<int, Task<byte[]>> next, UploadSettings settings, CancellationToken ct)
+    {
+        if (Deserialize<ParseResponse>(frame).Infer is not { } call)
+            return null;
+        byte[] pixels = await next(InferenceProtocol.MaxPixelFrame);
+        return Serialize(await InferAsync(call, pixels, settings, ct));
+    }
+
     /// <summary>The running inference host's process, for tests.</summary>
     internal int? InferenceProcessId => _inference is { HasExited: false } host ? host.ProcessId : null;
 
@@ -29,7 +47,7 @@ public sealed partial class ParserProcessPool
     /// set, never as an exception, so a caller can read the page another way; cancellation is thrown.
     /// </summary>
     internal async Task<InferenceProtocol.InferResponse> InferAsync(
-        InferenceProtocol.InferRequest request, ReadOnlyMemory<byte> pixels, UploadSettings settings, CancellationToken ct)
+        InferRequest request, ReadOnlyMemory<byte> pixels, UploadSettings settings, CancellationToken ct)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _inferenceGate.WaitAsync(ct);

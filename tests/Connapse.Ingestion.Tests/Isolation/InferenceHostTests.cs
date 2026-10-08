@@ -27,7 +27,7 @@ public sealed class InferenceHostTests : IDisposable
     }
 
     private Task<InferenceProtocol.InferResponse> Infer(string model, PdfImage image) =>
-        _pool.InferAsync(new InferenceProtocol.InferRequest(model, image.Width, image.Height, Threads: 1), image.Bgra, Settings, CancellationToken.None);
+        _pool.InferAsync(new ParserProtocol.InferRequest(model, image.Width, image.Height, Threads: 1), image.Bgra, Settings, CancellationToken.None);
 
     [Fact]
     public async Task Layout_MatchesTheModelInProcess()
@@ -70,7 +70,7 @@ public sealed class InferenceHostTests : IDisposable
     [Fact]
     public async Task PixelsThatDoNotFitTheSize_AreAnErrorNotACrash()
     {
-        var response = await _pool.InferAsync(new InferenceProtocol.InferRequest(InferenceProtocol.Layout, 800, 800, 1),
+        var response = await _pool.InferAsync(new ParserProtocol.InferRequest(InferenceProtocol.Layout, 800, 800, 1),
             new byte[100], Settings, CancellationToken.None);
 
         response.Error.Should().Contain("800x800");

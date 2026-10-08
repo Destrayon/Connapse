@@ -6,7 +6,7 @@ namespace Connapse.Ingestion.Isolation;
 /// <summary>
 /// The wire format of the inference host (#680), over the same length-prefixed frames as
 /// <see cref="ParserProtocol"/>: a <see cref="Ready"/> frame once started and confined, then per
-/// request a JSON <see cref="InferRequest"/> and the image's BGRA bytes, answered by one JSON
+/// request a JSON <see cref="ParserProtocol.InferRequest"/> and the image's BGRA bytes, answered by one JSON
 /// <see cref="InferResponse"/>.
 /// </summary>
 internal static class InferenceProtocol
@@ -19,9 +19,6 @@ internal static class InferenceProtocol
     public const int MaxPixelFrame = PdfOcr.MaxRenderedSide * PdfOcr.MaxRenderedSide * 4;
 
     public const int MaxJsonFrame = 64 * 1024 * 1024;
-
-    /// <summary>One model run: which model, the threads it may use, and the size of the pixels that follow.</summary>
-    public sealed record InferRequest(string Model, int Width, int Height, int Threads);
 
     /// <summary>The model's result, or why there is none. <see cref="OutOfMemory"/> means the host exits after replying.</summary>
     public sealed record InferResponse(
@@ -71,7 +68,7 @@ public static class InferenceHostLoop
             {
                 response = refusal is not null
                     ? new InferenceProtocol.InferResponse(Error: refusal)
-                    : Run(Deserialize<InferenceProtocol.InferRequest>(header), pixels);
+                    : Run(Deserialize<InferRequest>(header), pixels);
             }
             catch (OutOfMemoryException)
             {
@@ -94,7 +91,7 @@ public static class InferenceHostLoop
         }
     }
 
-    internal static InferenceProtocol.InferResponse Run(InferenceProtocol.InferRequest request, byte[] pixels)
+    internal static InferenceProtocol.InferResponse Run(InferRequest request, byte[] pixels)
     {
         if (request.Width <= 0 || request.Height <= 0 || (long)request.Width * request.Height * 4 != pixels.Length)
             return new InferenceProtocol.InferResponse(Error: $"{pixels.Length:N0} bytes are not a {request.Width}x{request.Height} BGRA image.");
