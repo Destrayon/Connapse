@@ -38,8 +38,20 @@ public static partial class ConfluenceStorageRenderer
         "dl", "dt", "dd", "details", "summary", "center",
     };
 
+    /// <summary>Elements whose content never reaches the output, on the parsed path or either fallback.</summary>
+    private static readonly HashSet<string> HiddenElements = new(StringComparer.Ordinal)
+    {
+        "script", "style", "ac:parameter", "ac:placeholder", "ac:adf-fallback",
+    };
+
     private const int MaxDepth = 200;
     private const int MaxParseDepth = 300;
+
+    [GeneratedRegex(@"\sac:name\s*=\s*(?:""([^""]*)""|'([^']*)')", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    private static partial Regex MacroNameAttributePattern();
+
+    [GeneratedRegex(@"\sri:content-title\s*=\s*(?:""([^""]*)""|'([^']*)')", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    private static partial Regex ContentTitleAttributePattern();
 
     [GeneratedRegex(@"[\s\u00A0]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex WhitespacePattern();
@@ -279,38 +291,120 @@ public static partial class ConfluenceStorageRenderer
     /// </summary>
     private static string TextFallback(string storageBody)
     {
-        const string parameterOpen = "<ac:parameter";
-        const string parameterClose = "</ac:parameter>";
         var sb = new StringBuilder(storageBody.Length);
-        bool inTag = false;
-        for (int i = 0; i < storageBody.Length; i++)
+
+        // While hiddenName is set, everything up to its matching close tag is skipped; an element that
+        // never closes hides the rest of the body.
+        string? hiddenName = null;
+        int hiddenDepth = 0;
+        bool hiddenIsInclude = false;
+        string? includeTitle = null;
+
+        int i = 0;
+        while (i < storageBody.Length)
         {
             char c = storageBody[i];
-            if (inTag)
+            char next = i + 1 < storageBody.Length ? storageBody[i + 1] : ' ';
+            if (c != '<' || !(char.IsLetter(next) || next is '/' or '!' or '?'))
             {
-                if (c == '>')
-                {
-                    inTag = false;
-                    sb.Append(' ');
-                }
+                if (hiddenName is null)
+                    sb.Append(c);
+                i++;
+                continue;
             }
-            else if (string.CompareOrdinal(storageBody, i, parameterOpen, 0, parameterOpen.Length) == 0)
+
+            if (string.CompareOrdinal(storageBody, i, "<![CDATA[", 0, 9) == 0)
             {
-                int close = storageBody.IndexOf(parameterClose, i, StringComparison.Ordinal);
-                i = close < 0 ? storageBody.Length : close + parameterClose.Length - 1;
+                int close = storageBody.IndexOf("]]>", i + 9, StringComparison.Ordinal);
+                int contentEnd = close < 0 ? storageBody.Length : close;
+                if (hiddenName is null)
+                    sb.Append(' ').Append(storageBody, i + 9, contentEnd - (i + 9)).Append(' ');
+                i = close < 0 ? storageBody.Length : close + 3;
+                continue;
+            }
+
+            int end = string.CompareOrdinal(storageBody, i, "<!--", 0, 4) == 0 ? EndOf(storageBody, "-->", i + 4)
+                : next == '?' ? EndOf(storageBody, "?>", i + 2)
+                : EndOfTag(storageBody, i + 1);
+            string tag = storageBody[i..end];
+            i = end;
+            if (next is '!' or '?')
+            {
                 sb.Append(' ');
+                continue;
             }
-            else if (c == '<' && i + 1 < storageBody.Length && (char.IsLetter(storageBody[i + 1]) || storageBody[i + 1] is '/' or '!' or '?'))
+
+            bool closing = next == '/';
+            bool selfClosing = tag.EndsWith("/>", StringComparison.Ordinal);
+            string name = TagName(tag, closing ? 2 : 1);
+
+            if (hiddenName is not null)
             {
-                inTag = true;
+                if (name == hiddenName)
+                {
+                    if (!closing)
+                    {
+                        if (!selfClosing)
+                            hiddenDepth++;
+                    }
+                    else if (--hiddenDepth == 0)
+                    {
+                        if (hiddenIsInclude)
+                            sb.Append(IncludePlaceholder(includeTitle));
+                        hiddenName = null;
+                    }
+                }
+                else if (hiddenIsInclude && includeTitle is null && !closing && name == "ri:page")
+                {
+                    includeTitle = AttributeValue(ContentTitleAttributePattern(), tag);
+                }
+
+                continue;
+            }
+
+            bool include = !closing
+                && name is "ac:structured-macro" or "ac:macro"
+                && IsIncludeMacro(name, AttributeValue(MacroNameAttributePattern(), tag));
+            if (!closing && !selfClosing && (include || HiddenElements.Contains(name)))
+            {
+                hiddenName = name;
+                hiddenDepth = 1;
+                hiddenIsInclude = include;
+                includeTitle = null;
             }
             else
             {
-                sb.Append(c);
+                sb.Append(include ? IncludePlaceholder(null) : " ");
             }
         }
 
         return EscapeStructure(CleanSingleLine(WebUtility.HtmlDecode(sb.ToString())));
+    }
+
+    private static string TagName(string tag, int from)
+    {
+        int end = from;
+        while (end < tag.Length && !char.IsWhiteSpace(tag[end]) && tag[end] is not '/' and not '>')
+            end++;
+        return tag[from..end];
+    }
+
+    private static string? AttributeValue(Regex pattern, string tag)
+    {
+        Match match = pattern.Match(tag);
+        if (!match.Success)
+            return null;
+        return match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+    }
+
+    private static bool IsIncludeMacro(string elementName, string? macroName) =>
+        elementName is "ac:structured-macro" or "ac:macro"
+        && (macroName ?? string.Empty).Trim().ToLowerInvariant() is "include" or "excerpt-include";
+
+    private static string IncludePlaceholder(string? title)
+    {
+        string clean = CleanSingleLine(title ?? string.Empty);
+        return " [includes: " + (clean.Length > 0 ? clean : "another page") + "] ";
     }
 
     /// <summary>
@@ -415,7 +509,7 @@ public static partial class ConfluenceStorageRenderer
             if (node is not IElement element)
                 return string.Empty;
             if (_depth >= MaxDepth)
-                return Block(CleanSingleLine(IterativeText(element)));
+                return Block(EscapeStructure(CleanSingleLine(IterativeText(element))));
 
             _depth++;
             try
@@ -495,6 +589,17 @@ public static partial class ConfluenceStorageRenderer
                 {
                     sb.Append(node.TextContent).Append(' ');
                     continue;
+                }
+
+                if (node is IElement element)
+                {
+                    if (HiddenElements.Contains(element.NodeName))
+                        continue;
+                    if (IsIncludeMacro(element.NodeName, element.GetAttribute("ac:name")))
+                    {
+                        sb.Append(IncludePlaceholder(IncludedTitle(element)));
+                        continue;
+                    }
                 }
 
                 for (int i = node.ChildNodes.Length - 1; i >= 0; i--)

@@ -287,6 +287,29 @@ public class ConfluenceStorageRendererTests
     }
 
     [Theory]
+    [InlineData(250)]
+    [InlineData(400)]
+    public void Render_HiddenContentPastDepthCaps_StaysHiddenAndEscaped(int depth)
+    {
+        // 250 passes the walker's cap but parses; 400 passes the parse cap and takes the text fallback.
+        const string hidden =
+            "<p># Forged visible</p>" +
+            "<ac:structured-macro ac:name=\"mystery\"><ac:parameter ac:name=\"x\">HIDDENPARAM</ac:parameter></ac:structured-macro>" +
+            "<ac:structured-macro ac:name=\"excerpt-include\"><ac:parameter ac:name=\"\"><ac:link><ri:page ri:content-title=\"Shared\" /></ac:link></ac:parameter>" +
+            "<ac:rich-text-body><p>INCLUDEDBODY</p></ac:rich-text-body></ac:structured-macro>" +
+            "<ac:structured-macro ac:name=\"include\"><ac:rich-text-body><p>INCLUDEDTOO</p></ac:rich-text-body></ac:structured-macro>" +
+            "<ac:placeholder>PLACEHOLDER</ac:placeholder><ac:adf-fallback>ADFFALLBACK</ac:adf-fallback><p>tail</p>";
+        string body = string.Concat(Enumerable.Repeat("<div>", depth)) + hidden + string.Concat(Enumerable.Repeat("</div>", depth));
+
+        string md = Render(body).Markdown;
+
+        md.Should().NotContain("HIDDENPARAM").And.NotContain("INCLUDEDBODY").And.NotContain("INCLUDEDTOO")
+            .And.NotContain("PLACEHOLDER").And.NotContain("ADFFALLBACK");
+        md.Should().Contain("Forged visible").And.Contain("[includes: Shared]").And.Contain("tail");
+        md.Split('\n').Should().NotContain(l => l.StartsWith('#'));
+    }
+
+    [Theory]
     [InlineData("<div><!-- > </b> -->", 10_000)]
     [InlineData("<div><?pi > </b> ?>", 10_000)]
     [InlineData("<div><!-- > </b> -->", 100_000)]
