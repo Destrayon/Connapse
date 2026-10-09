@@ -126,4 +126,34 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
             await store.DeleteAsync("atlassian");
         }
     }
+
+    [Fact]
+    public async Task SaveAtlassianLinkAppAsync_OverlappingSaves_NeverMixClientIdAndSecret()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+
+        try
+        {
+            for (int round = 0; round < 40; round++)
+            {
+                await store.SaveAtlassianLinkAppAsync("client-a", "secret-for-client-a", createdByUserId: null);
+
+                // One save swaps to another app; the other keeps the client id and rotates only the secret.
+                await Task.WhenAll(
+                    Task.Run(() => store.SaveAtlassianLinkAppAsync("client-b", "secret-for-client-b", null)),
+                    Task.Run(() => store.SaveAtlassianLinkAppAsync("client-a", "secret-for-client-a", null)));
+
+                var registration = await store.GetAtlassianLinkAppAsync();
+                string? secret = await store.GetAtlassianLinkAppSecretAsync();
+
+                secret.Should().Be($"secret-for-{registration!.ClientId}",
+                    "the stored pair must be exactly one call's pair (round {0})", round);
+            }
+        }
+        finally
+        {
+            await store.DeleteAsync("atlassian");
+        }
+    }
 }

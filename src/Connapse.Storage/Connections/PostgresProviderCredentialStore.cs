@@ -3,6 +3,8 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Connapse.Storage.Connections;
 
@@ -315,26 +317,36 @@ public class PostgresProviderCredentialStore(
 
         await using var db = await factory.CreateDbContextAsync(ct);
 
-        var existing = await db.ProviderCredentials.FirstOrDefaultAsync(c => c.Provider == AtlassianProvider, ct);
-        var now = DateTime.UtcNow;
-
-        if (existing is null)
-        {
-            existing = new ProviderCredentialEntity { Provider = AtlassianProvider };
-            db.ProviderCredentials.Add(existing);
-        }
-
+        DateTime now = DateTime.UtcNow;
         string trimmedId = clientId.Trim();
-        existing.ConfigJson = System.Text.Json.JsonSerializer.Serialize(new AtlassianLinkAppConfig(trimmedId), AppJson);
-        existing.SecretProtected = Protector.Protect(clientSecret);
-        existing.PrincipalName = trimmedId;
-        existing.CreatedAt = now;
-        existing.CreatedByUserId = createdByUserId;
-        existing.VerifiedAt = null;
 
-        await db.SaveChangesAsync(ct);
+        // One statement that replaces every credential column together. A read-then-modify through
+        // EF writes only the columns that changed, so two overlapping saves could leave one call's
+        // client id beside the other's secret -- a pair that matches no app and fails every link.
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO provider_credentials
+                (provider, config_json, secret_protected, principal_name, created_at, created_by_user_id, verified_at)
+            VALUES (@provider, @config, @secret, @principal, @createdAt, @createdBy, NULL)
+            ON CONFLICT (provider) DO UPDATE SET
+                config_json = EXCLUDED.config_json,
+                secret_protected = EXCLUDED.secret_protected,
+                principal_name = EXCLUDED.principal_name,
+                created_at = EXCLUDED.created_at,
+                created_by_user_id = EXCLUDED.created_by_user_id,
+                verified_at = NULL
+            """,
+            [
+                new NpgsqlParameter("provider", AtlassianProvider),
+                new NpgsqlParameter("config", System.Text.Json.JsonSerializer.Serialize(new AtlassianLinkAppConfig(trimmedId), AppJson)),
+                new NpgsqlParameter("secret", Protector.Protect(clientSecret)),
+                new NpgsqlParameter("principal", trimmedId),
+                new NpgsqlParameter("createdAt", now),
+                new NpgsqlParameter("createdBy", (object?)createdByUserId ?? DBNull.Value) { NpgsqlDbType = NpgsqlDbType.Uuid },
+            ],
+            ct);
 
-        return new ProviderCredentialInfo(AtlassianProvider, existing.PrincipalName, now);
+        return new ProviderCredentialInfo(AtlassianProvider, trimmedId, now);
     }
 
     public async Task<bool> MarkAtlassianLinkAppVerifiedAsync(DateTime when, CancellationToken ct = default) =>
