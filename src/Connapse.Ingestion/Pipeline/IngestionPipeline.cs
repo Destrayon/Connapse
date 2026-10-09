@@ -844,7 +844,7 @@ public class IngestionPipeline : IKnowledgeIngester
             parsed = await ParseWithinMemoryAsync(
                 settings => _parserPool!.ParseAsync(parser, bytes, fileName, settings,
                     Max(TimeSpan.FromSeconds(1), timeout - started.Elapsed), ct),
-                limits, _parserPool!.MemoryLimitMb(limits), fileName, _logger);
+                limits, _parserPool!.LayoutMemoryMb(limits), fileName, _logger);
         }
         else
         {

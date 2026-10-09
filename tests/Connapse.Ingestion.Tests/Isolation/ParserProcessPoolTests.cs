@@ -283,7 +283,7 @@ public sealed class ParserProcessPoolTests : IDisposable
     [Theory]
     // available, workers -> hosts at once, per-host limit for the default 2,048 MB setting
     [InlineData(64L * 1024, 4, 4, 2048)]
-    [InlineData(8L * 1024, 4, 4, 1024)]
+    [InlineData(8L * 1024, 4, 4, 674)]
     [InlineData(2L * 1024, 4, 1, 1024)]
     [InlineData(512L, 4, 1, 512)]
     public void Constructor_SizesHostsToHalfTheAvailableMemory(long availableMb, int workers, int hosts, int perHostMb)
@@ -303,15 +303,28 @@ public sealed class ParserProcessPoolTests : IDisposable
     // file waiting to be parsed, and fewer hosts run rather than hosts too small for a layout parse.
     [Theory]
     // container limit, workers -> hosts, MB each
-    [InlineData(1024L, 4, 1, 512)]
-    [InlineData(2048L, 4, 1, 1024)]
-    [InlineData(3072L, 4, 2, 1024)]
-    [InlineData(4096L, 4, 3, 1024)]
-    [InlineData(16384L, 4, 4, 3840)]
-    [InlineData(4096L, 1, 1, 3456)]
-    public void Size_ContainerLimit_GivesHostsTheLimitLessTheReserveAtLayoutSize(long limitMb, int workers, int hosts, int hostMb)
+    // #680: once the shared inference host and a parser host fit, the models run there and the rest
+    // is split among thin parser hosts.
+    [InlineData(1024L, 4, 1, 512, false)]
+    [InlineData(2048L, 4, 1, 1024, false)]
+    [InlineData(3072L, 4, 2, 324, true)]
+    [InlineData(4096L, 4, 4, 418, true)]
+    [InlineData(16384L, 4, 4, 3490, true)]
+    [InlineData(4096L, 1, 1, 2056, true)]
+    public void Size_ContainerLimit_GivesHostsTheLimitLessTheReserveAtLayoutSize(long limitMb, int workers, int hosts, int hostMb, bool shared)
     {
-        ParserProcessPool.Size(limitMb, isContainerLimit: true, workers).Should().Be((hosts, hostMb));
+        ParserProcessPool.Size(limitMb, isContainerLimit: true, workers).Should().Be((hosts, hostMb, shared));
+    }
+
+    [Theory]
+    [InlineData(2048L, false, 1024)]
+    [InlineData(3072L, true, ParserProcessPool.InferenceHostMb)]
+    public void LayoutMemoryMb_IsTheInferenceHostsWhenTheModelsRunThere(long limitMb, bool shared, int layoutMb)
+    {
+        using var pool = new ParserProcessPool(hostPath: TestHostPath, containerLimitBytes: limitMb * 1024 * 1024);
+
+        pool.UseSharedInference.Should().Be(shared);
+        pool.LayoutMemoryMb(new UploadSettings()).Should().Be(layoutMb);
     }
 
     [Fact]

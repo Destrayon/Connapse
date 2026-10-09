@@ -919,9 +919,11 @@ curl http://localhost:11434/api/embeddings -d '{
 
 **Symptoms**: a PDF indexes, but its warnings say it was read without the layout model.
 
-**Cause**: the PDF layout model needs about 900 MB per parser process. Parser processes get the container's memory limit less 512 MB for the web app and 128 MB for each ingestion worker's file waiting to be parsed (1 GB in all with the default four workers). Below that, Connapse reads PDFs in content order instead of failing them; headers, footers and reading order across columns are handled less well.
+**Cause**: the PDF models need about 0.9–1.2 GB. Parsing gets the container's memory limit less 512 MB for the web app and 128 MB for each ingestion worker's file waiting to be parsed, which is 1 GB in all with the default four workers.
+- **When at least 1.65 GB is left** (a container of about 2.7 GB with four workers), the models run in one shared inference process with 1.4 GB, and the parser processes share the rest.
+- **With less**, each parser process runs the models itself. A PDF it can't fit is read in content order instead of failing; headers, footers and reading order across columns are handled less well.
 
-**Solution**: give the `web` container at least 2 GB (the compose default is 3 GB, enough for two parses at once), then reindex: documents read without the layout model are read again once parsers get more memory than they had. The startup log line `ParserPool runs up to N parser hosts of at most M MB each` shows what each parser gets.
+**Solution**: give the `web` container at least 3 GB, the compose default. Then reindex: documents read without the layout model are read again once the layout model gets more memory than they had. The startup log line `ParserPool runs up to N parser hosts of at most M MB each` shows what each parser gets, and whether there is a shared inference host.
 
 #### 6. "Out of memory during large file upload"
 

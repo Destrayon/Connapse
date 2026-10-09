@@ -721,7 +721,7 @@ public class ReindexService : IReindexService
         // A PDF read without the layout model for lack of memory (#676) is read again once parsers
         // get more than it had -- not on every reindex, while they still don't.
         int? parserMb = _parserPool is not null && _uploadSettings is not null
-            ? _parserPool.MemoryLimitMb(_uploadSettings.CurrentValue)
+            ? _parserPool.LayoutMemoryMb(_uploadSettings.CurrentValue)
             : null;
         bool moreMemory = MoreMemoryThanItWasReadWith(doc.Metadata, parserMb);
         bool changed = !sameParser || storedVersion < parser.Version || settingsChanged || moreMemory;

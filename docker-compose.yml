@@ -135,9 +135,10 @@ services:
     deploy:
       resources:
         limits:
-          # Parser hosts get this limit less 1 GB for the web process and the files waiting to be
-          # parsed, and are sized for a PDF layout parse (about 900 MB): 3G runs two at once. Below
-          # about 1.9G, PDFs are read without the layout model rather than failing (#676).
+          # Parsing gets this limit less 1 GB for the web process and the files waiting to be parsed.
+          # From about 2.7G the PDF models run in one shared inference process (1.4 GB) beside thin
+          # parser hosts (#680); 3G runs two parses at once. Below about 1.9G, PDFs are read without
+          # the layout model rather than failing (#676).
           memory: 3G
           cpus: "2.0"
 

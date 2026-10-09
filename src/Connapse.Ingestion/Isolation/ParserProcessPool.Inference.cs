@@ -23,8 +23,20 @@ public sealed partial class ParserProcessPool
     /// </summary>
     internal delegate Task<byte[]?> Relay(byte[] frame, Func<int, Task<byte[]>> next, CancellationToken ct);
 
-    /// <summary>Whether parser hosts run the PDF models in the shared inference host.</summary>
+    /// <summary>
+    /// What the inference host needs, measured on Linux (#680): 817-1,226 MB at its peak with all
+    /// three models loaded, the most on a scan read by OCR and then by layout.
+    /// </summary>
+    internal const int InferenceHostMb = 1400;
+
+    /// <summary>The least a parser host gets when the models run elsewhere: measured at 115-191 MB.</summary>
+    internal const int ThinHostMb = 256;
+
+    /// <summary>Whether parser hosts run the PDF models in the shared inference host: when memory holds both (see Size).</summary>
     internal bool UseSharedInference { get; set; }
+
+    /// <summary>The memory the PDF layout model gets: the inference host's when shared, else a parser host's.</summary>
+    internal int LayoutMemoryMb(UploadSettings settings) => UseSharedInference ? InferenceMemoryLimitMb : MemoryLimitMb(settings);
 
     /// <summary>Answers a parser host's model run by running it in the inference host.</summary>
     private async Task<byte[]?> RelayInferenceAsync(byte[] frame, Func<int, Task<byte[]>> next, UploadSettings settings, CancellationToken ct)
@@ -38,8 +50,8 @@ public sealed partial class ParserProcessPool
     /// <summary>The running inference host's process, for tests.</summary>
     internal int? InferenceProcessId => _inference is { HasExited: false } host ? host.ProcessId : null;
 
-    /// <summary>The memory the inference host may use: room for the layout model's peak, the largest of the three.</summary>
-    internal int InferenceMemoryLimitMb => Math.Max(LayoutHostMb, _hostMemoryCeilingMb);
+    /// <summary>The memory the inference host may use.</summary>
+    internal int InferenceMemoryLimitMb => InferenceHostMb;
 
     /// <summary>
     /// Runs one model on one image in the inference host. Failures come back as a response with

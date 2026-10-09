@@ -15,7 +15,7 @@ public sealed class InferenceRelayTests : IDisposable
     private static readonly string TestHostPath = Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.TestHost.dll");
     private static readonly UploadSettings Settings = new() { PdfTextMode = "Layout" };
 
-    private readonly ParserProcessPool _local = new(hostPath: TestHostPath);
+    private readonly ParserProcessPool _local = new(hostPath: TestHostPath) { UseSharedInference = false };
     private readonly ParserProcessPool _shared = new(hostPath: TestHostPath) { UseSharedInference = true };
 
     public void Dispose()
