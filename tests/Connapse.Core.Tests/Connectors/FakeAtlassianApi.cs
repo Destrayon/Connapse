@@ -50,6 +50,11 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
 
     public void FailTokenWith(HttpStatusCode? status) { lock (_gate) FailingTokenStatus = status; }
 
+    /// <summary>Answers every token-endpoint request 200 with this raw JSON body until cleared with <c>AnswerTokenWith(null)</c>.</summary>
+    public string? RawTokenBody { get; private set; }
+
+    public void AnswerTokenWith(string? rawBody) { lock (_gate) RawTokenBody = rawBody; }
+
     /// <summary>Makes every token issued so far invalid; the next request carrying one gets 401.</summary>
     public void RevokeTokens() { lock (_gate) _validTokens.Clear(); }
 
@@ -119,6 +124,9 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     {
         if (FailingTokenStatus is { } failing)
             return new HttpResponseMessage(failing);
+
+        if (RawTokenBody is { } raw)
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(raw, Encoding.UTF8, "application/json") };
 
         string? grantType = body.TrimStart().StartsWith('{')
             ? JsonDocument.Parse(body).RootElement.GetProperty("grant_type").GetString()

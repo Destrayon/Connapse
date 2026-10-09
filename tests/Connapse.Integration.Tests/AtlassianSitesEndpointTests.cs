@@ -44,6 +44,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
     {
         // The fake is shared across the collection: put it in a known state.
         _api.FailTokenWith(null);
+        _api.AnswerTokenWith(null);
         _api.FailWith(null);
         _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
         _api.MapJson(Root + "/rest/api/user/current", new { accountId = "svc" });
@@ -162,6 +163,25 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         body.GetProperty("step").GetString().Should().Be("token");
         (await response.Content.ReadAsStringAsync()).Should().NotContain(Secret);
         (await FindAsync("failing.atlassian.net")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Create_MalformedTokenResponse_Returns422AtTokenStepAndCreatesNoConnection()
+    {
+        _api.AnswerTokenWith("{not json");
+        try
+        {
+            var response = await CreateAsync(_fixture.AdminClient, "malformed-token.atlassian.net");
+
+            response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            body.GetProperty("step").GetString().Should().Be("token");
+            (await FindAsync("malformed-token.atlassian.net")).Should().BeNull();
+        }
+        finally
+        {
+            _api.AnswerTokenWith(null);
+        }
     }
 
     [Fact]

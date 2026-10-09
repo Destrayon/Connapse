@@ -67,6 +67,30 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Message.Should().Contain("rejected the client ID or secret");
     }
 
+    [Theory]
+    [InlineData("{not json")]
+    [InlineData("{\"access_token\":\"t\",\"expires_in\":\"soon\"}")]
+    public async Task Test_MalformedTokenResponse_FailsAtTokenStepInsteadOfThrowing(string body)
+    {
+        _api.AnswerTokenWith(body);
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.TokenStep);
+    }
+
+    [Fact]
+    public async Task Test_TokenEndpointServerError_FailsAtTokenStep()
+    {
+        _api.FailTokenWith(HttpStatusCode.InternalServerError);
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.TokenStep);
+    }
+
     [Fact]
     public async Task Test_CannotReadConfluence_FailsAtIdentityStep()
     {

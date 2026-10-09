@@ -79,6 +79,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             {
                 return Failure(TokenStep, "Atlassian rejected the client ID or secret.", stopwatch);
             }
+            catch (Exception ex) when (ex is JsonException or HttpRequestException)
+            {
+                // An unreadable token answer or a failed exchange; rate limits and cancellation pass through.
+                return Failure(TokenStep, "Atlassian's token endpoint didn't answer properly; try again.", stopwatch);
+            }
 
             using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
             var api = new AtlassianApiClient(http, tokens, site, request.ClientSecret, time);
