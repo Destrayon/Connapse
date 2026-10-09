@@ -68,6 +68,30 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task VerifyScoped_NothingDropped_IsNotEnforced()
+    {
+        Allow("1", true);
+        SearchHit[] hits = [Hit("a", null), Hit("p1", AtlassianUri.ForPage(CloudId, "1"))];
+
+        var result = await NewVerifier().VerifyScopedAsync(hits, _user, 1);
+
+        result.Enforced.Should().BeFalse(); // pass-through, so the composite must not cap before AutoCut
+        Ids(result.Hits).Should().Equal("a", "p1");
+    }
+
+    [Fact]
+    public async Task VerifyScoped_ADeniedHit_IsEnforced()
+    {
+        Allow("1", false);
+        SearchHit[] hits = [Hit("a", null), Hit("p1", AtlassianUri.ForPage(CloudId, "1"))];
+
+        var result = await NewVerifier().VerifyScopedAsync(hits, _user, 1);
+
+        result.Enforced.Should().BeTrue();
+        Ids(result.Hits).Should().Equal("a");
+    }
+
+    [Fact]
     public async Task Verify_MixedHits_KeepsRankOrderAndDropsOnlyDenied()
     {
         Allow("1", true);

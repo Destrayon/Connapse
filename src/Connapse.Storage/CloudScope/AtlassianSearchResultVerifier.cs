@@ -37,7 +37,20 @@ public sealed class AtlassianSearchResultVerifier(
             : Math.Max(1, settings.Value.CandidateMultiplier);
 
     public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
+        IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
+        (await VerifyScopedAsync(rankedCandidates, userId, topK, ct)).Hits;
+
+    // Enforced when this call dropped anything, so the composite caps the backfilled pool at topK; a call that
+    // dropped nothing hands the pool back untouched, as a pass-through verifier does.
+    public async Task<PerSchemeVerification> VerifyScopedAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
+    {
+        IReadOnlyList<SearchHit> survivors = await VerifyHitsAsync(rankedCandidates, userId, ct);
+        return new PerSchemeVerification(survivors, Enforced: survivors.Count < rankedCandidates.Count);
+    }
+
+    private async Task<IReadOnlyList<SearchHit>> VerifyHitsAsync(
+        IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, CancellationToken ct)
     {
         await RefreshAnyConnectionAsync(ct);
 
