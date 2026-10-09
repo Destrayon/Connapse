@@ -44,7 +44,10 @@ public sealed partial class ParserProcessPool
         if (Deserialize<ParseResponse>(frame).Infer is not { } call)
             return null;
         byte[] pixels = await next(InferenceProtocol.MaxPixelFrame);
-        return Serialize(await InferAsync(call, pixels, settings, ct));
+
+        // Runs queue for the one inference host, so it gets the cores the parser hosts would have
+        // spent on the models themselves: one each, as PdfOcrThreads gives them by default.
+        return Serialize(await InferAsync(call with { Threads = Math.Max(call.Threads, Slots) }, pixels, settings, ct));
     }
 
     /// <summary>The running inference host's process, for tests.</summary>
