@@ -74,13 +74,15 @@ public sealed class AtlassianSearchResultVerifier(
         budget.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(1, settings.Value.BudgetMs)));
         using var gate = new SemaphoreSlim(Math.Max(1, settings.Value.MaxParallelism));
 
-        var allowed = new ConcurrentDictionary<int, bool>();
-        await Task.WhenAll(pending.Select(async p =>
+        // Chunks and attachments of one page share its check, so each page takes one slot, not one per hit.
+        var pages = pending.Select(p => (p.CloudId, p.ContentId)).Distinct().ToList();
+        var allowed = new ConcurrentDictionary<(string CloudId, string ContentId), bool>();
+        await Task.WhenAll(pages.Select(async page =>
         {
             try
             {
                 await gate.WaitAsync(budget.Token);
-                try { allowed[p.Index] = await checker.CanReadAsync(p.CloudId, p.ContentId, accountId, budget.Token); }
+                try { allowed[page] = await checker.CanReadAsync(page.CloudId, page.ContentId, accountId, budget.Token); }
                 finally { gate.Release(); }
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -94,12 +96,12 @@ public sealed class AtlassianSearchResultVerifier(
         }));
         ct.ThrowIfCancellationRequested();
 
-        if (allowed.Count < pending.Count)
-            logger.LogWarning("Confluence checks ran out of time; {Unchecked} of {Total} hits denied unchecked",
-                pending.Count - allowed.Count, pending.Count);
+        if (allowed.Count < pages.Count)
+            logger.LogWarning("Confluence checks ran out of time; {Unchecked} of {Total} pages denied unchecked",
+                pages.Count - allowed.Count, pages.Count);
 
         foreach (var p in pending)
-            verdicts[p.Index] = allowed.GetValueOrDefault(p.Index);
+            verdicts[p.Index] = allowed.GetValueOrDefault((p.CloudId, p.ContentId));
         return Survivors(rankedCandidates, verdicts);
     }
 

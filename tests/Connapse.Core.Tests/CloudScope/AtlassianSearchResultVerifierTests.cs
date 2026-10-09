@@ -160,6 +160,40 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_ManyChunksOfOnePage_ChecksEachPageOnce()
+    {
+        Allow("1", true);
+        Allow("2", false);
+        Hit("p1", AtlassianUri.ForPage(CloudId, "1"));
+        List<SearchHit> hits = [.. Enumerable.Range(0, 10).Select(i => new SearchHit($"c{i}", "p1", "", 1f, []))];
+        hits.Insert(3, Hit("att", AtlassianUri.ForAttachment(CloudId, "1", "900"))); // governed by page 1 too
+        hits.Insert(5, Hit("p2", AtlassianUri.ForPage(CloudId, "2")));
+        var slow = new DelayingHandler(_api, TimeSpan.FromMilliseconds(200));
+
+        var result = await NewVerifier(slow).VerifyAsync(hits, _user, 10);
+
+        result.Select(h => h.ChunkId).Should().Equal(hits.Where(h => h.DocumentId != "p2").Select(h => h.ChunkId));
+        _api.Calls.Where(c => c.Key.EndsWith("/permission/check")).Sum(c => c.Value).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Verify_ManyChunksOfOnePage_DistinctPagesStillFinishWithinBudget()
+    {
+        foreach (string id in new[] { "1", "2", "3", "4" })
+            Allow(id, true);
+        Hit("p1", AtlassianUri.ForPage(CloudId, "1"));
+        List<SearchHit> hits = [.. Enumerable.Range(0, 10).Select(i => new SearchHit($"c{i}", "p1", "", 1f, []))];
+        hits.AddRange([Hit("p2", AtlassianUri.ForPage(CloudId, "2")), Hit("p3", AtlassianUri.ForPage(CloudId, "3")),
+            Hit("p4", AtlassianUri.ForPage(CloudId, "4"))]);
+        // Every check takes two seconds against the default three-second budget and ten slots.
+        var slow = new DelayingHandler(_api, TimeSpan.FromSeconds(2));
+
+        var result = await NewVerifier(slow).VerifyAsync(hits, _user, 10);
+
+        result.Select(h => h.ChunkId).Should().Equal(hits.Select(h => h.ChunkId));
+    }
+
+    [Fact]
     public async Task CandidateMultiplier_AtlassianConnectionExists_IsConfigured()
     {
         var verifier = NewVerifier(settings: new AtlassianVerifierSettings { CandidateMultiplier = 4 });
@@ -185,6 +219,17 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         {
             if (request.RequestUri!.Host != "auth.atlassian.com")
                 await Task.Delay(Timeout.Infinite, ct);
+            return await base.SendAsync(request, ct);
+        }
+    }
+
+    /// <summary>Passes token requests through; answers every other request after a fixed delay.</summary>
+    private sealed class DelayingHandler(HttpMessageHandler inner, TimeSpan delay) : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.Host != "auth.atlassian.com")
+                await Task.Delay(delay, ct);
             return await base.SendAsync(request, ct);
         }
     }
