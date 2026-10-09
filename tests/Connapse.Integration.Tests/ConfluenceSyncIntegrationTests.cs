@@ -597,6 +597,79 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
     }
 
     [Fact]
+    public async Task AttachmentMovedToAPageTheUserCannotRead_StaysOnTheNewPageAndIsDenied()
+    {
+        const string allowedOnOldPage = "557058:old-page-only";
+        string checkRoot = $"/ex/confluence/{_cloudId.ToLowerInvariant()}/wiki/rest/api/content/";
+        fixture.Atlassian.Map(checkRoot + "101/permission/check", request =>
+        {
+            using var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+            string? who = body.RootElement.GetProperty("subject").GetProperty("identifier").GetString();
+            return FakeAtlassianApi.Json(new { hasPermission = who == allowedOnOldPage });
+        });
+        fixture.Atlassian.MapJson(checkRoot + "102/permission/check", new { hasPermission = false });
+
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("101", "601", "runbook.txt"));
+        const string path = "/attachments/601/runbook.txt";
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (source, connection) = await SeedAsync(sp);
+        var (service, queue) = BuildService(sp);
+        var synced = await SyncAndSettleAsync(sp, service, queue, source, connection);
+        (await ResourceUriAsync(sp, source.Id, path)).Should().Be(AtlassianUri.ForAttachment(_cloudId, "101", "601"));
+
+        // Moved to page 102. Page 101's own list is not read again for a day.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt") with { ModifiedAt = _clock.GetUtcNow() });
+
+        for (int cycle = 0; cycle < 3; cycle++)
+        {
+            synced = await SyncAndSettleAsync(sp, service, queue, synced, connection);
+            (await ResourceUriAsync(sp, source.Id, path)).Should().Be(
+                AtlassianUri.ForAttachment(_cloudId, "102", "601"), "cycle {0} must not hand it back to page 101", cycle);
+            _clock.Advance(TimeSpan.FromMinutes(5));
+        }
+
+        // A user who can read page 101 but not 102 still sees page 101, and not the moved attachment.
+        Guid userId = await LinkedUserAsync(sp, allowedOnOldPage);
+        var verifier = sp.GetServices<IPerSchemeResultVerifier>().OfType<AtlassianSearchResultVerifier>().Single();
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var documents = await db.Documents.Where(d => d.SourceId == source.Id).ToDictionaryAsync(d => d.Path, d => d.Id);
+        SearchHit[] hits =
+        [
+            new("c1", documents["/pages/101.md"].ToString(), "", 1f, []),
+            new("c2", documents[path].ToString(), "", 1f, []),
+        ];
+
+        var visible = await verifier.VerifyAsync(hits, userId, 10);
+
+        visible.Select(h => h.DocumentId).Should().Equal(documents["/pages/101.md"].ToString());
+    }
+
+    private static async Task<string?> ResourceUriAsync(IServiceProvider sp, Guid sourceId, string path)
+    {
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        return await db.Documents.Where(d => d.SourceId == sourceId && d.Path == path).Select(d => d.ResourceUri).SingleAsync();
+    }
+
+    private static async Task<Guid> LinkedUserAsync(IServiceProvider sp, string atlassianAccount)
+    {
+        await using var db = await sp.GetRequiredService<IDbContextFactory<Connapse.Identity.Data.ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        var user = new Connapse.Identity.Data.Entities.ConnapseUser
+        {
+            Id = Guid.NewGuid(),
+            UserName = $"u-{Guid.NewGuid():N}@example.com",
+            Email = $"u-{Guid.NewGuid():N}@example.com",
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        await sp.GetRequiredService<Connapse.Identity.Services.AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount, "Someone", null);
+        return user.Id;
+    }
+
+    [Fact]
     public async Task OversizeAttachment_SkippedAndCounted()
     {
         SeedSpace();

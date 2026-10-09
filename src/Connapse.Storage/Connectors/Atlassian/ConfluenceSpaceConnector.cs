@@ -86,6 +86,7 @@ public sealed partial class ConfluenceSpaceConnector(
         var listed = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
         Dictionary<string, DateTimeOffset> commented = [];
         HashSet<string> attached = [];
+        Dictionary<string, string?> attachmentOwners = [];
 
         try
         {
@@ -98,7 +99,7 @@ public sealed partial class ConfluenceSpaceConnector(
 
             // A first sync reads every page, comments included, so it has nothing to catch up on.
             if (previous?.Watermark is { } watermark)
-                (commented, attached) = await ChangedPagesAsync(watermark, ct);
+                (commented, attached, attachmentOwners) = await ChangedPagesAsync(watermark, ct);
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
         {
@@ -123,6 +124,9 @@ public sealed partial class ConfluenceSpaceConnector(
         string? stopped = config.IncludeAttachments
             ? await RefreshAttachmentsAsync(listed.Values, started, ct)
             : null;
+
+        if (config.IncludeAttachments)
+            ReconcileAttachmentOwners(listed.Values, started, attachmentOwners);
 
         Save(listed, stored, state);
         state.Watermark = started;
@@ -376,9 +380,11 @@ public sealed partial class ConfluenceSpaceConnector(
     /// pages whose attachments changed. The day of overlap absorbs CQL's unstated timezone; a hit
     /// reported twice is harmless because a comment time only moves forward and an attachment hit
     /// only re-reads the page's list.
+    /// Also returns the page each changed attachment now sits on, or null for an attachment
+    /// reported on more than one page, so a moved attachment can be taken off its old page.
     /// </summary>
-    private async Task<(Dictionary<string, DateTimeOffset> Commented, HashSet<string> Attached)> ChangedPagesAsync(
-        DateTimeOffset watermark, CancellationToken ct)
+    private async Task<(Dictionary<string, DateTimeOffset> Commented, HashSet<string> Attached, Dictionary<string, string?> Owners)>
+        ChangedPagesAsync(DateTimeOffset watermark, CancellationToken ct)
     {
         string since = (watermark - TimeSpan.FromDays(1)).UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
         string types = config.IncludeAttachments ? "type in (comment, attachment)" : "type=comment";
@@ -387,6 +393,7 @@ public sealed partial class ConfluenceSpaceConnector(
 
         var commented = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         var attached = new HashSet<string>(StringComparer.Ordinal);
+        var owners = new Dictionary<string, string?>(StringComparer.Ordinal);
         await foreach (var hit in api.PageAsync(url, ReadSearchResults, ct))
         {
             string? pageId = hit.Content?.Container?.Id;
@@ -394,12 +401,23 @@ public sealed partial class ConfluenceSpaceConnector(
                 continue;
 
             if (hit.Content!.Type == "attachment")
+            {
                 attached.Add(pageId!);
+                if (AttachmentId(hit.Content.Id) is { } attachmentId)
+                    owners[attachmentId] = owners.TryGetValue(attachmentId, out string? known) && known != pageId ? null : pageId;
+            }
             else if (hit.LastModified is { } at && (!commented.TryGetValue(pageId!, out var known) || at > known))
                 commented[pageId!] = at;
         }
 
-        return (commented, attached);
+        return (commented, attached, owners);
+    }
+
+    /// <summary>The numeric part of a Confluence attachment id ("att" plus digits), or null when it is not one.</summary>
+    private static string? AttachmentId(string? raw)
+    {
+        string? id = raw is not null && raw.StartsWith("att", StringComparison.Ordinal) ? raw[3..] : raw;
+        return ConfluencePageStateStore.IsContentId(id) ? id : null;
     }
 
     /// <summary>A value for inside a CQL double-quoted string.</summary>
@@ -456,11 +474,12 @@ public sealed partial class ConfluenceSpaceConnector(
         foreach (string id in _store.Ids().Where(id => !listed.ContainsKey(id)).ToList())
             _store.Delete(id);
 
-        var owners = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var page in listed.Values)
-            foreach (var attachment in page.Attachments)
-                owners[attachment.Id] = page.Id;
-        state.AttachmentPages = owners;
+        // An id on more than one page gets no owner, so it is neither listed nor read.
+        state.AttachmentPages = listed.Values
+            .SelectMany(p => p.Attachments.Select(a => (a.Id, PageId: p.Id)))
+            .GroupBy(a => a.Id, StringComparer.Ordinal)
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single().PageId, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -501,6 +520,48 @@ public sealed partial class ConfluenceSpaceConnector(
         return null;
     }
 
+    /// <summary>
+    /// Leaves every attachment on at most one page, since its address carries the page its search
+    /// hits are checked against. A list read this cycle is the freshest word on where an
+    /// attachment is, then the change query (which ran before those reads), and a list kept from
+    /// an earlier cycle only counts where nothing fresher speaks. A page that is not the owner
+    /// loses the attachment. An attachment claimed by two equally fresh pages, or still held by
+    /// two old lists, has no owner and is taken off all of them, so it is not indexed until a
+    /// later read settles it; those pages are made due so that read comes next cycle.
+    /// </summary>
+    private static void ReconcileAttachmentOwners(
+        IEnumerable<ConfluenceStoredPage> pages, DateTimeOffset now, Dictionary<string, string?> changeOwners)
+    {
+        var all = pages.ToList();
+        var owners = new Dictionary<string, string?>(StringComparer.Ordinal);
+
+        foreach (var page in all.Where(p => p.AttachmentsListedAt == now))
+            foreach (var attachment in page.Attachments)
+                owners[attachment.Id] = owners.TryGetValue(attachment.Id, out string? known) && known != page.Id ? null : page.Id;
+
+        foreach (var (id, pageId) in changeOwners)
+            owners.TryAdd(id, pageId);
+
+        var holders = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var page in all)
+            foreach (var attachment in page.Attachments.Where(a => !owners.ContainsKey(a.Id)))
+                holders[attachment.Id] = holders.GetValueOrDefault(attachment.Id) + 1;
+        foreach (var (id, count) in holders.Where(h => h.Value > 1))
+            owners[id] = null;
+
+        foreach (var page in all)
+        {
+            bool unresolved = page.Attachments.Any(a => owners.TryGetValue(a.Id, out string? owner) && owner is null);
+            if (!page.Attachments.Any(a => owners.TryGetValue(a.Id, out string? owner) && owner != page.Id))
+                continue;
+
+            // A new list, never edited in place: the old one is what Save compares against.
+            page.Attachments = [.. page.Attachments.Where(a => !owners.TryGetValue(a.Id, out string? owner) || owner == page.Id)];
+            if (unresolved)
+                page.AttachmentsListedAt = null;
+        }
+    }
+
     private async Task<List<ConfluenceStoredAttachment>> ListAttachmentsAsync(ConfluenceStoredPage page, CancellationToken ct)
     {
         string endpoint = page.Kind == "blogpost" ? "blogposts" : "pages";
@@ -509,8 +570,8 @@ public sealed partial class ConfluenceSpaceConnector(
         await foreach (var item in api.PageAsync($"api/v2/{endpoint}/{page.Id}/attachments?limit=250", ReadAttachments, ct))
         {
             // Confluence ids attachments "att" plus digits; the digits are what addresses carry.
-            string? id = item.Id is { } raw && raw.StartsWith("att", StringComparison.Ordinal) ? raw[3..] : item.Id;
-            if (!ConfluencePageStateStore.IsContentId(id) || string.IsNullOrWhiteSpace(item.Title))
+            string? id = AttachmentId(item.Id);
+            if (id is null || string.IsNullOrWhiteSpace(item.Title))
                 continue;
 
             attachments.Add(new ConfluenceStoredAttachment
@@ -559,6 +620,10 @@ public sealed partial class ConfluenceSpaceConnector(
 
             foreach (var attachment in page.Attachments)
             {
+                // Emitted once, under the one page that owns it, so its address cannot alternate.
+                if (state.AttachmentPages.GetValueOrDefault(attachment.Id) != page.Id)
+                    continue;
+
                 if (IsIndexable(attachment))
                     files.Add(ToConnectorFile(page, attachment, breadcrumb));
                 else

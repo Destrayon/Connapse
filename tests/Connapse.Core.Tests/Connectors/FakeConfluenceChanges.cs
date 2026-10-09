@@ -97,7 +97,9 @@ public sealed partial class FakeConfluence
             if (!_pages.TryGetValue(pageId, out var page) || page.Kind != singular)
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
 
-            var all = _attachments.Values.Where(a => a.PageId == pageId).OrderBy(a => a.Id, StringComparer.Ordinal).ToList();
+            var all = _attachments.Values
+                .Where(a => a.PageId == pageId || AttachmentAlsoListedOn.GetValueOrDefault(a.Id) == pageId)
+                .OrderBy(a => a.Id, StringComparer.Ordinal).ToList();
             return Paged(rest, query, all, a => new
             {
                 id = "att" + a.Id,
@@ -135,6 +137,9 @@ public sealed partial class FakeConfluence
 
     /// <summary>Pages whose next attachment listing answers 429, once each.</summary>
     public HashSet<string> RateLimitAttachmentListing { get; } = [];
+
+    /// <summary>Attachments (by id) that a second page's attachment list also answers, as an inconsistent read would.</summary>
+    public Dictionary<string, string> AttachmentAlsoListedOn { get; } = [];
 
     /// <summary>Overrides where a download redirects, for the client's host checks.</summary>
     public string? DownloadRedirect { get; set; }

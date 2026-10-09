@@ -1,4 +1,5 @@
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope;
 using Connapse.Storage.Connectors.Atlassian;
 using FluentAssertions;
 using Xunit;
@@ -396,6 +397,66 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
 
         delta.Upserted.Should().Contain(f => f.Path == "/attachments/503/new.pdf");
         _api.Confluence.AttachmentListings.Should().BeEquivalentTo(new Dictionary<string, int> { ["1"] = 1, ["2"] = 2 });
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentMovedToAnotherPage_IsListedOnceUnderTheNewPageEveryCycle()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "notes.txt", "moved text"));
+        string? cursor = (await _connector.GetChangesAsync(null)).NextCursor;
+
+        // Moved from page 1 to page 2. The change query names page 2; page 1's list is not read again.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddAttachment(Attachment("501", "2", "notes.txt", "moved text") with { ModifiedAt = _clock.GetUtcNow() });
+
+        for (int cycle = 0; cycle < 3; cycle++)
+        {
+            var delta = await _connector.GetChangesAsync(cursor);
+            cursor = delta.NextCursor;
+
+            delta.Upserted.Where(f => f.Path == "/attachments/501/notes.txt").Should().ContainSingle()
+                .Which.ResourceUri.Should().Be(AtlassianUri.ForAttachment(CloudId, "2", "501"), "cycle {0}", cycle);
+            _clock.Advance(TimeSpan.FromMinutes(5));
+        }
+
+        (await ReadAsync("/attachments/501/notes.txt")).Should().Be("moved text");
+        _api.Confluence.AttachmentListings["1"].Should().Be(1, "page 1's own list was never read again");
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentMovedAndOldPageNotReadAgain_SweepGivesItToTheNewPageOnly()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        _api.Confluence.AddAttachment(Attachment("501", "2", "notes.txt"));
+        string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
+
+        // Moved from page 2 to page 1 without a change hit; the sweep reads page 1, then is rate
+        // limited on page 2, whose old list still holds it.
+        _api.Confluence.AddAttachment(Attachment("501", "1", "notes.txt"));
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        _api.Confluence.RateLimitAttachmentListing.Add("2");
+        var delta = await _connector.GetChangesAsync(cursor);
+
+        delta.Upserted.Where(f => f.Path == "/attachments/501/notes.txt").Should().ContainSingle()
+            .Which.ResourceUri.Should().Be(AtlassianUri.ForAttachment(CloudId, "1", "501"));
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentClaimedByTwoFreshLists_IsNotListedUntilSettled()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "notes.txt"));
+        // Confluence answering the same attachment on both pages: no way to tell which page guards it.
+        _api.Confluence.AttachmentAlsoListedOn["501"] = "2";
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        delta.Upserted.Should().NotContain(f => f.Path.StartsWith("/attachments/501/", StringComparison.Ordinal));
+        (await _connector.ExistsAsync("/attachments/501/notes.txt")).Should().BeFalse();
     }
 
     [Fact]
