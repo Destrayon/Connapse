@@ -104,8 +104,8 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         await ReadAsync("/pages/1.md");
         await ReadAsync("/blogposts/50.md");
 
-        // Two bodies, the page's footer and inline comments, and the blog post's footer comments.
-        _api.Confluence.BodyFormats.Should().HaveCount(5).And.OnlyContain(f => f == "storage");
+        // Two bodies, then footer and inline comments for the page and for the blog post.
+        _api.Confluence.BodyFormats.Should().HaveCount(6).And.OnlyContain(f => f == "storage");
         _api.Requests.Select(r => r.Query).Should().NotContain(q =>
             q.Contains("view", StringComparison.OrdinalIgnoreCase) || q.Contains("expand", StringComparison.OrdinalIgnoreCase));
     }
@@ -262,8 +262,30 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         second.Should().BeGreaterThan(first, "comments are oldest first, footer and inline together");
         page.Should().Contain("First, thanks Bob Ross.").And.Contain("Second, inline.");
         blog.Should().Contain("--- Comment by Ada Lovelace, 2026-09-22 ---").And.Contain("On the blog.");
-        _api.Requests.Should().NotContain(r => r.AbsolutePath.EndsWith("/blogposts/50/inline-comments", StringComparison.Ordinal),
-            "blog posts have no inline comments to ask for");
+    }
+
+    [Fact]
+    public async Task BlogPostInlineComment_IsRenderedAndItsEditReingestsOnlyThatBlogPost()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.Confluence.Upsert(new FakeConfluencePage("50", SpaceId, "News", Kind: "blogpost"));
+        _api.Confluence.AddUser("acc-ada", "Ada Lovelace");
+        string id = _api.Confluence.AddComment("50", "acc-ada", "<p>Inline on the blog.</p>",
+            new DateTimeOffset(2026, 9, 22, 0, 0, 0, TimeSpan.Zero), inline: true);
+        var first = await _connector.GetChangesAsync(null);
+        string cursor = first.NextCursor!;
+
+        (await ReadAsync("/blogposts/50.md")).Should().Contain("Inline on the blog.");
+        _api.Requests.Should().Contain(r => r.AbsolutePath.EndsWith("/blogposts/50/inline-comments", StringComparison.Ordinal));
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.EditComment(id, "<p>Edited inline.</p>", new DateTimeOffset(2026, 10, 1, 12, 5, 0, TimeSpan.Zero));
+        var delta = await _connector.GetChangesAsync(cursor);
+
+        var before = first.Upserted.ToDictionary(f => f.Path);
+        var changed = delta.Upserted.Where(f => f.LastModified != before[f.Path].LastModified).ToList();
+        changed.Should().ContainSingle().Which.Path.Should().Be("/blogposts/50.md", "only the blog post's comment changed");
+        (await ReadAsync("/blogposts/50.md")).Should().Contain("Edited inline.");
     }
 
     [Fact]

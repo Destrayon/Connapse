@@ -494,7 +494,7 @@ public sealed partial class ConfluenceSpaceConnector(
     private async Task<List<PageComment>> CommentsAsync(string endpoint, ConfluenceStoredPage page, CancellationToken ct)
     {
         var comments = new List<PageComment>();
-        string[] kinds = page.Kind == "blogpost" ? ["footer"] : ["footer", "inline"];
+        string[] kinds = ["footer", "inline"];
 
         foreach (string kind in kinds)
         {
