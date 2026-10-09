@@ -296,7 +296,8 @@ public sealed partial class ParserProcessPool : IDisposable
 
                 try
                 {
-                    response = await host.ExchangeAsync(new ParseRequest(parser.Name, fileName, settings), content, MaxResponseFrame(settings), deadline.Token);
+                    response = await host.ExchangeAsync(new ParseRequest(parser.Name, fileName, settings, UseSharedInference), content,
+                        MaxResponseFrame(settings), deadline.Token, UseSharedInference ? (frame, next, token) => RelayInferenceAsync(frame, next, settings, token) : null);
                     break;
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -626,11 +627,17 @@ public sealed partial class ParserProcessPool : IDisposable
             return host;
         }
 
-        public async Task<ParseResponse> ExchangeAsync(ParseRequest request, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct) =>
-            Deserialize<ParseResponse>(await ExchangeAsync(Serialize(request), content, maxResponse, ct));
+        public async Task<ParseResponse> ExchangeAsync(
+            ParseRequest request, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct, Relay? relay = null) =>
+            Deserialize<ParseResponse>(await ExchangeAsync(Serialize(request), content, maxResponse, ct, relay));
 
-        /// <summary>One request -- a JSON header and its content -- and the host's reply frame.</summary>
-        public async Task<byte[]> ExchangeAsync(ReadOnlyMemory<byte> header, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct)
+        /// <summary>
+        /// One request -- a JSON header and its content -- and the host's reply frame. With a
+        /// <paramref name="relay"/>, frames the host sends before its reply are calls the relay
+        /// answers (#680).
+        /// </summary>
+        public async Task<byte[]> ExchangeAsync(
+            ReadOnlyMemory<byte> header, ReadOnlyMemory<byte> content, int maxResponse, CancellationToken ct, Relay? relay = null)
         {
             // The heap limit covers managed memory only. ONNX Runtime, PDFium and Skia allocate
             // natively, and in a container that memory counts against the limit the web process
@@ -676,8 +683,21 @@ public sealed partial class ParserProcessPool : IDisposable
             await WriteFrameAsync(input, content, ct);
             await input.FlushAsync(ct);
 
-            return await ReadFrameAsync(_process.StandardOutput.BaseStream, maxResponse, ct)
-                ?? throw new EndOfStreamException("The parser host exited without replying.");
+            Stream output = _process.StandardOutput.BaseStream;
+            while (true)
+            {
+                byte[] reply = await ReadFrameAsync(output, maxResponse, ct)
+                    ?? throw new EndOfStreamException("The parser host exited without replying.");
+                if (relay is null)
+                    return reply;
+
+                byte[]? answer = await relay(reply,
+                    async max => await ReadFrameAsync(output, max, ct) ?? throw new EndOfStreamException("The parser host exited mid-call."), ct);
+                if (answer is null)
+                    return reply;
+                await WriteFrameAsync(input, answer, ct);
+                await input.FlushAsync(ct);
+            }
         }
 
         public void Kill()

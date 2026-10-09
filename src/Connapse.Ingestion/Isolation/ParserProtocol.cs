@@ -22,8 +22,16 @@ public static class ParserProtocol
     /// </summary>
     public sealed record Ready(string? Sandbox);
 
-    /// <summary>One file to parse with the parser of the given name, under the given limits.</summary>
-    public sealed record ParseRequest(string Parser, string FileName, UploadSettings Settings);
+    /// <summary>
+    /// One file to parse with the parser of the given name, under the given limits. With
+    /// <paramref name="SharedInference"/> the PDF models run in the shared inference host (#680): the
+    /// host asks for each run with a <see cref="ParseResponse"/> carrying <see cref="ParseResponse.Infer"/>,
+    /// then the image's pixels, and reads the inference host's reply before going on.
+    /// </summary>
+    public sealed record ParseRequest(string Parser, string FileName, UploadSettings Settings, bool SharedInference = false);
+
+    /// <summary>One model run (#680): which model, the threads it may use, and the size of the BGRA pixels that follow.</summary>
+    public sealed record InferRequest(string Model, int Width, int Height, int Threads);
 
     /// <summary>
     /// The parse result, or why there is none: <see cref="PermanentError"/> is a
@@ -38,7 +46,8 @@ public static class ParserProtocol
         string? PermanentError = null,
         string? Error = null,
         bool OutOfMemory = false,
-        string? Sandbox = null);
+        string? Sandbox = null,
+        InferRequest? Infer = null);
 
     public static async Task WriteFrameAsync(Stream stream, ReadOnlyMemory<byte> payload, CancellationToken ct)
     {
@@ -46,6 +55,28 @@ public static class ParserProtocol
         BinaryPrimitives.WriteInt32LittleEndian(length, payload.Length);
         await stream.WriteAsync(length, ct);
         await stream.WriteAsync(payload, ct);
+    }
+
+    /// <summary>A frame written synchronously, for a parser calling a model mid-parse (#680).</summary>
+    public static void WriteFrame(Stream stream, ReadOnlySpan<byte> payload)
+    {
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(length, payload.Length);
+        stream.Write(length);
+        stream.Write(payload);
+    }
+
+    /// <summary>A frame read synchronously; the stream ending inside one, or before it, is an error.</summary>
+    public static byte[] ReadFrame(Stream stream, int maxLength)
+    {
+        Span<byte> length = stackalloc byte[4];
+        stream.ReadExactly(length);
+        int size = BinaryPrimitives.ReadInt32LittleEndian(length);
+        if (size < 0 || size > maxLength)
+            throw new InvalidDataException($"A frame of {size:N0} bytes is outside the 0 to {maxLength:N0} allowed.");
+        byte[] payload = new byte[size];
+        stream.ReadExactly(payload);
+        return payload;
     }
 
     /// <summary>The next frame, or null when the stream ends cleanly before one starts.</summary>

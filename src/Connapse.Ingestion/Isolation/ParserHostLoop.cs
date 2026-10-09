@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Extensions;
+using Connapse.Ingestion.Parsers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using static Connapse.Ingestion.Isolation.ParserProtocol;
@@ -54,7 +55,7 @@ public static class ParserHostLoop
             {
                 response = refusal is not null
                     ? new ParseResponse(null, null, null, PermanentError: refusal)
-                    : await ParseAsync(request, content, extraParsers);
+                    : await ParseAsync(request, content, extraParsers, input, output);
             }
             catch (OutOfMemoryException)
             {
@@ -75,7 +76,22 @@ public static class ParserHostLoop
         }
     }
 
-    private static async Task<ParseResponse> ParseAsync(ParseRequest request, byte[] content, IReadOnlyList<IDocumentParser>? extraParsers)
+    private static async Task<ParseResponse> ParseAsync(
+        ParseRequest request, byte[] content, IReadOnlyList<IDocumentParser>? extraParsers, Stream input, Stream output)
+    {
+        // The PDF models run in the pool's shared inference host when it has one (#680).
+        PdfModels.Current = request.SharedInference ? new RemotePdfModels(input, output) : LocalPdfModels.Instance;
+        try
+        {
+            return await ParseWithAsync(request, content, extraParsers);
+        }
+        finally
+        {
+            PdfModels.Current = LocalPdfModels.Instance;
+        }
+    }
+
+    private static async Task<ParseResponse> ParseWithAsync(ParseRequest request, byte[] content, IReadOnlyList<IDocumentParser>? extraParsers)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IOptionsMonitor<UploadSettings>>(new FixedOptionsMonitor<UploadSettings>(request.Settings));
