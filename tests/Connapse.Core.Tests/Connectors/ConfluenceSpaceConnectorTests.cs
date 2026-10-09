@@ -400,6 +400,37 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task GetChanges_RepeatedRateLimitsWithAProcessedChangeStillInTheOverlap_SweepReachesEveryPage()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        _api.Confluence.Upsert(new FakeConfluencePage("3", SpaceId, "Three"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
+        string? cursor = (await _connector.GetChangesAsync(null)).NextCursor;
+
+        // A day on, every list is due. Page 1's attachment just changed, so the change query reports
+        // it for the next day; pages 2 and 3 gained attachments only the sweep can find. Each cycle
+        // Confluence answers one attachment listing before rate limiting.
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt") with { ModifiedAt = _clock.GetUtcNow().AddMinutes(-1) });
+        _api.Confluence.AddAttachment(Attachment("502", "2", "b.txt"));
+        _api.Confluence.AddAttachment(Attachment("503", "3", "c.txt"));
+
+        Connapse.Core.Interfaces.SyncDelta delta = null!;
+        for (int cycle = 0; cycle < 4; cycle++)
+        {
+            _api.Confluence.AttachmentListingBudget = 1;
+            delta = await _connector.GetChangesAsync(cursor);
+            cursor = delta.NextCursor;
+            _clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        _api.Confluence.SearchQueries.Last().Should().Contain("attachment");
+        delta.Upserted.Select(f => f.Path).Should().Contain(["/attachments/502/b.txt", "/attachments/503/c.txt"]);
+        _api.Confluence.AttachmentListings["1"].Should().Be(2, "a change already read is not read again");
+    }
+
+    [Fact]
     public async Task GetChanges_AttachmentMovedToAnotherPage_IsListedOnceUnderTheNewPageEveryCycle()
     {
         _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));

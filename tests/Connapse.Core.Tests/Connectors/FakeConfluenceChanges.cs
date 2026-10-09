@@ -87,7 +87,7 @@ public sealed partial class FakeConfluence
             string singular = listing.Groups["kind"].Value == "pages" ? "page" : "blogpost";
             string pageId = listing.Groups["id"].Value;
             AttachmentListings[pageId] = AttachmentListings.GetValueOrDefault(pageId) + 1;
-            if (RateLimitAttachmentListing.Remove(pageId))
+            if (RateLimitAttachmentListing.Remove(pageId) || AttachmentListingBudget-- <= 0)
             {
                 var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
                 limited.Headers.TryAddWithoutValidation("Retry-After", "30");
@@ -137,6 +137,9 @@ public sealed partial class FakeConfluence
 
     /// <summary>Pages whose next attachment listing answers 429, once each.</summary>
     public HashSet<string> RateLimitAttachmentListing { get; } = [];
+
+    /// <summary>How many more attachment listings are answered before every further one answers 429.</summary>
+    public int AttachmentListingBudget { get; set; } = int.MaxValue;
 
     /// <summary>Attachments (by id) that a second page's attachment list also answers, as an inconsistent read would.</summary>
     public Dictionary<string, string> AttachmentAlsoListedOn { get; } = [];

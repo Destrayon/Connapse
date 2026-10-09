@@ -28,6 +28,12 @@ internal sealed class ConfluenceStoredPage
 
     /// <summary>When <see cref="Attachments"/> was last listed from Confluence; null means it is due.</summary>
     public DateTimeOffset? AttachmentsListedAt { get; set; }
+
+    /// <summary>
+    /// The newest attachment-change time the change query reported for this page before a list
+    /// read caught up with it. A hit no newer than this is one already processed.
+    /// </summary>
+    public DateTimeOffset? AttachmentChangeAt { get; set; }
 }
 
 /// <summary>A folder's place in the tree, so a breadcrumb can climb past it.</summary>

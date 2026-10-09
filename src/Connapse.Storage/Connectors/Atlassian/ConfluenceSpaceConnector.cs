@@ -85,7 +85,7 @@ public sealed partial class ConfluenceSpaceConnector(
         var state = fresh ? new ConfluenceSyncState() : _store.LoadState();
         var listed = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
         Dictionary<string, DateTimeOffset> commented = [];
-        HashSet<string> attached = [];
+        Dictionary<string, DateTimeOffset?> attached = [];
         Dictionary<string, string?> attachmentOwners = [];
 
         try
@@ -122,7 +122,7 @@ public sealed partial class ConfluenceSpaceConnector(
         // After the listing is settled, and outside its all-or-nothing rule: a page whose list
         // could not be read keeps the attachments it had, so nothing is deleted for it.
         string? stopped = config.IncludeAttachments
-            ? await RefreshAttachmentsAsync(listed.Values, started, ct)
+            ? await RefreshAttachmentsAsync(listed.Values, started, attached, ct)
             : null;
 
         if (config.IncludeAttachments)
@@ -382,8 +382,9 @@ public sealed partial class ConfluenceSpaceConnector(
     /// only re-reads the page's list.
     /// Also returns the page each changed attachment now sits on, or null for an attachment
     /// reported on more than one page, so a moved attachment can be taken off its old page.
+    /// Each page with attachment changes carries its newest change time, null if a hit had none.
     /// </summary>
-    private async Task<(Dictionary<string, DateTimeOffset> Commented, HashSet<string> Attached, Dictionary<string, string?> Owners)>
+    private async Task<(Dictionary<string, DateTimeOffset> Commented, Dictionary<string, DateTimeOffset?> Attached, Dictionary<string, string?> Owners)>
         ChangedPagesAsync(DateTimeOffset watermark, CancellationToken ct)
     {
         string since = (watermark - TimeSpan.FromDays(1)).UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
@@ -392,7 +393,7 @@ public sealed partial class ConfluenceSpaceConnector(
         string url = $"rest/api/search?cql={Uri.EscapeDataString(cql)}&limit=100&expand=content.container";
 
         var commented = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
-        var attached = new HashSet<string>(StringComparer.Ordinal);
+        var attached = new Dictionary<string, DateTimeOffset?>(StringComparer.Ordinal);
         var owners = new Dictionary<string, string?>(StringComparer.Ordinal);
         await foreach (var hit in api.PageAsync(url, ReadSearchResults, ct))
         {
@@ -402,7 +403,13 @@ public sealed partial class ConfluenceSpaceConnector(
 
             if (hit.Content!.Type == "attachment")
             {
-                attached.Add(pageId!);
+                // A hit without a time cannot be told apart from one already processed, so it
+                // keeps the page due (null) for as long as the overlap reports it.
+                bool seen = attached.TryGetValue(pageId!, out var newest);
+                if ((seen && newest is null) || hit.LastModified is not { } changedAt)
+                    attached[pageId!] = null;
+                else if (!seen || changedAt > newest)
+                    attached[pageId!] = changedAt;
                 if (AttachmentId(hit.Content.Id) is { } attachmentId)
                     owners[attachmentId] = owners.TryGetValue(attachmentId, out string? known) && known != pageId ? null : pageId;
             }
@@ -435,7 +442,7 @@ public sealed partial class ConfluenceSpaceConnector(
     /// </summary>
     private Dictionary<string, ConfluenceStoredPage> Merge(
         Dictionary<string, ConfluenceStoredPage> listed, bool fresh,
-        Dictionary<string, DateTimeOffset> commented, HashSet<string> attached)
+        Dictionary<string, DateTimeOffset> commented, Dictionary<string, DateTimeOffset?> attached)
     {
         var stored = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
         foreach (var page in listed.Values)
@@ -446,14 +453,21 @@ public sealed partial class ConfluenceSpaceConnector(
                 page.Attachments = existing.Attachments;
                 page.AttachmentsListedAt = fresh ? null : existing.AttachmentsListedAt;
                 if (!fresh)
+                {
                     page.LastCommentAt = existing.LastCommentAt;
+                    page.AttachmentChangeAt = existing.AttachmentChangeAt;
+                }
             }
 
             // Only ever moves forward, so a comment the one-day overlap reports again changes nothing.
             if (commented.TryGetValue(page.Id, out var at) && (page.LastCommentAt is null || at > page.LastCommentAt))
                 page.LastCommentAt = at;
 
-            if (attached.Contains(page.Id))
+            // Only a change newer than the last one a list read caught up with makes the page due:
+            // the overlap reports processed changes again, and re-reading those every cycle would
+            // spend a rate-limited budget on the same pages while the sweep never reaches the rest.
+            if (attached.TryGetValue(page.Id, out var changedAt)
+                && (changedAt is null || page.AttachmentChangeAt is null || changedAt > page.AttachmentChangeAt))
                 page.AttachmentsListedAt = null;
         }
 
@@ -488,11 +502,12 @@ public sealed partial class ConfluenceSpaceConnector(
     /// and is returned as a notice; every page not reached keeps its previous list and stays due.
     /// </summary>
     private async Task<string?> RefreshAttachmentsAsync(
-        IEnumerable<ConfluenceStoredPage> pages, DateTimeOffset now, CancellationToken ct)
+        IEnumerable<ConfluenceStoredPage> pages, DateTimeOffset now, Dictionary<string, DateTimeOffset?> changed, CancellationToken ct)
     {
+        // Oldest read first, so a sweep cut short by rate limiting picks up where it stopped.
         var due = pages
             .Where(p => p.AttachmentsListedAt is not { } at || now - at >= AttachmentSweepInterval)
-            .OrderBy(p => p.AttachmentsListedAt.HasValue)
+            .OrderBy(p => p.AttachmentsListedAt ?? DateTimeOffset.MinValue)
             .ThenBy(p => p.Id, StringComparer.Ordinal)
             .ToList();
 
@@ -502,6 +517,11 @@ public sealed partial class ConfluenceSpaceConnector(
             {
                 page.Attachments = await ListAttachmentsAsync(page, ct);
                 page.AttachmentsListedAt = now;
+
+                // The change query ran before this read, so the read has caught up with its hits.
+                if (changed.TryGetValue(page.Id, out var changedAt) && changedAt is { } at
+                    && (page.AttachmentChangeAt is null || at > page.AttachmentChangeAt))
+                    page.AttachmentChangeAt = at;
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
             {
