@@ -9,6 +9,7 @@
 @using Connapse.Web.Services
 @using Connapse.Web.Components.Sources
 @inject ISourceStore SourceStore
+@inject Connapse.Web.Services.AtlassianSiteService AtlassianSites
 @inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
 @inject IConnectionStore ConnectionStore
 @inject SourceSyncService SyncService
@@ -1130,7 +1131,21 @@
         {
             // Read again rather than trusting what the dialog loaded: another admin may have added one since.
             var existing = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
-            var requests = confluenceForm.ToRequests(connection.Id, new Uri(site.SiteUrl).Host, existing, out var skipped);
+            // The dialog's list may be for another site or out of date: only spaces this connection has now are created.
+            var onSite = await AtlassianSites.ListSpacesAsync(connection.Id, includePersonal: true);
+            if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
+            {
+                createError = onSite.Error ?? "Could not check the chosen spaces against this site. Try again.";
+                return;
+            }
+
+            var verified = confluenceForm.VerifiedAgainst(onSite.Spaces!, out var refused);
+            var requests = verified.ToRequests(connection.Id, new Uri(site.SiteUrl).Host, existing, out var skipped);
+            if (refused.Count > 0 && requests.Count == 0 && skipped.Count == 0)
+            {
+                createError = $"Nothing added. Not spaces on this site: {string.Join(", ", refused)}.";
+                return;
+            }
 
             foreach (var request in requests)
             {
@@ -1152,6 +1167,7 @@
             {
                 createError = "Nothing added. "
                     + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
+                    + (refused.Count > 0 ? $"Not spaces on this site: {string.Join(", ", refused)}. " : "")
                     + string.Join(" ", failed);
                 return;
             }
@@ -1160,6 +1176,7 @@
             confluenceForm = null;
             Succeed($"Added {created.Count} {(created.Count == 1 ? "source" : "sources")}: {string.Join(", ", created)}. They sync on the next cycle, or press Sync."
                 + (skipped.Count > 0 ? $" Skipped, already a source: {string.Join(", ", skipped)}." : "")
+                + (refused.Count > 0 ? $" Not added, not spaces on this site: {string.Join(", ", refused)}." : "")
                 + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
 
             await LoadAsync();

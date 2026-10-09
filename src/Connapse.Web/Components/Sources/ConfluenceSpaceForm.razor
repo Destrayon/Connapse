@@ -95,27 +95,38 @@
         else Selection.Selected.Remove(id);
     }
 
+    private int generation;
+
     private async Task LoadAsync()
     {
-        loadedFor = ConnectionId;
-        loadedPersonal = Selection.IncludePersonal;
+        // A response belongs to the connection and selection it was requested for. If the admin
+        // has switched sites since, the answer is for the wrong site and must not be shown.
+        int mine = ++generation;
+        Guid connectionId = ConnectionId;
+        var selection = Selection;
+        bool includePersonal = selection.IncludePersonal;
+
+        loadedFor = connectionId;
+        loadedPersonal = includePersonal;
         loading = true;
         loadError = null;
         try
         {
-            var listed = await Sites.ListSpacesAsync(ConnectionId, Selection.IncludePersonal);
+            var listed = await Sites.ListSpacesAsync(connectionId, includePersonal);
+            if (mine != generation) return;
+
             switch (listed.Outcome)
             {
                 case AtlassianSpacesOutcome.Listed:
-                    Selection.Available = listed.Spaces!;
-                    Selection.Selected.IntersectWith(listed.Spaces!.Select(s => s.Id));
+                    selection.Available = listed.Spaces!;
+                    selection.Selected.IntersectWith(listed.Spaces!.Select(s => s.Id));
                     break;
                 case AtlassianSpacesOutcome.Unavailable:
-                    Selection.Available = [];
+                    selection.Available = [];
                     loadError = listed.Error;
                     break;
                 default:
-                    Selection.Available = [];
+                    selection.Available = [];
                     loadError = "That connection is not an Atlassian site.";
                     break;
             }
@@ -123,12 +134,14 @@
         catch (Exception)
         {
             // An exception escaping a Blazor lifecycle method tears down the circuit.
-            Selection.Available = [];
+            if (mine != generation) return;
+            selection.Available = [];
             loadError = "Could not list this site's spaces.";
         }
         finally
         {
-            loading = false;
+            if (mine == generation)
+                loading = false;
         }
     }
 }

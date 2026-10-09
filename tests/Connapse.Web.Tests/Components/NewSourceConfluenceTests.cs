@@ -25,6 +25,7 @@ namespace Connapse.Web.Tests.Components;
 public class NewSourceConfluenceTests : IDisposable
 {
     private const string CloudId = "11111111-2222-3333-4444-555555555555";
+    private const string OtherCloudId = "99999999-8888-7777-6666-555555555555";
 
     private readonly BunitContext ctx = new();
     private readonly StubSpacesHandler stub = new();
@@ -34,6 +35,10 @@ public class NewSourceConfluenceTests : IDisposable
     private readonly Connection connection = new(
         Guid.NewGuid(), "acme.atlassian.net", ConnectionProvider.Atlassian,
         $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}""",
+        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+    private readonly Connection otherConnection = new(
+        Guid.NewGuid(), "globex.atlassian.net", ConnectionProvider.Atlassian,
+        $$"""{"siteUrl":"https://globex.atlassian.net","cloudId":"{{OtherCloudId}}","clientId":"client-2"}""",
         null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
 
     public NewSourceConfluenceTests()
@@ -48,9 +53,13 @@ public class NewSourceConfluenceTests : IDisposable
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(stub, disposeHandler: false));
 
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Connection>>([connection]));
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([connection, otherConnection]));
         connections.GetAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(connection);
         connections.GetSecretAsync(connection.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
+        connections.GetAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns(otherConnection);
+        connections.GetSecretAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns("the-other-secret");
+        sources.ListByConnectionAsync(otherConnection.Id, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
 
         sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
@@ -175,6 +184,62 @@ public class NewSourceConfluenceTests : IDisposable
     }
 
     [Fact]
+    public void Dialog_SwitchingSitesWhileTheFirstListIsLoading_NeverOffersTheFirstSitesSpaces()
+    {
+        var holdA = new TaskCompletionSource();
+        stub.HoldSiteA = holdA;
+        var cut = OpenDialog();
+
+        cut.Find("#source-connection").Change(otherConnection.Id.ToString());
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(1));
+        cut.Markup.Should().Contain("Globex Wiki");
+
+        holdA.SetResult();
+        Thread.Sleep(300);
+
+        cut.FindAll(".confluence-space-option").Should().HaveCount(1);
+        cut.Markup.Should().Contain("Globex Wiki").And.NotContain("Engineering").And.NotContain("Handbook");
+
+        cut.Find("#space-700").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => created.Should().ContainSingle());
+        created.Single().ConnectionId.Should().Be(otherConnection.Id);
+        created.Single().Name.Should().Be("globex.atlassian.net / Globex Wiki");
+    }
+
+    [Fact]
+    public void Create_SelectedSpaceIsNotOnTheConnection_IsRefusedAndTheRestAreCreated()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+        cut.Find("#space-100").Change(true);
+        cut.Find("#space-200").Change(true);
+
+        // The site no longer has Engineering by the time the admin presses add.
+        stub.SiteASpaces = """{"results":[{"id":"200","key":"HB","name":"Handbook","type":"global"}]}""";
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => created.Should().ContainSingle());
+        created.Single().Name.Should().Be("acme.atlassian.net / Handbook");
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("not spaces on this site: Engineering"));
+    }
+
+    [Fact]
+    public void Create_OnlySelectedSpaceIsNotOnTheConnection_CreatesNothingAndSaysSo()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+        cut.Find("#space-100").Change(true);
+
+        stub.SiteASpaces = """{"results":[{"id":"200","key":"HB","name":"Handbook","type":"global"}]}""";
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Not spaces on this site: Engineering"));
+        created.Should().BeEmpty();
+    }
+
+    [Fact]
     public void ToRequests_SpaceAlreadyASource_IsSkippedByIdAndReported()
     {
         var selection = new ConfluenceSpaceSelection
@@ -205,7 +270,18 @@ public class NewSourceConfluenceTests : IDisposable
     {
         public bool RejectToken { get; set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        /// <summary>Spaces for the first site; a test can change what the site has between calls.</summary>
+        public string SiteASpaces { get; set; } = """
+            {"results":[
+              {"id":"100","key":"ENG","name":"Engineering","type":"global"},
+              {"id":"200","key":"HB","name":"Handbook","type":"global"},
+              {"id":"300","key":"~pat","name":"Pat's notes","type":"personal"}]}
+            """;
+
+        /// <summary>When set, the first site's space list is not answered until this completes.</summary>
+        public TaskCompletionSource? HoldSiteA { get; set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             string path = request.RequestUri!.AbsolutePath;
             string? json = null;
@@ -213,22 +289,26 @@ public class NewSourceConfluenceTests : IDisposable
             if (path.EndsWith("/oauth/token", StringComparison.Ordinal))
             {
                 if (RejectToken)
-                    return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized));
+                    return new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized);
                 json = """{"access_token":"t","expires_in":3600}""";
             }
             else if (path.EndsWith("/api/v2/spaces", StringComparison.Ordinal))
             {
-                json = """
-                    {"results":[
-                      {"id":"100","key":"ENG","name":"Engineering","type":"global"},
-                      {"id":"200","key":"HB","name":"Handbook","type":"global"},
-                      {"id":"300","key":"~pat","name":"Pat's notes","type":"personal"}]}
-                    """;
+                if (path.Contains(OtherCloudId, StringComparison.Ordinal))
+                {
+                    json = """{"results":[{"id":"700","key":"GBL","name":"Globex Wiki","type":"global"}]}""";
+                }
+                else
+                {
+                    if (HoldSiteA is { } hold)
+                        await hold.Task;
+                    json = SiteASpaces;
+                }
             }
 
-            return Task.FromResult(json is null
+            return json is null
                 ? new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
-                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(json) });
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(json) };
         }
     }
 }

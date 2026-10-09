@@ -78,6 +78,29 @@ public sealed class ConfluenceSpaceSelection
         return requests;
     }
 
+    /// <summary>
+    /// A copy holding only the ticked spaces the site really has, taken from <paramref name="onSite"/>
+    /// (a fresh listing of the connection's own spaces) rather than from what the dialog showed.
+    /// The names of the ticked spaces the site does not have are returned in <paramref name="refused"/>.
+    /// </summary>
+    public ConfluenceSpaceSelection VerifiedAgainst(IReadOnlyList<ConfluenceSpaceInfo> onSite, out IReadOnlyList<string> refused)
+    {
+        var verified = new ConfluenceSpaceSelection
+        {
+            IncludePersonal = IncludePersonal,
+            IncludeAttachments = IncludeAttachments,
+            MaxAttachmentMb = MaxAttachmentMb,
+            Available = onSite.Where(s => Selected.Contains(s.Id)).ToList(),
+        };
+        verified.Selected.UnionWith(verified.Available.Select(s => s.Id));
+
+        refused = Selected
+            .Where(id => !verified.Selected.Contains(id))
+            .Select(id => Available.FirstOrDefault(s => s.Id == id)?.Name ?? id)
+            .ToList();
+        return verified;
+    }
+
     /// <summary>The space ids that already have a source, from the scopes of a connection's sources.</summary>
     public static HashSet<string> SpaceIdsOf(IEnumerable<Source> sources)
     {
