@@ -206,6 +206,38 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Message.Should().Contain("Confluence Administrator");
     }
 
+    [Theory]
+    [InlineData("", "application/json")]
+    [InlineData("<html><body>Log in to Atlassian</body></html>", "text/html")]
+    [InlineData("{not json", "application/json")]
+    [InlineData("{}", "application/json")]
+    [InlineData("{\"hasPermission\":\"true\"}", "application/json")]
+    [InlineData("[{\"hasPermission\":true}]", "application/json")]
+    [InlineData("null", "application/json")]
+    public async Task Test_PermissionCheck200WithoutAPermissionAnswer_FailsAtAdminStep(string body, string mediaType)
+    {
+        _api.Map(Root + "/rest/api/content/4242/permission/check", _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, mediaType),
+        });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.AdminStep);
+        result.Message.Should().Contain("Couldn't verify");
+    }
+
+    [Fact]
+    public async Task Test_PermissionCheckSaysOtherUserCannotRead_StillProvesAdmin()
+    {
+        _api.MapJson(Root + "/rest/api/content/4242/permission/check", new { hasPermission = false });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeTrue();
+    }
+
     [Fact]
     public async Task Test_NoPages_WarnsAndRefusesSave()
     {

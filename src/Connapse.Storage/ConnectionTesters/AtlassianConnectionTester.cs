@@ -150,12 +150,24 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                     stopwatch);
 
             HttpStatusCode checkStatus;
+            bool checkAnswered = false;
             try
             {
                 using var check = await api.PostAsync(
                     $"rest/api/content/{Uri.EscapeDataString(pageId)}/permission/check",
                     new { subject = new { type = "user", identifier = otherUser }, operation = "read" }, linked);
                 checkStatus = check.StatusCode;
+
+                // A 200 proves nothing by itself (a login page or proxy error can be a 200): only a
+                // PermissionCheckResponse carrying a boolean hasPermission shows the check ran. Either
+                // value will do, since answering at all for another user needs administrator rights.
+                if (checkStatus == HttpStatusCode.OK)
+                {
+                    using var answer = JsonDocument.Parse(await check.Content.ReadAsStringAsync(linked));
+                    checkAnswered = answer.RootElement.ValueKind == JsonValueKind.Object
+                        && answer.RootElement.TryGetProperty("hasPermission", out var has)
+                        && has.ValueKind is JsonValueKind.True or JsonValueKind.False;
+                }
             }
             catch (AtlassianAuthException)
             {
@@ -170,6 +182,8 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 return Failure(AdminStep, AdminMessage, stopwatch);
             if (checkStatus != HttpStatusCode.OK)
                 return Failure(AdminStep, $"{UnverifiedMessage} Confluence answered HTTP {(int)checkStatus}.", stopwatch);
+            if (!checkAnswered)
+                return Failure(AdminStep, UnverifiedMessage, stopwatch);
 
             stopwatch.Stop();
             return ConnectionTestResult.CreateSuccess(
