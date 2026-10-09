@@ -70,6 +70,11 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
             throw new AtlassianRateLimitedException(AtlassianApiClient.RetryAfterOf(response, time));
 
+        if ((int)response.StatusCode is >= 300 and < 400)
+            throw new AtlassianAuthException(
+                $"Atlassian's token endpoint answered with a redirect (HTTP {(int)response.StatusCode}); "
+                + "Connapse does not follow redirects with service account credentials.");
+
         if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             throw new AtlassianAuthException(
                 $"Atlassian rejected the service account credentials (HTTP {(int)response.StatusCode}). "

@@ -194,7 +194,11 @@ public static class ServiceCollectionExtensions
 
         // Atlassian Cloud: one named client for the API and the token endpoint, and a singleton
         // token cache so service-account tokens are shared across every source on a site.
-        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName);
+        // Redirects are never followed: the handler would replay the token request's form body
+        // (client_secret included) to wherever a 307/308 points, and an API redirect would skip
+        // the client's host pinning. A 3xx comes back to the caller as a plain response.
+        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<Connectors.Atlassian.AtlassianTokenSource>();
 

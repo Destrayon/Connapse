@@ -103,6 +103,19 @@ public sealed class AtlassianApiClientTests : IDisposable
             .Should().ThrowAsync<AtlassianAuthException>();
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.MovedPermanently)]
+    [InlineData(HttpStatusCode.Found)]
+    [InlineData(HttpStatusCode.TemporaryRedirect)]
+    [InlineData(HttpStatusCode.PermanentRedirect)]
+    public async Task GetJsonAsync_TokenEndpointRedirects_ThrowsAuthException(HttpStatusCode status)
+    {
+        _api.FailTokenWith(status);
+
+        await FluentActions.Awaiting(() => NewClient().GetJsonAsync<JsonElement>("api/v2/spaces/1", default))
+            .Should().ThrowAsync<AtlassianAuthException>();
+    }
+
     [Fact]
     public async Task GetJsonAsync_429_ThrowsRateLimitedWithRetryAfter()
     {
