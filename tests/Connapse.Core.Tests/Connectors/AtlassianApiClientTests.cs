@@ -83,6 +83,39 @@ public sealed class AtlassianApiClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Invalidate_StaleCallerResumesAfterRefresh_KeepsTheFreshToken()
+    {
+        var tokens = NewTokens();
+        string first = await tokens.GetTokenAsync(_site, "secret", default);
+
+        // A stale 401 handler matches token-1 and then stalls; meanwhile another handler drops
+        // token-1 and refreshes to token-2. When the stale one resumes it must not clear token-2.
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var proceed = new ManualResetEventSlim();
+        int calls = 0;
+        tokens.BetweenInvalidateCompareAndClear = () =>
+        {
+            if (Interlocked.Increment(ref calls) != 1)
+                return;
+            reached.SetResult();
+            proceed.Wait(TimeSpan.FromSeconds(30));
+        };
+
+        Task stale = Task.Run(() => tokens.Invalidate(_site, first));
+        await reached.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        tokens.Invalidate(_site, first);
+        string second = await tokens.GetTokenAsync(_site, "secret", default);
+        second.Should().Be("token-2");
+
+        proceed.Set();
+        await stale.WaitAsync(TimeSpan.FromSeconds(30));
+
+        (await tokens.GetTokenAsync(_site, "secret", default)).Should().Be("token-2");
+        _api.TokenRequests.Should().Be(2);
+    }
+
+    [Fact]
     public async Task GetJsonAsync_Persistent401_ThrowsAuthExceptionAfterOneRetry()
     {
         _api.Map(Root + "/api/v2/spaces/1", _ => new HttpResponseMessage(HttpStatusCode.Unauthorized));

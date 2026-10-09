@@ -33,8 +33,7 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
                 return refreshed;
 
             var (token, lifetime) = await FetchAsync(site, clientSecret, ct);
-            entry.ExpiresAt = time.GetUtcNow() + lifetime - RefreshMargin;
-            entry.Token = token;
+            Volatile.Write(ref entry.Current, new Issued(token, time.GetUtcNow() + lifetime - RefreshMargin));
             return token;
         }
         finally
@@ -49,9 +48,21 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
     /// </summary>
     public void Invalidate(AtlassianSite site, string rejected)
     {
-        if (_entries.TryGetValue((site.CloudId, site.ClientId), out var entry) && entry.Token == rejected)
-            entry.Token = null;
+        if (!_entries.TryGetValue((site.CloudId, site.ClientId), out var entry))
+            return;
+
+        // Clear only the exact token record that was observed; if a refresh has published a new
+        // one in the meantime, the compare-and-swap fails and the new token stays.
+        Issued? observed = Volatile.Read(ref entry.Current);
+        if (observed?.Token != rejected)
+            return;
+
+        BetweenInvalidateCompareAndClear?.Invoke();
+        Interlocked.CompareExchange(ref entry.Current, null, observed);
     }
+
+    /// <summary>Test seam: runs after <see cref="Invalidate"/> has matched the token and before it clears it.</summary>
+    internal Action? BetweenInvalidateCompareAndClear { get; set; }
 
     private async Task<(string Token, TimeSpan Lifetime)> FetchAsync(
         AtlassianSite site, string clientSecret, CancellationToken ct)
@@ -92,17 +103,15 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
     private sealed class Entry
     {
         public SemaphoreSlim Gate { get; } = new(1, 1);
-        public volatile string? Token;
-        private long _expiresAtTicks;
-        public DateTimeOffset ExpiresAt
-        {
-            get => new(Volatile.Read(ref _expiresAtTicks), TimeSpan.Zero);
-            set => Volatile.Write(ref _expiresAtTicks, value.UtcTicks);
-        }
+
+        /// <summary>The cached token and its expiry, replaced as one unit so they never tear.</summary>
+        public Issued? Current;
 
         public string? Fresh(TimeProvider time) =>
-            Token is { } token && time.GetUtcNow() < ExpiresAt ? token : null;
+            Volatile.Read(ref Current) is { } issued && time.GetUtcNow() < issued.ExpiresAt ? issued.Token : null;
     }
+
+    private sealed record Issued(string Token, DateTimeOffset ExpiresAt);
 
     private sealed record TokenResponse(
         [property: JsonPropertyName("access_token")] string? AccessToken,
