@@ -31,13 +31,25 @@ internal static class PdfLayout
     /// <summary>The regions on a page in reading order, unordered regions (headers, figures, tables) placed by position.</summary>
     public static IReadOnlyList<Region> Detect(byte[] pdf, int pageIndex, int threads, CancellationToken ct)
     {
-        var input = new DenseTensor<float>([1, 3, InputSide, InputSide]);
+        PdfImage image;
         using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex,
                    options: new RenderOptions(Width: InputSide, Height: InputSide, WithAspectRatio: false)))
         {
-            ct.ThrowIfCancellationRequested();
-            Fill(input, bitmap);
+            image = PdfImage.From(bitmap);
         }
+        ct.ThrowIfCancellationRequested();
+        return PdfModels.Current.Layout(image, threads, ct);
+    }
+
+    /// <summary>Runs the model on a page already rendered to <see cref="InputSide"/> square.</summary>
+    internal static IReadOnlyList<Region> Infer(PdfImage page, int threads, CancellationToken ct)
+    {
+        if (page.Width != InputSide || page.Height != InputSide)
+            throw new ArgumentException($"The layout model reads a {InputSide}x{InputSide} page, not {page.Width}x{page.Height}.");
+
+        var input = new DenseTensor<float>([1, 3, InputSide, InputSide]);
+        Fill(input, page);
+        ct.ThrowIfCancellationRequested();
 
         lock (Gate)
         {
@@ -61,11 +73,10 @@ internal static class PdfLayout
     }
 
     /// <summary>BGR, scaled to 0..1, channel-first: what RapidLayout feeds the model.</summary>
-    private static void Fill(DenseTensor<float> input, SKBitmap bitmap)
+    private static void Fill(DenseTensor<float> input, PdfImage page)
     {
-        using SKBitmap bgra = bitmap.ColorType == SKColorType.Bgra8888 ? bitmap : bitmap.Copy(SKColorType.Bgra8888);
-        ReadOnlySpan<byte> pixels = bgra.GetPixelSpan();
-        int stride = bgra.RowBytes;
+        ReadOnlySpan<byte> pixels = page.Bgra;
+        int stride = page.Width * 4;
         Span<float> buffer = input.Buffer.Span;
         int plane = InputSide * InputSide;
         for (int y = 0; y < InputSide; y++)

@@ -55,25 +55,14 @@ internal static partial class PdfTableStructure
         if (bounds.Width <= 1 || bounds.Height <= 1)
             return null;
 
-        var input = new DenseTensor<float>([1, 3, InputSide, InputSide]);
-        int longest;
+        PdfImage image;
         using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: RenderDpi, Bounds: bounds, DpiRelativeToBounds: true)))
         {
-            ct.ThrowIfCancellationRequested();
-            longest = Math.Max(bitmap.Width, bitmap.Height);
-            Fill(input, bitmap);
+            image = PdfImage.From(bitmap);
         }
-
-        IReadOnlyList<string> tokens;
-        List<float[]> boxes;
-        lock (Gate)
-        {
-            (InferenceSession session, string[] dictionary) = ModelFor(Math.Max(1, threads));
-            using var results = session.Run([NamedOnnxValue.CreateFromTensor(session.InputMetadata.Keys.First(), input)]);
-            Tensor<float> first = results[0].AsTensor<float>(), second = results[1].AsTensor<float>();
-            (Tensor<float> bboxes, Tensor<float> probabilities) = first.Dimensions[2] == 8 ? (first, second) : (second, first);
-            (tokens, boxes) = Decode(bboxes, probabilities, dictionary);
-        }
+        ct.ThrowIfCancellationRequested();
+        int longest = Math.Max(image.Width, image.Height);
+        (IReadOnlyList<string> tokens, List<float[]> boxes) = PdfModels.Current.TableStructure(image, threads, ct);
 
         // Boxes come normalised to the padded input; the scaled table filled its longer side, so a
         // fraction of the input is that fraction of the rendered region's longer side.
@@ -86,6 +75,24 @@ internal static partial class PdfTableStructure
             double y1 = Math.Max(Math.Max(b[1], b[3]), Math.Max(b[5], b[7])) * longest * pointsPerPixel;
             return (Left: left + x0, Bottom: top - y1, Right: left + x1, Top: top - y0);
         }).ToList());
+    }
+
+    /// <summary>Runs the model on a rendered table region: its structure tokens and a box for each cell token.</summary>
+    internal static (IReadOnlyList<string> Tokens, List<float[]> Boxes) Infer(PdfImage table, int threads, CancellationToken ct)
+    {
+        var input = new DenseTensor<float>([1, 3, InputSide, InputSide]);
+        using (SKBitmap bitmap = table.ToBitmap())
+            Fill(input, bitmap);
+        ct.ThrowIfCancellationRequested();
+
+        lock (Gate)
+        {
+            (InferenceSession session, string[] dictionary) = ModelFor(Math.Max(1, threads));
+            using var results = session.Run([NamedOnnxValue.CreateFromTensor(session.InputMetadata.Keys.First(), input)]);
+            Tensor<float> first = results[0].AsTensor<float>(), second = results[1].AsTensor<float>();
+            (Tensor<float> bboxes, Tensor<float> probabilities) = first.Dimensions[2] == 8 ? (first, second) : (second, first);
+            return Decode(bboxes, probabilities, dictionary);
+        }
     }
 
     /// <summary>
