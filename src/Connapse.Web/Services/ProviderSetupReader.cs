@@ -68,7 +68,7 @@ public class ProviderSetupReader(
         var azurePermissions = await azurePermissionsTask;
         var gitHub = await GitHubAppAsync(ct);
         bool atlassianInUse = providers.Contains(ConnectionProvider.Atlassian);
-        var atlassianLinkApp = await AtlassianLinkAppAsync(ct);
+        var atlassianLinkApp = await AtlassianLinkAppAsync(atlassianInUse, ct);
 
         return
         [
@@ -94,16 +94,11 @@ public class ProviderSetupReader(
                 [gitHub],
                 InUse: gitHub.Status != RequirementStatus.NotConfigured),
 
-            // A site is only saved once the service account has passed every probe. The linking app
-            // is what lets anyone see its pages: without it every Confluence hit is denied.
+            // The provider is identity only: the linking app is what lets anyone see a site's pages,
+            // and without it every Confluence hit is denied. Sites are connections, like GitHub's
+            // installations, so adding one is the Connections page's business, not a requirement here.
             new ProviderSetup("atlassian", "Atlassian",
-                [
-                    atlassianLinkApp,
-                    new ProviderRequirement("Atlassian site",
-                        "A Confluence Cloud site and the service account Connapse reads it with.",
-                        atlassianInUse ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
-                        ActionLabel: atlassianInUse ? null : "Add a site", ActionHref: atlassianInUse ? null : "#atlassian-site")
-                ],
+                [atlassianLinkApp],
                 InUse: atlassianInUse || atlassianLinkApp.Status != RequirementStatus.NotConfigured)
         ];
     }
@@ -190,7 +185,7 @@ public class ProviderSetupReader(
     /// sign-in through the app; a saved app nobody has used yet is unconfirmed, since the callback
     /// URL or sharing setting it depends on can only be checked by signing in.
     /// </summary>
-    private async Task<ProviderRequirement> AtlassianLinkAppAsync(CancellationToken ct)
+    private async Task<ProviderRequirement> AtlassianLinkAppAsync(bool hasSite, CancellationToken ct)
     {
         const string name = "Linking app";
         const string description =
@@ -218,7 +213,12 @@ public class ProviderSetupReader(
                 "Saved, waiting for a first sign-in. It shows as ready once someone links their account with it.",
                 "Check the app", "#atlassian-app");
 
-        return new ProviderRequirement(name, description, RequirementStatus.Satisfied, app.ClientId);
+        // Like an App installed nowhere: fully set up, with its next step on the Connections page.
+        return hasSite
+            ? new ProviderRequirement(name, description, RequirementStatus.Satisfied, app.ClientId)
+            : new ProviderRequirement(name, description, RequirementStatus.Satisfied,
+                $"{app.ClientId}. No Atlassian site is added yet. Add one as a connection.",
+                "Add an Atlassian site", "/connections?new=atlassian");
     }
 
     /// <summary>

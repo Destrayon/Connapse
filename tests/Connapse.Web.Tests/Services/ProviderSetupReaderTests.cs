@@ -795,13 +795,43 @@ public class ProviderSetupReaderTests
 
     // ── Atlassian ─────────────────────────────────────────────────────
 
-    private static async Task<ProviderSetup> AtlassianAsync(AtlassianLinkAppRegistration? linkApp)
+    private static async Task<ProviderSetup> AtlassianAsync(AtlassianLinkAppRegistration? linkApp, bool withSite = true)
     {
         var credentials = Substitute.For<IProviderCredentialStore>();
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(linkApp);
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
-            credentials: credentials, connections: ConnectionsWith(ConnectionProvider.Atlassian));
+            credentials: credentials,
+            connections: withSite ? ConnectionsWith(ConnectionProvider.Atlassian) : ConnectionsWith());
         return (await reader.ReadAsync()).Single(p => p.Key == "atlassian");
+    }
+
+    [Fact]
+    public async Task Atlassian_RequiresOnlyTheLinkingApp()
+    {
+        // Sites are connections, added on the Connections page; the provider is identity only.
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", Created));
+
+        atlassian.Requirements.Select(r => r.Name).Should().Equal("Linking app");
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppVerified_WithoutASite_IsReadyAndPointsAtConnections()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", Created), withSite: false);
+
+        var app = atlassian.Requirements.Single();
+        app.Status.Should().Be(RequirementStatus.Satisfied);
+        app.ActionHref.Should().Be("/connections?new=atlassian");
+        atlassian.Overall.Should().Be(RequirementStatus.Satisfied);
+        atlassian.InUse.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Atlassian_NoLinkingAppAndNoSite_IsNotInUse()
+    {
+        var atlassian = await AtlassianAsync(linkApp: null, withSite: false);
+
+        atlassian.InUse.Should().BeFalse();
     }
 
     [Fact]
