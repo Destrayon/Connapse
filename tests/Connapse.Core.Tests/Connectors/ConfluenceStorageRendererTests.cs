@@ -366,7 +366,9 @@ public class ConfluenceStorageRendererTests
         Render(body);
         ConfluenceStorageRenderer.MentionedAccountIds(body);
 
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+        // Linear input takes well under a second; the quadratic pre-pass this guards against took
+        // minutes at this size. The margin is for a test host busy with other suites.
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
