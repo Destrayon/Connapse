@@ -206,6 +206,27 @@ public class ConfluenceStorageRendererTests
     }
 
     [Fact]
+    public void Render_HrefWithControlCharacters_DoesNotInjectHeadingInBodyOrComment()
+    {
+        const string forged = "<p><a href=\"x)&#10;#&#9;Forged&#10;x\">link</a></p>";
+        var comments = new[] { new ConfluenceComment("Eve", new DateTimeOffset(2026, 9, 30, 0, 0, 0, TimeSpan.Zero), forged) };
+
+        string md = Render(forged, comments).Markdown;
+
+        md.Split('\n').Should().NotContain(l => l.TrimStart().StartsWith('#') && l != "## Comments");
+        md.Should().NotContain("Forged").And.NotContain("](");
+        md.Split('\n').Count(l => l.Trim() == "link").Should().Be(2);
+    }
+
+    [Fact]
+    public void Render_HrefWithDestinationDelimiters_IsPercentEncoded()
+    {
+        string md = Render("<p><a href=\"https://e.com/a b(c)&lt;d&gt;\\\">x</a></p>").Markdown;
+
+        md.Should().Be("[x](https://e.com/a%20b%28c%29%3Cd%3E%5C)\n");
+    }
+
+    [Fact]
     public void Render_Headings_ShiftedUnderBreadcrumb()
     {
         string md = Render(

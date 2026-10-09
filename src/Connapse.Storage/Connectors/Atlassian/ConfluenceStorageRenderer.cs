@@ -664,7 +664,37 @@ public static partial class ConfluenceStorageRenderer
             string href = (e.GetAttribute("href") ?? string.Empty).Trim();
             if (text.Length == 0)
                 return string.Empty;
-            return href.Length == 0 || href.Contains(' ') ? text : $"[{text}]({href})";
+            string? destination = Destination(href);
+            return destination is null ? text : $"[{text}]({destination})";
+        }
+
+        /// <summary>
+        /// The href as a markdown link destination, or null when it is empty or holds control or line-breaking
+        /// characters (which could end the line and forge structure). Characters that delimit a destination
+        /// are percent-encoded.
+        /// </summary>
+        private static string? Destination(string href)
+        {
+            if (href.Length == 0)
+                return null;
+            var sb = new StringBuilder(href.Length);
+            foreach (char c in href)
+            {
+                if (char.IsControl(c) || (char.IsWhiteSpace(c) && c != ' '))
+                    return null;
+                switch (c)
+                {
+                    case ' ': sb.Append("%20"); break;
+                    case '(': sb.Append("%28"); break;
+                    case ')': sb.Append("%29"); break;
+                    case '<': sb.Append("%3C"); break;
+                    case '>': sb.Append("%3E"); break;
+                    case '\\': sb.Append("%5C"); break;
+                    default: sb.Append(c); break;
+                }
+            }
+
+            return sb.ToString();
         }
 
         private string List(IElement list)
