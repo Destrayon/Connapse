@@ -190,6 +190,22 @@ public class ConfluenceStorageRendererTests
     }
 
     [Fact]
+    public void Render_HighlyRaggedTable_RendersFastAndSmall()
+    {
+        string wide = "<tr>" + string.Concat(Enumerable.Repeat("<td>w</td>", 10_000)) + "</tr>";
+        string narrow = string.Concat(Enumerable.Repeat("<tr><td>n</td></tr>", 9_999));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        string md = Render("<table><tbody>" + wide + narrow + "</tbody></table>").Markdown;
+
+        // Padding every row to the widest would emit ~100 million cells; the 19,999 real cells fit in well under 1 MB.
+        md.Length.Should().BeLessThan(1_000_000);
+        md.Split('\n').Count(l => l.Trim() == "n").Should().Be(9_999);
+        md.Should().Contain("w | w | w");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
     public void Render_Headings_ShiftedUnderBreadcrumb()
     {
         string md = Render(

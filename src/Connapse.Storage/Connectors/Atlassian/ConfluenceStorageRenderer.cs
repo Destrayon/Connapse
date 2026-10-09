@@ -46,6 +46,7 @@ public static partial class ConfluenceStorageRenderer
 
     private const int MaxDepth = 200;
     private const int MaxParseDepth = 300;
+    private const int MaxPaddedTableCells = 50_000;
 
     [GeneratedRegex(@"\sac:name\s*=\s*(?:""([^""]*)""|'([^']*)')", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex MacroNameAttributePattern();
@@ -716,6 +717,13 @@ public static partial class ConfluenceStorageRenderer
                 return string.Empty;
 
             int width = rows.Max(r => r.Count);
+            if ((long)rows.Count * width > MaxPaddedTableCells)
+            {
+                // Padding a highly ragged table to its widest row grows with rows × width, so past the budget
+                // each row becomes one unpadded line and the output stays linear in the cells present.
+                return string.Join("\n", rows.Select(r => EscapeStructure(string.Join(" | ", r))));
+            }
+
             var sb = new StringBuilder();
             for (int i = 0; i < rows.Count; i++)
             {
