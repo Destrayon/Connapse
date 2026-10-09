@@ -94,14 +94,17 @@ public sealed partial class ParserProcessPool : IDisposable
                 container = machine;
         }
         long available = container ?? availableMemoryBytes ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        (Slots, _hostMemoryCeilingMb) = Size(available / (1024 * 1024), container is not null, workers);
+        bool shared;
+        (Slots, _hostMemoryCeilingMb, shared) = Size(available / (1024 * 1024), container is not null, workers);
+        UseSharedInference = shared;
         _slots = new SemaphoreSlim(Slots, Slots);
         HostPath = hostPath ?? Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.dll");
 
         _logger.LogInformation(
-            "ParserPool runs up to {Slots} parser hosts of at most {CeilingMb} MB each, from the {AvailableMb} MB {Source}",
-            Slots, _hostMemoryCeilingMb, available / (1024 * 1024), container is not null ? "container limit" : "available");
-        if (_hostMemoryCeilingMb < LayoutHostMb)
+            "ParserPool runs up to {Slots} parser hosts of at most {CeilingMb} MB each{Shared}, from the {AvailableMb} MB {Source}",
+            Slots, _hostMemoryCeilingMb, shared ? $" and one shared inference host of {InferenceHostMb} MB" : "",
+            available / (1024 * 1024), container is not null ? "container limit" : "available");
+        if (!shared && _hostMemoryCeilingMb < LayoutHostMb)
             _logger.LogWarning(
                 "ParserPool hosts get {CeilingMb} MB, less than the {LayoutMb} MB the PDF layout model needs: PDFs are read without it. "
                 + "Give the container more memory to read them by layout.",
@@ -109,17 +112,28 @@ public sealed partial class ParserProcessPool : IDisposable
     }
 
     /// <summary>
-    /// Hosts that may run at once and the memory each may use, from the memory there is (MB) and the
-    /// ingestion workers: as many hosts as fit at <see cref="LayoutHostMb"/>, at least one.
+    /// Hosts that may run at once, the memory each may use, and whether the PDF models run in a shared
+    /// inference host, from the memory there is (MB) and the ingestion workers. When the inference host
+    /// and one parser host fit (#680), it gets <see cref="InferenceHostMb"/> and the rest is shared by
+    /// up to one parser host per worker; otherwise as many hosts as fit at <see cref="LayoutHostMb"/>
+    /// run, at least one.
     /// </summary>
-    internal static (int Slots, int HostMb) Size(long availableMb, bool isContainerLimit, int workers)
+    internal static (int Slots, int HostMb, bool Shared) Size(long availableMb, bool isContainerLimit, int workers)
     {
         long budgetMb = isContainerLimit
             ? availableMb - WebReserveMb - (long)InputBufferMbPerWorker * Math.Max(1, workers)
             : (long)(availableMb * HostShareOfMemory);
         budgetMb = Math.Max(MinHostMemoryMb, budgetMb);
+
+        if (budgetMb >= InferenceHostMb + ThinHostMb)
+        {
+            long left = budgetMb - InferenceHostMb;
+            int hosts = (int)Math.Clamp(left / ThinHostMb, 1, Math.Max(1, workers));
+            return (hosts, (int)Math.Min(int.MaxValue, left / hosts), true);
+        }
+
         int slots = (int)Math.Clamp(budgetMb / LayoutHostMb, 1, Math.Max(1, workers));
-        return (slots, (int)Math.Min(int.MaxValue, budgetMb / slots));
+        return (slots, (int)Math.Min(int.MaxValue, budgetMb / slots), false);
     }
 
     /// <summary>The memory limit of the cgroup this process runs in, or null when there is none.</summary>
