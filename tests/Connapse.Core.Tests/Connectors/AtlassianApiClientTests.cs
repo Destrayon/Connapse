@@ -221,6 +221,29 @@ public sealed class AtlassianApiClientTests : IDisposable
         _api.Requests.Should().OnlyContain(u => u.Host == "api.atlassian.com" || u.Host == "auth.atlassian.com");
     }
 
+    [Theory]
+    [InlineData(" http://api.atlassian.com" + Root + "/api/v2/spaces?cursor=a")]
+    [InlineData("\thttp://api.atlassian.com" + Root + "/api/v2/spaces?cursor=a")]
+    [InlineData(" https://api.atlassian.com:8443" + Root + "/api/v2/spaces?cursor=a")]
+    [InlineData("http://api.atlassian.com" + Root + "/api/v2/spaces?cursor=a")]
+    [InlineData("https://api.atlassian.com:8443" + Root + "/api/v2/spaces?cursor=a")]
+    public async Task PageAsync_NextDowngradesSchemeOrPort_ThrowsWithoutSending(string next)
+    {
+        _api.Map(Root + "/api/v2/spaces", request => request.RequestUri!.Query.Contains("cursor=a")
+            ? FakeAtlassianApi.Json(new { results = new[] { 2 } })
+            : FakeAtlassianApi.Json(new { results = new[] { 1 }, _links = new { next } }));
+
+        Func<Task> walk = async () =>
+        {
+            await foreach (int _ in NewClient().PageAsync("api/v2/spaces",
+                root => root.GetProperty("results").EnumerateArray().Select(e => e.GetInt32()), default)) { }
+        };
+
+        await walk.Should().ThrowAsync<InvalidOperationException>();
+        _api.Requests.Should().OnlyContain(u => u.Scheme == "https" && u.IsDefaultPort);
+        _api.Calls[Root + "/api/v2/spaces"].Should().Be(1);
+    }
+
     [Fact]
     public async Task PostAsync_ReturnsTheResponseForTheCallerToInspect()
     {

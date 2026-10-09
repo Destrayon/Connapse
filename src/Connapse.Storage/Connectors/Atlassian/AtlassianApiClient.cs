@@ -100,6 +100,7 @@ public sealed class AtlassianApiClient(
             string token = await tokens.GetTokenAsync(site, clientSecret, ct);
 
             using var request = build();
+            EnsureOnSite(request.RequestUri ?? throw new InvalidOperationException("A request needs an address."));
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -138,24 +139,34 @@ public sealed class AtlassianApiClient(
         if (pathOrLink.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
             || pathOrLink.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
         {
-            if (!Uri.TryCreate(pathOrLink, UriKind.Absolute, out Uri? absolute)
-                || absolute.Scheme != Uri.UriSchemeHttps
-                || !absolute.IsDefaultPort
-                || !string.Equals(absolute.Host, ApiHost, StringComparison.OrdinalIgnoreCase)
-                || !absolute.AbsolutePath.StartsWith(SitePath + "/", StringComparison.Ordinal))
+            if (!Uri.TryCreate(pathOrLink, UriKind.Absolute, out Uri? absolute))
                 throw new InvalidOperationException("Refusing to follow a link outside this site's Atlassian API.");
-            return absolute;
+            return EnsureOnSite(absolute);
         }
 
         Uri resolved = pathOrLink.StartsWith("/wiki/", StringComparison.Ordinal)
             ? new Uri($"https://{ApiHost}{SitePath}{pathOrLink}")
             : new Uri(ConfluenceBase, pathOrLink.TrimStart('/'));
 
-        if (!string.Equals(resolved.Host, ApiHost, StringComparison.OrdinalIgnoreCase)
-            || !resolved.AbsolutePath.StartsWith(SitePath + "/", StringComparison.Ordinal))
+        return EnsureOnSite(resolved);
+    }
+
+    /// <summary>
+    /// The single check every address passes before a bearer token goes near it: HTTPS on the
+    /// default port, the pinned API host, under this site's path. It runs on the final, resolved
+    /// <see cref="Uri"/> because <see cref="Uri"/> trims whitespace and can turn what looked like a
+    /// relative path into an absolute <c>http://</c> address.
+    /// </summary>
+    private Uri EnsureOnSite(Uri uri)
+    {
+        if (!uri.IsAbsoluteUri
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !uri.IsDefaultPort
+            || !string.Equals(uri.Host, ApiHost, StringComparison.OrdinalIgnoreCase)
+            || !uri.AbsolutePath.StartsWith(SitePath + "/", StringComparison.Ordinal))
             throw new InvalidOperationException("Refusing to follow a link outside this site's Atlassian API.");
 
-        return resolved;
+        return uri;
     }
 
     private static string? NextFromBody(JsonElement root) =>
