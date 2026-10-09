@@ -265,6 +265,46 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(3, "a refusal hides, it does not delete");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MalformedListing_FailsCycle_KeepsStoreCursorAndDocuments(bool laterPage)
+    {
+        SeedSpace(pages: 3);
+        _api.Confluence.MaxPageSize = 1; // every listing follows next links
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        string statePath = Path.Combine(_root, source.Id.ToString("N"));
+        var storeBefore = Directory.EnumerateFiles(statePath, "*", SearchOption.AllDirectories)
+            .ToDictionary(f => f, File.ReadAllText);
+
+        _api.Intercept = uri =>
+            uri.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal)
+            && uri.Query.Contains("cursor=") == laterPage
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"results":[null],"_links":{}}""", System.Text.Encoding.UTF8, "application/json"),
+                }
+                : null;
+
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().NotBeNull();
+        second.Deleted.Should().Be(0);
+        var after = (await sources.GetAsync(source.Id))!;
+        after.SyncCursor.Should().Be(synced.SyncCursor);
+        after.LastSyncStatus.Should().Be(SyncStatus.Failed);
+        Directory.EnumerateFiles(statePath, "*", SearchOption.AllDirectories)
+            .ToDictionary(f => f, File.ReadAllText).Should().BeEquivalentTo(storeBefore);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().BeEquivalentTo(
+            "/pages/101.md", "/pages/102.md", "/pages/103.md", "/blogposts/201.md");
+    }
+
     [Fact]
     public async Task EveryDocument_HasAtlassianResourceUri()
     {

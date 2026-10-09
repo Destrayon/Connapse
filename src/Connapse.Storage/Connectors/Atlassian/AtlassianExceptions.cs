@@ -15,3 +15,10 @@ public sealed class AtlassianRateLimitedException(TimeSpan? retryAfter)
 /// answered 401 even with a freshly issued token.
 /// </summary>
 public sealed class AtlassianAuthException(string message) : Exception(message);
+
+/// <summary>
+/// Atlassian answered 200 with a body that is not the shape asked for: a listing with no
+/// <c>results</c> array, a null entry, or an entry without a valid id or version. Treated as a
+/// failed request, never as an empty or shorter answer, so it cannot read as deletions.
+/// </summary>
+public sealed class AtlassianMalformedResponseException(string message) : Exception(message);

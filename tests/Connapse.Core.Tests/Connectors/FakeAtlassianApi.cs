@@ -38,6 +38,12 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     /// <summary>Answers the next Confluence request 429 with a <c>Retry-After</c> of 30 seconds.</summary>
     public bool RateLimitNext { get; set; }
 
+    /// <summary>
+    /// Consulted for every authorized Confluence request before any route: a non-null answer is
+    /// returned as is, null falls through to the usual routes.
+    /// </summary>
+    public Func<Uri, HttpResponseMessage?>? Intercept { get; set; }
+
     /// <summary>Answers every Confluence request (not the token endpoint) with this status until cleared with <c>FailWith(null)</c>.</summary>
     public HttpStatusCode? FailingStatus { get; private set; }
 
@@ -125,6 +131,9 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
 
             if (FailingStatus is { } failing)
                 return new HttpResponseMessage(failing);
+
+            if (Intercept?.Invoke(uri) is { } intercepted)
+                return intercepted;
 
             _routes.TryGetValue(uri.AbsolutePath, out route);
             if (route is null)

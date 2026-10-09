@@ -133,10 +133,41 @@ public sealed partial class ConfluenceSpaceConnector(
         }
     }
 
-    private static IEnumerable<ListedContent> ReadResults(JsonElement root) =>
-        root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array
-            ? results.EnumerateArray().Select(e => e.Deserialize<ListedContent>(Json)).OfType<ListedContent>().ToList()
-            : [];
+    /// <summary>
+    /// One listing page's entries. Anything malformed throws rather than being skipped: a listing
+    /// is applied as the whole space, so a dropped entry would read as a deleted page.
+    /// </summary>
+    private static List<ListedContent> ReadResults(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("results", out var results)
+            || results.ValueKind != JsonValueKind.Array)
+            throw new AtlassianMalformedResponseException("Confluence returned a listing with no results array.");
+
+        var items = new List<ListedContent>();
+        foreach (var entry in results.EnumerateArray())
+        {
+            ListedContent? item = null;
+            if (entry.ValueKind == JsonValueKind.Object)
+            {
+                try
+                {
+                    item = entry.Deserialize<ListedContent>(Json);
+                }
+                catch (JsonException)
+                {
+                    item = null;
+                }
+            }
+
+            if (item is null || !ConfluencePageStateStore.IsContentId(item.Id) || item.Version is not { Number: > 0 })
+                throw new AtlassianMalformedResponseException("Confluence returned a listing entry without a valid id and version.");
+
+            items.Add(item);
+        }
+
+        return items;
+    }
 
     /// <summary>
     /// Looks up each folder a listed page sits in whose title is not yet known, then that folder's
