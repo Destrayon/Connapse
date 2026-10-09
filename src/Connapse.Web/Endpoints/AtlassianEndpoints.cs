@@ -30,7 +30,7 @@ public static class AtlassianEndpoints
             if (siteUrl is null)
                 return Results.BadRequest(new { error = "The site address must look like https://your-site.atlassian.net." });
 
-            using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
+            using var http = httpClients.CreateClient(AtlassianSiteResolver.HttpClientName);
             string? cloudId = await AtlassianSiteResolver.ResolveCloudIdAsync(http, siteUrl, ct);
             return cloudId is null
                 ? Results.NotFound(new { error = $"Couldn't find an Atlassian Cloud site at {siteUrl}." })

@@ -63,7 +63,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
         try
         {
-            using var lookup = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
+            using var lookup = httpClients.CreateClient(AtlassianSiteResolver.HttpClientName);
             string? cloudId = await AtlassianSiteResolver.ResolveCloudIdAsync(lookup, siteUrl, linked);
             if (cloudId is null)
                 return Failure(SiteStep, $"Couldn't find an Atlassian Cloud site at {siteUrl}. Check the address.", stopwatch);

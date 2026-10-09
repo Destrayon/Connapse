@@ -9,6 +9,16 @@ namespace Connapse.Storage.Connectors.Atlassian;
 /// </summary>
 public static partial class AtlassianSiteResolver
 {
+    /// <summary>
+    /// The <see cref="IHttpClientFactory"/> client for the tenant_info lookup. It is registered
+    /// without automatic redirects: only the address checked by <see cref="NormalizeSiteUrl"/> is
+    /// ever dialled, and a redirect is answered as "not an Atlassian site".
+    /// </summary>
+    public const string HttpClientName = "AtlassianSiteLookup";
+
+    /// <summary>The primary handler <see cref="HttpClientName"/> is registered with.</summary>
+    public static HttpMessageHandler CreateHandler() => new SocketsHttpHandler { AllowAutoRedirect = false };
+
     [GeneratedRegex(@"^[a-z0-9][a-z0-9-]*\.atlassian\.net$", RegexOptions.CultureInvariant)]
     private static partial Regex HostPattern();
 
@@ -42,7 +52,7 @@ public static partial class AtlassianSiteResolver
     /// <summary>
     /// Asks the site (unauthenticated) for its cloud id. Returns null when the site does not answer
     /// or answers something that is not a GUID. <paramref name="siteUrl"/> must come from
-    /// <see cref="NormalizeSiteUrl"/>.
+    /// <see cref="NormalizeSiteUrl"/>, and <paramref name="http"/> must be a <see cref="HttpClientName"/> client.
     /// </summary>
     public static async Task<string?> ResolveCloudIdAsync(HttpClient http, string siteUrl, CancellationToken ct)
     {

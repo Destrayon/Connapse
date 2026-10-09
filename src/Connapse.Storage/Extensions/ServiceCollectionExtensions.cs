@@ -199,6 +199,9 @@ public static class ServiceCollectionExtensions
         // the client's host pinning. A 3xx comes back to the caller as a plain response.
         services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName)
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        // tenant_info is asked of an address an administrator typed; never let a redirect take it elsewhere.
+        services.AddHttpClient(Connectors.Atlassian.AtlassianSiteResolver.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(Connectors.Atlassian.AtlassianSiteResolver.CreateHandler);
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<Connectors.Atlassian.AtlassianTokenSource>();
 

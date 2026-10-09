@@ -114,6 +114,8 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                     // own the fake, because the client factory disposes the handlers it creates.
                     services.AddHttpClient(Connapse.Storage.Connectors.Atlassian.AtlassianApiClient.HttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(Atlassian));
+                    services.AddHttpClient(Connapse.Storage.Connectors.Atlassian.AtlassianSiteResolver.HttpClientName)
+                        .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(Atlassian));
                 });
             });
 
