@@ -102,11 +102,13 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
     }
 
     /// <summary>Records a sign-in the admin started, as /atlassian/connect would, and returns its state.</summary>
-    private string StartSignIn(Guid user)
+    private async Task<string> StartSignInAsync(Guid user)
     {
         string state = Guid.NewGuid().ToString("N");
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        long generation = await scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>().GetRevocationGenerationAsync(user);
         fixture.Factory.Services.GetRequiredService<AtlassianLinkFlow>().AddSignIn(new AtlassianPendingSignIn(
-            state, "verifier-" + state, user, DateTime.UtcNow.Add(AtlassianLinkFlow.SignInLifetime), DateTime.UtcNow));
+            state, "verifier-" + state, user, DateTime.UtcNow.Add(AtlassianLinkFlow.SignInLifetime), DateTime.UtcNow, generation));
         return state;
     }
 
@@ -127,7 +129,7 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
         Guid admin = AdminUserId();
         var flow = fixture.Factory.Services.GetRequiredService<AtlassianLinkFlow>();
         // The admin started the sign-in; the colleague's browser completed it and holds the cookie.
-        string code = flow.Park(new PendingAtlassianLink(admin, "colleague-account", "Colleague", null, DateTime.UtcNow));
+        string code = flow.Park(new PendingAtlassianLink(admin, "colleague-account", "Colleague", null, DateTime.UtcNow, 0));
 
         try
         {
@@ -154,8 +156,11 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
     {
         Guid admin = AdminUserId();
         var flow = fixture.Factory.Services.GetRequiredService<AtlassianLinkFlow>();
+        long generation;
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            generation = await scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>().GetRevocationGenerationAsync(admin);
         // Parked a moment before the unlink, as when the user disconnects while Atlassian is redirecting back.
-        string code = flow.Park(new PendingAtlassianLink(admin, "acc-race", "Racer", null, DateTime.UtcNow.AddSeconds(-1)));
+        string code = flow.Park(new PendingAtlassianLink(admin, "acc-race", "Racer", null, DateTime.UtcNow.AddSeconds(-1), generation));
         using var adminClient = Client(fixture.AdminToken);
 
         try
@@ -175,12 +180,44 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
     }
 
     [Fact]
+    public async Task Confirm_UnlinkCompletedAfterClaimWouldPass_NeverRestoresLink()
+    {
+        Guid admin = AdminUserId();
+        await WithLinkAppAsync(async credentials =>
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var links = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
+            await links.SaveAsync(admin, "acc-before", "Before", null);
+            using var adminClient = Client(fixture.AdminToken);
+
+            var connect = await adminClient.GetAsync("/api/v1/auth/cloud/atlassian/connect");
+            string state = System.Web.HttpUtility.ParseQueryString(connect.Headers.Location!.Query)["state"]!;
+            Api.AcceptAuthorizationCode("code-unlink-race");
+            Api.MapJson("/me", new { account_id = "acc-revived", name = "Revived", email = (string?)null });
+            using var anon = Client(null);
+            var callback = await anon.GetAsync($"/api/v1/auth/cloud/atlassian/callback?code=code-unlink-race&state={state}");
+            string cookie = callback.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(ConfirmCookie + "="));
+            string code = cookie.Split(';')[0][(ConfirmCookie.Length + 1)..];
+
+            // The unlink completes where only the database sees it: as on another replica, or after the
+            // in-memory revocation is gone. The in-memory checks in Claim then pass, which is exactly the
+            // state of a confirmation paused just after Claim while the unlink returned 204.
+            (await links.DeleteAsync(admin)).Should().BeTrue();
+
+            var confirmed = await adminClient.SendAsync(Confirm(code));
+
+            confirmed.Headers.Location!.OriginalString.Should().Be("/profile/integrations?error=atlassian_link_unlinked");
+            (await LinkOf(admin)).Should().BeNull("an unlink that returned 204 must not be undone by a sign-in it outlived");
+        });
+    }
+
+    [Fact]
     public async Task Callback_MeFails_StoresNothing()
     {
         Guid admin = AdminUserId();
         await WithLinkAppAsync(async credentials =>
         {
-            string state = StartSignIn(admin);
+            string state = await StartSignInAsync(admin);
             Api.AcceptAuthorizationCode("code-me-fails");
             Api.Map("/me", _ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
             using var anon = Client(null);
@@ -199,7 +236,7 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
         Guid admin = AdminUserId();
         await WithLinkAppAsync(async credentials =>
         {
-            string state = StartSignIn(admin);
+            string state = await StartSignInAsync(admin);
             Api.AcceptAuthorizationCode("code-good");
             Api.MapJson("/me", new { account_id = "acc-ada", name = "Ada Lovelace", email = "ada@example.com" });
             using var anon = Client(null);

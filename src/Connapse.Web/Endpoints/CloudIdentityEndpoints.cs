@@ -533,11 +533,15 @@ public static class CloudIdentityEndpoints
             HttpContext http,
             [FromServices] AtlassianUserSignIn signIn,
             [FromServices] AtlassianLinkFlow flow,
+            [FromServices] AtlassianIdentityLinkStore links,
             [FromServices] IConfiguration configuration,
             CancellationToken ct) =>
         {
             var userId = GetUserId(http);
             if (userId is null) return Results.Unauthorized();
+
+            // Read before anything else, so an unlink at any later point changes it and the link is refused.
+            long revocationGeneration = await links.GetRevocationGenerationAsync(userId.Value, ct);
 
             // PKCE stays on unless an operator turns it off; with it off, state plus the confirm
             // step still bind the link to the user who started it.
@@ -551,7 +555,7 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect("/profile/integrations?error=atlassian_not_configured");
 
             flow.AddSignIn(new AtlassianPendingSignIn(state, verifier, userId.Value,
-                DateTime.UtcNow.Add(AtlassianLinkFlow.SignInLifetime), DateTime.UtcNow));
+                DateTime.UtcNow.Add(AtlassianLinkFlow.SignInLifetime), DateTime.UtcNow, revocationGeneration));
             return Results.Redirect(url);
         }).RequireAuthorization();
 
@@ -585,7 +589,8 @@ public static class CloudIdentityEndpoints
 
                 var account = await signIn.ResolveAsync(code, pending.CodeVerifier, AtlassianCallbackUrl(http), ct);
                 string confirmCode = flow.Park(new PendingAtlassianLink(
-                    pending.UserId, account.AccountId, account.DisplayName, account.Email, pending.StartedAtUtc));
+                    pending.UserId, account.AccountId, account.DisplayName, account.Email, pending.StartedAtUtc,
+                    pending.RevocationGeneration));
 
                 http.Response.Cookies.Append(AtlassianConfirmCookieName, confirmCode, new CookieOptions
                 {
@@ -636,14 +641,12 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect("/profile/integrations?error=atlassian_link_wrong_user");
             }
 
-            await links.SaveAsync(userId.Value, link.AccountId, link.DisplayName, link.Email, ct);
-
-            // An unlink that landed between the claim above and the save must win: it was the later
-            // decision. Checked again after writing, so whichever order the two land in, the link
-            // does not survive it.
-            if (flow.WasRevokedSince(userId.Value, link.SignInStartedAtUtc))
+            // An unlink after the sign-in began must win, including one that lands after the claim
+            // above: the save is refused in the same transaction that checks the user's unlink count,
+            // so nothing has to be deleted afterwards and the link is never visible after the unlink.
+            if (!await links.TrySaveAsync(userId.Value, link.RevocationGeneration,
+                    link.AccountId, link.DisplayName, link.Email, ct))
             {
-                await links.DeleteAsync(userId.Value, ct);
                 logger.LogInformation("An Atlassian link confirmed while the user was unlinking was discarded");
                 return Results.Redirect("/profile/integrations?error=atlassian_link_unlinked");
             }

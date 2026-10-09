@@ -75,6 +75,43 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task TrySaveAsync_UnlinkAfterTheGenerationWasRead_SavesNothing()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid userId = await SeedUserAsync(scope.ServiceProvider);
+        var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
+        await store.SaveAsync(userId, "account-one", "Ada", null);
+        long generation = await store.GetRevocationGenerationAsync(userId);
+
+        // The confirmation has claimed its link and is paused; the unlink completes, then it resumes.
+        (await store.DeleteAsync(userId)).Should().BeTrue();
+
+        (await store.TrySaveAsync(userId, generation, "account-revived", "Ada", null)).Should().BeFalse();
+        (await store.GetLinkAsync(userId)).Should().BeNull();
+        await store.Invoking(s => s.TrySaveAsync(userId, generation, "account-revived", "Ada", null, new CancellationToken(canceled: true)))
+            .Should().ThrowAsync<OperationCanceledException>();
+        (await store.GetLinkAsync(userId)).Should().BeNull("a resumed confirmation that is then cancelled leaves nothing to clean up");
+    }
+
+    [Fact]
+    public async Task TrySaveAsync_GenerationUnchanged_Saves_AndAnUnlinkWithNoLinkStillRefusesOlderSignIns()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid userId = await SeedUserAsync(scope.ServiceProvider);
+        var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
+        long generation = await store.GetRevocationGenerationAsync(userId);
+
+        (await store.TrySaveAsync(userId, generation, "account-one", "Ada", null)).Should().BeTrue();
+        (await store.GetLinkAsync(userId))!.AccountId.Should().Be("account-one");
+
+        (await store.DeleteAsync(userId)).Should().BeTrue();
+        (await store.DeleteAsync(userId)).Should().BeFalse();
+        (await store.TrySaveAsync(userId, generation + 1, "account-two", "Ada", null)).Should().BeFalse(
+            "the second unlink found no link but still refuses a sign-in started before it");
+        (await store.TrySaveAsync(userId, generation + 2, "account-two", "Ada", null)).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task SaveAtlassianLinkAppAsync_SecretIsEncryptedAtRest()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

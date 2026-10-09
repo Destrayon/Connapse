@@ -23,6 +23,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<UserAzureIdentityLinkEntity> UserAzureIdentityLinks => Set<UserAzureIdentityLinkEntity>();
     public DbSet<UserGitHubIdentityLinkEntity> UserGitHubIdentityLinks => Set<UserGitHubIdentityLinkEntity>();
     public DbSet<UserAtlassianIdentityLinkEntity> UserAtlassianIdentityLinks => Set<UserAtlassianIdentityLinkEntity>();
+    public DbSet<UserAtlassianLinkRevocationEntity> UserAtlassianLinkRevocations => Set<UserAtlassianLinkRevocationEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,6 +42,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureUserAzureIdentityLinks(modelBuilder);
         ConfigureUserGitHubIdentityLinks(modelBuilder);
         ConfigureUserAtlassianIdentityLinks(modelBuilder);
+        ConfigureUserAtlassianLinkRevocations(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -748,6 +750,24 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.HasOne(e => e.User)
                 .WithMany(u => u.AtlassianIdentityLinks)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserAtlassianLinkRevocations(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserAtlassianLinkRevocationEntity>(entity =>
+        {
+            // AtlassianIdentityLinkStore writes this table with raw SQL that names it and its columns.
+            entity.ToTable("user_atlassian_link_revocations");
+            entity.HasKey(e => e.UserId);
+
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Generation).HasColumnName("generation").HasDefaultValue(0L);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
