@@ -67,8 +67,10 @@ public static class ParserProtocol
         return payload;
     }
 
+    public static byte[] Serialize<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value, Json);
+
     public static Task WriteJsonAsync<T>(Stream stream, T value, CancellationToken ct) =>
-        WriteFrameAsync(stream, JsonSerializer.SerializeToUtf8Bytes(value, Json), ct);
+        WriteFrameAsync(stream, Serialize(value), ct);
 
     public static T Deserialize<T>(byte[] frame) =>
         JsonSerializer.Deserialize<T>(frame, Json) ?? throw new InvalidDataException($"An empty {typeof(T).Name} frame.");

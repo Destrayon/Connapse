@@ -15,7 +15,7 @@ namespace Connapse.ParserHost;
 /// </summary>
 internal static class ParserHostProgram
 {
-    private static async Task Main()
+    private static async Task Main(string[] args)
     {
         // First, before anything touches Regex: the default match timeout is read once, at type init.
         RegexTimeout.ApplyProcessDefault();
@@ -26,6 +26,10 @@ internal static class ParserHostProgram
         // stdout carries the protocol; anything a library prints goes to stderr, which the pool logs.
         Console.SetOut(Console.Error);
 
-        await ParserHostLoop.RunAsync(input, output);
+        // Started with this argument, the process is the shared inference host instead (#680).
+        if (args.Contains(InferenceHostLoop.Argument))
+            await InferenceHostLoop.RunAsync(input, output);
+        else
+            await ParserHostLoop.RunAsync(input, output);
     }
 }
