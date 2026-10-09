@@ -1119,7 +1119,7 @@
         var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
         if (site is null)
         {
-            createError = $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Providers page.";
+            createError = $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.";
             return;
         }
 

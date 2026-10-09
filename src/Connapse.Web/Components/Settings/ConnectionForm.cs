@@ -70,7 +70,7 @@ public sealed record ConnectionForm
 
     /// <summary>
     /// The stored config as it was read, for providers this form does not own. Atlassian sites are
-    /// added and re-tested on the Providers page; a rename here must write their config back
+    /// added and re-tested through AtlassianConnectionForm; a rename here must write their config back
     /// byte for byte, never rebuild it from fields the form has no inputs for.
     /// </summary>
     private string? unownedConfigJson;

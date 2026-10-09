@@ -34,7 +34,7 @@ public sealed record AtlassianAddResult(
 
 /// <summary>
 /// What adding, resolving and re-testing an Atlassian site means, shared by the REST endpoints and
-/// the Providers page so the two cannot disagree about what may be saved. A site is stored only when
+/// the Connections page so the two cannot disagree about what may be saved. A site is stored only when
 /// every probe of <see cref="AtlassianConnectionTester"/> passes; its secret is encrypted by the
 /// connection store and never returned.
 /// </summary>
@@ -118,7 +118,7 @@ public sealed class AtlassianSiteService(
         string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
         if (site is null || string.IsNullOrEmpty(secret))
             return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
-                Error: $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Providers page.");
+                Error: $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.");
 
         try
         {
