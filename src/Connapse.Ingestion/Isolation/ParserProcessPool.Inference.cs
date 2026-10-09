@@ -44,7 +44,10 @@ public sealed partial class ParserProcessPool
         if (Deserialize<ParseResponse>(frame).Infer is not { } call)
             return null;
         byte[] pixels = await next(InferenceProtocol.MaxPixelFrame);
-        return Serialize(await InferAsync(call, pixels, settings, ct));
+
+        // Runs queue for the one inference host, so it gets the cores the parser hosts would have
+        // spent on the models themselves: one each, as PdfOcrThreads gives them by default.
+        return Serialize(await InferAsync(call with { Threads = Math.Max(call.Threads, Slots) }, pixels, settings, ct));
     }
 
     /// <summary>The running inference host's process, for tests.</summary>
@@ -67,7 +70,11 @@ public sealed partial class ParserProcessPool
         {
             for (int attempt = 1; ; attempt++)
             {
-                Host host = _inference is { HasExited: false } running ? running : (_inference = StartInference(settings));
+                // Started under another sandbox mode, it is replaced: a stricter setting must not keep
+                // running the models in a host confined less than it asks.
+                if (_inference is { } previous && (previous.HasExited || previous.SandboxMode != SandboxModeOf(settings)))
+                    DiscardInference(previous);
+                Host host = _inference ??= StartInference(settings);
                 using var kill = ct.Register(() => host.Kill());
                 try
                 {
