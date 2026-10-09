@@ -2,6 +2,10 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope;
 using FluentAssertions;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using NSubstitute;
 
 namespace Connapse.Storage.Tests.CloudScope;
 
@@ -15,13 +19,17 @@ public class CompositeSearchResultVerifierTests
         public int? SeenTopK { get; private set; }
         public int CandidateMultiplier => multiplier;
 
-        public Task<IReadOnlyList<SearchHit>> VerifyAsync(
+        public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
+            IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
+            (await VerifyScopedAsync(rankedCandidates, userId, topK, ct)).Hits;
+
+        public Task<PerSchemeVerification> VerifyScopedAsync(
             IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
         {
             SeenTopK = topK;
             IReadOnlyList<SearchHit> kept =
                 [.. rankedCandidates.Where(h => !h.Metadata["uri"].StartsWith(droppedScheme, StringComparison.Ordinal))];
-            return Task.FromResult(kept);
+            return Task.FromResult(new PerSchemeVerification(kept, Enforced: true));
         }
     }
 
@@ -32,6 +40,53 @@ public class CompositeSearchResultVerifierTests
         public Task<IReadOnlyList<SearchHit>> VerifyAsync(
             IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
             Task.FromResult(rankedCandidates);
+
+        public Task<PerSchemeVerification> VerifyScopedAsync(
+            IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
+            Task.FromResult(new PerSchemeVerification(rankedCandidates, Enforced: false));
+    }
+
+    private static IOptionsMonitor<T> Opt<T>(T v) where T : class
+    {
+        var m = Substitute.For<IOptionsMonitor<T>>();
+        m.CurrentValue.Returns(v);
+        return m;
+    }
+
+    // A real Azure verifier whose pool is entirely non-cloud hits, so enforcement alone decides capping.
+    private static AzureSearchResultVerifier RealAzure(bool configured, bool enforcing, int multiplier)
+    {
+        var docs = Substitute.For<IDocumentStore>();
+        docs.GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<IReadOnlyCollection<string>>().ToDictionary(d => d, _ => (string?)null));
+        var azureAd = Opt(configured
+            ? new AzureAdSignInSettings { TenantId = "t", ClientId = "c", RedirectUri = "https://x/cb", ClientCertificatePath = "p.pem" }
+            : new AzureAdSignInSettings());
+        return new AzureSearchResultVerifier(
+            docs, Substitute.For<IAzureIdentityLinkReader>(), Substitute.For<IAzureDirectoryReader>(),
+            Substitute.For<IAzureRbacReader>(), Substitute.For<IGen2FileAclReader>(), Substitute.For<IBlobTagReader>(),
+            new AncestorTraverseResolver(Substitute.For<IGen2DirectoryReader>(), new MemoryCache(new MemoryCacheOptions())),
+            azureAd, Opt(new PermissionEnforcementSettings { AzureEnforcing = enforcing }), EnforcementMigration.Completed(),
+            Options.Create(new AzureVerifierSettings { MaxParallelism = 4, CandidateMultiplier = multiplier }),
+            NullLogger<AzureSearchResultVerifier>.Instance);
+    }
+
+    private static readonly IReadOnlyList<SearchHit> FiveHits =
+        [Hit("1", "x://a"), Hit("2", "x://b"), Hit("3", "x://c"), Hit("4", "x://d"), Hit("5", "x://e")];
+
+    [Theory]
+    [InlineData(true, true, 1, 3)]   // Enforcing with multiplier 1: Azure caps
+    [InlineData(false, true, 5, 3)]  // EnforcingButUnusable (multiplier is 1): Azure caps
+    [InlineData(true, false, 5, 5)]  // NotEnforcing: untouched pool for AutoCut
+    public async Task VerifyAsync_RealAzure_MatchesStandaloneAzure(
+        bool configured, bool enforcing, int multiplier, int expectedCount)
+    {
+        var standalone = await RealAzure(configured, enforcing, multiplier).VerifyAsync(FiveHits, Guid.NewGuid(), 3);
+        var composed = await new CompositeSearchResultVerifier([RealAzure(configured, enforcing, multiplier)])
+            .VerifyAsync(FiveHits, Guid.NewGuid(), 3);
+
+        composed.Select(h => h.ChunkId).Should().Equal(standalone.Select(h => h.ChunkId));
+        composed.Should().HaveCount(expectedCount);
     }
 
     private static SearchHit Hit(string id, string uri) =>

@@ -18,11 +18,17 @@ public sealed class CompositeSearchResultVerifier(IEnumerable<IPerSchemeResultVe
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
     {
         IReadOnlyList<SearchHit> survivors = rankedCandidates;
+        bool enforced = false;
         foreach (var verifier in _inner)
-            survivors = await verifier.VerifyAsync(survivors, userId, survivors.Count, ct);
+        {
+            PerSchemeVerification result = await verifier.VerifyScopedAsync(survivors, userId, survivors.Count, ct);
+            survivors = result.Hits;
+            enforced |= result.Enforced;
+        }
 
-        // An enforcing verifier caps at topK (the contract's "enforcing" branch); when every inner
-        // one is pass-through, hand back the untouched pool so AutoCut sees what it saw before.
-        return CandidateMultiplier > 1 ? [.. survivors.Take(topK)] : survivors;
+        // Any verifier that enforced on this call caps at topK (the contract's "enforcing" branch),
+        // whatever its over-fetch multiplier; when none did, hand back the untouched pool so AutoCut
+        // sees what it saw before.
+        return enforced ? [.. survivors.Take(topK)] : survivors;
     }
 }

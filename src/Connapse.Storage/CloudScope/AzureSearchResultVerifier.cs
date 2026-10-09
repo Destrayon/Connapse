@@ -41,6 +41,10 @@ public sealed class AzureSearchResultVerifier(
             : 1;
 
     public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
+        IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
+        (await VerifyScopedAsync(rankedCandidates, userId, topK, ct)).Hits;
+
+    public async Task<PerSchemeVerification> VerifyScopedAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
     {
         // No Azure enforcement → the resolver did not broaden; nothing to tighten. Return every
@@ -51,7 +55,7 @@ public sealed class AzureSearchResultVerifier(
         EnforcementState state = enforcement.CurrentValue.StateForAzure(
             azureAd.CurrentValue.IsConfigured, migration.Determined);
         if (state == EnforcementState.NotEnforcing)
-            return rankedCandidates;
+            return new PerSchemeVerification(rankedCandidates, Enforced: false);
 
         // Map hits to their governing URIs (one batched query).
         IReadOnlyDictionary<string, string?> uris =
@@ -100,7 +104,7 @@ public sealed class AzureSearchResultVerifier(
         var survivors = new List<SearchHit>(topK);
         for (int i = 0; i < rankedCandidates.Count && survivors.Count < topK; i++)
             if (verdicts.GetValueOrDefault(i)) survivors.Add(rankedCandidates[i]);
-        return survivors;
+        return new PerSchemeVerification(survivors, Enforced: true);
     }
 
     private async Task<bool> AdmitAzureHitAsync(string uri, Gen2Path path, AzureContext azure, CancellationToken ct)
