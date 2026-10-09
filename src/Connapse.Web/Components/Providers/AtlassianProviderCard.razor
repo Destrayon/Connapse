@@ -73,7 +73,7 @@
                 }
             </div>
             <ProviderField Spec="ClientIdSpec" Small="true" Value="@clientId" ValueChanged="@((string? v) => clientId = v)" Disabled="@busy" />
-            <ProviderField Spec="ClientSecretSpec" Small="true" Value="@clientSecret" ValueChanged="@((string? v) => clientSecret = v)" />
+            <ProviderField Spec="ClientSecretSpec" Small="true" Value="@clientSecret" ValueChanged="@((string? v) => clientSecret = v)" Disabled="@busy" />
             <button type="button" id="atlassian-save" class="btn btn-sm btn-outline-primary" disabled="@busy" @onclick="SaveAsync">
                 @if (busy)
                 {
@@ -259,19 +259,24 @@
         saveStep = null;
         saveWarning = false;
         saved = null;
+
+        // The submitted secret lives only in this local. The bound field is emptied before the first
+        // await, so no outcome (a failed probe, a timeout, a conflict, an exception) can leave it in
+        // the circuit's state or behind the field's Show control.
+        string? submittedSecret = clientSecret;
+        clientSecret = null;
+
         busy = true;
         try
         {
             var state = await AuthState.GetAuthenticationStateAsync();
             Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
 
-            var added = await Sites.AddAsync(siteUrl, clientId, clientSecret, userId);
+            var added = await Sites.AddAsync(siteUrl, clientId, submittedSecret, userId);
             switch (added.Outcome)
             {
                 case AtlassianAddOutcome.Created:
                     saved = added.Connection!.Name;
-                    // Never rendered back, and no reason to keep it in the circuit's memory.
-                    clientSecret = null;
                     clientId = null;
                     siteUrl = null;
                     cloudId = null;

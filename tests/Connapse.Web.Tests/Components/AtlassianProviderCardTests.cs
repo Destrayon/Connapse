@@ -120,6 +120,67 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
+    public void Save_WhenAProbeFails_KeepsTheSecretOutOfStateAndMarkup_EvenWhenShownOrReopened()
+    {
+        StoreHas(AtlassianConnection("other.atlassian.net"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+        cut.Find("button[aria-controls='atlassian-site-setup']").Click();
+
+        cut.Find("#atlassian-site-url").Input("acme.atlassian.net");
+        cut.Find("#atlassian-client-id").Input("client-1");
+        cut.Find("#atlassian-client-secret").Change(Secret);
+        cut.Find("#atlassian-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-save-error").TextContent.Should().Contain("rejected"));
+        AssertSecretGone(cut);
+
+        cut.Find("button[aria-controls='atlassian-client-secret']").Click();
+        AssertSecretGone(cut);
+        cut.Find("#atlassian-client-secret").GetAttribute("value").Should().BeNullOrEmpty();
+
+        cut.Find("button[aria-controls='atlassian-site-setup']").Click();
+        cut.Find("button[aria-controls='atlassian-site-setup']").Click();
+        AssertSecretGone(cut);
+        cut.Find("#atlassian-client-secret").GetAttribute("value").Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public void Save_WhenTheSiteIsAlreadySaved_KeepsTheSecretOutOfStateAndMarkup_EvenWhenReopened()
+    {
+        stub.AcceptCredentials = true;
+        StoreHas(AtlassianConnection());
+        store.CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns<Connection>(_ => throw new InvalidOperationException("exists"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+        cut.Find("button[aria-controls='atlassian-site-setup']").Click();
+
+        cut.Find("#atlassian-site-url").Input("acme.atlassian.net");
+        cut.Find("#atlassian-client-id").Input("client-1");
+        cut.Find("#atlassian-client-secret").Change(Secret);
+        cut.Find("#atlassian-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-save-error").TextContent.Should().Contain("already exists"));
+        AssertSecretGone(cut);
+
+        cut.Find("button[aria-controls='atlassian-client-secret']").Click();
+        AssertSecretGone(cut);
+
+        cut.Find("button[aria-controls='atlassian-site-setup']").Click();
+        cut.Find("button[aria-controls='atlassian-site-setup']").Click();
+        AssertSecretGone(cut);
+        cut.Find("#atlassian-client-secret").GetAttribute("value").Should().BeNullOrEmpty();
+    }
+
+    private static void AssertSecretGone(IRenderedComponent<AtlassianProviderCard> cut)
+    {
+        cut.Markup.Should().NotContain(Secret);
+        var fields = typeof(AtlassianProviderCard).GetFields(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+        foreach (var field in fields.Where(f => f.FieldType == typeof(string)))
+            ((string?)field.GetValue(cut.Instance)).Should().NotBe(Secret, $"field {field.Name} must not hold the secret");
+    }
+
+    [Fact]
     public void SavedSites_AreListedWithTestAgain_AndOtherProvidersAreNot()
     {
         StoreHas(AtlassianConnection(), new Connection(
