@@ -70,7 +70,11 @@ public sealed partial class ParserProcessPool
         {
             for (int attempt = 1; ; attempt++)
             {
-                Host host = _inference is { HasExited: false } running ? running : (_inference = StartInference(settings));
+                // Started under another sandbox mode, it is replaced: a stricter setting must not keep
+                // running the models in a host confined less than it asks.
+                if (_inference is { } previous && (previous.HasExited || previous.SandboxMode != SandboxModeOf(settings)))
+                    DiscardInference(previous);
+                Host host = _inference ??= StartInference(settings);
                 using var kill = ct.Register(() => host.Kill());
                 try
                 {

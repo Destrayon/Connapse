@@ -55,8 +55,11 @@ internal static partial class PdfTableStructure
         if (bounds.Width <= 1 || bounds.Height <= 1)
             return null;
 
+        // A poster-sized table at the render resolution would be a bitmap of gigabytes: past
+        // PdfOcr.MaxRenderedSide it is rendered smaller, which the model's 488-pixel input never misses.
+        int dpi = (int)Math.Max(1, Math.Min(RenderDpi, PdfOcr.MaxRenderedSide * 72.0 / Math.Max(bounds.Width, bounds.Height)));
         PdfImage image;
-        using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: RenderDpi, Bounds: bounds, DpiRelativeToBounds: true)))
+        using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: dpi, Bounds: bounds, DpiRelativeToBounds: true)))
         {
             image = PdfImage.From(bitmap);
         }
@@ -66,7 +69,7 @@ internal static partial class PdfTableStructure
 
         // Boxes come normalised to the padded input; the scaled table filled its longer side, so a
         // fraction of the input is that fraction of the rendered region's longer side.
-        double pointsPerPixel = 72.0 / RenderDpi;
+        double pointsPerPixel = 72.0 / dpi;
         return Build(tokens, boxes.Select(b =>
         {
             double x0 = Math.Min(Math.Min(b[0], b[2]), Math.Min(b[4], b[6])) * longest * pointsPerPixel;

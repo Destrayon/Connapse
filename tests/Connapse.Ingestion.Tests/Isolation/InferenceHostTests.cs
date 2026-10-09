@@ -78,6 +78,20 @@ public sealed class InferenceHostTests : IDisposable
     }
 
     [Fact]
+    public async Task StricterSandboxSetting_ReplacesTheRunningHost()
+    {
+        var bad = new byte[4];
+        await _pool.InferAsync(new ParserProtocol.InferRequest(InferenceProtocol.Layout, 1, 1, 1), bad,
+            Settings with { ParserSandbox = "Off" }, CancellationToken.None);
+        int unconfined = _pool.InferenceProcessId!.Value;
+
+        await _pool.InferAsync(new ParserProtocol.InferRequest(InferenceProtocol.Layout, 1, 1, 1), bad,
+            Settings with { ParserSandbox = "Required" }, CancellationToken.None);
+
+        _pool.InferenceProcessId.Should().NotBe(unconfined, "a host started unconfined must not serve a Required setting");
+    }
+
+    [Fact]
     public async Task HostKilledBetweenRequests_IsReplacedOnTheNext()
     {
         PdfImage page = Render(TestPdf.Build(PdfLayoutTests.TwoColumnPage()),
