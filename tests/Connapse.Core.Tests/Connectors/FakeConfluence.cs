@@ -35,6 +35,9 @@ public sealed partial class FakeConfluence
     /// <summary>The most items one list response carries, whatever <c>limit</c> asks for.</summary>
     public int MaxPageSize { get; set; } = 250;
 
+    /// <summary>When set, replaces the <c>body</c> member of every content response (null omits it).</summary>
+    public Func<object?>? BodyShape { get; set; }
+
     /// <summary>Every <c>body-format</c> value requested, in order.</summary>
     public List<string> BodyFormats { get; } = [];
 
@@ -224,7 +227,7 @@ public sealed partial class FakeConfluence
             parentId = page.ParentId,
             parentType = page.ParentType,
             version = new { number = page.Version, createdAt = page.VersionAt },
-            body = new { storage = new { value = page.Body, representation = "storage" } },
+            body = BodyShape is { } shape ? shape() : new { storage = new { value = page.Body, representation = "storage" } },
         });
     }
 

@@ -128,7 +128,10 @@ public sealed partial class ConfluenceSpaceConnector(
         if (content.SpaceId is { } spaceId && spaceId != config.SpaceId)
             throw new FileNotFoundException($"Confluence {page.Kind} {page.Id} is no longer in this space.");
 
-        string body = content.Body?.Storage?.Value ?? "";
+        // A 200 without a storage value is an incomplete response, not an empty page: rendering it
+        // would replace the page's chunks with the breadcrumb and record that as indexed. Retryable.
+        if (content.Body?.Storage?.Value is not { } body)
+            throw new IOException($"Confluence {page.Kind} {page.Id} came back without a storage body; it will be retried.");
         var names = await UserNamesAsync(ConfluenceStorageRenderer.MentionedAccountIds(body), ct);
         var breadcrumb = Breadcrumb(page, _store.LoadState(), _store.Load);
 

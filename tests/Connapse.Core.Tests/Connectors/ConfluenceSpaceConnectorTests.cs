@@ -1,3 +1,4 @@
+using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors.Atlassian;
 using FluentAssertions;
 using Xunit;
@@ -65,6 +66,32 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
 
         await _connector.GetChangesAsync(null);
         _api.Confluence.FolderFetches.Values.Should().AllBeEquivalentTo(2, "a fresh start forgets the cache, and only that");
+    }
+
+    [Fact]
+    public async Task ReadFile_ResponseWithoutAStorageValue_ThrowsRetryableAndAnEmptyValueIsAllowed()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        await _connector.GetChangesAsync(null);
+
+        foreach (Func<object?> shape in new Func<object?>[]
+        {
+            () => null,
+            () => new { },
+            () => new { storage = (object?)null },
+            () => new { storage = new { representation = "storage" } },
+            () => new { storage = new { value = (string?)null } },
+        })
+        {
+            _api.Confluence.BodyShape = shape;
+            var ex = await FluentActions.Awaiting(() => _connector.ReadFileAsync("/pages/1.md"))
+                .Should().ThrowAsync<IOException>("an incomplete response is transient, so the ingest is retried");
+            ex.Which.Should().NotBeOfType<FileNotFoundException>();
+            ex.Which.Should().NotBeAssignableTo<PermanentIngestionException>();
+        }
+
+        _api.Confluence.BodyShape = () => new { storage = new { value = "", representation = "storage" } };
+        (await ReadAsync("/pages/1.md")).Should().StartWith("# Engineering > Page");
     }
 
     [Fact]
