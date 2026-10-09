@@ -59,6 +59,15 @@ public sealed class PrivateSourceVisibility(ISearchScopeResolver resolver, IAuth
             && grantedPrefixes.Contains(GitHubSearchScopeResolver.DocumentPrefix(repoId));
     }
 
+    /// <summary>
+    /// Whether a source hidden from this caller's listings may still be searched when the caller
+    /// names it by id. A Confluence space is hidden for its name and description, not its pages:
+    /// search checks every page against Confluence per hit and per user, so naming the space
+    /// returns only what Confluence lets the caller read. A hidden private GitHub source stays
+    /// unsearchable; being hidden is its permission answer.
+    /// </summary>
+    public static bool IsSearchableWhenHidden(Source source) => IsConfluenceSpace(source.ScopeJson);
+
     private static bool IsConfluenceSpace(string? scopeJson)
     {
         try

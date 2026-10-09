@@ -302,6 +302,107 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         (await fixture.AdminClient.GetAsync($"/api/sources/{source.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    /// <summary>A Confluence-space source holding an allowed and a denied page, as a sync would leave it.</summary>
+    private async Task<Source> SeedConfluenceSourceAsync(IServiceProvider sp)
+    {
+        await SeedAsync(sp);
+        var connection = (await sp.GetRequiredService<IConnectionStore>().ListAsync(take: int.MaxValue))
+            .Single(c => c.Name == $"atl-{_cloudId}");
+        var source = await sp.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"conf-{Guid.NewGuid():N}"[..20], connection.Id, """{"kind":"confluence-space","spaceKey":"ENG"}""",
+            Description: "secret-space-description"));
+
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        foreach (var (name, pageId) in new[] { ("space-allowed.md", "101"), ("space-denied.md", "102") })
+        {
+            var document = new DocumentEntity
+            {
+                Id = Guid.NewGuid(), SourceId = source.Id, FileName = name, Path = "/" + name,
+                ResourceUri = AtlassianUri.ForPage(_cloudId, pageId), ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready, CreatedAt = DateTime.UtcNow, Metadata = [],
+            };
+            db.Documents.Add(document);
+            db.Chunks.Add(new ChunkEntity
+            {
+                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = source.Id,
+                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return source;
+    }
+
+    /// <summary>Runs <paramref name="call"/> as a non-admin user linked to <paramref name="atlassianAccount"/>.</summary>
+    private static async Task<T> AsUserAsync<T>(IServiceProvider sp, string? atlassianAccount, Func<Task<T>> call)
+    {
+        Guid userId = await SeedUserAsync(sp, atlassianAccount);
+        var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")),
+        };
+        try
+        {
+            return await call();
+        }
+        finally
+        {
+            accessor.HttpContext = null;
+        }
+    }
+
+    private static Task<string> McpSearchAsync(IServiceProvider sp, string scope) =>
+        McpTools.SearchKnowledge(sp, Term, scope, mode: "Keyword", topK: 20);
+
+    [Fact]
+    public async Task McpSearch_ConfluenceSourceById_LinkedAllowedNonAdmin_SeesPermittedPage()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var source = await SeedConfluenceSourceAsync(sp);
+
+        string result = await AsUserAsync(sp, AllowedAccount, () => McpSearchAsync(sp, source.Id.ToString()));
+
+        result.Should().Contain("space-allowed.md").And.NotContain("space-denied.md")
+            .And.NotContain(source.Name).And.NotContain("secret-space-description");
+    }
+
+    [Theory]
+    [InlineData(DeniedAccount)]
+    [InlineData(null)]
+    public async Task McpSearch_ConfluenceSourceById_DeniedOrUnlinkedNonAdmin_AnswersAsMissing(string? atlassianAccount)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var source = await SeedConfluenceSourceAsync(sp);
+        string missingId = Guid.NewGuid().ToString();
+
+        string result = await AsUserAsync(sp, atlassianAccount, () => McpSearchAsync(sp, source.Id.ToString()));
+        string missing = await AsUserAsync(sp, atlassianAccount, () => McpSearchAsync(sp, missingId));
+
+        result.Should().Be(missing.Replace(missingId, source.Id.ToString()),
+            "a space the caller can read nothing in must not be told apart from one that does not exist");
+        result.Should().NotContain("space-").And.NotContain(source.Name).And.NotContain("secret-space-description");
+    }
+
+    [Fact]
+    public async Task Mcp_ConfluenceSource_StaysUndiscoverableToNonAdmin()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var source = await SeedConfluenceSourceAsync(sp);
+
+        string list = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerList(sp));
+        string describe = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerDescribe(sp, source.Id.ToString()));
+        string byName = await AsUserAsync(sp, AllowedAccount, () => McpSearchAsync(sp, source.Name));
+
+        list.Should().NotContain(source.Id.ToString()).And.NotContain(source.Name);
+        describe.Should().Contain("not found").And.NotContain("secret-space-description");
+        byName.Should().Contain("not found", "a hidden source is searchable by id only, so a name cannot probe for it")
+            .And.NotContain("space-allowed.md");
+    }
+
     [Fact]
     public async Task DirectRead_AzureNotEnforcing_ReadsAzblobDocs()
     {

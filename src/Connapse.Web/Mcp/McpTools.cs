@@ -136,14 +136,8 @@ public class McpTools
         var containerStore = services.GetRequiredService<IContainerStore>();
         var sourceStore = services.GetRequiredService<ISourceStore>();
 
-        // Accepts either kind: search is scoped by owner_id, which is the same column
-        // whichever kind owns the document, so a source needs no separate search path.
-        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct, await VisibleSourcesAsync(services, ct));
-        if (owner is null)
-            return $"Error: Container '{containerId}' not found.";
-
-        Guid? resolvedId = owner.Id;
-
+        // Validated before the scope is resolved, so a bad argument is answered the same way for a
+        // hidden source as for an id that does not exist.
         if (query.Length > ValidationConstants.MaxQueryLength)
             throw new ArgumentException($"Query must not exceed {ValidationConstants.MaxQueryLength} characters.");
 
@@ -152,6 +146,17 @@ public class McpTools
 
         if (minScore.HasValue && (minScore.Value < ValidationConstants.MinScore || minScore.Value > ValidationConstants.MaxScore))
             throw new ArgumentException($"minScore must be between {ValidationConstants.MinScore:F1} and {ValidationConstants.MaxScore:F1}.");
+
+        // Accepts either kind: search is scoped by owner_id, which is the same column
+        // whichever kind owns the document, so a source needs no separate search path.
+        // A source hidden from listings but searchable by id (a Confluence space) resolves here
+        // too: who may search it is decided per hit by the verifier, not by who may see its name.
+        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct,
+            await VisibleSourcesAsync(services, ct), PrivateSourceVisibility.IsSearchableWhenHidden);
+        if (owner is null)
+            return $"Error: Container '{containerId}' not found.";
+
+        Guid? resolvedId = owner.Id;
 
         var parsedMode = Enum.TryParse<SearchMode>(mode, ignoreCase: true, out var m) ? m : SearchMode.Hybrid;
         var effectiveTopK = topK ?? 10;
@@ -187,6 +192,11 @@ public class McpTools
 
         var searchService = services.GetRequiredService<IKnowledgeSearch>();
         var result = await searchService.SearchAsync(query, options, ct);
+
+        // A hidden source the caller can read nothing in answers exactly as a missing id, so
+        // naming one cannot confirm that it exists.
+        if (result.Hits.Count == 0 && !owner.Discoverable)
+            return $"Error: Container '{containerId}' not found.";
 
         if (result.Hits.Count == 0)
             return "No results found.";
@@ -899,7 +909,7 @@ public class McpTools
     /// </summary>
     internal sealed record SearchableOwner(
         Guid Id, string Name, string Kind, string? Description, string? Summary,
-        int DocumentCount, DateTime CreatedAt)
+        int DocumentCount, DateTime CreatedAt, bool Discoverable = true)
     {
         public const string ManagedKind = "managed";
         public const string SourceKind = "source";
@@ -919,7 +929,7 @@ public class McpTools
     /// </summary>
     private static async Task<SearchableOwner?> ResolveSearchableOwnerAsync(
         string nameOrId, IContainerStore containers, ISourceStore sources, CancellationToken ct,
-        Func<Source, bool>? visible = null)
+        Func<Source, bool>? visible = null, Func<Source, bool>? searchableWhenHidden = null)
     {
         // A private GitHub source the caller may not read is not found: its name alone would say
         // that a private repository is indexed here.
@@ -932,7 +942,16 @@ public class McpTools
                 return ToOwner(container);
 
             var source = await sources.GetAsync(guid, ct);
-            return source is not null && visible(source) ? ToOwner(source) : null;
+            if (source is null)
+                return null;
+            if (visible(source))
+                return ToOwner(source);
+
+            // By id only: a name lookup that answered differently for a hidden source would let
+            // anyone probe for one. Carries nothing but the id, so no name or summary is echoed.
+            return searchableWhenHidden is not null && searchableWhenHidden(source)
+                ? new SearchableOwner(source.Id, "", SearchableOwner.SourceKind, null, null, 0, default, Discoverable: false)
+                : null;
         }
 
         string lowered = nameOrId.ToLowerInvariant();
