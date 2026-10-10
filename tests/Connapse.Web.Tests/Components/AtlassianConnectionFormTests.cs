@@ -60,8 +60,8 @@ public class AtlassianConnectionFormTests : IDisposable
         var guide = cut.Find("#atlassian-service-account-guide");
         guide.InnerHtml.Should().Contain("https://admin.atlassian.com");
         guide.TextContent.Should().Contain("Service accounts")
-            .And.Contain("Global permissions")
-            .And.Contain("Confluence Administrator")
+            .And.Contain("Select app roles")
+            .And.Contain("admin group")
             .And.Contain("view access")
             .And.Contain("Create credentials");
         cut.Find("#atlassian-site-intro").TextContent

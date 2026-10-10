@@ -48,7 +48,8 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         || ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized };
 
     private const string AdminMessage =
-        "The service account isn't Confluence Administrator; Connapse can't check other users' access without it.";
+        "The service account isn't Confluence Administrator; Connapse can't check other users' access without it. "
+        + "Give it Confluence's admin role in Atlassian Administration under Directory > Service accounts.";
 
     public async Task<ConnectionTestResult> TestConnectionAsync(
         object settings, TimeSpan? timeout = null, CancellationToken ct = default)

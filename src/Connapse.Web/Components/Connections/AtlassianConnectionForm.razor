@@ -84,11 +84,10 @@ else
                 </li>
                 <li>
                     On <strong>Select app roles</strong>, set <strong>Confluence</strong> to its admin role and leave other apps at None.
-                </li>
-                <li>
-                    In Confluence, open <strong>Settings</strong> &rarr; <strong>Global permissions</strong> and check the service account
-                    has <strong>Confluence Administrator</strong>; add it there if not. Connapse needs this to ask Confluence what
-                    each person may read, and Test and save checks for it.
+                    Connapse needs Confluence admin rights to ask what each person may read, and Test and save checks for them.
+                    If it reports the account isn't an administrator, change its Confluence role here, under
+                    <strong>Directory</strong> &rarr; <strong>Service accounts</strong>, or add it to the site's Confluence admin group
+                    under <strong>Directory</strong> &rarr; <strong>Groups</strong>.
                 </li>
                 <li>
                     In every space you will index, give the service account (or a group it is in) at least view access:
