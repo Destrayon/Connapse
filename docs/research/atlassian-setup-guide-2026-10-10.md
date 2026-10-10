@@ -6,7 +6,7 @@
 ## Executive summary
 The in-app setup text missed three requirements:
 - The service account needs view access to every space it indexes. Admin roles don't grant that, and the space list only shows spaces it can view.
-- Checking another person's access requires Confluence's own "Confluence Administrator" global permission. Atlassian doesn't document whether the service account's app-role dropdown grants it, so the admin should confirm it under Confluence → Settings → Global permissions.
+- Checking another person's access requires Confluence's own "Confluence Administrator" global permission. Atlassian doesn't document whether the service account's app-role dropdown grants it, and Confluence Cloud has no Global permissions entry for it any more (its global permissions are now Settings → Security → Permissions → Site permissions, covering only personal space, create space and view profiles). Test and save is the check.
 - The linking app is private until Sharing is turned on, and that needs a vendor name, a privacy policy URL and a personal-data answer.
 
 Separately, Atlassian's developer docs say apps that "instruct customers to create individual 3LO apps" don't comply with Atlassian's security requirements and Acceptable Use Policy. That conflicts with Connapse asking each self-hosted admin to create a linking app, and it needs a product decision.
@@ -39,7 +39,7 @@ The developer-console flow, confirmed against Atlassian's documentation:
 ## Findings: service account and credential
 1. **Prerequisites:** you must be an organization admin, and the organization must use centralized user management. Each organization gets **5 free service accounts**; more require Atlassian Guard. Service accounts with Confluence access don't count toward the user limit and add no charge. [primary]
 2. **Create:** Atlassian Administration → **Directory** → **Service accounts** → **Create a service account**. The name is 6–30 letters or digits. The wizard's second step is **Select app roles**, with an optional **Groups** field. [primary]
-3. **Admin permission:** the Confluence content permission check requires the **Confluence Administrator** global permission to check other users. Whether the app-role dropdown's admin option grants it is undocumented, so verify it in Confluence → **Settings** → **Global permissions**. [primary for the requirement; unresolved for the mapping]
+3. **Admin permission:** the Confluence content permission check requires the **Confluence Administrator** global permission to check other users. Whether the app-role dropdown's admin option grants it is undocumented. In Cloud, admin rights come from the Confluence admin role or admin group in Atlassian Administration, not from a Confluence global permission (corrected 2026-10-10 after the owner found no such entry). [primary for the requirement; unresolved for the mapping]
 4. **Credential:** select the account → **Create credentials** → **OAuth 2.0** → select scopes → **Create**.
    - Scopes can be chosen for Jira, Confluence, Goals and Projects, so one credential can carry both Jira and Confluence scopes.
    - The secret is shown once.
