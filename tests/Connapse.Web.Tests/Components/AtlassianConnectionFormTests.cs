@@ -59,10 +59,11 @@ public class AtlassianConnectionFormTests : IDisposable
 
         var guide = cut.Find("#atlassian-service-account-guide");
         guide.InnerHtml.Should().Contain("https://admin.atlassian.com");
-        guide.TextContent.Should().Contain("Atlassian Administrator")
-            .And.Contain("service account")
+        guide.TextContent.Should().Contain("Service accounts")
+            .And.Contain("Global permissions")
             .And.Contain("Confluence Administrator")
-            .And.Contain("OAuth 2.0 credential");
+            .And.Contain("view access")
+            .And.Contain("Create credentials");
         cut.Find("#atlassian-site-intro").TextContent
             .Should().Contain("This service account reads your site for Atlassian sources and checks each user's access.");
         cut.FindAll("#atlassian-scopes-confluence code").Select(c => c.TextContent)

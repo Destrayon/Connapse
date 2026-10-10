@@ -25,22 +25,31 @@
         <ol class="small">
             <li>
                 Open the <a href="@DeveloperConsole" target="_blank" rel="noopener">Atlassian developer console<span class="visually-hidden"> (opens in a new tab)</span></a>
-                and create an <strong>OAuth 2.0 integration</strong>.
+                and choose <strong>Create</strong> &rarr; <strong>OAuth 2.0 integration</strong>.
             </li>
             <li>
-                For <strong>Access type</strong>, choose <strong>Account-level</strong>. The app only reads who the
-                user is, which isn't tied to a site; Resource-level would make every user pick a site when signing in.
+                Name it, set <strong>Access type</strong> to <strong>Account-level</strong>, agree to the developer terms, and create it.
+                The app only reads who each person is, which isn't tied to a site; Resource-level would make everyone pick a site when signing in.
             </li>
-            <li>Under <strong>Permissions</strong>, add <strong>User identity API</strong> and give it the <code>read:me</code> scope.</li>
             <li>
-                Under <strong>Authorization</strong>, set the callback URL to
-                <code id="atlassian-callback-url">@CallbackUrl</code>
+                <strong>Permissions</strong>: next to <strong>User identity API</strong> choose <strong>Add</strong>, then
+                <strong>Configure</strong> and add the <code>read:me</code> scope. Nothing else is needed.
+            </li>
+            <li>
+                <strong>Authorization</strong>: next to <strong>OAuth 2.0 (3LO)</strong> choose <strong>Configure</strong>, set the
+                callback URL to <code id="atlassian-callback-url">@CallbackUrl</code>
                 <button type="button" id="atlassian-copy-callback" class="btn btn-sm btn-link p-0 ms-1" aria-label="Copy the callback URL" @onclick="CopyCallbackUrl">
                     <span class="bi-clipboard" aria-hidden="true"></span>
                 </button>
+                and <strong>Save changes</strong>.
             </li>
-            <li>Under <strong>Distribution</strong>, turn <strong>Sharing</strong> on. Without it, only the app's owner can sign in.</li>
-            <li>Under <strong>Settings</strong>, copy the client ID and secret, then paste them under Manual values.</li>
+            <li>
+                <strong>Distribution</strong>: a new app is private, so only you can sign in through it. Before anyone else can, choose
+                <strong>Sharing</strong> and fill in the vendor name (your organization), a privacy policy URL, and the personal-data
+                question (<strong>Yes</strong>: Connapse stores each linked person's Atlassian account ID). People then see a notice that
+                Atlassian hasn't reviewed the app, which is expected.
+            </li>
+            <li><strong>Settings</strong>: copy the client ID and secret, then paste them under Manual values.</li>
         </ol>
         <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@appCopyMessage</span>
     </EasyContent>

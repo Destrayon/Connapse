@@ -72,16 +72,33 @@ else
 
         <details class="border rounded p-3 mb-3" open id="atlassian-service-account-guide">
             <summary class="fw-semibold small">Create the service account in Atlassian admin</summary>
-            <ol class="small mt-2">
+            <p class="small mt-2 mb-2">
+                You need to be an organization admin, and the organization must use centralized user management.
+                Service accounts are free (five per organization) and don't take a product seat.
+            </p>
+            <ol class="small">
                 <li>
-                    Sign in to <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian admin<span class="visually-hidden"> (opens in a new tab)</span></a>
-                    as an <strong>Atlassian Administrator</strong> and create a <strong>service account</strong> for Connapse.
+                    In <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian Administration<span class="visually-hidden"> (opens in a new tab)</span></a>,
+                    go to <strong>Directory</strong> &rarr; <strong>Service accounts</strong> &rarr; <strong>Create a service account</strong>.
+                    Name it (6 to 30 letters or digits, for example <code>connapse</code>).
                 </li>
                 <li>
-                    Give it access to the products on your site you will add sources from. For Confluence, also give it the
-                    <strong>Confluence Administrator</strong> role: Connapse needs it to check what each person may read.
+                    On <strong>Select app roles</strong>, set <strong>Confluence</strong> to its admin role and leave other apps at None.
                 </li>
-                <li>Create an <strong>OAuth 2.0 credential</strong> for the service account with the scopes below, then copy its client ID and secret.</li>
+                <li>
+                    In Confluence, open <strong>Settings</strong> &rarr; <strong>Global permissions</strong> and check the service account
+                    has <strong>Confluence Administrator</strong>; add it there if not. Connapse needs this to ask Confluence what
+                    each person may read, and Test and save checks for it.
+                </li>
+                <li>
+                    In every space you will index, give the service account (or a group it is in) at least view access:
+                    <strong>Space settings</strong> &rarr; <strong>Permissions</strong> (the <strong>Viewer</strong> role, on sites using space roles).
+                    Being an admin does not grant this. Pages with view restrictions that don't include the service account are skipped.
+                </li>
+                <li>
+                    Back on the service account, choose <strong>Create credentials</strong> &rarr; <strong>OAuth 2.0</strong>, select the
+                    Confluence scopes below, and create it. Copy the client ID and secret: the secret is shown only once.
+                </li>
             </ol>
             <div class="d-flex align-items-center gap-2 mb-2">
                 <strong class="small">Scopes</strong>
