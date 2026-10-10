@@ -58,6 +58,15 @@ The developer-console flow, confirmed against Atlassian's documentation:
 - Whether Resource-level access type affects `/me`. Undocumented.
 - Whether the "individual 3LO apps" policy applies to self-hosted software where the customer is also the operator. It isn't addressed; the wording covers it literally.
 
+## Policy check: per-install apps in open-source Connapse
+- **The service-account connection is plainly allowed.** Atlassian names third-party apps reaching Atlassian APIs as the primary use case for service-account OAuth credentials. [primary]
+- **The per-install linking app is a grey area.**
+  - The 3LO docs' notice ("Important notice for apps using 3LO or API tokens") says apps that "instruct customers to create individual 3LO apps" don't comply. It gives no exception for internal or self-hosted use. [primary]
+  - The two documents that notice cites don't contain the rule. The security requirements cover Marketplace cloud apps, and the Acceptable Use Policy has no clause about apps or OAuth. [primary]
+  - The June 2025 blog post gives the reason as tracing where API requests come from. It also says the standards apply "regardless of whether your app is publicly available". [primary]
+- **Open-source software can't use the alternative Atlassian recommends.** Every 3LO client must authenticate with a secret (there is no public or PKCE-only client, ECO-283), so a single app's secret can't ship in public code. An Atlassian community member suggested per-customer apps as the workaround in May 2024. [secondary]
+- **Not found:** any statement from Atlassian about open-source or self-hosted software. Confirm with Atlassian developer support before release.
+
 ## Gaps — what we did not find
 - How the scope picker is laid out.
 - Whether the linking app's secret can be viewed again or rotated.
