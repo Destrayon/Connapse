@@ -846,13 +846,12 @@ public class ProviderSetupReaderTests
     }
 
     [Fact]
-    public async Task Atlassian_LinkingAppSavedButNeverUsed_Warns()
+    public async Task Atlassian_LinkingAppSavedButNeverUsed_IsReady()
     {
         var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1"));
 
         var app = atlassian.Requirements.Single(r => r.Name == "Linking app");
-        app.Status.Should().Be(RequirementStatus.Warning);
-        atlassian.Overall.Should().NotBe(RequirementStatus.Satisfied);
+        app.Status.Should().Be(RequirementStatus.Satisfied);
     }
 
     [Fact]

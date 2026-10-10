@@ -19,6 +19,7 @@
                   Description="The Atlassian app people sign in through so search can respect what they may read."
                   Status="AppStatus" StatusLabel="@AppStatusLabel"
                   @bind-Expanded="showAppSetup" EditLabel="Replace the app"
+                  Summary="@AppSummary"
                   EasyTitle="Easy setup: create the app in the Atlassian developer console" EasyOpen="true">
     <EasyContent>
         <ol class="small">
@@ -48,8 +49,7 @@
             @if (linkApp is not null)
             {
                 <p class="small mb-3" id="atlassian-app-current">
-                    Saved app: client ID <code>@linkApp.ClientId</code>. The secret is stored encrypted and is never shown.
-                    Enter both again below only to replace the app.
+                    The secret is stored encrypted and is never shown. Enter it again only to replace the app.
                 </p>
             }
             <ProviderField Spec="AppClientIdSpec" Small="true" Value="@appClientId" ValueChanged="@((string? v) => appClientId = v)" Disabled="@appBusy" />
@@ -66,7 +66,7 @@
             @if (appSaved)
             {
                 <div class="text-success small mt-2" role="status" id="atlassian-app-saved">
-                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Saved. The step shows as ready once someone links their account with it.
+                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Saved. People can now link their Atlassian accounts from their profile.
                 </div>
             }
         </div>
@@ -102,20 +102,17 @@
 
     private string CallbackUrl => Navigation.BaseUri + Connapse.Web.Endpoints.CloudIdentityEndpoints.AtlassianCallbackPath;
 
-    // Configured only once someone has linked through the app: a saved client ID and secret prove
-    // nothing until Atlassian accepts them in a real sign-in.
-    private RequirementStatus AppStatus => linkApp?.VerifiedAt is not null ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
+    // Ready once saved: nobody having signed in through it yet says nothing about its setup.
+    private RequirementStatus AppStatus => linkApp is not null ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
 
-    private string AppStatusLabel => linkApp switch
-    {
-        null => "Not set up",
-        { VerifiedAt: null } => "Saved, waiting for a first sign-in",
-        _ => "Ready",
-    };
+    private string AppStatusLabel => linkApp is null ? "Not set up" : "Ready";
+
+    private RenderFragment? AppSummary => linkApp is null ? null : @<span id="atlassian-app-summary">Client ID <code>@linkApp.ClientId</code></span>;
 
     protected override async Task OnInitializedAsync()
     {
         linkApp = await Credentials.GetAtlassianLinkAppAsync();
+        appClientId = linkApp?.ClientId; // not a secret, so the saved one is shown for editing
     }
 
     private async Task SaveAppAsync()
@@ -141,9 +138,9 @@
                 new { ClientId = savedClientId, Via = "manual" });
             // Never rendered back, and no reason to keep it in the circuit's memory.
             appClientSecret = null;
-            appClientId = null;
             appSaved = true;
             linkApp = await Credentials.GetAtlassianLinkAppAsync();
+            appClientId = linkApp?.ClientId ?? savedClientId;
         }
         catch (Exception ex)
         {

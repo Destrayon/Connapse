@@ -66,21 +66,23 @@ public class AtlassianProviderCardTests : IDisposable
         cut.Find("#atlassian-app-client-secret").Change(Secret);
         cut.Find("#atlassian-app-save").Click();
 
-        cut.WaitForAssertion(() => cut.FindAll("#atlassian-app-saved").Should().ContainSingle());
+        // Saved means set up: the step goes to Ready and shows the app's client ID.
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app").TextContent.Should().Contain("Ready"));
         credentials.Received(1).SaveAtlassianLinkAppAsync("link-client", Secret, Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
-        cut.Find("#atlassian-app").TextContent.Should().Contain("Saved, waiting for a first sign-in");
+        cut.Find("#atlassian-app-summary").TextContent.Should().Contain("link-client");
         cut.Markup.Should().NotContain(Secret);
     }
 
     [Fact]
-    public void LinkingApp_Saved_ShowsTheStoredClientIdButNotTheSecret()
+    public void LinkingApp_Saved_IsReadyAndShowsTheClientIdButNotTheSecret()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(new AtlassianLinkAppRegistration("stored-client"));
 
         var cut = ctx.Render<AtlassianProviderCard>();
 
-        cut.Find("#atlassian-app-current").TextContent.Should().Contain("stored-client").And.Contain("stored encrypted");
+        cut.Find("#atlassian-app").TextContent.Should().Contain("Ready");
+        cut.Find("#atlassian-app-summary").TextContent.Should().Contain("stored-client");
         cut.Markup.Should().NotContain(Secret);
     }
 

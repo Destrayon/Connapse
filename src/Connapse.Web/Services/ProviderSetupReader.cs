@@ -181,9 +181,8 @@ public class ProviderSetupReader(
     private const string PostgresGitHubProvider = "github";
 
     /// <summary>
-    /// Whether people can link their Atlassian accounts. Ready only once someone has completed a
-    /// sign-in through the app; a saved app nobody has used yet is unconfirmed, since the callback
-    /// URL or sharing setting it depends on can only be checked by signing in.
+    /// Whether people can link their Atlassian accounts. Ready once the app is saved: whether nobody
+    /// has signed in through it yet says nothing about whether it is set up.
     /// </summary>
     private async Task<ProviderRequirement> AtlassianLinkAppAsync(bool hasSite, CancellationToken ct)
     {
@@ -207,11 +206,6 @@ public class ProviderSetupReader(
             return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
                 "Nobody can link an Atlassian account, so Confluence results are hidden from everyone.",
                 "Set up", "#atlassian-app");
-
-        if (app.VerifiedAt is null)
-            return new ProviderRequirement(name, description, RequirementStatus.Warning,
-                "Saved, waiting for a first sign-in. It shows as ready once someone links their account with it.",
-                "Check the app", "#atlassian-app");
 
         // Like an App installed nowhere: fully set up, with its next step on the Connections page.
         return hasSite
