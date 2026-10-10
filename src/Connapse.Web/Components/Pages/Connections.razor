@@ -948,6 +948,7 @@
         {
             @* Added and re-tested through AtlassianSiteService, so a site that fails a probe is never
                saved. The people who may read it are linked on the Atlassian provider page. *@
+            <div class="w-100" aria-hidden="true"></div> @* the form's width cap would otherwise let it sit beside Provider *@
             <AtlassianConnectionForm Existing="@(isNew ? null : editing)" OnCreated="AtlassianSiteCreatedAsync" OnCancel="CancelEdit" />
         }
         else
