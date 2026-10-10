@@ -26,6 +26,10 @@
                 Open the <a href="@DeveloperConsole" target="_blank" rel="noopener">Atlassian developer console<span class="visually-hidden"> (opens in a new tab)</span></a>
                 and create an <strong>OAuth 2.0 integration</strong>.
             </li>
+            <li>
+                For <strong>Access type</strong>, choose <strong>Account-level</strong>. The app only reads who the
+                user is, which isn't tied to a site; Resource-level would make every user pick a site when signing in.
+            </li>
             <li>Under <strong>Permissions</strong>, add <strong>User identity API</strong> and give it the <code>read:me</code> scope.</li>
             <li>
                 Under <strong>Authorization</strong>, set the callback URL to
