@@ -73,6 +73,18 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
+    public void LinkingApp_Saved_ShowsTheStoredClientIdButNotTheSecret()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(new AtlassianLinkAppRegistration("stored-client"));
+
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-current").TextContent.Should().Contain("stored-client").And.Contain("stored encrypted");
+        cut.Markup.Should().NotContain(Secret);
+    }
+
+    [Fact]
     public void LinkingApp_Save_WritesTheCredentialSavedAuditWithoutTheSecret()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())

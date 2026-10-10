@@ -45,6 +45,13 @@
     </EasyContent>
     <ManualContent>
         <div class="border rounded p-3 mb-3">
+            @if (linkApp is not null)
+            {
+                <p class="small mb-3" id="atlassian-app-current">
+                    Saved app: client ID <code>@linkApp.ClientId</code>. The secret is stored encrypted and is never shown.
+                    Enter both again below only to replace the app.
+                </p>
+            }
             <ProviderField Spec="AppClientIdSpec" Small="true" Value="@appClientId" ValueChanged="@((string? v) => appClientId = v)" Disabled="@appBusy" />
             <ProviderField Spec="AppClientSecretSpec" Small="true" Value="@appClientSecret" ValueChanged="@((string? v) => appClientSecret = v)" />
             <button type="button" id="atlassian-app-save" class="btn btn-sm btn-outline-primary" disabled="@appBusy" @onclick="SaveAppAsync">
