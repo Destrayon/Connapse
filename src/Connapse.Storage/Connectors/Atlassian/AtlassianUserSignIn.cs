@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 
 namespace Connapse.Storage.Connectors.Atlassian;
 
@@ -70,7 +71,11 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
         using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
         using var exchanged = await http.PostAsJsonAsync(AtlassianTokenSource.TokenEndpoint, body, ct);
         if (!exchanged.IsSuccessStatusCode)
-            throw new AtlassianAuthException($"Atlassian did not accept the sign-in code (HTTP {(int)exchanged.StatusCode}).");
+        {
+            // Atlassian's error code tells a wrong secret (access_denied) from a stale code (invalid_grant).
+            string reason = await ErrorReasonAsync(exchanged, ct);
+            throw new AtlassianAuthException($"Atlassian did not accept the sign-in code (HTTP {(int)exchanged.StatusCode}{reason}).");
+        }
 
         var grant = await exchanged.Content.ReadFromJsonAsync<TokenResponse>(ct);
         if (string.IsNullOrEmpty(grant?.AccessToken))
@@ -89,6 +94,26 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
         string displayName = string.IsNullOrWhiteSpace(me.Name) ? me.AccountId : me.Name;
         return new AtlassianUserAccount(me.AccountId, displayName, string.IsNullOrWhiteSpace(me.Email) ? null : me.Email);
     }
+
+    private static async Task<string> ErrorReasonAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var error = await response.Content.ReadFromJsonAsync<ErrorResponse>(ct);
+            if (string.IsNullOrWhiteSpace(error?.Error))
+                return "";
+            string text = string.IsNullOrWhiteSpace(error.Description) ? error.Error : $"{error.Error}: {error.Description}";
+            return ", " + LogSanitizer.Sanitize(text.Length > 200 ? text[..200] : text);
+        }
+        catch (Exception)
+        {
+            return "";
+        }
+    }
+
+    private sealed record ErrorResponse(
+        [property: JsonPropertyName("error")] string? Error,
+        [property: JsonPropertyName("error_description")] string? Description);
 
     private sealed record TokenResponse([property: JsonPropertyName("access_token")] string? AccessToken);
 
