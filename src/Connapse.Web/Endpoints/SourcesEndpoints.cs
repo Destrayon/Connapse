@@ -90,13 +90,15 @@ public static class SourcesEndpoints
             [FromServices] IConnectionStore connectionStore,
             [FromServices] IAuditLogger auditLogger,
             [FromServices] Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup gitHubRepositories,
+            [FromServices] AtlassianSiteService atlassianSites,
             CancellationToken ct) =>
         {
             string? scopeJson = request.ScopeJson;
-            if (string.IsNullOrWhiteSpace(request.Name))
-                return Results.BadRequest(new { error = "Source name is required" });
+            string name = request.Name?.Trim() ?? "";
 
-            string name = request.Name.Trim();
+            // Only a Confluence source may leave its name out: like the dialog, it is then named after the site and space.
+            if (name.Length == 0 && request.ConnectionId is null)
+                return Results.BadRequest(new { error = "Source name is required", field = "name" });
 
             if (request.ConnectionId is not null && request.Provider is not null)
             {
@@ -122,6 +124,30 @@ public static class SourcesEndpoints
                         return Results.BadRequest(new { error = resolved.Error });
                     scopeJson = resolved.ScopeJson;
                 }
+
+                // The checks the New source dialog runs for a Confluence space, against the site as
+                // its service account; the scope stored is rebuilt from Atlassian's answer.
+                if (connection.Provider == ConnectionProvider.Atlassian)
+                {
+                    var confluence = await ConfluenceSourceScope.ResolveAsync(scopeJson, connection, atlassianSites, sourceStore, ct);
+                    switch (confluence.Outcome)
+                    {
+                        case ConfluenceSourceScope.Outcome.Invalid:
+                            return Results.BadRequest(new { error = confluence.Error, field = confluence.Field });
+                        case ConfluenceSourceScope.Outcome.Duplicate:
+                            return Results.Conflict(new { error = confluence.Error, field = confluence.Field });
+                        case ConfluenceSourceScope.Outcome.Unavailable:
+                            return Results.Json(new { error = confluence.Error, field = confluence.Field },
+                                statusCode: StatusCodes.Status502BadGateway);
+                    }
+
+                    scopeJson = confluence.ScopeJson;
+                    if (name.Length == 0)
+                        name = confluence.DefaultName!;
+                }
+
+                if (name.Length == 0)
+                    return Results.BadRequest(new { error = "Source name is required", field = "name" });
             }
             else if (request.Provider is null)
             {
@@ -176,6 +202,7 @@ public static class SourcesEndpoints
             Guid sourceId,
             [FromBody] UpdateSourceRequest request,
             [FromServices] ISourceStore sourceStore,
+            [FromServices] IConnectionStore connectionStore,
             [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
@@ -200,6 +227,17 @@ public static class SourcesEndpoints
                 {
                     error = "A GitHub source's private flag and repository id cannot be changed. Add the repository again as a new source.",
                 });
+            }
+
+            // A Confluence source keeps its space; what it reads from it is checked as on creation.
+            if (!string.IsNullOrWhiteSpace(request.ScopeJson)
+                && await sourceStore.GetAsync(sourceId, ct) is { ConnectionId: Guid connectionId } current
+                && await connectionStore.GetAsync(connectionId, ct) is { Provider: ConnectionProvider.Atlassian })
+            {
+                var confluence = ConfluenceSourceScope.Update(current.ScopeJson, request.ScopeJson);
+                if (confluence.Outcome != ConfluenceSourceScope.Outcome.Valid)
+                    return Results.BadRequest(new { error = confluence.Error, field = confluence.Field });
+                request = request with { ScopeJson = confluence.ScopeJson };
             }
 
             var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
@@ -364,7 +402,7 @@ public static class SourcesEndpoints
 /// wire contract can carry an optional scope while the store's contract requires one.
 /// </summary>
 public record CreateSourceApiRequest(
-    string Name,
+    string? Name,
     Guid? ConnectionId,
     string? ScopeJson = null,
     string? Description = null,

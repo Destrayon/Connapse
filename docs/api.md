@@ -1247,7 +1247,9 @@ For an **Atlassian** connection, the request runs the checks the New source dial
 }
 ```
 
-A failed check is a `400` naming the field, for example `{ "error": "...", "field": "spaceId" }`. If Atlassian can't be reached, the response is `502`.
+A failed check is a `400` naming the field, for example `{ "error": "...", "field": "spaceId" }`. A space that already has a source on the connection is a `409`, and if Atlassian can't be reached the response is `502`.
+
+`PATCH /api/sources/{id}` on a Confluence source may change `includeAttachments` and `maxAttachmentMb`, checked the same way. Its `spaceId` cannot change; add the space as a new source instead.
 
 ### Source Response
 
