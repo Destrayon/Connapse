@@ -864,6 +864,37 @@ public class ProviderSetupReaderTests
     }
 
     [Fact]
+    public async Task Atlassian_NoLinkingApp_SaysResultsAreHiddenFromEveryone()
+    {
+        var atlassian = await AtlassianAsync(linkApp: null);
+
+        atlassian.Requirements.Single().Detail.Should().Be(ProviderSetupReader.AtlassianNoLinkAppDetail)
+            .And.Contain("hidden from everyone");
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppRejectedWhenChecked_Fails()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", CheckedAt: Created, CheckAccepted: false));
+
+        var app = atlassian.Requirements.Single();
+        app.Status.Should().Be(RequirementStatus.Failed);
+        app.Detail.Should().Be(ProviderSetupReader.AtlassianLinkAppRejectedDetail);
+        atlassian.Overall.Should().Be(RequirementStatus.Failed);
+    }
+
+    [Fact]
+    public async Task Atlassian_SignInTurnedOff_IsAWarningThatKeepsLinks()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", SignInEnabled: false));
+
+        var app = atlassian.Requirements.Single();
+        app.Status.Should().Be(RequirementStatus.Warning);
+        app.Detail.Should().Contain("turned off").And.Contain("keep their links");
+        atlassian.InUse.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Azure_WithSignInConfiguredButNoConnection_IsInUse()
     {
         var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),

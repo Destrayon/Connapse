@@ -178,6 +178,86 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task CountLinksAsync_CountsLinkedUsers()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
+        int before = await store.CountLinksAsync();
+        Guid userId = await SeedUserAsync(scope.ServiceProvider);
+
+        await store.SaveAsync(userId, "account-counted");
+        try
+        {
+            (await store.CountLinksAsync()).Should().Be(before + 1);
+        }
+        finally
+        {
+            await store.DeleteAsync(userId);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAtlassianLinkAppAsync_WithACheck_RecordsItAccepted_AndRecordCheckFollowsTheStoredClientOnly()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+        var checkedAt = new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc);
+
+        try
+        {
+            await store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-1", createdByUserId: null, checkedAt);
+            var saved = (await store.GetAtlassianLinkAppAsync())!;
+            saved.CheckedAt.Should().Be(checkedAt);
+            saved.CheckAccepted.Should().BeTrue();
+            saved.SignInEnabled.Should().BeTrue();
+
+            (await store.RecordAtlassianLinkAppCheckAsync("another-client", accepted: false, checkedAt.AddHours(1)))
+                .Should().BeFalse("a check of an app that has since been replaced must not mark the new one");
+            (await store.GetAtlassianLinkAppAsync())!.CheckAccepted.Should().BeTrue();
+
+            (await store.RecordAtlassianLinkAppCheckAsync("atl-client-id", accepted: false, checkedAt.AddHours(2))).Should().BeTrue();
+            var rejected = (await store.GetAtlassianLinkAppAsync())!;
+            rejected.CheckAccepted.Should().BeFalse();
+            rejected.CheckedAt.Should().Be(checkedAt.AddHours(2));
+            (await store.GetAtlassianLinkAppSecretAsync()).Should().Be("secret-1");
+        }
+        finally
+        {
+            await store.DeleteAsync("atlassian");
+        }
+    }
+
+    [Fact]
+    public async Task SetAtlassianSignInEnabledAsync_TurnsSignInOffAndOn_KeepingTheApp_AndSavingTurnsItOn()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+
+        try
+        {
+            (await store.SetAtlassianSignInEnabledAsync(false)).Should().BeFalse("nothing is stored yet");
+
+            await store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-1", createdByUserId: null);
+            (await store.SetAtlassianSignInEnabledAsync(false)).Should().BeTrue();
+            var off = (await store.GetAtlassianLinkAppAsync())!;
+            off.SignInEnabled.Should().BeFalse();
+            off.ClientId.Should().Be("atl-client-id");
+            (await store.GetAtlassianLinkAppSecretAsync()).Should().Be("secret-1");
+
+            (await store.SetAtlassianSignInEnabledAsync(true)).Should().BeTrue();
+            (await store.GetAtlassianLinkAppAsync())!.SignInEnabled.Should().BeTrue();
+
+            await store.SetAtlassianSignInEnabledAsync(false);
+            await store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-2", createdByUserId: null);
+            (await store.GetAtlassianLinkAppAsync())!.SignInEnabled.Should().BeTrue("saving a new app turns sign-in back on");
+        }
+        finally
+        {
+            await store.DeleteAsync("atlassian");
+        }
+    }
+
+    [Fact]
     public async Task SaveAtlassianLinkAppAsync_OverlappingSaves_NeverMixClientIdAndSecret()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

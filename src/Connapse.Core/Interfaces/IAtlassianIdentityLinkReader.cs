@@ -12,4 +12,7 @@ public interface IAtlassianIdentityLinkReader
 {
     /// <summary>The Atlassian account linked to <paramref name="userId"/>, or null when they have linked none.</summary>
     Task<AtlassianIdentityRef?> GetLinkAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>How many Connapse users have linked an Atlassian account.</summary>
+    Task<int> CountLinksAsync(CancellationToken ct = default);
 }

@@ -38,16 +38,17 @@
                 <div class="rounded-3 p-3" style="background: rgba(38, 132, 255, 0.08); border: 1px solid rgba(38, 132, 255, 0.2);">
                     <small class="d-flex align-items-start text-muted">
                         <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0" aria-hidden="true"></span>
-                        <span>Atlassian sign-in is not available yet. An administrator sets up the linking app under Providers → Atlassian first.</span>
+                        <span>Atlassian sign-in is not available. An administrator sets up the linking app, or turns sign-in back on, under Providers → Atlassian.</span>
                     </small>
                 </div>
             }
             else
             {
-                <p class="text-muted small mb-0">
+                <p class="text-muted small mb-0" id="atlassian-consent-help">
                     <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>
-                    You sign in at <strong>Atlassian</strong>. Connapse only reads which account you are and
-                    keeps no token. It uses your account to show you Confluence content you can read.
+                    You sign in at <strong>Atlassian</strong>, which asks you to let Connapse see your account.
+                    Connapse reads only your Atlassian account ID, to check what Confluence pages you can see.
+                    It keeps no token and never changes anything in Atlassian.
                 </p>
             }
         </div>
@@ -80,7 +81,8 @@
         else if (SignInAvailable)
         {
             <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                <button id="atlassian-connect" class="btn btn-sm btn-primary" @onclick="OnConnect" disabled="@Busy">
+                <button id="atlassian-connect" class="btn btn-sm btn-primary" @onclick="OnConnect" disabled="@Busy"
+                        aria-describedby="atlassian-consent-help">
                     <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>Continue to Atlassian sign-in
                 </button>
             </div>

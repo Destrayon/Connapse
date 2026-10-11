@@ -267,7 +267,8 @@ public class PostgresProviderCredentialStore(
     /// <summary>The provider key the Atlassian link app is stored under.</summary>
     public const string AtlassianProvider = "atlassian";
 
-    private sealed record AtlassianLinkAppConfig(string? ClientId);
+    private sealed record AtlassianLinkAppConfig(
+        string? ClientId, bool SignInOff = false, DateTime? CheckedAt = null, bool? CheckAccepted = null);
 
     public async Task<AtlassianLinkAppRegistration?> GetAtlassianLinkAppAsync(CancellationToken ct = default)
     {
@@ -284,7 +285,8 @@ public class PostgresProviderCredentialStore(
         var config = System.Text.Json.JsonSerializer.Deserialize<AtlassianLinkAppConfig>(row.ConfigJson, AppJson);
         return string.IsNullOrWhiteSpace(config?.ClientId)
             ? null
-            : new AtlassianLinkAppRegistration(config.ClientId, row.VerifiedAt);
+            : new AtlassianLinkAppRegistration(
+                config.ClientId, row.VerifiedAt, config.CheckedAt, config.CheckAccepted, !config.SignInOff);
     }
 
     public async Task<string?> GetAtlassianLinkAppSecretAsync(CancellationToken ct = default)
@@ -310,7 +312,8 @@ public class PostgresProviderCredentialStore(
     }
 
     public async Task<ProviderCredentialInfo> SaveAtlassianLinkAppAsync(
-        string clientId, string clientSecret, Guid? createdByUserId, CancellationToken ct = default)
+        string clientId, string clientSecret, Guid? createdByUserId, DateTime? checkedAt = null,
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
         ArgumentException.ThrowIfNullOrWhiteSpace(clientSecret);
@@ -338,7 +341,8 @@ public class PostgresProviderCredentialStore(
             """,
             [
                 new NpgsqlParameter("provider", AtlassianProvider),
-                new NpgsqlParameter("config", System.Text.Json.JsonSerializer.Serialize(new AtlassianLinkAppConfig(trimmedId), AppJson)),
+                new NpgsqlParameter("config", System.Text.Json.JsonSerializer.Serialize(
+                    new AtlassianLinkAppConfig(trimmedId, CheckedAt: checkedAt, CheckAccepted: checkedAt is null ? null : true), AppJson)),
                 new NpgsqlParameter("secret", Protector.Protect(clientSecret)),
                 new NpgsqlParameter("principal", trimmedId),
                 new NpgsqlParameter("createdAt", now),
@@ -351,6 +355,52 @@ public class PostgresProviderCredentialStore(
 
     public async Task<bool> MarkAtlassianLinkAppVerifiedAsync(DateTime when, CancellationToken ct = default) =>
         await MarkVerifiedAsync(AtlassianProvider, when, ct);
+
+    public Task<bool> RecordAtlassianLinkAppCheckAsync(
+        string clientId, bool accepted, DateTime when, CancellationToken ct = default) =>
+        UpdateAtlassianLinkAppConfigAsync(
+            config => string.Equals(config.ClientId, clientId?.Trim(), StringComparison.Ordinal)
+                ? config with { CheckedAt = when, CheckAccepted = accepted }
+                : null,
+            ct);
+
+    public Task<bool> SetAtlassianSignInEnabledAsync(bool enabled, CancellationToken ct = default) =>
+        UpdateAtlassianLinkAppConfigAsync(config => config with { SignInOff = !enabled }, ct);
+
+    /// <summary>
+    /// Changes the stored app's non-secret settings. Written only if the row still holds what was
+    /// read, so a save replacing the app in between is never overwritten with the old app's settings.
+    /// </summary>
+    private async Task<bool> UpdateAtlassianLinkAppConfigAsync(
+        Func<AtlassianLinkAppConfig, AtlassianLinkAppConfig?> change, CancellationToken ct)
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            await using var db = await factory.CreateDbContextAsync(ct);
+
+            string? current = await db.ProviderCredentials
+                .AsNoTracking()
+                .Where(c => c.Provider == AtlassianProvider)
+                .Select(c => c.ConfigJson)
+                .FirstOrDefaultAsync(ct);
+            if (string.IsNullOrWhiteSpace(current)) return false;
+
+            var config = System.Text.Json.JsonSerializer.Deserialize<AtlassianLinkAppConfig>(current, AppJson);
+            if (string.IsNullOrWhiteSpace(config?.ClientId) || change(config) is not { } next) return false;
+
+            int updated = await db.Database.ExecuteSqlRawAsync(
+                "UPDATE provider_credentials SET config_json = @next WHERE provider = @provider AND config_json = @current",
+                [
+                    new NpgsqlParameter("next", System.Text.Json.JsonSerializer.Serialize(next, AppJson)),
+                    new NpgsqlParameter("provider", AtlassianProvider),
+                    new NpgsqlParameter("current", current),
+                ],
+                ct);
+            if (updated > 0) return true;
+        }
+
+        return false;
+    }
 
     private static GitHubAppRegistration? ReadApp(string? json)
     {

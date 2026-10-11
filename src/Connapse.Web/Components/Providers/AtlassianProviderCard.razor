@@ -1,8 +1,12 @@
 @using System.Security.Claims
 @using Connapse.Core
 @using Connapse.Core.Interfaces
+@using Connapse.Storage.Connectors.Atlassian
+@using Connapse.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @inject IProviderCredentialStore Credentials
+@inject IAtlassianIdentityLinkReader Links
+@inject AtlassianUserSignIn SignIn
 @inject IAuditLogger Audit
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthState
@@ -18,70 +22,147 @@
 <ProviderStepCard Id="atlassian-app" Title="Linking app"
                   Description="The Atlassian app people sign in through so search can respect what they may read."
                   Status="AppStatus" StatusLabel="@AppStatusLabel"
-                  @bind-Expanded="showAppSetup" EditLabel="Replace the app"
-                  Summary="@AppSummary"
-                  EasyTitle="Easy setup: create the app in the Atlassian developer console" EasyOpen="true">
-    <EasyContent>
-        <ol class="small">
-            <li>
-                Open the <a href="@DeveloperConsole" target="_blank" rel="noopener">Atlassian developer console<span class="visually-hidden"> (opens in a new tab)</span></a>
-                and choose <strong>Create</strong> &rarr; <strong>OAuth 2.0 integration</strong>.
-            </li>
-            <li>
-                Name it <strong>Connapse – your organization</strong> so Atlassian and your users can see which software it is,
-                set <strong>Access type</strong> to <strong>Account-level</strong>, agree to the developer terms, and create it.
-                The app only reads who each person is, which isn't tied to a site; Resource-level would make everyone pick a site when signing in.
-            </li>
-            <li>
-                <strong>Permissions</strong>: next to <strong>User identity API</strong> choose <strong>Add</strong>, then
-                <strong>Configure</strong> and add the <code>read:me</code> scope. Nothing else is needed.
-            </li>
-            <li>
-                <strong>Authorization</strong>: next to <strong>OAuth 2.0 (3LO)</strong> choose <strong>Configure</strong>, set the
-                callback URL to <code id="atlassian-callback-url">@CallbackUrl</code>
-                <button type="button" id="atlassian-copy-callback" class="btn btn-sm btn-link p-0 ms-1" aria-label="Copy the callback URL" @onclick="CopyCallbackUrl">
-                    <span class="bi-clipboard" aria-hidden="true"></span>
-                </button>
-                and <strong>Save changes</strong>.
-            </li>
-            <li>
-                <strong>Distribution</strong>: a new app is private, so only you can sign in through it. Before anyone else can, choose
-                <strong>Sharing</strong> and fill in the vendor name (your organization), a privacy policy URL, and the personal-data
-                question (<strong>No</strong>: Connapse keeps only each linked person's Atlassian account ID, never their name or email).
-                People then see a notice that Atlassian hasn't reviewed the app, which is expected.
-            </li>
-            <li><strong>Settings</strong>: copy the client ID and secret, then paste them under Manual values.</li>
-        </ol>
-        <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@appCopyMessage</span>
-    </EasyContent>
+                  Expanded="showAppSetup" ExpandedChanged="SetExpanded" EditLabel="Change the linking app"
+                  Summary="@AppSummary" Actions="@AppActions">
     <ManualContent>
-        <div class="border rounded p-3 mb-3">
+        <p class="small mb-2" id="atlassian-app-prerequisites">
+            You need an Atlassian account that can create apps in the developer console, a privacy policy URL
+            for your organization, and Connapse served over HTTPS: Atlassian accepts the callback URL only over
+            HTTPS, except for localhost.
+        </p>
+        @if (CallbackIsInsecure)
+        {
+            <div class="alert alert-warning py-2 small" role="note" id="atlassian-app-insecure">
+                <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                This address is not HTTPS, so Atlassian will refuse the callback URL below. Open Connapse over
+                HTTPS before creating the app.
+            </div>
+        }
+
+        <ProviderSetupGuide Title="Create the app in the Atlassian developer console" Open="@(linkApp is null)">
+            <ol class="small mb-0">
+                <li>
+                    Open the <a href="@DeveloperConsole" target="_blank" rel="noopener">Atlassian developer console<span class="visually-hidden"> (opens in a new tab)</span></a>
+                    and choose <strong>Create</strong> &rarr; <strong>OAuth 2.0 integration</strong>.
+                </li>
+                <li>
+                    Name it <strong>Connapse – your organization</strong> so Atlassian and your users can see which software it is,
+                    set <strong>Access type</strong> to <strong>Account-level</strong>, agree to the developer terms, and create it.
+                    Account-level means people don't have to pick a site when they sign in.
+                </li>
+                <li>
+                    <strong>Permissions</strong>: next to <strong>User identity API</strong> choose <strong>Add</strong>, then
+                    <strong>Configure</strong> and add the <code>read:me</code> scope. Nothing else is needed.
+                </li>
+                <li>
+                    <strong>Authorization</strong>: next to <strong>OAuth 2.0 (3LO)</strong>, Atlassian's name for signing people in
+                    through an app, choose <strong>Configure</strong>, set the callback URL to
+                    <code id="atlassian-callback-url" class="text-break">@CallbackUrl</code>
+                    <button type="button" id="atlassian-copy-callback" class="btn btn-sm btn-outline-secondary ms-1 py-0 px-1"
+                            style="min-width:24px;min-height:24px" aria-label="Copy the callback URL" @onclick="CopyCallbackUrl">
+                        <span class="bi-clipboard" aria-hidden="true"></span>
+                    </button>
+                    and <strong>Save changes</strong>.
+                </li>
+                <li>
+                    <strong>Distribution</strong>: a new app is private, so only you can sign in through it. Before anyone else can, choose
+                    <strong>Sharing</strong> and fill in the vendor name (your organization), a privacy policy URL, and the personal-data
+                    question (<strong>No</strong>: Connapse keeps only each linked person's Atlassian account ID, never their name or email).
+                    People then see a notice that Atlassian hasn't reviewed the app, which is expected.
+                </li>
+                <li><strong>Settings</strong>: copy the client ID and secret, and paste them under <strong>App credentials</strong> below.</li>
+            </ol>
+            <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@appCopyMessage</span>
+        </ProviderSetupGuide>
+
+        <section class="border rounded p-3 mt-3" aria-labelledby="atlassian-app-credentials-heading">
+            <h3 id="atlassian-app-credentials-heading" class="h6">@AtlassianLinkAppFieldSpecs.ClientId.Group</h3>
             @if (linkApp is not null)
             {
                 <p class="small mb-3" id="atlassian-app-current">
-                    The secret is stored encrypted and is never shown. Enter it again only to replace the app.
+                    The secret is stored encrypted and is never shown. Enter both values only to replace the app.
                 </p>
             }
-            <ProviderField Spec="AppClientIdSpec" Small="true" Value="@appClientId" ValueChanged="@((string? v) => appClientId = v)" Disabled="@appBusy" />
-            <ProviderField Spec="AppClientSecretSpec" Small="true" Value="@appClientSecret" ValueChanged="@((string? v) => appClientSecret = v)" />
-            <button type="button" id="atlassian-app-save" class="btn btn-sm btn-outline-primary" disabled="@appBusy" @onclick="SaveAppAsync">
-                Save
-            </button>
+            <ProviderField Spec="AtlassianLinkAppFieldSpecs.ClientId" Small="true" Value="@appClientId"
+                           ValueChanged="@((string? v) => appClientId = v)" Disabled="@appBusy" Error="@clientIdError" />
+            <ProviderField Spec="AtlassianLinkAppFieldSpecs.ClientSecret" Small="true" Value="@appClientSecret"
+                           ValueChanged="@((string? v) => appClientSecret = v)" Error="@secretError">
+                <ErrorContent>
+                    @if (secretRejected)
+                    {
+                        <a class="ms-1" href="@AtlassianLinkAppFieldSpecs.TroubleshootingRejected" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                    }
+                </ErrorContent>
+            </ProviderField>
+
+            @if (confirmingReplace && linkApp is not null)
+            {
+                <div class="alert alert-warning py-2 small" role="group" aria-labelledby="atlassian-app-replace-text" id="atlassian-app-replace">
+                    <p id="atlassian-app-replace-text" class="mb-2">
+                        Replace the linking app? The @PeopleLinked who linked an Atlassian account keep their links.
+                        New sign-ins use the new app. Connapse checks the new client ID and secret with Atlassian before saving.
+                        @if (!linkApp.SignInEnabled)
+                        {
+                            <text>Saving also turns Atlassian sign-in back on.</text>
+                        }
+                    </p>
+                    <button @ref="replaceConfirmButton" type="button" id="atlassian-app-replace-confirm" class="btn btn-sm btn-warning"
+                            disabled="@appBusy" @onclick="CheckAndSaveAsync">Check and replace</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary ms-1" @onclick="() => confirmingReplace = false">Keep the current app</button>
+                </div>
+            }
+            else
+            {
+                <div class="d-flex gap-2">
+                    <button type="button" id="atlassian-app-save" class="btn btn-sm btn-primary" disabled="@appBusy" @onclick="SaveAppAsync">
+                        @if (appBusy)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking with Atlassian…</span>
+                        }
+                        else
+                        {
+                            <span>Check and save</span>
+                        }
+                    </button>
+                    @if (linkApp is not null)
+                    {
+                        <button type="button" id="atlassian-app-cancel" class="btn btn-sm btn-outline-secondary" disabled="@appBusy" @onclick="CancelEdit">Cancel</button>
+                    }
+                </div>
+            }
             @if (appError is not null)
             {
                 <div class="text-danger small mt-2" role="alert" id="atlassian-app-error">
                     <span class="bi-x-circle me-1" aria-hidden="true"></span>@appError
                 </div>
             }
-            @if (appSaved)
-            {
-                <div class="text-success small mt-2" role="status" id="atlassian-app-saved">
-                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Saved. People can now link their Atlassian accounts from their profile.
-                </div>
-            }
-        </div>
+        </section>
     </ManualContent>
 </ProviderStepCard>
+
+<div id="atlassian-app-status" class="text-success small mt-2" role="status">
+    @if (statusMessage is not null)
+    {
+        <span class="bi-check-circle me-1" aria-hidden="true"></span>@statusMessage
+        @if (showNextSteps)
+        {
+            <span class="ms-1">
+                <a href="/profile/integrations">Link your own account</a> to try it, then
+                <a href="/connections?new=atlassian">add an Atlassian site</a>.
+            </span>
+        }
+    }
+</div>
+<div id="atlassian-app-alert" class="text-danger small" role="alert">
+    @if (alertMessage is not null)
+    {
+        <span class="bi-x-circle me-1" aria-hidden="true"></span>@alertMessage
+        @if (alertTroubleshooting)
+        {
+            <a class="ms-1" href="@AtlassianLinkAppFieldSpecs.TroubleshootingRejected" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+        }
+    }
+</div>
 
 <p class="small text-muted mt-3" id="atlassian-sites-elsewhere">
     <span class="bi-info-circle me-1" aria-hidden="true"></span>
@@ -92,74 +173,331 @@
 @code {
     private const string DeveloperConsole = "https://developer.atlassian.com/console/myapps/";
 
-    private static readonly ProviderFieldSpec AppClientIdSpec = new(
-        "atlassian-app-client-id", "Client ID", ProviderFieldKind.Text, Required: true,
-        "Shown under Settings on the app in the Atlassian developer console.", "Manual values", DeveloperConsole, "Open the developer console");
-
-    private static readonly ProviderFieldSpec AppClientSecretSpec = new(
-        "atlassian-app-client-secret", "Client secret", ProviderFieldKind.Secret, Required: true,
-        "Shown under Settings on the app. Stored encrypted and never shown again.", "Manual values", DeveloperConsole, "Open the developer console");
-
     private AtlassianLinkAppRegistration? linkApp;
+    private int? linkedPeople;
     private bool showAppSetup;
     private bool appBusy;
-    private bool appSaved;
+    private bool checkBusy;
+    private bool confirmingReplace;
+    private bool focusReplaceConfirm;
     private bool copySucceeded;
+    private bool secretRejected;
+    private bool showNextSteps;
+    private bool alertTroubleshooting;
     private string? appClientId;
     private string? appClientSecret;
+    private string? clientIdError;
+    private string? secretError;
     private string? appError;
     private string? appCopyMessage;
+    private string? statusMessage;
+    private string? alertMessage;
+    private ElementReference replaceConfirmButton;
 
     private string CallbackUrl => Navigation.BaseUri + Connapse.Web.Endpoints.CloudIdentityEndpoints.AtlassianCallbackPath;
 
-    // Ready once saved: nobody having signed in through it yet says nothing about its setup.
-    private RequirementStatus AppStatus => linkApp is not null ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
+    private bool CallbackIsInsecure
+    {
+        get
+        {
+            var uri = new Uri(Navigation.BaseUri);
+            return uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback;
+        }
+    }
 
-    private string AppStatusLabel => linkApp is null ? "Not set up" : "Ready";
+    // Ready once saved and accepted: nobody having signed in through it yet says nothing about its setup.
+    private RequirementStatus AppStatus => linkApp switch
+    {
+        null => RequirementStatus.NotConfigured,
+        { CheckAccepted: false } => RequirementStatus.Failed,
+        { SignInEnabled: false } => RequirementStatus.Warning,
+        _ => RequirementStatus.Satisfied,
+    };
 
-    private RenderFragment? AppSummary => linkApp is null ? null : @<span id="atlassian-app-summary">Client ID <code>@linkApp.ClientId</code></span>;
+    private string AppStatusLabel => linkApp switch
+    {
+        null => "Not set up",
+        { CheckAccepted: false } => "Rejected by Atlassian",
+        { SignInEnabled: false } => "Sign-in turned off",
+        _ => "Ready",
+    };
+
+    private string PeopleLinked => linkedPeople switch
+    {
+        null => "people",
+        1 => "1 person",
+        int n => $"{n} people",
+    };
+
+    private string RemoveHelp =>
+        $"{(linkedPeople is null ? "People" : PeopleLinked)} linked an Atlassian account. They keep their links, but nobody can "
+        + "link a new account until you add a linking app again. To stop new links for a while instead, turn off Atlassian sign-in.";
+
+    private RenderFragment AppSummary => linkApp is not { } app
+        ? @<p class="mb-0" id="atlassian-app-requirement">@ProviderSetupReader.AtlassianNoLinkAppDetail</p>
+        : @<div id="atlassian-app-summary">
+              @if (app.CheckAccepted == false)
+              {
+                  <p class="mb-2">@ProviderSetupReader.AtlassianLinkAppRejectedDetail Paste a new secret under App credentials.</p>
+              }
+              else if (!app.SignInEnabled)
+              {
+                  <p class="mb-2">@ProviderSetupReader.AtlassianSignInOffDetail</p>
+              }
+              <dl class="provider-step-values mb-0">
+                  <dt>Client ID</dt><dd><code>@app.ClientId</code></dd>
+                  <dt>Permission</dt><dd><code>read:me</code> (User identity API): reads each person's Atlassian account ID, nothing else</dd>
+                  <dt>Atlassian sign-in</dt><dd id="atlassian-app-sign-in">@(app.SignInEnabled ? "On" : "Off")</dd>
+                  <dt>Last checked</dt>
+                  <dd id="atlassian-app-checked">
+                      @if (app.CheckedAt is { } checkedAt)
+                      {
+                          <text>@checkedAt.ToString("u"): @(app.CheckAccepted == true ? "accepted by Atlassian" : "rejected by Atlassian")</text>
+                      }
+                      else
+                      {
+                          <text>Not yet. Choose Recheck.</text>
+                      }
+                  </dd>
+                  <dt>Last used for a sign-in</dt><dd>@(app.VerifiedAt is { } used ? used.ToString("u") : "Not yet")</dd>
+                  @if (linkedPeople is { } count)
+                  {
+                      <dt>People linked</dt><dd id="atlassian-app-linked">@count</dd>
+                  }
+              </dl>
+          </div>;
+
+    // Null without an app, so the card draws no empty actions row.
+    private RenderFragment? AppActions => linkApp is not { } app ? null : @<text>
+        <button type="button" id="atlassian-app-recheck" class="btn btn-sm btn-outline-secondary" disabled="@checkBusy" @onclick="RecheckAsync">
+            @if (checkBusy)
+            {
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking…</span>
+            }
+            else
+            {
+                <span>Recheck</span>
+            }
+        </button>
+        <div class="ms-auto d-flex gap-2 align-items-start flex-wrap">
+            <button type="button" id="atlassian-sign-in-toggle" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSignInAsync"
+                    aria-describedby="atlassian-sign-in-toggle-help">
+                @(app.SignInEnabled ? "Turn off Atlassian sign-in" : "Turn on Atlassian sign-in")
+            </button>
+            <span id="atlassian-sign-in-toggle-help" class="visually-hidden">
+                @(app.SignInEnabled
+                    ? "Stops new links. People who linked keep their links. You can turn it back on."
+                    : "Lets people link their Atlassian accounts again.")
+            </span>
+            <ProviderResetAction OnReset="RemoveAppAsync"
+                                 Label="Remove the linking app from Connapse"
+                                 ConfirmLabel="Remove the linking app"
+                                 ConfirmText="@app.ClientId"
+                                 HelpText="@RemoveHelp" />
+        </div>
+    </text>;
 
     protected override async Task OnInitializedAsync()
     {
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusReplaceConfirm) return;
+        focusReplaceConfirm = false;
+        await replaceConfirmButton.FocusAsync();
+    }
+
+    private async Task LoadAsync()
+    {
         linkApp = await Credentials.GetAtlassianLinkAppAsync();
         appClientId = linkApp?.ClientId; // not a secret, so the saved one is shown for editing
+        try
+        {
+            linkedPeople = await Links.CountLinksAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not count linked Atlassian accounts");
+            linkedPeople = null;
+        }
+    }
+
+    private void SetExpanded(bool expanded)
+    {
+        showAppSetup = expanded;
+        if (!expanded) CancelEdit();
+    }
+
+    private void CancelEdit()
+    {
+        appClientId = linkApp?.ClientId;
+        appClientSecret = null;
+        (clientIdError, secretError, appError, secretRejected, confirmingReplace) = (null, null, null, false, false);
+        showAppSetup = false;
+    }
+
+    private void ClearMessages()
+    {
+        (clientIdError, secretError, appError, secretRejected) = (null, null, null, false);
+        (statusMessage, alertMessage, alertTroubleshooting, showNextSteps) = (null, null, false, false);
     }
 
     private async Task SaveAppAsync()
     {
-        appError = null;
-        appSaved = false;
-        if (string.IsNullOrWhiteSpace(appClientId) || string.IsNullOrWhiteSpace(appClientSecret))
+        ClearMessages();
+        if (string.IsNullOrWhiteSpace(appClientId))
+            clientIdError = "Enter the client ID. It is under Settings on the app in the developer console.";
+        if (string.IsNullOrWhiteSpace(appClientSecret))
+            secretError = "Enter the client secret. It is under Settings on the app, below the client ID.";
+        if (clientIdError is not null || secretError is not null)
+            return;
+
+        if (linkApp is not null)
         {
-            appError = "Enter the client ID and client secret.";
+            // Replacing affects everyone who signs in next, so it is confirmed first.
+            confirmingReplace = true;
+            focusReplaceConfirm = true;
             return;
         }
+
+        await CheckAndSaveAsync();
+    }
+
+    private async Task CheckAndSaveAsync()
+    {
+        confirmingReplace = false;
+        if (string.IsNullOrWhiteSpace(appClientId) || string.IsNullOrWhiteSpace(appClientSecret))
+            return;
 
         appBusy = true;
         try
         {
+            string clientId = appClientId.Trim();
+            var result = await SignIn.CheckAppAsync(clientId, appClientSecret, CallbackUrl);
+            await Audit.LogAsync("provider.credential.checked", "provider", "atlassian",
+                new { ClientId = clientId, Result = result.ToString() });
+
+            if (result == AtlassianLinkAppCheck.Rejected)
+            {
+                // The secret stays in the field, so it can be corrected rather than copied again.
+                secretError = "Atlassian rejected this client ID and secret, so nothing was saved. Copy both again from Settings on the app in the developer console.";
+                secretRejected = true;
+                return;
+            }
+            if (result == AtlassianLinkAppCheck.Unknown)
+            {
+                appError = "Couldn't reach Atlassian to check the app, so nothing was saved. Check that this server can reach auth.atlassian.com over HTTPS, then try again.";
+                return;
+            }
+
             var state = await AuthState.GetAuthenticationStateAsync();
             Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
 
-            string savedClientId = appClientId.Trim();
-            await Credentials.SaveAtlassianLinkAppAsync(savedClientId, appClientSecret.Trim(), userId);
+            await Credentials.SaveAtlassianLinkAppAsync(clientId, appClientSecret.Trim(), userId, DateTime.UtcNow);
             // The same event GitHub's App writes. The client ID only: never the secret.
             await Audit.LogAsync("provider.credential.saved", "provider", "atlassian",
-                new { ClientId = savedClientId, Via = "manual" });
+                new { ClientId = clientId, Via = "manual" });
             // Never rendered back, and no reason to keep it in the circuit's memory.
             appClientSecret = null;
-            appSaved = true;
-            linkApp = await Credentials.GetAtlassianLinkAppAsync();
-            appClientId = linkApp?.ClientId ?? savedClientId;
+            showAppSetup = false;
+            await LoadAsync();
+            appClientId = linkApp?.ClientId ?? clientId;
+            statusMessage = "Atlassian accepted the client ID and secret, and the linking app is saved. People can now link their Atlassian accounts from their profile.";
+            showNextSteps = true;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Could not save the Atlassian linking app");
-            appError = "The app could not be saved. Try again.";
+            appError = "The app could not be saved. Nothing was changed; try again.";
         }
         finally
         {
             appBusy = false;
+        }
+    }
+
+    private async Task RecheckAsync()
+    {
+        ClearMessages();
+        checkBusy = true;
+        try
+        {
+            var result = await SignIn.CheckStoredAppAsync(CallbackUrl);
+            await Audit.LogAsync("provider.credential.checked", "provider", "atlassian",
+                new { linkApp?.ClientId, Result = result?.ToString() ?? "NotStored" });
+            await LoadAsync();
+
+            switch (result)
+            {
+                case AtlassianLinkAppCheck.Accepted:
+                    statusMessage = "Atlassian accepted the stored client ID and secret.";
+                    break;
+                case AtlassianLinkAppCheck.Rejected:
+                    alertMessage = "Atlassian rejected the stored client ID or secret, so nobody new can link an account. Choose Change the linking app and paste a new secret.";
+                    alertTroubleshooting = true;
+                    break;
+                case AtlassianLinkAppCheck.Unknown:
+                    alertMessage = "Couldn't reach Atlassian to check the app. Nothing was changed; try again.";
+                    break;
+                default:
+                    alertMessage = "No linking app is stored.";
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not check the Atlassian linking app");
+            alertMessage = "The app could not be checked. Nothing was changed; try again.";
+        }
+        finally
+        {
+            checkBusy = false;
+        }
+    }
+
+    private async Task ToggleSignInAsync()
+    {
+        if (linkApp is null) return;
+        ClearMessages();
+        bool enable = !linkApp.SignInEnabled;
+        try
+        {
+            if (!await Credentials.SetAtlassianSignInEnabledAsync(enable))
+            {
+                alertMessage = "No linking app is stored.";
+                return;
+            }
+            await Audit.LogAsync(enable ? "provider.sign_in.enabled" : "provider.sign_in.disabled", "provider", "atlassian",
+                new { linkApp.ClientId });
+            await LoadAsync();
+            statusMessage = enable
+                ? "Atlassian sign-in is on. People can link their accounts from their profile."
+                : "Atlassian sign-in is off. People who linked keep their links; nobody new can link until you turn it back on.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not change whether Atlassian sign-in is on");
+            alertMessage = "Atlassian sign-in could not be changed. Nothing was changed; try again.";
+        }
+    }
+
+    private async Task RemoveAppAsync()
+    {
+        ClearMessages();
+        try
+        {
+            string? clientId = linkApp?.ClientId;
+            await Credentials.DeleteAsync("atlassian");
+            await Audit.LogAsync("provider.credential.deleted", "provider", "atlassian", new { ClientId = clientId });
+            await LoadAsync();
+            statusMessage = "The linking app was removed. People who linked keep their links, but nobody can link an account until a new app is added.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not remove the Atlassian linking app");
+            alertMessage = "The linking app could not be removed. Nothing was changed; try again.";
         }
     }
 

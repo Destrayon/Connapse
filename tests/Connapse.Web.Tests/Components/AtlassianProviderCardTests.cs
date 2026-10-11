@@ -1,7 +1,10 @@
+using System.Net;
 using Bunit;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Web.Components.Providers;
+using Connapse.Web.Services;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -12,10 +15,14 @@ namespace Connapse.Web.Tests.Components;
 public class AtlassianProviderCardTests : IDisposable
 {
     private const string Secret = "super-secret-value";
+    private const string InvalidGrant = """{"error":"invalid_grant","error_description":"Invalid authorization code"}""";
+    private const string AccessDenied = """{"error":"access_denied","error_description":"Unauthorized"}""";
 
     private readonly BunitContext ctx = new();
     private readonly IProviderCredentialStore credentials = Substitute.For<IProviderCredentialStore>();
+    private readonly IAtlassianIdentityLinkReader links = Substitute.For<IAtlassianIdentityLinkReader>();
     private readonly IAuditLogger audit = Substitute.For<IAuditLogger>();
+    private readonly TokenEndpoint token = new();
 
     public AtlassianProviderCardTests()
     {
@@ -23,10 +30,20 @@ public class AtlassianProviderCardTests : IDisposable
         ctx.AddAuthorization();
         ctx.Services.AddLogging();
         ctx.Services.AddSingleton(credentials);
+        ctx.Services.AddSingleton(links);
         ctx.Services.AddSingleton(audit);
+
+        var http = Substitute.For<IHttpClientFactory>();
+        http.CreateClient(AtlassianApiClient.HttpClientName).Returns(_ => new HttpClient(token, disposeHandler: false));
+        ctx.Services.AddSingleton(new AtlassianUserSignIn(http, credentials));
+        token.Answer(HttpStatusCode.Forbidden, InvalidGrant);
     }
 
-    public void Dispose() => ctx.Dispose();
+    public void Dispose()
+    {
+        ctx.Dispose();
+        token.Dispose();
+    }
 
     [Fact]
     public void Render_ShowsOnlyTheLinkingApp_AndSendsSitesToTheConnectionsPage()
@@ -48,29 +65,112 @@ public class AtlassianProviderCardTests : IDisposable
         var step = cut.Find("#atlassian-app");
         step.TextContent.Should().Contain("Not set up")
             .And.Contain("User identity API").And.Contain("read:me")
-            .And.Contain("Distribution").And.Contain("Sharing")
-            .And.Contain("Manual values");
+            .And.Contain("Distribution").And.Contain("Sharing");
         step.InnerHtml.Should().Contain("https://developer.atlassian.com/console/myapps/");
         cut.Find("#atlassian-callback-url").TextContent.Should().Be("http://localhost/api/v1/auth/cloud/atlassian/callback");
         cut.FindAll("#atlassian-copy-callback").Should().ContainSingle();
     }
 
     [Fact]
-    public void LinkingApp_Save_StoresTheAppAndNeverRendersTheSecret()
+    public void LinkingApp_NotSetUp_SaysWhatIsMissingAndTheHttpsRule()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-requirement").TextContent.Should().Be(ProviderSetupReader.AtlassianNoLinkAppDetail);
+        cut.Find("#atlassian-app-prerequisites").TextContent.Should().Contain("HTTPS").And.Contain("localhost");
+        cut.FindAll("#atlassian-app-insecure").Should().BeEmpty("localhost is exempt");
+    }
+
+    [Fact]
+    public void LinkingApp_GuideRendersAboveTheFieldsItExplains_UnderAHeadingItNames()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        string html = cut.Find("#atlassian-app").InnerHtml;
+        html.IndexOf("developer.atlassian.com/console", StringComparison.Ordinal)
+            .Should().BeLessThan(html.IndexOf("id=\"atlassian-app-client-id\"", StringComparison.Ordinal));
+        cut.Find("#atlassian-app-credentials-heading").TextContent.Should().Be("App credentials");
+        cut.Find("#atlassian-app").TextContent.Should().Contain("paste them under App credentials below")
+            .And.NotContain("Manual values")
+            .And.Contain("Atlassian's name for signing people in");
+    }
+
+    [Fact]
+    public void CopyButton_HasANameAndATargetOfAtLeast24Pixels()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        var copy = cut.Find("#atlassian-copy-callback");
+        copy.GetAttribute("aria-label").Should().Be("Copy the callback URL");
+        copy.GetAttribute("style").Should().Contain("min-width:24px").And.Contain("min-height:24px");
+    }
+
+    [Fact]
+    public void Save_EmptyFields_MarksEachFieldInvalidWithItsOwnError()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-save").Click();
+
+        var id = cut.Find("#atlassian-app-client-id");
+        id.GetAttribute("aria-invalid").Should().Be("true");
+        id.GetAttribute("aria-describedby").Should().Contain("atlassian-app-client-id-error").And.Contain("atlassian-app-client-id-help");
+        cut.Find("#atlassian-app-client-id-error").TextContent.Should().Contain("Enter the client ID");
+        cut.Find("#atlassian-app-client-secret-error").TextContent.Should().Contain("Enter the client secret");
+        token.Calls.Should().Be(0);
+        credentials.DidNotReceiveWithAnyArgs().SaveAtlassianLinkAppAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public void LinkingApp_Save_ChecksWithAtlassianThenStoresTheAppAndNeverRendersTheSecret()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
-            .Returns(null, new AtlassianLinkAppRegistration("link-client"));
+            .Returns(null, new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
         var cut = ctx.Render<AtlassianProviderCard>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
         cut.Find("#atlassian-app-save").Click();
 
-        // Saved means set up: the step goes to Ready and shows the app's client ID.
         cut.WaitForAssertion(() => cut.Find("#atlassian-app").TextContent.Should().Contain("Ready"));
-        credentials.Received(1).SaveAtlassianLinkAppAsync("link-client", Secret, Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
-        cut.Find("#atlassian-app-summary").TextContent.Should().Contain("link-client");
+        token.Body.Should().Contain("\"client_id\":\"link-client\"").And.Contain(AtlassianUserSignIn.CheckCode);
+        credentials.Received(1).SaveAtlassianLinkAppAsync("link-client", Secret, Arg.Any<Guid?>(), Arg.Any<DateTime?>(), Arg.Any<CancellationToken>());
+        cut.Find("#atlassian-app-summary").TextContent.Should().Contain("link-client").And.Contain("accepted by Atlassian");
+        cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian accepted");
+        cut.Find("#atlassian-app-status a[href='/profile/integrations']").Should().NotBeNull();
         cut.Markup.Should().NotContain(Secret);
+    }
+
+    [Fact]
+    public void LinkingApp_Save_Rejected_SavesNothingAndKeepsTheSecretToCorrect()
+    {
+        token.Answer(HttpStatusCode.Forbidden, AccessDenied);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-client-secret-error").TextContent.Should().Contain("Atlassian rejected"));
+        cut.Find("#atlassian-app-client-secret").GetAttribute("aria-invalid").Should().Be("true");
+        cut.Find("#atlassian-app-client-secret-error a").GetAttribute("href").Should().EndWith("#linking-app-rejected");
+        cut.Find("#atlassian-app-client-secret").GetAttribute("value").Should().Be(Secret);
+        credentials.DidNotReceiveWithAnyArgs().SaveAtlassianLinkAppAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public void LinkingApp_Save_AtlassianUnreachable_SavesNothingAndSaysSo()
+    {
+        token.Unreachable();
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-error").TextContent.Should().Contain("Couldn't reach Atlassian"));
+        cut.Find("#atlassian-app-error").GetAttribute("role").Should().Be("alert");
+        credentials.DidNotReceiveWithAnyArgs().SaveAtlassianLinkAppAsync(default!, default!, default, default, default);
     }
 
     [Fact]
@@ -78,11 +178,14 @@ public class AtlassianProviderCardTests : IDisposable
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(new AtlassianLinkAppRegistration("stored-client"));
+        links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns(3);
 
         var cut = ctx.Render<AtlassianProviderCard>();
 
         cut.Find("#atlassian-app").TextContent.Should().Contain("Ready");
-        cut.Find("#atlassian-app-summary").TextContent.Should().Contain("stored-client");
+        var summary = cut.Find("#atlassian-app-summary").TextContent;
+        summary.Should().Contain("stored-client").And.Contain("read:me").And.Contain("Not yet");
+        cut.Find("#atlassian-app-linked").TextContent.Should().Be("3");
         cut.Markup.Should().NotContain(Secret);
     }
 
@@ -102,6 +205,8 @@ public class AtlassianProviderCardTests : IDisposable
 
         cut.WaitForAssertion(() => details.Should().NotBeNull());
         System.Text.Json.JsonSerializer.Serialize(details).Should().Contain("link-client").And.NotContain(Secret);
+        audit.ReceivedCalls().Select(c => System.Text.Json.JsonSerializer.Serialize(c.GetArguments()[3]))
+            .Should().NotContain(json => json.Contains(Secret), "the check is audited too, without the secret");
     }
 
     [Fact]
@@ -114,5 +219,138 @@ public class AtlassianProviderCardTests : IDisposable
 
         cut.Find("#atlassian-app").ClassList.Should().Contain("provider-step--satisfied");
         cut.Find("#atlassian-app").TextContent.Should().Contain("Ready");
+    }
+
+    [Fact]
+    public void Replace_AsksFirstAndSaysWhatHappensToLinkedPeople_ThenChecksAndSaves()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns(2);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("new-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.Find("#atlassian-app-replace").TextContent.Should().Contain("2 people").And.Contain("keep their links").And.Contain("New sign-ins use the new app");
+        token.Calls.Should().Be(0, "nothing is checked or saved until the replacement is confirmed");
+
+        cut.Find("#atlassian-app-replace-confirm").Click();
+
+        cut.WaitForAssertion(() => credentials.Received(1).SaveAtlassianLinkAppAsync("new-client", Secret, Arg.Any<Guid?>(), Arg.Any<DateTime?>(), Arg.Any<CancellationToken>()));
+    }
+
+    [Fact]
+    public void Cancel_RestoresTheStoredClientIdAndClearsTheSecret()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("typo");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-cancel").Click();
+
+        cut.FindAll("#atlassian-app-client-id").Should().BeEmpty("cancelling closes the edit view");
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").GetAttribute("value").Should().Be("old-client");
+        cut.Find("#atlassian-app-client-secret").GetAttribute("value").Should().BeNullOrEmpty();
+        credentials.DidNotReceiveWithAnyArgs().SaveAtlassianLinkAppAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public void Recheck_Rejected_ShowsFailedAndAnnouncesIt()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
+            new AtlassianLinkAppRegistration("link-client"),
+            new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: false));
+        credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
+        token.Answer(HttpStatusCode.Forbidden, AccessDenied);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-recheck").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-alert").TextContent.Should().Contain("Atlassian rejected the stored client ID or secret"));
+        credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        cut.Find("#atlassian-app").ClassList.Should().Contain("provider-step--failed");
+        cut.Find("#atlassian-app-checked").TextContent.Should().Contain("rejected by Atlassian");
+        cut.Markup.Should().NotContain(Secret);
+    }
+
+    [Fact]
+    public void Recheck_Accepted_AnnouncesItInAStatusRegion()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
+        credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-recheck").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian accepted"));
+        cut.Find("#atlassian-app-status").GetAttribute("role").Should().Be("status");
+        credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", true, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void TurnOffSignIn_IsSeparateFromRemove_AndIsAudited()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
+            new AtlassianLinkAppRegistration("link-client"),
+            new AtlassianLinkAppRegistration("link-client", SignInEnabled: false));
+        credentials.SetAtlassianSignInEnabledAsync(false, Arg.Any<CancellationToken>()).Returns(true);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-sign-in-toggle").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian sign-in is off"));
+        credentials.Received(1).SetAtlassianSignInEnabledAsync(false, Arg.Any<CancellationToken>());
+        credentials.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default);
+        audit.Received(1).LogAsync("provider.sign_in.disabled", "provider", "atlassian", Arg.Any<object?>(), Arg.Any<CancellationToken>());
+        cut.Find("#atlassian-app").ClassList.Should().Contain("provider-step--warning");
+        cut.Find("#atlassian-sign-in-toggle").TextContent.Should().Contain("Turn on Atlassian sign-in");
+    }
+
+    [Fact]
+    public void Remove_NeedsTheClientIdTyped_SaysLinksStay_DeletesAndAudits()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
+        links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns(4);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse")).Click();
+        cut.Markup.Should().Contain("4 people linked an Atlassian account. They keep their links, but nobody can link a new account");
+        var confirm = cut.FindAll("button").Single(b => b.TextContent == "Remove the linking app");
+        confirm.HasAttribute("disabled").Should().BeTrue();
+        cut.Find("input[id^='reset-confirm-']").Input("link-client");
+        cut.FindAll("button").Single(b => b.TextContent == "Remove the linking app").Click();
+
+        cut.WaitForAssertion(() => credentials.Received(1).DeleteAsync("atlassian", Arg.Any<CancellationToken>()));
+        audit.Received(1).LogAsync("provider.credential.deleted", "provider", "atlassian", Arg.Any<object?>(), Arg.Any<CancellationToken>());
+        cut.Find("#atlassian-app-status").TextContent.Should().Contain("nobody can link an account until a new app is added");
+    }
+
+    /// <summary>Atlassian's token endpoint, answering every request one way, or unreachable.</summary>
+    private sealed class TokenEndpoint : HttpMessageHandler
+    {
+        private HttpStatusCode status;
+        private string json = "";
+        private bool unreachable;
+
+        public string? Body { get; private set; }
+        public int Calls { get; private set; }
+
+        public void Answer(HttpStatusCode answerStatus, string answerJson) => (status, json, unreachable) = (answerStatus, answerJson, false);
+
+        public void Unreachable() => unreachable = true;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Calls++;
+            if (unreachable)
+                throw new HttpRequestException("No route to host");
+            Body = await request.Content!.ReadAsStringAsync(ct);
+            return new HttpResponseMessage(status) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
+        }
     }
 }

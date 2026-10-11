@@ -180,6 +180,15 @@ public class ProviderSetupReader(
 
     private const string PostgresGitHubProvider = "github";
 
+    public const string AtlassianNoLinkAppDetail =
+        "Nobody can link an Atlassian account, so Confluence results are hidden from everyone.";
+
+    public const string AtlassianLinkAppRejectedDetail =
+        "Atlassian rejected the client ID or secret when it was last checked, so nobody new can link an account.";
+
+    public const string AtlassianSignInOffDetail =
+        "Atlassian sign-in is turned off. People who linked keep their links; nobody new can link.";
+
     /// <summary>
     /// Whether people can link their Atlassian accounts. Ready once the app is saved: whether nobody
     /// has signed in through it yet says nothing about whether it is set up.
@@ -204,8 +213,15 @@ public class ProviderSetupReader(
 
         if (app is null)
             return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
-                "Nobody can link an Atlassian account, so Confluence results are hidden from everyone.",
-                "Set up", "#atlassian-app");
+                AtlassianNoLinkAppDetail, "Set up", "#atlassian-app");
+
+        if (app.CheckAccepted == false)
+            return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                AtlassianLinkAppRejectedDetail, "Replace the client secret", "#atlassian-app");
+
+        if (!app.SignInEnabled)
+            return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                AtlassianSignInOffDetail, "Turn sign-in on", "#atlassian-app");
 
         // Like an App installed nowhere: fully set up, with its next step on the Connections page.
         return hasSite

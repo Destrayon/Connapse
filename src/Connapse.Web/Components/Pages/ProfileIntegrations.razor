@@ -463,7 +463,7 @@
         gitHubAppExists = gitHubSignInAvailable || await GitHubApp.IsConfiguredAsync();
 
         atlassianIdentity = await AtlassianIdentityLinks.GetAsync(currentUserId);
-        atlassianSignInAvailable = await ProviderCredentials.GetAtlassianLinkAppAsync() is not null;
+        atlassianSignInAvailable = await ProviderCredentials.GetAtlassianLinkAppAsync() is { SignInEnabled: true };
     }
 
     private Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity? atlassianIdentity;
@@ -490,6 +490,8 @@
             "atlassian_link_expired" => "That Atlassian sign-in took too long or was started in another tab. Start it again.",
             "atlassian_link_wrong_user" => "That Atlassian sign-in was started by a different Connapse user, so nothing was linked. Sign in to Connapse as yourself and start again.",
             "atlassian_link_unlinked" => "You disconnected Atlassian while the sign-in was finishing, so nothing was linked. Start it again to link.",
+            "atlassian_sign_in_off" => "Could not connect your Atlassian account: an administrator has turned Atlassian sign-in off. Accounts already linked stay linked.",
+            "atlassian_app_rejected" => "Could not connect your Atlassian account: Atlassian rejected Connapse's linking app. Tell an administrator to replace its client secret under Providers → Atlassian.",
             _ => "Atlassian did not complete the sign-in, so no account was linked. Try again; if it keeps failing, tell an administrator.",
         };
         statusSuccess = false;
