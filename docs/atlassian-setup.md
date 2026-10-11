@@ -100,7 +100,7 @@ In [Atlassian Administration](https://admin.atlassian.com):
    | `read:space:confluence` | Listing the spaces you choose from |
    | `read:page:confluence` | Indexing pages and blog posts |
    | `read:comment:confluence` | Indexing comments |
-   | `read:attachment:confluence` | Indexing attachments |
+   | `read:attachment:confluence` | Indexing attachments (optional: needed only if a source includes attachments) |
    | `read:folder:confluence` | Following folders in the page tree |
    | `read:content-details:confluence` | Reading page restrictions |
    | `read:content.permission:confluence` | Checking what each person may read |
@@ -121,14 +121,20 @@ provider page.
 | Client ID | Yes | The service account's OAuth 2.0 credential, from step 2 |
 | Client secret | Yes | Shown once when the credential is created in step 2. Stored encrypted and never shown again |
 
-**Test and save** checks, in order, that the site exists, that Atlassian accepts the client ID and
-secret, that the credential can read Confluence, that the service account can see at least one space,
-and that it can check another person's access (the admin role). The site is saved only when every check
-passes, named after its host. Any failure names the check that failed; see
-[Troubleshooting](#troubleshooting).
+**Look up site** shows the site's **Cloud ID**, Atlassian's permanent identifier for the site, so you
+can confirm it's the right one before entering the credential.
 
-An existing site can be checked again with **Test connection** without entering the secret. To change
-the site or its credential, delete the connection and add the site again.
+**Test and save** runs five checks in order: **Finding the site**, **Signing in as the service
+account**, **Reading Confluence**, **Listing spaces**, and **Checking access permissions** (the admin
+role). The site is saved when every check passes, named after its host. A failure names the check, says
+what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Show details** shows
+Atlassian's own answer. If the test fails, the secret is kept for your next attempt. A brand-new site
+with no pages or no other users can be saved with **Save anyway**.
+
+A saved site shows its status and when it was last checked. **Test connection** checks it again
+without entering the secret. **Replace credentials** tests a new client ID and secret and switches to
+them only if the test passes, so the site's sources keep working. A site whose credential stops
+working is marked **Needs new credentials**. Deleting a site requires typing its name.
 
 ## 4. Confluence sources
 
@@ -159,11 +165,12 @@ https://your-site.atlassian.net.*
 
 ### Client ID or secret rejected
 
-**Symptom:** *Atlassian rejected the client ID or secret.*
+**Symptom:** *Atlassian rejected the client ID or secret.* while **Signing in as the service account**,
+or a site marked **Needs new credentials** on the Connections page after its credential stopped working.
 **Likely cause:** the values were swapped or partly copied, they come from the linking app instead of
-the service account, or the credential was deleted.
+the service account, or the credential was deleted or revoked.
 **Fix:** in Atlassian Administration, open the service account, create a new OAuth 2.0 credential (step
-2.4), and paste both values again.
+2.4), and enter both values. For a saved site, use **Replace credentials**; its sources keep working.
 
 ### Can't read Confluence
 
@@ -171,12 +178,12 @@ the service account, or the credential was deleted.
 **Likely cause:** the service account has no Confluence role on this site, or the credential was created
 without the Confluence scopes.
 **Fix:** set Confluence to its admin role on the service account (step 2.2). If it already has it,
-create a new credential with all seven scopes (step 2.4).
+create a new credential with the scopes in step 2.4.
 
 ### No Confluence access or no spaces
 
-**Symptom:** *The service account has no Confluence access.* on the site check, or *This site has no
-spaces the service account can see.* in the New source dialog.
+**Symptom:** *The service account can't see any Confluence space.* while **Listing spaces**, or *This
+site has no spaces the service account can see.* in the New source dialog.
 **Likely cause:** the service account has not been given view access to any space. Admin rights do not
 include it.
 **Fix:** give the service account the **Viewer** role in each space you want to index (step 2.3), then
@@ -184,8 +191,8 @@ test again or reopen the dialog.
 
 ### Not Confluence Administrator
 
-**Symptom:** *The service account isn't Confluence Administrator; Connapse can't check other users'
-access without it.*
+**Symptom:** *The service account isn't Confluence Administrator, so Connapse can't check what other
+people may read.* while **Checking access permissions**.
 **Likely cause:** the service account's Confluence role is not the admin role.
 **Fix:** in Atlassian Administration, under **Directory** → **Service accounts**, set its Confluence
 role to admin, or add it to the site's Confluence admin group under **Directory** → **Groups**. Then
@@ -193,20 +200,22 @@ test again. If the role is already admin, see [Missing scope](#missing-scope).
 
 ### Missing scope
 
-**Symptom:** *The service account can't list pages. Check that its app has the read:page:confluence
-scope.*, or the admin check fails although the role is already admin.
-**Likely cause:** the credential was created without one of the seven scopes. A missing
-`read:content.permission:confluence` makes the access check fail the same way a missing admin role does.
+**Symptom:** *The credential is missing the read:content.permission:confluence scope, so Connapse can't
+check what other people may read.* while **Checking access permissions**, or *The credential can't read
+Confluence on this site.* although the service account has a Confluence role.
+**Likely cause:** the credential was created without one of the scopes in step 2.4.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
-search and tick all seven (step 2.4), then add the site with the new client ID and secret.
+search and tick each one (step 2.4), then use **Replace credentials** on the site with the new client ID
+and secret.
 
 ### Site has no pages or no other users yet
 
 **Symptom:** *This site has no pages yet…* or *The site has no user other than the service account…*
 **Likely cause:** the admin check asks Confluence whether another person can read a page, so it needs
 at least one page the service account can view and one other user.
-**Fix:** create a page in a space the service account can view, or invite one more user to the site,
-then test again.
+**Fix:** choose **Save anyway** to save the site now; it is marked with a warning until the check can
+run. Then create a page in a space the service account can view, or invite one more user to the site,
+and choose **Test connection**.
 
 ### Linking app rejected
 
