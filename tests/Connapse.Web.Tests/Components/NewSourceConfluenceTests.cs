@@ -169,6 +169,85 @@ public class NewSourceConfluenceTests : IDisposable
     }
 
     [Fact]
+    public void Create_NothingSelected_ShowsTheErrorInsideTheSpacesGroupNotAtTheTop()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces #confluence-spaces-error").TextContent
+            .Should().Contain(ConfluenceSpaceSelection.NoSpaceChosen));
+        cut.Find("#confluence-spaces").GetAttribute("aria-describedby").Should().Contain("confluence-spaces-error");
+        cut.FindAll(".confluence-space-option").Should().OnlyContain(e => e.GetAttribute("aria-invalid") == "true");
+        cut.FindAll(".modal-body > .alert-danger").Should().BeEmpty();
+
+        cut.Find("#space-100").Change(true);
+
+        cut.FindAll("#confluence-spaces-error").Should().BeEmpty();
+        cut.Find("#space-100").HasAttribute("aria-invalid").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Dialog_GroupsAreFieldsetsWithLegendsAndHelpIsLinkedToItsControl()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+
+        var spaces = cut.Find("fieldset#confluence-spaces");
+        spaces.QuerySelector("legend")!.TextContent.Trim().Should().Be("Spaces");
+        spaces.GetAttribute("aria-describedby").Should().Be("confluence-spaces-help");
+        cut.Find("#confluence-spaces-help a").GetAttribute("href").Should().Be(
+            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
+
+        cut.Find("fieldset#confluence-attachments-group legend").TextContent.Trim().Should().Be("Attachments");
+        cut.Find("#confluence-personal").GetAttribute("aria-describedby").Should().Be("confluence-personal-help");
+        cut.Find("#confluence-attachments").GetAttribute("aria-describedby").Should().Be("confluence-attachments-help");
+
+        var size = cut.Find("#confluence-max-attachment-mb");
+        size.GetAttribute("min").Should().Be("1");
+        size.GetAttribute("max").Should().Be("100");
+        size.GetAttribute("aria-describedby").Should().Be("confluence-max-attachment-mb-help");
+        cut.Find("#confluence-max-attachment-mb-help").TextContent.Should().Contain("1 to 100 MB");
+    }
+
+    [Fact]
+    public void MaxAttachmentSize_OutOfRange_IsFlaggedBesideTheFieldBeforeSubmitAndBlocksCreate()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+        cut.Find("#space-100").Change(true);
+
+        cut.Find("#confluence-max-attachment-mb").Change("500");
+
+        var size = cut.Find("#confluence-max-attachment-mb");
+        size.GetAttribute("aria-invalid").Should().Be("true");
+        size.ClassList.Should().Contain("is-invalid");
+        size.GetAttribute("aria-describedby").Should().Contain("confluence-max-attachment-mb-error");
+        cut.Find("#confluence-max-attachment-mb-error").TextContent.Should().Contain("between 1 and 100 MB");
+
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+        created.Should().BeEmpty();
+
+        // Turning attachments off makes the size irrelevant, so the error goes.
+        cut.Find("#confluence-attachments").Change(false);
+        cut.FindAll("#confluence-max-attachment-mb-error").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Create_OnlySelectedSpaceIsNotOnTheConnection_ShowsTheErrorBesideTheSpaces()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+        cut.Find("#space-100").Change(true);
+
+        stub.SiteASpaces = """{"results":[{"id":"200","key":"HB","name":"Handbook","type":"global"}]}""";
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces-error").TextContent.Should().Contain("Not spaces on this site: Engineering"));
+    }
+
+    [Fact]
     public void Dialog_SpaceThatAlreadyHasASource_IsNotOfferedAgain()
     {
         sources.ListByConnectionAsync(connection.Id, Arg.Any<CancellationToken>())

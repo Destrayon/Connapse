@@ -3,37 +3,43 @@
 
 @* The Confluence part of the New source dialog: the site's spaces to tick, and what to read from each. *@
 
-<div class="mb-3" id="confluence-spaces">
-    <div class="d-flex justify-content-between align-items-center mb-1">
-        <label class="form-label mb-0">Spaces</label>
-        <div class="form-check mb-0">
-            <input id="confluence-personal" type="checkbox" class="form-check-input" checked="@Selection.IncludePersonal"
-                   disabled="@loading" @onchange="OnPersonalChanged" />
-            <label for="confluence-personal" class="form-check-label small">Include personal spaces</label>
+<fieldset class="mb-3" id="confluence-spaces" aria-describedby="@SpacesDescribedBy">
+    <legend class="form-label fs-6 mb-1">@ConfluenceSpaceSelection.SpacesLabel</legend>
+    <div class="form-check mb-2">
+        <input id="confluence-personal" type="checkbox" class="form-check-input" checked="@Selection.IncludePersonal"
+               disabled="@loading" aria-describedby="confluence-personal-help" @onchange="OnPersonalChanged" />
+        <label for="confluence-personal" class="form-check-label">@ConfluenceSpaceSelection.IncludePersonalLabel</label>
+        <div id="confluence-personal-help" class="form-text mt-0">
+            Also list people's own personal spaces, not only the site's team spaces.
         </div>
     </div>
 
     @if (loading)
     {
-        <div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span> Loading spaces...</div>
+        <div class="text-muted small" role="status">
+            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Loading spaces...
+        </div>
     }
     else if (loadError is not null)
     {
-        <div class="alert alert-danger py-2 small mb-0" role="alert">@loadError</div>
+        <div class="alert alert-danger py-2 small mb-0" role="alert">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>@loadError
+        </div>
     }
     else if (Selection.Available.Count == 0)
     {
-        <div class="text-muted small">This site has no spaces the service account can see.</div>
+        <div class="text-muted small" role="status">This site has no spaces the service account can see.</div>
     }
     else
     {
-        <div class="border rounded p-2" style="max-height: 16rem; overflow-y: auto;">
+        <div class="border rounded p-2 @(Selection.SpacesError is null ? "" : "border-danger")" style="max-height: 16rem; overflow-y: auto;">
             @foreach (var space in Selection.Available)
             {
                 bool exists = ExistingSpaceIds.Contains(space.Id);
                 <div class="form-check">
-                    <input id="space-@space.Id" type="checkbox" class="form-check-input confluence-space-option"
+                    <input id="space-@space.Id" type="checkbox" class="form-check-input confluence-space-option @(Selection.SpacesError is null ? "" : "is-invalid")"
                            checked="@Selection.Selected.Contains(space.Id)" disabled="@exists"
+                           aria-invalid="@(Selection.SpacesError is null ? null : "true")"
                            @onchange="e => Toggle(space.Id, (bool)(e.Value ?? false))" />
                     <label for="space-@space.Id" class="form-check-label">
                         @space.Name <span class="text-muted small">(@space.Key)</span>
@@ -45,23 +51,46 @@
                 </div>
             }
         </div>
-        <div class="form-text">
-            One source is created per space, named after the site and the space. Only spaces the site's service account
-            can view are listed; if one is missing, give the service account the Viewer role in that space's
-            Space settings &rarr; Users.
+    }
+    @if (Selection.SpacesError is { } spacesError)
+    {
+        <div id="confluence-spaces-error" class="invalid-feedback d-block fw-semibold" role="alert">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>@spacesError
         </div>
     }
-</div>
+    <div id="confluence-spaces-help" class="form-text">
+        One source is created per space, named after the site and the space. Only spaces the site's service account
+        can view are listed. If one is missing, give the service account the Viewer role in that space:
+        <a href="@ConfluenceSpaceSelection.GuideUrl" target="_blank" rel="noopener">see Confluence sources in the setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
+    </div>
+</fieldset>
 
-<fieldset>
+<fieldset id="confluence-attachments-group">
+    <legend class="form-label fs-6 mb-1">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
     <div class="form-check">
-        <input id="confluence-attachments" type="checkbox" class="form-check-input" @bind="Selection.IncludeAttachments" />
-        <label for="confluence-attachments" class="form-check-label">Include attachments</label>
+        <input id="confluence-attachments" type="checkbox" class="form-check-input" aria-describedby="confluence-attachments-help"
+               @bind="Selection.IncludeAttachments" @bind:after="AttachmentsChanged" />
+        <label for="confluence-attachments" class="form-check-label">@ConfluenceSpaceSelection.IncludeAttachmentsLabel</label>
+        <div id="confluence-attachments-help" class="form-text mt-0">
+            Index files attached to pages, such as PDFs and Word documents. Comments and blog posts are always included.
+        </div>
     </div>
     <div class="ms-4 mb-0">
-        <label class="form-label small" for="confluence-max-attachment-mb">Max attachment size (MB)</label>
-        <input id="confluence-max-attachment-mb" type="number" class="form-control form-control-sm" min="1" style="max-width: 8rem;"
-               disabled="@(!Selection.IncludeAttachments)" @bind="Selection.MaxAttachmentMb" />
+        <label class="form-label small" for="confluence-max-attachment-mb">@ConfluenceSpaceSelection.MaxAttachmentMbLabel</label>
+        <input id="confluence-max-attachment-mb" type="number" class="form-control form-control-sm @(Selection.MaxAttachmentMbError is null ? "" : "is-invalid")"
+               min="@ConfluenceSpaceSelection.MinAttachmentMb" max="@ConfluenceSpaceSelection.MaxAttachmentMbLimit" style="max-width: 8rem;"
+               aria-describedby="@MaxSizeDescribedBy" aria-invalid="@(Selection.MaxAttachmentMbError is null ? null : "true")"
+               disabled="@(!Selection.IncludeAttachments)"
+               @bind="Selection.MaxAttachmentMb" @bind:after="ValidateMaxSize" @onblur="ValidateMaxSize" />
+        @if (Selection.MaxAttachmentMbError is { } sizeError)
+        {
+            <div id="confluence-max-attachment-mb-error" class="invalid-feedback d-block fw-semibold" role="alert">
+                <span class="bi-x-circle me-1" aria-hidden="true"></span>@sizeError
+            </div>
+        }
+        <div id="confluence-max-attachment-mb-help" class="form-text">
+            @ConfluenceSpaceSelection.MinAttachmentMb to @ConfluenceSpaceSelection.MaxAttachmentMbLimit MB. Larger attachments are skipped.
+        </div>
     </div>
 </fieldset>
 
@@ -97,7 +126,28 @@
     {
         if (on) Selection.Selected.Add(id);
         else Selection.Selected.Remove(id);
+
+        // An error shown for an empty choice goes away once a space is ticked; any other stays until the next submit.
+        if (Selection.Selected.Count > 0 && Selection.SpacesError == ConfluenceSpaceSelection.NoSpaceChosen)
+            Selection.SpacesError = null;
     }
+
+    private void ValidateMaxSize() => Selection.ValidateMaxAttachmentMb();
+
+    // Turning attachments off makes the size irrelevant, so an error about it is cleared; turning them on re-checks it.
+    private void AttachmentsChanged()
+    {
+        if (Selection.MaxAttachmentMbError is not null || !Selection.IncludeAttachments)
+            Selection.ValidateMaxAttachmentMb();
+    }
+
+    private string SpacesDescribedBy =>
+        Selection.SpacesError is null ? "confluence-spaces-help" : "confluence-spaces-error confluence-spaces-help";
+
+    private string MaxSizeDescribedBy =>
+        Selection.MaxAttachmentMbError is null
+            ? "confluence-max-attachment-mb-help"
+            : "confluence-max-attachment-mb-error confluence-max-attachment-mb-help";
 
     private int generation;
 

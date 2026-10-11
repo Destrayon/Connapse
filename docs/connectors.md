@@ -40,12 +40,15 @@ A connection holds **how to authenticate** and **what the credential is allowed 
 
 Connections are created and edited on the **Connections** page, by administrators, in the UI only. There is no REST route for them, and that is deliberate: see [Why connections are UI-only](#why-connections-are-ui-only).
 
+An **Atlassian site** is the one exception: `POST /api/v1/atlassian/sites` adds one, but only after the same checks the Connections page runs all pass, so it cannot introduce a credential Connapse has not confirmed. See [API reference](api.md#atlassian-sites).
+
 ### No stored cloud credentials
 
 There is no secret field on a connection form, because Connapse does not accept pasted cloud keys.
 
 - **S3** authenticates as the identity set up on the AWS provider page (IAM Roles Anywhere, short-lived credentials from a locally generated certificate), or through the AWS default credential chain when nothing is stored there. `roleArn` optionally names a role to assume on top of that. See [AWS Setup](aws-setup.md).
 - **GitHub** reads as an installation of the GitHub App set up on the GitHub provider page, with hour-long installation tokens. A connection only names which installation. See [GitHub Setup](github-setup.md).
+- **Atlassian** reads a Confluence Cloud site as an Atlassian **service account**, with short-lived tokens minted from its OAuth 2.0 client credentials. The client secret is stored encrypted and never returned. Atlassian offers no keyless alternative for a self-hosted reader. See [Atlassian Setup](atlassian-setup.md).
 - **Filesystem** has no credential at all; it runs as whatever account the server runs as.
 - **SFTP** is the one exception, and it is a narrow one: an SSH private key, encrypted at rest with the same DataProtection machinery everything else uses. The rule this does not break is about **cloud identities** — an AWS access key is a credential a cloud provider already offers a better answer for, and Connapse refuses to be the worse one. An SSH key for a machine you run has no such alternative.
 
@@ -108,6 +111,32 @@ A GitHub source's scope names one repository and what to read from it. Connapse 
 ```
 
 `kind` is `Docs` or `IssuesAndPullRequests`. A `Docs` scope takes `includePatterns` (file-name globs; empty means `*.md` and `*.markdown`) instead of the comment keys.
+
+**Atlassian**
+
+The connection is written by Connapse when the site passes its checks; there is nothing to type into it.
+
+```json
+{
+  "siteUrl": "https://acme.atlassian.net",
+  "cloudId": "11111111-2222-3333-4444-555555555555",
+  "clientId": "…"
+}
+```
+
+A Confluence source's scope names one space. Connapse checks `spaceId` against the spaces the site's service account can view, from the New source dialog or the API, and writes `spaceKey` from Atlassian's answer; a space it cannot see, or one that already has a source on the connection, is refused.
+
+```json
+{
+  "kind": "confluence-space",
+  "spaceId": "98306",
+  "spaceKey": "ENG",
+  "includeAttachments": true,
+  "maxAttachmentMb": 25
+}
+```
+
+`includeAttachments` defaults to `true` and `maxAttachmentMb` to 25; `maxAttachmentMb` must be 1 to 100. Space ids come from `GET /api/v1/atlassian/sites/{connectionId}/spaces`.
 
 `hostKeyFingerprint` is not typed. Connapse records it on the first successful connection and refuses every later one that does not match — see [Host keys](#host-keys).
 
@@ -197,6 +226,8 @@ Scope keys by provider:
 | S3 | `bucketName`, `prefix` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
 | SFTP | `subPath`, `includePatterns`, `excludePatterns` |
+| GitHub | `owner`, `repo`, `kind`, `includePatterns`, `includeComments` |
+| Atlassian | `spaceId`, `includeAttachments`, `maxAttachmentMb` |
 
 ### API
 
