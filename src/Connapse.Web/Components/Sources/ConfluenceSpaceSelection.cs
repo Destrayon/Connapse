@@ -12,8 +12,27 @@ namespace Connapse.Web.Components.Sources;
 public sealed class ConfluenceSpaceSelection
 {
     public const int DefaultMaxAttachmentMb = 25;
+    public const int MinAttachmentMb = 1;
+    public const int MaxAttachmentMbLimit = Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling;
     private const int MaxSourceName = 128;
-    private const int MaxAttachmentMbLimit = Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling;
+
+    /// <summary>Where the setup guide explains every field of this form.</summary>
+    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources";
+
+    public const string SpacesLabel = "Spaces";
+    public const string IncludePersonalLabel = "Include personal spaces";
+    public const string AttachmentsLabel = "Attachments";
+    public const string IncludeAttachmentsLabel = "Include attachments";
+    public const string MaxAttachmentMbLabel = "Max attachment size (MB)";
+
+    /// <summary>The labels the form shows, which the setup guide must name.</summary>
+    public static readonly IReadOnlyList<string> FieldLabels =
+        [SpacesLabel, IncludePersonalLabel, IncludeAttachmentsLabel, MaxAttachmentMbLabel];
+
+    public const string NoSpaceChosen = "Choose at least one space.";
+
+    public static string AttachmentRangeError =>
+        $"Max attachment size must be between {MinAttachmentMb} and {MaxAttachmentMbLimit} MB.";
 
     /// <summary>The spaces the site offers, as last listed.</summary>
     public IReadOnlyList<ConfluenceSpaceInfo> Available { get; set; } = [];
@@ -27,13 +46,27 @@ public sealed class ConfluenceSpaceSelection
 
     public int MaxAttachmentMb { get; set; } = DefaultMaxAttachmentMb;
 
+    /// <summary>The problem with the space list, shown next to it; null when there is none.</summary>
+    public string? SpacesError { get; set; }
+
+    /// <summary>The problem with the max attachment size, shown next to it; null when there is none.</summary>
+    public string? MaxAttachmentMbError { get; set; }
+
+    /// <summary>Checks the max attachment size alone, as when the field loses focus.</summary>
+    public bool ValidateMaxAttachmentMb()
+    {
+        MaxAttachmentMbError = IncludeAttachments && MaxAttachmentMb is < MinAttachmentMb or > MaxAttachmentMbLimit
+            ? AttachmentRangeError
+            : null;
+        return MaxAttachmentMbError is null;
+    }
+
+    /// <summary>Checks every field, setting each one's error; returns the first error, or null when all are valid.</summary>
     public string? Validate()
     {
-        if (Selected.Count == 0)
-            return "Choose at least one space.";
-        if (IncludeAttachments && MaxAttachmentMb is < 1 or > MaxAttachmentMbLimit)
-            return $"Max attachment size must be between 1 and {MaxAttachmentMbLimit} MB.";
-        return null;
+        SpacesError = Selected.Count == 0 ? NoSpaceChosen : null;
+        ValidateMaxAttachmentMb();
+        return SpacesError ?? MaxAttachmentMbError;
     }
 
     public static string ScopeJson(ConfluenceSpaceInfo space, bool includeAttachments, int maxAttachmentMb) =>

@@ -1110,16 +1110,14 @@
     {
         if (confluenceForm is null) return;
 
-        if (confluenceForm.Validate() is { } invalid)
-        {
-            createError = invalid;
+        // Every problem here is shown beside the field it is about, not at the top of the dialog.
+        if (confluenceForm.Validate() is not null)
             return;
-        }
 
         var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
         if (site is null)
         {
-            createError = $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.";
+            confluenceForm.SpacesError = $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.";
             return;
         }
 
@@ -1135,7 +1133,7 @@
             var onSite = await AtlassianSites.ListSpacesAsync(connection.Id, includePersonal: true);
             if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
             {
-                createError = onSite.Error ?? "Could not check the chosen spaces against this site. Try again.";
+                confluenceForm.SpacesError = onSite.Error ?? "Could not check the chosen spaces against this site. Try again.";
                 return;
             }
 
@@ -1143,7 +1141,7 @@
             var requests = verified.ToRequests(connection.Id, new Uri(site.SiteUrl).Host, existing, out var skipped);
             if (refused.Count > 0 && requests.Count == 0 && skipped.Count == 0)
             {
-                createError = $"Nothing added. Not spaces on this site: {string.Join(", ", refused)}.";
+                confluenceForm.SpacesError = $"Nothing added. Not spaces on this site: {string.Join(", ", refused)}.";
                 return;
             }
 
@@ -1165,10 +1163,10 @@
 
             if (created.Count == 0)
             {
-                createError = "Nothing added. "
+                confluenceForm.SpacesError = ("Nothing added. "
                     + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
                     + (refused.Count > 0 ? $"Not spaces on this site: {string.Join(", ", refused)}. " : "")
-                    + string.Join(" ", failed);
+                    + string.Join(" ", failed)).TrimEnd();
                 return;
             }
 
@@ -1184,7 +1182,8 @@
         catch (Exception ex)
         {
             // An exception escaping a Blazor event handler tears down the circuit.
-            createError = $"Could not add the spaces. {ex.Message}";
+            if (confluenceForm is not null)
+                confluenceForm.SpacesError = $"Could not add the spaces. {ex.Message}";
         }
         finally
         {
