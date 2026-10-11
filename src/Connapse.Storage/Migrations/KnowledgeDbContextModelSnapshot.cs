@@ -226,6 +226,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by_user_id");
 
+                    b.Property<string>("HealthJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("health");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(128)

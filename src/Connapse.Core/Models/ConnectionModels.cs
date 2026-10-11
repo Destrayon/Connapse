@@ -17,18 +17,59 @@ public record Connection(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     bool HasSecret = false,
-    int SourceCount = 0);
+    int SourceCount = 0,
+    ConnectionHealth? Health = null);
+
+/// <summary>
+/// The outcome of the last check of a connection's credential, from a test or from a sync.
+/// Never carries a secret or a token: <see cref="Message"/> is the text shown to an admin.
+/// </summary>
+/// <param name="CheckedAt">When the check ran (UTC).</param>
+/// <param name="Succeeded">Every probe passed.</param>
+/// <param name="Step">The probe that failed, or null when it passed.</param>
+/// <param name="Message">What the check found, as shown to an admin.</param>
+/// <param name="Origin">What ran the check: <c>test</c> or <c>sync</c>.</param>
+/// <param name="CredentialRejected">The provider refused the stored credential: it needs replacing.</param>
+/// <param name="Warning">The check could not finish for a reason that is not a fault (a site with no pages yet).</param>
+/// <param name="LastSucceededAt">The last check that passed, carried forward by the store across failures.</param>
+/// <param name="ConfirmedScopes">The permissions the last passing check confirmed the credential has.</param>
+public record ConnectionHealth(
+    DateTime CheckedAt,
+    bool Succeeded,
+    string? Step,
+    string? Message,
+    string Origin,
+    bool CredentialRejected = false,
+    bool Warning = false,
+    DateTime? LastSucceededAt = null,
+    IReadOnlyList<string>? ConfirmedScopes = null);
 
 public record CreateConnectionRequest(
     string Name,
     ConnectionProvider Provider,
     string? ConfigJson = null,
-    string? Secret = null);
+    string? Secret = null)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, Provider = {Provider}, ConfigJson = {ConfigJson}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}
 
 public record UpdateConnectionRequest(
     string? Name = null,
     string? ConfigJson = null,
-    string? Secret = null);
+    string? Secret = null)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, ConfigJson = {ConfigJson}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}
 
 /// <summary>
 /// Thrown when a stored connection secret exists but cannot be decrypted — in practice,

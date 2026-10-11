@@ -547,6 +547,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.UpdatedAt)
                 .HasColumnName("updated_at");
 
+            entity.Property(e => e.HealthJson)
+                .HasColumnName("health")
+                .HasColumnType("jsonb");
+
             entity.HasIndex(e => e.Name)
                 .IsUnique()
                 .HasDatabaseName("ix_connections_name");

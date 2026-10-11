@@ -41,6 +41,11 @@
     cloud credential, which this project does not accept over an API. See
     docs/research/programmatic-source-configuration-safety-2026-08-17.md.
 
+    The one exception is an Atlassian site, whose service-account credential is a secret Connapse
+    must hold. /api/v1/atlassian/sites (admin only) adds a site, re-tests it and replaces its
+    credential through AtlassianSiteService, the same service this page uses, so the REST routes
+    run exactly the tests this page runs before anything is saved, and never return the secret.
+
     RequireAdmin matches that: a connection names a filesystem root or a cloud identity, and
     every source built on it inherits that reach.
 *@
@@ -449,17 +454,18 @@
                                         }
                                         else if (c.Provider == ConnectionProvider.Atlassian)
                                         {
-                                            @if (c.HasSecret)
+                                            var siteStatus = AtlassianSiteStatus.Of(c);
+                                            <div class="text-muted">Service account (OAuth client credentials)</div>
+                                            <div class="@siteStatus.CssClass" data-site-status="@c.Id">
+                                                <span class="@siteStatus.Icon me-1" aria-hidden="true"></span>@siteStatus.Text
+                                                @if (c.Health?.LastSucceededAt is { } lastOk)
+                                                {
+                                                    <span class="text-muted">(last successful check @AtlassianSiteStatus.When(lastOk))</span>
+                                                }
+                                            </div>
+                                            @if (siteStatus.NeedsNewCredentials)
                                             {
-                                                <span class="text-success" title="Encrypted at rest; never shown again">
-                                                    <span class="bi-key-fill me-1"></span>Service account (OAuth client credentials)
-                                                </span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-danger" title="This site cannot authenticate; delete it and add the site again">
-                                                    <span class="bi-exclamation-triangle me-1"></span>No service account secret
-                                                </span>
+                                                <button type="button" class="btn btn-sm btn-link p-0" @onclick="() => StartEdit(c)">Replace credentials</button>
                                             }
                                         }
                                         else if (c.HasSecret)
@@ -506,7 +512,9 @@
                                                 @(paused ? "Resume syncing" : "Pause syncing")
                                             </button>
                                         }
-                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
+                                        <span class="border-start ms-2 ps-2">
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
+                                        </span>
                                     </td>
                                 </tr>
                             }
@@ -949,7 +957,8 @@
             @* Added and re-tested through AtlassianSiteService, so a site that fails a probe is never
                saved. The people who may read it are linked on the Atlassian provider page. *@
             <div class="w-100" aria-hidden="true"></div> @* the form's width cap would otherwise let it sit beside Provider *@
-            <AtlassianConnectionForm Existing="@(isNew ? null : editing)" OnCreated="AtlassianSiteCreatedAsync" OnCancel="CancelEdit" />
+            <AtlassianConnectionForm Existing="@(isNew ? null : editing)" OnCreated="AtlassianSiteCreatedAsync"
+                                     OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit" />
         }
         else
         {
@@ -1255,7 +1264,7 @@
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                 }
-                <span>@(isNew ? "Create connection" : "Save changes")</span>
+                <span>@(isNew ? "Create connection" : form.Provider == ConnectionProvider.Atlassian ? "Save name" : "Save changes")</span>
             </button>
             <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
             @if (form.IsCloudProvider || form.Provider is ConnectionProvider.Sftp or ConnectionProvider.GitHub)
@@ -1363,14 +1372,26 @@
                 </div>
                 <div class="modal-body">
                     <p>Delete <strong>@pendingDelete.Name</strong>?</p>
-                    <p class="text-muted small mb-0">
+                    <p class="text-muted small" id="delete-connection-consequence">
                         No source uses it, so nothing stops syncing. What it points at is untouched;
-                        only Connapse's record of how to reach it is removed. This cannot be undone.
+                        only Connapse's record of how to reach it is removed@(pendingDelete.HasSecret ? ", including its stored credential" : "").
+                        This cannot be undone.
+                        @if (pendingDelete.Provider == ConnectionProvider.Atlassian)
+                        {
+                            <text>The service account and its credential stay in Atlassian: delete them in Atlassian Administration if nothing else uses them.</text>
+                        }
                     </p>
+                    <label class="form-label small" for="delete-connection-confirm">
+                        Type <strong>@pendingDelete.Name</strong> to confirm
+                    </label>
+                    <input id="delete-connection-confirm" class="form-control form-control-sm" autocomplete="off"
+                           aria-describedby="delete-connection-consequence"
+                           @bind="deleteConfirmText" @bind:event="oninput" />
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingDelete = null">Cancel</button>
-                    <button class="btn btn-danger" @onclick="DeleteConfirmed">Delete connection</button>
+                    <button id="delete-connection-submit" class="btn btn-danger" disabled="@(deleteConfirmText?.Trim() != pendingDelete.Name)"
+                            @onclick="DeleteConfirmed">Delete connection</button>
                 </div>
             </div>
         </div>
@@ -1424,6 +1445,7 @@
 
     /// <summary>The connection whose deletion is awaiting confirmation.</summary>
     private Connection? pendingDelete;
+    private string? deleteConfirmText;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1578,9 +1600,19 @@
 
     private async Task AtlassianSiteCreatedAsync(Connection created)
     {
-        Succeed($"Atlassian site '{created.Name}' added. Add a source on it to start indexing.");
+        string unconfirmed = created.Health is { Warning: true }
+            ? " Administrator access isn't confirmed yet: test the site again once it has a page and another user."
+            : "";
+        Succeed($"Atlassian site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
         statusLink = ("Add a source", $"/sources?new={created.Id}");
         editing = null;
+        await LoadAsync();
+    }
+
+    private async Task AtlassianSiteUpdatedAsync(Connection updated)
+    {
+        Succeed($"Credentials for '{updated.Name}' replaced. Its sources sync with the new credential.");
+        editing = updated;
         await LoadAsync();
     }
 
@@ -2503,13 +2535,15 @@
             return;
         }
 
+        deleteConfirmText = null;
         pendingDelete = connection;
     }
 
     private async Task DeleteConfirmed()
     {
-        if (pendingDelete is not { } connection) return;
+        if (pendingDelete is not { } connection || deleteConfirmText?.Trim() != connection.Name) return;
         pendingDelete = null;
+        deleteConfirmText = null;
 
         try
         {

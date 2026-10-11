@@ -12,6 +12,7 @@ public class ConnectionEntity
     public Guid? CreatedByUserId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public string? HealthJson { get; set; } // JSONB: the last credential check (ConnectionHealth), never a secret
 
     // Navigation properties
     public List<SourceEntity> Sources { get; set; } = [];

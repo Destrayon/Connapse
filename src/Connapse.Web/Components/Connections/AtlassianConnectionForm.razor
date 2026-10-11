@@ -1,69 +1,207 @@
 @using System.Security.Claims
 @using System.Text.Json
 @using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.ConnectionTesters
+@using Connapse.Storage.Connectors.Atlassian
 @using Connapse.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @inject AtlassianSiteService Sites
+@inject IConnectionStore Store
 @inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject ILogger<AtlassianConnectionForm> Logger
 
 @*
     An Atlassian site as a connection: its address and the service account Connapse reads it as.
-    A new site is saved only after every probe passes, so a saved site is one Connapse can use. The
-    client secret goes to the connection store and is cleared from the form before any probe runs;
-    it is never rendered back. An existing site's config is never edited here: it can only be
-    tested again with its stored secret.
+    A new site is saved only after every probe passes (or, when the only gap is a site with nothing
+    to check administrator access against yet, after the admin chooses to save anyway), so a saved
+    site is one Connapse can use. A saved site can be tested again with its stored secret, and its
+    credential replaced in place: the new one is tested first and stored only if it passes.
+
+    The secret is never rendered back. After a failed test it is kept, outside every bound field,
+    so the admin can retry without pasting it again (Atlassian shows it only once); it is dropped
+    once a save succeeds or the admin clears it.
 *@
 
-@if (Existing is { } site)
-{
-    <div class="col-12" style="max-width:40rem">
+<div class="col-12" style="max-width:40rem">
+    <p class="small mb-2" id="atlassian-setup-guide">
+        <span class="bi-book me-1" aria-hidden="true"></span>
+        Every field, where to find it, and what each error means are in the
+        <a href="@AtlassianSiteFieldSpecs.SiteConnectionSection" target="_blank" rel="noopener">Atlassian setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
+    </p>
+
+    @if (PlainHttp)
+    {
+        <div class="alert alert-warning py-2 small" role="note" id="atlassian-http-warning">
+            <span class="bi-unlock me-1" aria-hidden="true"></span>
+            This page is served over plain HTTP, so a client secret entered here crosses the network unencrypted.
+            Serve Connapse over HTTPS before entering one.
+        </div>
+    }
+
+    @if (current is { } site)
+    {
+        AtlassianSiteStatus status = AtlassianSiteStatus.Of(site);
         <dl class="small mb-2" id="atlassian-site-details">
             <dt>Site</dt>
             <dd>@SiteUrlOf(site)</dd>
             <dt>Cloud ID</dt>
-            <dd><code>@ConfigValue(site, "cloudId")</code></dd>
+            <dd>
+                <code>@ConfigValue(site, "cloudId")</code>
+                <div class="text-muted">Atlassian's own ID for the site, looked up from its address.</div>
+            </dd>
             <dt>Service account client ID</dt>
             <dd><code>@ConfigValue(site, "clientId")</code></dd>
+            <dt>Status</dt>
+            <dd id="atlassian-site-status" class="@status.CssClass">
+                <span class="@status.Icon me-1" aria-hidden="true"></span>@status.Text
+            </dd>
+            <dt>Last successful check</dt>
+            <dd id="atlassian-site-last-success">@AtlassianSiteStatus.When(site.Health?.LastSucceededAt)</dd>
+            @if (site.Health is { } health)
+            {
+                <dt>Last check</dt>
+                <dd id="atlassian-site-last-check">
+                    @AtlassianSiteStatus.When(health.CheckedAt)@(health.Origin == "sync" ? ", while syncing" : ""):
+                    @if (health.Succeeded)
+                    {
+                        <text>passed.</text>
+                    }
+                    else
+                    {
+                        <text>@AtlassianConnectionTester.StepLabel(health.Step) did not pass. @health.Message</text>
+                    }
+                </dd>
+            }
         </dl>
-        <p class="small text-muted mb-2">
-            The client secret is stored encrypted and never shown. To change the site or its service account,
-            delete this connection and add the site again.
-        </p>
-        <button type="button" id="atlassian-retest" class="btn btn-sm btn-info" disabled="@retesting" @onclick="RetestAsync">
-            @if (retesting)
-            {
-                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Testing…</span>
-            }
-            else
-            {
-                <span class="bi-plug me-1" aria-hidden="true"></span><span>Test connection</span>
-            }
-        </button>
-        @if (retest is { } result)
+
+        @if (status.NeedsNewCredentials)
         {
-            <div id="atlassian-retest-result" class="alert @(result.Success ? "alert-success" : "alert-danger") py-2 mt-2 mb-0 small"
-                 role="@(result.Success ? "status" : "alert")">
-                <span class="@(result.Success ? "bi-check-circle" : "bi-x-circle") me-1" aria-hidden="true"></span>@result.Message
-                @if (StepOf(result) is { Length: > 0 } step)
+            <div class="alert alert-danger py-2 small" role="alert" id="atlassian-needs-credentials">
+                <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                <strong>Needs new credentials.</strong> Atlassian refused this site's stored credential, so its sources can't sync.
+                Create a new OAuth 2.0 credential on the service account and enter it here.
+                @if (!replacing)
                 {
-                    <span class="text-muted">(step: @step)</span>
-                }
-                @if (!result.Success)
-                {
-                    <div class="mt-1">
-                        Fix it in <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian admin<span class="visually-hidden"> (opens in a new tab)</span></a>,
-                        then test again.
-                    </div>
+                    <button type="button" class="btn btn-sm btn-danger ms-1" @onclick="OpenReplace">Replace credentials</button>
                 }
             </div>
         }
-    </div>
-}
-else
-{
-    <div class="col-12" style="max-width:40rem">
+
+        <p class="small text-muted mb-2">
+            The client secret is stored encrypted and never shown. Rename the site with the Name field above; replace its credential here
+            without removing any source.
+        </p>
+
+        <details class="mb-2 small" id="atlassian-site-scopes">
+            <summary>Permissions Connapse needs (@ConfirmedCount(site) of @AtlassianSiteScopes.All.Count confirmed by the last test)</summary>
+            <ul class="list-unstyled mt-2 mb-0">
+                @foreach (AtlassianScope scope in AtlassianSiteScopes.All)
+                {
+                    bool confirmed = site.Health?.ConfirmedScopes?.Contains(scope.Name, StringComparer.OrdinalIgnoreCase) ?? false;
+                    <li class="mb-2">
+                        <code>@scope.Name</code>
+                        @if (scope.Optional)
+                        {
+                            <span class="badge text-bg-light border ms-1">Optional</span>
+                        }
+                        <span class="ms-1 @(confirmed ? "text-success" : "text-muted")">
+                            <span class="@(confirmed ? "bi-check-circle" : "bi-dash-circle") me-1" aria-hidden="true"></span>@(confirmed ? "Confirmed" : "Not confirmed")
+                        </span>
+                        <div class="text-muted">@scope.Reason.</div>
+                    </li>
+                }
+            </ul>
+            <p class="mb-0 text-muted">
+                To take a permission away, edit or delete the service account's credential in
+                <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian Administration<span class="visually-hidden"> (opens in a new tab)</span></a>.
+            </p>
+        </details>
+
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" id="atlassian-retest" class="btn btn-sm btn-outline-primary" disabled="@(retesting || replaceBusy)" @onclick="RetestAsync">
+                @if (retesting)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Testing…</span>
+                }
+                else
+                {
+                    <span class="bi-plug me-1" aria-hidden="true"></span><span>Test connection</span>
+                }
+            </button>
+            @if (!replacing)
+            {
+                <button type="button" id="atlassian-replace-open" class="btn btn-sm btn-outline-secondary" @onclick="OpenReplace">
+                    <span class="bi-key me-1" aria-hidden="true"></span>Replace credentials
+                </button>
+            }
+        </div>
+        <div aria-live="polite">
+            @if (retesting)
+            {
+                <span class="visually-hidden" role="status">Testing the site with its stored credential.</span>
+            }
+        </div>
+        @if (retest is { } result)
+        {
+            <AtlassianTestResultView Result="result" Id="atlassian-retest-result" />
+        }
+
+        @if (replacing)
+        {
+            <section class="border rounded p-3 mt-3" id="atlassian-replace" aria-labelledby="atlassian-replace-title">
+                <h3 class="h6" id="atlassian-replace-title">Replace credentials</h3>
+                <p class="small mb-2" id="atlassian-replace-consequence">
+                    Connapse tests the new client ID and secret against @SiteUrlOf(site) first. Only if every check passes does it
+                    store them in place of the current ones; @SourcesPhrase(site) then sync with the new credential and nothing is
+                    removed. If the test fails, nothing changes. Afterwards, delete the old credential in Atlassian Administration.
+                </p>
+                <div>
+                    <ProviderField Spec="AtlassianSiteFieldSpecs.ReplaceClientId" Small="true" Value="@replaceClientId"
+                                   ValueChanged="@((string? v) => { replaceClientId = v; replaceClientIdError = null; })"
+                                   Error="@replaceClientIdError" Disabled="@replaceBusy" />
+                    <ProviderField Spec="AtlassianSiteFieldSpecs.ReplaceClientSecret" Small="true" Value="@replaceClientSecret"
+                                   ValueChanged="@((string? v) => { replaceClientSecret = v; replaceClientSecretError = null; })"
+                                   Error="@replaceClientSecretError" HasStoredValue="@(replaceKept is not null)" />
+                </div>
+                @if (replaceKept is not null)
+                {
+                    <p class="small mb-2" id="atlassian-replace-kept" role="status">
+                        <span class="bi-shield-lock me-1" aria-hidden="true"></span>Secret kept for your next attempt.
+                        <button type="button" class="btn btn-sm btn-link p-0 align-baseline" @onclick="() => replaceKept = null">Clear it</button>
+                    </p>
+                }
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" id="atlassian-replace-save" class="btn btn-sm btn-primary" disabled="@replaceBusy" @onclick="() => ReplaceAsync(saveAnyway: false)">
+                        @if (replaceBusy)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking with Atlassian…</span>
+                        }
+                        else
+                        {
+                            <span>Test and replace</span>
+                        }
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary" disabled="@replaceBusy" @onclick="CloseReplace">Cancel</button>
+                </div>
+                @if (replaceError is not null)
+                {
+                    <div class="alert alert-danger py-2 mt-2 mb-0 small" role="alert" id="atlassian-replace-error">
+                        <span class="bi-x-circle me-1" aria-hidden="true"></span>@replaceError
+                    </div>
+                }
+                @if (replaceResult is { } replaced)
+                {
+                    <AtlassianTestResultView Result="replaced" Id="atlassian-replace-result" Busy="@replaceBusy"
+                                             SaveAnywayLabel="Replace anyway" OnSaveAnyway="() => ReplaceAsync(saveAnyway: true)" />
+                }
+            </section>
+        }
+    }
+    else
+    {
         <p class="small text-muted" id="atlassian-site-intro">
             An Atlassian Cloud site, read as a service account.
             This service account reads your site for Atlassian sources and checks each user's access.
@@ -75,6 +213,7 @@ else
             <p class="small mt-2 mb-2">
                 You need to be an organization admin, and the organization must use centralized user management.
                 Service accounts are free (five per organization) and don't take a product seat.
+                <a href="@AtlassianSiteFieldSpecs.ServiceAccountSection" target="_blank" rel="noopener">Step-by-step guide<span class="visually-hidden"> (opens in a new tab)</span></a>
             </p>
             <ol class="small">
                 <li>
@@ -99,8 +238,8 @@ else
                 <li>
                     Back on the service account, choose <strong>Create credentials</strong> &rarr; <strong>OAuth 2.0</strong>. On
                     <strong>Select scopes</strong>, choose <strong>Copy all</strong> below and paste it into the search box: the list
-                    narrows to exactly these seven, so tick each one. Create it, then copy the client ID and secret: the secret is
-                    shown only once.
+                    narrows to exactly these seven, so tick each one (the attachment scope can be left out if no source will include
+                    attachments). Create it, then copy the client ID and secret: the secret is shown only once.
                 </li>
             </ol>
             <div class="d-flex align-items-center gap-2 mb-2">
@@ -112,37 +251,77 @@ else
             </div>
             <div class="small fw-semibold mb-1">Confluence</div>
             <ul class="list-unstyled small mb-0" id="atlassian-scopes-confluence">
-                @foreach (string scope in ConfluenceScopes)
+                @foreach (AtlassianScope scope in AtlassianSiteScopes.All)
                 {
-                    <li class="d-flex align-items-center gap-2 mb-1">
-                        <code>@scope</code>
-                        <button type="button" class="btn btn-sm btn-link p-0" aria-label="Copy @scope" @onclick="() => CopyAsync(scope)">
-                            <span class="bi-clipboard" aria-hidden="true"></span>
-                        </button>
+                    <li class="mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <code>@scope.Name</code>
+                            <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center p-1"
+                                    style="min-width:24px;min-height:24px" aria-label="Copy @scope.Name" @onclick="() => CopyAsync(scope.Name)">
+                                <span class="bi-clipboard" aria-hidden="true"></span>
+                            </button>
+                            @if (scope.Optional)
+                            {
+                                <span class="badge text-bg-light border">Optional</span>
+                            }
+                        </div>
+                        <div class="text-muted">@scope.Reason.</div>
                     </li>
                 }
             </ul>
         </details>
 
-        <ProviderField Spec="SiteUrlSpec" Small="true" Value="@siteUrl" ValueChanged="OnSiteUrlChanged" Disabled="@busy" />
-        <div class="d-flex align-items-center gap-2 mb-3">
-            <button type="button" id="atlassian-resolve" class="btn btn-sm btn-outline-secondary" disabled="@busy" @onclick="ResolveAsync">
-                Resolve
+        <h3 class="h6 mt-3">Site</h3>
+        <div @onfocusout="() => { ValidateSiteUrl(blur: true); }">
+            <ProviderField Spec="AtlassianSiteFieldSpecs.SiteUrl" Small="true" Value="@siteUrl" ValueChanged="OnSiteUrlChanged"
+                           Error="@siteUrlError" Disabled="@(busy || lookingUp)" />
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <button type="button" id="atlassian-resolve" class="btn btn-sm btn-outline-secondary" disabled="@(busy || lookingUp)" @onclick="ResolveAsync">
+                @if (lookingUp)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Looking up…</span>
+                }
+                else
+                {
+                    <span>Look up site</span>
+                }
             </button>
+            <span class="small text-muted" id="atlassian-resolve-help">Optional: checks the address before you test.</span>
+        </div>
+        <div role="status" class="small mb-3" id="atlassian-resolve-status">
             @if (cloudId is not null)
             {
-                <span class="small">Cloud ID: <code id="atlassian-cloud-id">@cloudId</code></span>
-            }
-            @if (resolveError is not null)
-            {
-                <span class="text-danger small" role="alert"><span class="bi-x-circle me-1" aria-hidden="true"></span>@resolveError</span>
+                <span class="text-success"><span class="bi-check-circle me-1" aria-hidden="true"></span>Found the site. Its Cloud ID is <code id="atlassian-cloud-id">@cloudId</code>.</span>
+                <div class="text-muted">The Cloud ID is Atlassian's own ID for your site. Connapse uses it to reach the site and fills it in for you.</div>
             }
         </div>
-        <ProviderField Spec="ClientIdSpec" Small="true" Value="@clientId" ValueChanged="@((string? v) => clientId = v)" Disabled="@busy" />
-        <ProviderField Spec="ClientSecretSpec" Small="true" Value="@clientSecret" ValueChanged="@((string? v) => clientSecret = v)" Disabled="@busy" />
+        @if (resolveError is not null)
+        {
+            <div class="text-danger small mb-3" role="alert" id="atlassian-resolve-error">
+                <span class="bi-x-circle me-1" aria-hidden="true"></span>@resolveError
+            </div>
+        }
+
+        <h3 class="h6">Service account credential</h3>
+        <div>
+            <ProviderField Spec="AtlassianSiteFieldSpecs.ClientId" Small="true" Value="@clientId"
+                           ValueChanged="@((string? v) => { clientId = v; clientIdError = null; })"
+                           Error="@clientIdError" Disabled="@busy" />
+            <ProviderField Spec="AtlassianSiteFieldSpecs.ClientSecret" Small="true" Value="@clientSecret"
+                           ValueChanged="@((string? v) => { clientSecret = v; clientSecretError = null; })"
+                           Error="@clientSecretError" HasStoredValue="@(kept is not null)" />
+        </div>
+        @if (kept is not null)
+        {
+            <p class="small mb-2" id="atlassian-secret-kept" role="status">
+                <span class="bi-shield-lock me-1" aria-hidden="true"></span>Secret kept for your next attempt.
+                <button type="button" id="atlassian-secret-clear" class="btn btn-sm btn-link p-0 align-baseline" @onclick="() => kept = null">Clear it</button>
+            </p>
+        }
 
         <div class="mt-3">
-            <button type="button" id="atlassian-save" class="btn btn-primary me-2" disabled="@busy" @onclick="SaveAsync">
+            <button type="button" id="atlassian-save" class="btn btn-primary me-2" disabled="@busy" @onclick="() => SaveAsync(saveAnyway: false)">
                 @if (busy)
                 {
                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking with Atlassian…</span>
@@ -156,16 +335,16 @@ else
         </div>
         @if (saveError is not null)
         {
-            <div class="alert @(saveWarning ? "alert-warning" : "alert-danger") py-2 mt-2 mb-0 small" role="alert" id="atlassian-save-error">
-                <span class="@(saveWarning ? "bi-exclamation-triangle" : "bi-x-circle") me-1" aria-hidden="true"></span>@saveError
-                @if (saveStep is { Length: > 0 })
-                {
-                    <span class="text-muted">(step: @saveStep)</span>
-                }
+            <div class="alert alert-danger py-2 mt-2 mb-0 small" role="alert" id="atlassian-save-error">
+                <span class="bi-x-circle me-1" aria-hidden="true"></span>@saveError
             </div>
         }
-    </div>
-}
+        @if (saveResult is { } tested)
+        {
+            <AtlassianTestResultView Result="tested" Id="atlassian-save-result" Busy="@busy" OnSaveAnyway="() => SaveAsync(saveAnyway: true)" />
+        }
+    }
+</div>
 
 @code {
     /// <summary>An Atlassian connection being edited; null to add a new site.</summary>
@@ -174,6 +353,9 @@ else
     /// <summary>Raised with the connection once a new site passes every probe and is saved.</summary>
     [Parameter] public EventCallback<Connection> OnCreated { get; set; }
 
+    /// <summary>Raised with the connection after its credentials are replaced.</summary>
+    [Parameter] public EventCallback<Connection> OnUpdated { get; set; }
+
     [Parameter] public EventCallback OnCancel { get; set; }
 
     /// <summary>The Confluence scopes the service account's credential needs, space separated as Atlassian shows them.</summary>
@@ -181,51 +363,120 @@ else
         "read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence "
         + "read:folder:confluence read:content-details:confluence read:content.permission:confluence";
 
-    private static readonly string[] ConfluenceScopes = ConfluenceScopeList.Split(' ');
-
     private const string AdminUrl = "https://admin.atlassian.com";
 
-    private static readonly ProviderFieldSpec SiteUrlSpec = new(
-        "atlassian-site-url", "Site URL", ProviderFieldKind.Text, Required: true,
-        "The address you open your Atlassian site at.", "Site", AdminUrl, "Open Atlassian admin",
-        Placeholder: "https://your-site.atlassian.net");
-
-    private static readonly ProviderFieldSpec ClientIdSpec = new(
-        "atlassian-client-id", "Client ID", ProviderFieldKind.Text, Required: true,
-        "Shown on the service account's OAuth 2.0 credential in Atlassian admin.", "Site", AdminUrl, "Open Atlassian admin");
-
-    private static readonly ProviderFieldSpec ClientSecretSpec = new(
-        "atlassian-client-secret", "Client secret", ProviderFieldKind.Secret, Required: true,
-        "Shown once when the credential is created. Stored encrypted and never shown again.", "Site", AdminUrl, "Open Atlassian admin");
+    /// <summary>
+    /// A secret held for a retry after a failed test. Not a string field, so nothing binds or
+    /// renders it, and its ToString never prints it.
+    /// </summary>
+    private sealed class KeptSecret(string value)
+    {
+        public string Value { get; } = value;
+        public override string ToString() => "***";
+    }
 
     private bool busy;
+    private bool lookingUp;
     private bool copySucceeded;
     private string? copyMessage;
 
     private string? siteUrl;
+    private string? siteUrlError;
     private string? cloudId;
     private string? resolveError;
     private string? clientId;
+    private string? clientIdError;
     private string? clientSecret;
+    private string? clientSecretError;
+    private KeptSecret? kept;
     private string? saveError;
-    private string? saveStep;
-    private bool saveWarning;
+    private ConnectionTestResult? saveResult;
 
+    private Connection? current;
     private bool retesting;
     private ConnectionTestResult? retest;
+
+    private bool replacing;
+    private bool replaceBusy;
+    private string? replaceClientId;
+    private string? replaceClientIdError;
+    private string? replaceClientSecret;
+    private string? replaceClientSecretError;
+    private KeptSecret? replaceKept;
+    private string? replaceError;
+    private ConnectionTestResult? replaceResult;
+
+    // Only another site replaces what is shown: the parent's copy of this one goes stale after a
+    // re-test or a replace, which refresh it here.
+    protected override void OnParametersSet()
+    {
+        if (Existing?.Id == current?.Id)
+            return;
+
+        current = Existing;
+        replacing = false;
+        retest = null;
+    }
+
+    /// <summary>Plain HTTP to anything but this machine: a secret entered here crosses the network in the clear.</summary>
+    private bool PlainHttp
+    {
+        get
+        {
+            if (!Uri.TryCreate(Navigation.BaseUri, UriKind.Absolute, out Uri? page) || page.Scheme != Uri.UriSchemeHttp)
+                return false;
+            return !(page.IsLoopback
+                     || page.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                     || page.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase));
+        }
+    }
 
     private void OnSiteUrlChanged(string? value)
     {
         siteUrl = value;
+        siteUrlError = null;
         cloudId = null;
         resolveError = null;
+    }
+
+    /// <summary>On blur only a malformed address is flagged; a blank one waits for submit.</summary>
+    private bool ValidateSiteUrl(bool blur)
+    {
+        if (string.IsNullOrWhiteSpace(siteUrl))
+        {
+            siteUrlError = blur ? null : "Enter the site URL.";
+            return blur;
+        }
+
+        siteUrlError = AtlassianSiteResolver.NormalizeSiteUrl(siteUrl) is null
+            ? "Enter the address as https://your-site.atlassian.net, the address in your browser when you open Confluence."
+            : null;
+        return siteUrlError is null;
+    }
+
+    private bool ValidateCredentialFields()
+    {
+        clientIdError = string.IsNullOrWhiteSpace(clientId) ? "Enter the client ID." : null;
+        clientSecretError = string.IsNullOrWhiteSpace(clientSecret) && kept is null ? "Paste the client secret." : null;
+        return clientIdError is null && clientSecretError is null;
+    }
+
+    private bool ValidateReplaceField()
+    {
+        replaceClientIdError = string.IsNullOrWhiteSpace(replaceClientId) ? "Enter the new client ID." : null;
+        replaceClientSecretError = string.IsNullOrWhiteSpace(replaceClientSecret) && replaceKept is null
+            ? "Paste the new client secret." : null;
+        return replaceClientIdError is null && replaceClientSecretError is null;
     }
 
     private async Task ResolveAsync()
     {
         cloudId = null;
         resolveError = null;
-        busy = true;
+        if (!ValidateSiteUrl(blur: false))
+            return;
+
+        lookingUp = true;
         try
         {
             var resolved = await Sites.ResolveAsync(siteUrl);
@@ -235,61 +486,68 @@ else
                     cloudId = resolved.CloudId;
                     break;
                 case AtlassianResolveOutcome.InvalidAddress:
-                    resolveError = "The site address must look like https://your-site.atlassian.net.";
+                    siteUrlError = "Enter the address as https://your-site.atlassian.net, the address in your browser when you open Confluence.";
                     break;
                 default:
-                    resolveError = $"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}.";
+                    resolveError = $"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}. Check the spelling against your browser's address bar.";
                     break;
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Could not resolve an Atlassian site");
-            resolveError = "The site could not be looked up. Try again.";
+            Logger.LogWarning(ex, "Could not look up an Atlassian site");
+            resolveError = "The site could not be looked up. Check that this server can reach the internet, then try again.";
         }
         finally
         {
-            busy = false;
+            lookingUp = false;
         }
     }
 
-    private async Task SaveAsync()
+    private async Task<Guid?> UserIdAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        return Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
+    }
+
+    private async Task SaveAsync(bool saveAnyway)
     {
         saveError = null;
-        saveStep = null;
-        saveWarning = false;
+        bool siteOk = ValidateSiteUrl(blur: false);
+        bool credentialsOk = ValidateCredentialFields();
+        if (!siteOk || !credentialsOk)
+            return;
 
-        // The submitted secret lives only in this local. The bound field is emptied before the first
-        // await, so no outcome (a failed probe, a timeout, a conflict, an exception) can leave it in
-        // the circuit's state or behind the field's Show control.
-        string? submittedSecret = clientSecret;
+        saveResult = null;
+
+        // A newly pasted secret replaces any kept one. The bound field is emptied before the first
+        // await, so no outcome leaves the secret in it or behind the field's Show control.
+        if (!string.IsNullOrWhiteSpace(clientSecret))
+            kept = new KeptSecret(clientSecret);
         clientSecret = null;
+        string submittedSecret = kept!.Value;
 
         busy = true;
         try
         {
-            var state = await AuthState.GetAuthenticationStateAsync();
-            Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
-
-            var added = await Sites.AddAsync(siteUrl, clientId, submittedSecret, userId);
+            var added = await Sites.AddAsync(siteUrl, clientId, submittedSecret, await UserIdAsync(), saveAnyway);
             switch (added.Outcome)
             {
                 case AtlassianAddOutcome.Created:
+                    kept = null;
                     clientId = null;
                     siteUrl = null;
                     cloudId = null;
                     await OnCreated.InvokeAsync(added.Connection!);
                     break;
                 case AtlassianAddOutcome.MissingFields:
-                    saveError = "Enter the site URL, client ID and client secret.";
+                    ValidateCredentialFields();
                     break;
                 case AtlassianAddOutcome.Conflict:
-                    saveError = $"A connection named '{new Uri(added.SiteUrl!).Host}' already exists.";
+                    saveError = $"A connection named '{new Uri(added.SiteUrl!).Host}' already exists. Open it from the list to test it or replace its credentials.";
                     break;
                 default:
-                    saveError = added.Test?.Message;
-                    saveStep = StepOf(added.Test);
-                    saveWarning = added.Test?.Details?.ContainsKey("warning") ?? false;
+                    saveResult = added.Test;
                     break;
             }
         }
@@ -306,14 +564,17 @@ else
 
     private async Task RetestAsync()
     {
-        if (Existing is not { } site) return;
+        if (current is not { } site) return;
 
         retesting = true;
         retest = null;
         try
         {
             retest = await Sites.RetestAsync(site.Id)
-                ?? ConnectionTestResult.CreateFailure("The stored credential for this site can't be read. Delete the connection and add the site again.");
+                ?? ConnectionTestResult.CreateFailure(
+                    "The stored credential for this site can't be read. Choose Replace credentials and enter it again.",
+                    new Dictionary<string, object> { ["step"] = AtlassianConnectionTester.TokenStep, ["troubleshoot"] = AtlassianSiteTroubleshooting.CredentialsRejected });
+            current = await Store.GetAsync(site.Id) ?? current;
         }
         catch (Exception ex)
         {
@@ -326,8 +587,85 @@ else
         }
     }
 
-    private static string? StepOf(ConnectionTestResult? result) =>
-        result?.Details?.GetValueOrDefault("step") as string;
+    private void OpenReplace()
+    {
+        replacing = true;
+        replaceResult = null;
+        replaceError = null;
+    }
+
+    private void CloseReplace()
+    {
+        replacing = false;
+        replaceClientId = null;
+        replaceClientSecret = null;
+        replaceKept = null;
+        replaceResult = null;
+        replaceError = null;
+        replaceClientIdError = null;
+        replaceClientSecretError = null;
+    }
+
+    private async Task ReplaceAsync(bool saveAnyway)
+    {
+        if (current is not { } site) return;
+
+        replaceError = null;
+        if (!ValidateReplaceField())
+            return;
+
+        replaceResult = null;
+        if (!string.IsNullOrWhiteSpace(replaceClientSecret))
+            replaceKept = new KeptSecret(replaceClientSecret);
+        replaceClientSecret = null;
+        string submittedSecret = replaceKept!.Value;
+
+        replaceBusy = true;
+        try
+        {
+            var replaced = await Sites.ReplaceCredentialsAsync(site.Id, replaceClientId, submittedSecret, await UserIdAsync(), saveAnyway);
+            switch (replaced.Outcome)
+            {
+                case AtlassianReplaceOutcome.Replaced:
+                    CloseReplace();
+                    current = replaced.Connection;
+                    retest = replaced.Test;
+                    await OnUpdated.InvokeAsync(replaced.Connection!);
+                    break;
+                case AtlassianReplaceOutcome.NotFound:
+                    replaceError = "This site no longer exists; it was deleted elsewhere.";
+                    break;
+                case AtlassianReplaceOutcome.MissingFields:
+                    ValidateReplaceField();
+                    break;
+                case AtlassianReplaceOutcome.SiteChanged:
+                    replaceError = "The site at this address has a different Cloud ID than when it was added, so it is a different site. Add it as a new connection.";
+                    break;
+                default:
+                    replaceResult = replaced.Test;
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not replace an Atlassian site's credentials");
+            replaceError = "The new credential could not be checked. Try again.";
+        }
+        finally
+        {
+            replaceBusy = false;
+        }
+    }
+
+    private static int ConfirmedCount(Connection site) =>
+        AtlassianSiteScopes.All.Count(s => site.Health?.ConfirmedScopes?.Contains(s.Name, StringComparer.OrdinalIgnoreCase) ?? false);
+
+    private static string SourcesPhrase(Connection site) => site.SourceCount switch
+    {
+        0 => "any sources you add will",
+        1 => "its 1 source will",
+        _ => $"its {site.SourceCount} sources will",
+    };
 
     private static string SiteUrlOf(Connection site) => ConfigValue(site, "siteUrl");
 
