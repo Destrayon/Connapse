@@ -368,7 +368,10 @@ public class AtlassianConnectionFormTests : IDisposable
         var alert = cut.Find("#atlassian-needs-credentials");
         alert.TextContent.Should().Contain("Needs new credentials");
         cut.Find("#atlassian-site-status").TextContent.Should().Contain("Needs new credentials");
-        alert.QuerySelector("button")!.Click();
+        alert.QuerySelector("button").Should().BeNull("Replace credentials renders once, below the details, and isn't styled as destructive");
+        cut.FindAll("button").Where(b => b.TextContent.Contains("Replace credentials")).Should().ContainSingle()
+            .Which.ClassList.Should().NotContain("btn-danger");
+        cut.Find("#atlassian-replace-open").Click();
         cut.Find("#atlassian-replace-consequence").TextContent.Should().Contain("its 2 sources will then sync").And.Contain("nothing changes");
     }
 
@@ -469,6 +472,40 @@ public class AtlassianConnectionFormTests : IDisposable
         cut.Find("#atlassian-replace-client-id-error").TextContent.Should().Contain("client ID");
         cut.Find("#atlassian-replace-client-secret-error").TextContent.Should().Contain("client secret");
         stub.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ReplaceCredentials_TellsThePageWhenItOpensAndCloses_SoThePageKeepsOnePrimaryAction()
+    {
+        var changes = new List<bool>();
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p
+            .Add(f => f.Existing, AtlassianConnection())
+            .Add(f => f.ReplacingChanged, (bool open) => changes.Add(open)));
+
+        cut.Find("#atlassian-replace-open").Click();
+        cut.FindAll("#atlassian-replace .btn-primary").Should().ContainSingle()
+            .Which.Id.Should().Be("atlassian-replace-save");
+        cut.FindAll("button").Where(b => b.TextContent.Contains("Replace credentials")).Should().BeEmpty(
+            "the open button is replaced by the section it opens");
+        cut.FindAll("#atlassian-replace button").Single(b => b.TextContent == "Cancel").Click();
+
+        changes.Should().Equal(true, false);
+        cut.FindAll("#atlassian-replace-open").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void TestResult_ATimeoutOrRateLimit_LinksTheGeneralTroubleshootingSection_NotRejectedCredentials()
+    {
+        var result = ConnectionTestResult.CreateFailure(
+            "Atlassian didn't answer in time. Wait a minute and test again.",
+            new Dictionary<string, object> { ["step"] = "token", ["troubleshoot"] = AtlassianSiteTroubleshooting.General });
+
+        var cut = ctx.Render<AtlassianTestResultView>(p => p.Add(v => v.Result, result).Add(v => v.Id, "r"));
+
+        var link = cut.Find("#r a.alert-link");
+        link.GetAttribute("href").Should().EndWith("atlassian-setup.md#troubleshooting");
+        link.TextContent.Should().StartWith("Troubleshooting guide");
+        cut.Markup.Should().NotContain("client-id-or-secret-rejected");
     }
 
     private sealed class LanNavigationManager : NavigationManager

@@ -36,6 +36,7 @@ public class AtlassianProviderCardTests : IDisposable
         var http = Substitute.For<IHttpClientFactory>();
         http.CreateClient(AtlassianApiClient.HttpClientName).Returns(_ => new HttpClient(token, disposeHandler: false));
         ctx.Services.AddSingleton(new AtlassianUserSignIn(http, credentials));
+        ctx.Services.AddScoped<AtlassianLinkAppService>();
         token.Answer(HttpStatusCode.Forbidden, InvalidGrant);
     }
 
@@ -314,7 +315,8 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void Remove_NeedsTheClientIdTyped_SaysLinksStay_DeletesAndAudits()
     {
-        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
+            new AtlassianLinkAppRegistration("link-client"), new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
         links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns(4);
         var cut = ctx.Render<AtlassianProviderCard>();
 

@@ -32,7 +32,7 @@ public class AtlassianSiteFieldSpecDocsTests
             "2-service-account", "3-site-connection",
             "site-not-found", "client-id-or-secret-rejected", "cant-read-confluence",
             "no-confluence-access-or-no-spaces", "not-confluence-administrator", "missing-scope",
-            "site-has-no-pages-or-no-other-users-yet");
+            "site-has-no-pages-or-no-other-users-yet", "troubleshooting");
         AtlassianSiteFieldSpecs.All.Select(f => f.GuideUrl.Split('#')[1]).Should().BeSubsetOf(AtlassianSiteFieldSpecs.GuideAnchors);
     }
 
@@ -138,6 +138,33 @@ public class ConnectionsPageLifecycleTests
     public void AtlassianRows_ShowTheSiteStatus()
     {
         Markup.Should().Contain("AtlassianSiteStatus.Of(c)").And.Contain("Replace credentials");
+    }
+
+    [Fact]
+    public void NewAtlassianSite_KeepsTheNameFieldInPlace_DisabledAndSayingWhy()
+    {
+        Markup.Should().Contain("disabled=\"@NewAtlassianSite\"")
+            .And.Contain("Atlassian sites are named after their host (for example acme.atlassian.net) when they are saved. You can rename it after saving.");
+        int name = Markup.IndexOf("for=\"connection-name\"", StringComparison.Ordinal);
+        Markup.LastIndexOf("@if (!NewAtlassianSite)", name, StringComparison.Ordinal).Should().Be(-1,
+            "nothing above the Name field may hide it for a new Atlassian site");
+    }
+
+    [Fact]
+    public void SaveName_StepsDownToSecondaryWhileCredentialsAreBeingReplaced()
+    {
+        Markup.Should().Contain("ReplacingChanged=\"@((bool open) => atlassianReplacing = open)\"")
+            .And.Contain("class=\"btn @(atlassianReplacing ? \"btn-outline-secondary\" : \"btn-primary\") me-2\" @onclick=\"Save\"");
+    }
+
+    [Fact]
+    public void RenameDeleteAndPause_GoThroughTheSharedServiceTheRestApiUses()
+    {
+        Markup.Should().Contain("await Admin.UpdateAsync(editing!.Id,")
+            .And.Contain("await Admin.DeleteAsync(connection.Id, connection.Name)")
+            .And.Contain("await Admin.SetSyncingAsync(connection, enabled, only)")
+            .And.NotContain("ConnectionStore.DeleteAsync(")
+            .And.NotContain("ConnectionStore.UpdateAsync(");
     }
 
     [Fact]

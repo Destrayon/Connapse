@@ -3,6 +3,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Web.Components.Providers;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -30,6 +31,173 @@ public sealed record ReplaceAtlassianCredentialsRequest(string? ClientId, string
         builder.Append($"ClientId = {ClientId}, ClientSecret = ***, SaveAnyway = {SaveAnyway}");
         return true;
     }
+}
+
+/// <summary>A new name for a saved site: the Name field on the Connections page.</summary>
+public sealed record RenameAtlassianSiteRequest(string? Name);
+
+/// <summary>Which of a paused site's sources to turn back on; all of them when <c>sourceIds</c> is left out.</summary>
+public sealed record ResumeAtlassianSiteRequest(IReadOnlyList<Guid>? SourceIds = null);
+
+/// <summary>The linking app's client ID and secret, checked with Atlassian before they are stored.</summary>
+public sealed record SaveAtlassianLinkAppRequest(string? ClientId, string? ClientSecret)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"ClientId = {ClientId}, ClientSecret = ***");
+        return true;
+    }
+}
+
+/// <summary>Turns Atlassian sign-in on or off, as the Linking app card's toggle does.</summary>
+public sealed record SetAtlassianSignInRequest(bool? SignInEnabled);
+
+/// <summary>
+/// A saved site as the REST API returns it: everything the Connections page shows, never the secret.
+/// <c>scopes</c> is included only for a single site.
+/// </summary>
+public sealed record AtlassianSiteView(
+    Guid Id,
+    string Name,
+    string? SiteUrl,
+    string? CloudId,
+    string? ClientId,
+    bool HasSecret,
+    int SourceCount,
+    bool SyncPaused,
+    object? Health,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    object? Scopes = null);
+
+/// <summary>
+/// The Atlassian linking app over REST, at parity with the Linking app card on the Providers page:
+/// the same check with Atlassian before saving, the same typed confirmation to remove it, and the
+/// same audit events, all through <see cref="AtlassianLinkAppService"/>. The secret is accepted on
+/// the way in and never returned.
+/// </summary>
+public static class AtlassianLinkAppEndpoints
+{
+    public static IEndpointRouteBuilder MapAtlassianLinkAppEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/api/v1/atlassian/linking-app").WithTags("Providers");
+
+        // GET /api/v1/atlassian/linking-app — the stored app: client ID, whether sign-in is on, the
+        // last check, the last sign-in through it and how many people linked. Never the secret.
+        group.MapGet("/", async ([FromServices] AtlassianLinkAppService linkApp, CancellationToken ct) =>
+            await linkApp.GetAsync(ct) is { } stored
+                ? Results.Ok(await ViewAsync(linkApp, stored, ct))
+                : Results.NotFound(new { error = "No linking app is stored." }))
+            .RequireAuthorization("RequireAdmin");
+
+        // PUT /api/v1/atlassian/linking-app — checks the client ID and secret with Atlassian and,
+        // only when Atlassian accepts them, stores them in place of any app already stored.
+        group.MapPut("/", async (
+            HttpContext http,
+            [FromBody] SaveAtlassianLinkAppRequest request,
+            [FromServices] AtlassianLinkAppService linkApp,
+            CancellationToken ct) =>
+        {
+            var outcome = await linkApp.SaveAsync(request.ClientId, request.ClientSecret,
+                CloudIdentityEndpoints.AtlassianCallbackUrl(http), UserIdOf(http), ct);
+            return outcome switch
+            {
+                AtlassianLinkAppSaveOutcome.MissingFields =>
+                    Results.BadRequest(new { error = "clientId and clientSecret are required." }),
+                AtlassianLinkAppSaveOutcome.Rejected => Results.UnprocessableEntity(new
+                {
+                    error = "Atlassian rejected this client ID and secret, so nothing was saved. Copy both again from Settings on the app in the developer console.",
+                    troubleshootingUrl = AtlassianLinkAppFieldSpecs.TroubleshootingRejected,
+                }),
+                AtlassianLinkAppSaveOutcome.Unreachable => Results.Json(new
+                {
+                    error = "Couldn't reach Atlassian to check the app, so nothing was saved. Check that this server can reach auth.atlassian.com over HTTPS, then try again.",
+                }, statusCode: StatusCodes.Status502BadGateway),
+                _ => Results.Ok(await ViewAsync(linkApp, (await linkApp.GetAsync(ct))!, ct)),
+            };
+        }).RequireAuthorization("RequireAdmin");
+
+        // POST /api/v1/atlassian/linking-app/check — asks Atlassian again whether it accepts the
+        // stored client ID and secret, and records the answer as the last check.
+        group.MapPost("/check", async (
+            HttpContext http,
+            [FromServices] AtlassianLinkAppService linkApp,
+            CancellationToken ct) =>
+        {
+            var result = await linkApp.RecheckAsync(CloudIdentityEndpoints.AtlassianCallbackUrl(http), ct);
+            return result switch
+            {
+                null => Results.NotFound(new { error = "No linking app is stored." }),
+                AtlassianLinkAppCheck.Accepted => Results.Ok(new
+                {
+                    result = "accepted",
+                    message = "Atlassian accepted the stored client ID and secret.",
+                }),
+                AtlassianLinkAppCheck.Rejected => Results.Ok(new
+                {
+                    result = "rejected",
+                    message = "Atlassian rejected the stored client ID or secret, so nobody new can link an account. Save a new client ID and secret.",
+                    troubleshootingUrl = AtlassianLinkAppFieldSpecs.TroubleshootingRejected,
+                }),
+                _ => Results.Ok(new
+                {
+                    result = "unknown",
+                    message = "Couldn't reach Atlassian to check the app. Nothing was changed; try again.",
+                }),
+            };
+        }).RequireAuthorization("RequireAdmin");
+
+        // PUT /api/v1/atlassian/linking-app/sign-in — turns Atlassian sign-in off (no new links;
+        // existing ones kept) or back on, without touching the stored app.
+        group.MapPut("/sign-in", async (
+            [FromBody] SetAtlassianSignInRequest request,
+            [FromServices] AtlassianLinkAppService linkApp,
+            CancellationToken ct) =>
+        {
+            if (request.SignInEnabled is not { } enabled)
+                return Results.BadRequest(new { error = "signInEnabled is required." });
+            if (!await linkApp.SetSignInEnabledAsync(enabled, ct))
+                return Results.NotFound(new { error = "No linking app is stored." });
+            return Results.Ok(await ViewAsync(linkApp, (await linkApp.GetAsync(ct))!, ct));
+        }).RequireAuthorization("RequireAdmin");
+
+        // DELETE /api/v1/atlassian/linking-app?confirmClientId=... — removes the app. People who
+        // linked keep their links. confirmClientId must be the stored client ID, the value the page
+        // asks an administrator to type.
+        group.MapDelete("/", async (
+            [FromQuery] string? confirmClientId,
+            [FromServices] AtlassianLinkAppService linkApp,
+            CancellationToken ct) =>
+        {
+            return await linkApp.RemoveAsync(confirmClientId, ct) switch
+            {
+                AtlassianLinkAppRemoveOutcome.NotStored => Results.NotFound(new { error = "No linking app is stored." }),
+                AtlassianLinkAppRemoveOutcome.ConfirmMismatch => Results.BadRequest(new
+                {
+                    error = "confirmClientId must be the stored app's client ID.",
+                    field = "confirmClientId",
+                }),
+                _ => Results.NoContent(),
+            };
+        }).RequireAuthorization("RequireAdmin");
+
+        return app;
+    }
+
+    private static async Task<object> ViewAsync(
+        AtlassianLinkAppService linkApp, AtlassianLinkAppRegistration stored, CancellationToken ct) => new
+    {
+        clientId = stored.ClientId,
+        permission = "read:me",
+        signInEnabled = stored.SignInEnabled,
+        lastCheckedAt = stored.CheckedAt,
+        lastCheckAccepted = stored.CheckAccepted,
+        lastUsedForSignInAt = stored.VerifiedAt,
+        peopleLinked = await linkApp.CountLinkedPeopleAsync(ct),
+    };
+
+    private static Guid? UserIdOf(HttpContext http) =>
+        Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
 }
 
 /// <summary>
@@ -90,37 +258,140 @@ public static class AtlassianEndpoints
             };
         }).RequireAuthorization("RequireAdmin");
 
+        // GET /api/v1/atlassian/sites — every saved site, as the Connections page lists them.
+        group.MapGet("/", async (
+            [FromServices] IConnectionStore connections,
+            [FromServices] ConnectionAdminService admin,
+            CancellationToken ct) =>
+        {
+            var all = await connections.ListAsync(0, int.MaxValue, ct);
+            var paused = await admin.PausedConnectionIdsAsync(ct);
+            return Results.Ok(all
+                .Where(c => c.Provider == ConnectionProvider.Atlassian)
+                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(c => SiteView(c, paused.Contains(c.Id))));
+        }).RequireAuthorization("RequireAdmin");
+
         // GET /api/v1/atlassian/sites/{connectionId} — the site, its last check, and the scopes it needs.
         group.MapGet("/{connectionId:guid}", async (
             Guid connectionId,
             [FromServices] IConnectionStore connections,
+            [FromServices] ConnectionAdminService admin,
             CancellationToken ct) =>
         {
             Connection? connection = await connections.GetAsync(connectionId, ct);
             if (connection is not { Provider: ConnectionProvider.Atlassian })
                 return Results.NotFound(new { error = "No such Atlassian site." });
 
-            AtlassianSite? site = AtlassianSite.FromConfigJson(connection.ConfigJson);
-            return Results.Ok(new
+            return Results.Ok(SiteView(connection, await admin.IsPausedAsync(connectionId, ct)) with
             {
-                id = connection.Id,
-                name = connection.Name,
-                siteUrl = site?.SiteUrl,
-                cloudId = site?.CloudId,
-                clientId = site?.ClientId,
-                hasSecret = connection.HasSecret,
-                sourceCount = connection.SourceCount,
-                health = connection.Health is { } h
-                    ? new
-                    {
-                        checkedAt = h.CheckedAt, succeeded = h.Succeeded, warning = h.Warning, step = h.Step,
-                        stepLabel = h.Step is null ? null : AtlassianConnectionTester.StepLabel(h.Step),
-                        message = h.Message, origin = h.Origin, credentialRejected = h.CredentialRejected,
-                        lastSucceededAt = h.LastSucceededAt, confirmedScopes = h.ConfirmedScopes,
-                    }
-                    : null,
-                scopes = AtlassianSiteScopes.All.Select(s => new { name = s.Name, reason = s.Reason, optional = s.Optional }),
+                Scopes = AtlassianSiteScopes.All.Select(s => new { name = s.Name, reason = s.Reason, optional = s.Optional }),
             });
+        }).RequireAuthorization("RequireAdmin");
+
+        // PATCH /api/v1/atlassian/sites/{connectionId} — renames the site, as the Name field on the
+        // Connections page does. Audited as connection.updated.
+        group.MapPatch("/{connectionId:guid}", async (
+            Guid connectionId,
+            [FromBody] RenameAtlassianSiteRequest request,
+            [FromServices] IConnectionStore connections,
+            [FromServices] ConnectionAdminService admin,
+            CancellationToken ct) =>
+        {
+            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian })
+                return Results.NotFound(new { error = "No such Atlassian site." });
+
+            var renamed = await admin.RenameAsync(connectionId, request.Name, ct);
+            return renamed.Outcome switch
+            {
+                ConnectionRenameOutcome.InvalidName => Results.BadRequest(new
+                {
+                    error = $"name must be 1 to {ConnectionAdminService.MaxNameLength} characters.", field = "name",
+                }),
+                ConnectionRenameOutcome.NameTaken => Results.Conflict(new
+                {
+                    error = $"A connection named '{request.Name!.Trim()}' already exists.", field = "name",
+                }),
+                ConnectionRenameOutcome.NotFound => Results.NotFound(new { error = "No such Atlassian site." }),
+                _ => Results.Ok(SiteView(renamed.Connection!, await admin.IsPausedAsync(connectionId, ct))),
+            };
+        }).RequireAuthorization("RequireAdmin");
+
+        // POST /api/v1/atlassian/sites/{connectionId}/pause — stops syncing every source on the site.
+        // Nothing is deleted, and the documents stay searchable.
+        group.MapPost("/{connectionId:guid}/pause", async (
+            Guid connectionId,
+            [FromServices] IConnectionStore connections,
+            [FromServices] ConnectionAdminService admin,
+            CancellationToken ct) =>
+        {
+            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian } connection)
+                return Results.NotFound(new { error = "No such Atlassian site." });
+            if (connection.SourceCount == 0)
+                return Results.Conflict(new { error = "This site has no sources, so there is no syncing to pause." });
+
+            int count = await admin.SetSyncingAsync(connection, enabled: false, ct: ct);
+            return Results.Ok(new { syncPaused = true, sources = count });
+        }).RequireAuthorization("RequireAdmin");
+
+        // POST /api/v1/atlassian/sites/{connectionId}/resume — turns syncing back on for the sources
+        // named in sourceIds, or every source on the site when it is left out.
+        group.MapPost("/{connectionId:guid}/resume", async (
+            Guid connectionId,
+            [FromBody] ResumeAtlassianSiteRequest? request,
+            [FromServices] IConnectionStore connections,
+            [FromServices] ISourceStore sources,
+            [FromServices] ConnectionAdminService admin,
+            CancellationToken ct) =>
+        {
+            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian } connection)
+                return Results.NotFound(new { error = "No such Atlassian site." });
+            if (connection.SourceCount == 0)
+                return Results.Conflict(new { error = "This site has no sources, so there is no syncing to resume." });
+
+            HashSet<Guid>? only = request?.SourceIds is { } ids ? ids.ToHashSet() : null;
+            if (only is not null)
+            {
+                var onSite = (await sources.ListByConnectionAsync(connectionId, ct)).Select(s => s.Id).ToHashSet();
+                if (only.Count == 0 || !only.IsSubsetOf(onSite))
+                    return Results.BadRequest(new
+                    {
+                        error = "sourceIds must name at least one source, each of them on this site.", field = "sourceIds",
+                    });
+            }
+
+            int count = await admin.SetSyncingAsync(connection, enabled: true, only, ct);
+            return Results.Ok(new { syncPaused = await admin.IsPausedAsync(connectionId, ct), sources = count });
+        }).RequireAuthorization("RequireAdmin");
+
+        // DELETE /api/v1/atlassian/sites/{connectionId}?confirmName=... — deletes the site. Refused
+        // while any source uses it; confirmName must be the site's name, the value the page asks an
+        // administrator to type. Audited as connection.deleted.
+        group.MapDelete("/{connectionId:guid}", async (
+            Guid connectionId,
+            [FromQuery] string? confirmName,
+            [FromServices] IConnectionStore connections,
+            [FromServices] ConnectionAdminService admin,
+            CancellationToken ct) =>
+        {
+            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian })
+                return Results.NotFound(new { error = "No such Atlassian site." });
+
+            var deleted = await admin.DeleteAsync(connectionId, confirmName, ct);
+            return deleted.Outcome switch
+            {
+                ConnectionDeleteOutcome.ConfirmMismatch => Results.BadRequest(new
+                {
+                    error = $"confirmName must be the site's name, '{deleted.Connection!.Name}'.", field = "confirmName",
+                }),
+                ConnectionDeleteOutcome.HasSources => Results.Conflict(new
+                {
+                    error = $"'{deleted.Connection!.Name}' still has {deleted.Sources!.Count} source(s) using it. Remove or repoint them first.",
+                    sources = deleted.Sources.Select(s => new { id = s.Id, name = s.Name }),
+                }),
+                ConnectionDeleteOutcome.NotFound => Results.NotFound(new { error = "No such Atlassian site." }),
+                _ => Results.NoContent(),
+            };
         }).RequireAuthorization("RequireAdmin");
 
         // POST /api/v1/atlassian/sites/{connectionId}/test — every probe again with the stored
@@ -195,6 +466,29 @@ public static class AtlassianEndpoints
 
     private static Guid? UserIdOf(HttpContext http) =>
         Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
+
+    private static AtlassianSiteView SiteView(Connection connection, bool syncPaused)
+    {
+        AtlassianSite? site = AtlassianSite.FromConfigJson(connection.ConfigJson);
+        return new AtlassianSiteView(
+            connection.Id,
+            connection.Name,
+            site?.SiteUrl,
+            site?.CloudId,
+            site?.ClientId,
+            connection.HasSecret,
+            connection.SourceCount,
+            syncPaused,
+            connection.Health is { } h
+                ? new
+                {
+                    checkedAt = h.CheckedAt, succeeded = h.Succeeded, warning = h.Warning, step = h.Step,
+                    stepLabel = h.Step is null ? null : AtlassianConnectionTester.StepLabel(h.Step),
+                    message = h.Message, origin = h.Origin, credentialRejected = h.CredentialRejected,
+                    lastSucceededAt = h.LastSucceededAt, confirmedScopes = h.ConfirmedScopes,
+                }
+                : null);
+    }
 
     private static object Report(ConnectionTestResult result)
     {

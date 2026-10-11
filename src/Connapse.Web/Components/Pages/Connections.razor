@@ -27,6 +27,7 @@
 @inject IProviderCredentialStore CredentialStore
 @inject NavigationManager Navigation
 @inject IAuditLogger AuditLogger
+@inject ConnectionAdminService Admin
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -531,15 +532,22 @@
             <h5>@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
         </div>
 
-        @* A new Atlassian site is named after its host by the service that saves it. *@
-        @if (!NewAtlassianSite)
-        {
+        @* A new Atlassian site is named after its host by the service that saves it, so its Name
+           field stays in place, disabled, saying so. *@
         <div class="col-12" style="max-width:32rem">
             <label class="form-label" for="connection-name">Name</label>
-            <input id="connection-name" class="form-control" @bind="form.Name" placeholder="prod-docs-bucket"
-                   aria-describedby="connection-name-help" />
+            <input id="connection-name" class="form-control" @bind="form.Name"
+                   placeholder="@(NewAtlassianSite ? "your-site.atlassian.net" : "prod-docs-bucket")"
+                   disabled="@NewAtlassianSite" aria-describedby="connection-name-help" />
             <div id="connection-name-help" class="form-text">
-                How this connection is referred to when creating a source.
+                @if (NewAtlassianSite)
+                {
+                    <text>Atlassian sites are named after their host (for example acme.atlassian.net) when they are saved. You can rename it after saving.</text>
+                }
+                else
+                {
+                    <text>How this connection is referred to when creating a source.</text>
+                }
                 @if (form.Provider == ConnectionProvider.S3)
                 {
                     <text>Filled in from the first bucket you choose if left blank.</text>
@@ -554,7 +562,6 @@
                 }
             </div>
         </div>
-        }
 
         <div class="col-12" style="max-width:32rem">
             <label class="form-label" for="connection-provider">Provider</label>
@@ -958,7 +965,8 @@
                saved. The people who may read it are linked on the Atlassian provider page. *@
             <div class="w-100" aria-hidden="true"></div> @* the form's width cap would otherwise let it sit beside Provider *@
             <AtlassianConnectionForm Existing="@(isNew ? null : editing)" OnCreated="AtlassianSiteCreatedAsync"
-                                     OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit" />
+                                     OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit"
+                                     ReplacingChanged="@((bool open) => atlassianReplacing = open)" />
         }
         else
         {
@@ -1259,7 +1267,8 @@
         @if (!NewAtlassianSite)
         {
         <div class="col-12 mt-3">
-            <button class="btn btn-primary me-2" @onclick="Save" disabled="@saving">
+            @* One primary action at a time: while a site's credential is being replaced, that is it. *@
+            <button id="connection-save" class="btn @(atlassianReplacing ? "btn-outline-secondary" : "btn-primary") me-2" @onclick="Save" disabled="@saving">
                 @if (saving)
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
@@ -1435,6 +1444,9 @@
 
     /// <summary>The connection whose sources are being paused or resumed.</summary>
     private Guid? pausing;
+
+    /// <summary>Whether an Atlassian site's Replace credentials section is open, which then holds the primary action.</summary>
+    private bool atlassianReplacing;
     private string? statusMessage;
     private bool statusSuccess;
     private string? testMessage;
@@ -1719,13 +1731,7 @@
     {
         loading = true;
         connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
-        var sources = await SourceStore.ListAsync(take: int.MaxValue);
-        pausedConnections = sources
-            .Where(s => s.ConnectionId is not null)
-            .GroupBy(s => s.ConnectionId!.Value)
-            .Where(g => g.All(s => !s.Enabled))
-            .Select(g => g.Key)
-            .ToHashSet();
+        pausedConnections = await Admin.PausedConnectionIdsAsync();
         loading = false;
     }
 
@@ -1773,16 +1779,10 @@
         pausing = connection.Id;
         try
         {
-            var sources = (await SourceStore.ListByConnectionAsync(connection.Id))
-                .Where(s => only is null || only.Contains(s.Id)).ToList();
-            foreach (var source in sources.Where(s => s.Enabled != enabled))
-                await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(Enabled: enabled));
-
-            await AuditLogger.LogAsync(enabled ? "connection.resumed" : "connection.paused", "connection", connection.Id.ToString(),
-                new { connection.Name, Sources = sources.Count });
+            int count = await Admin.SetSyncingAsync(connection, enabled, only);
             Succeed(enabled
-                ? $"Syncing resumed for {sources.Count} source(s) on '{connection.Name}'."
-                : $"Syncing paused for {sources.Count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
+                ? $"Syncing resumed for {count} source(s) on '{connection.Name}'."
+                : $"Syncing paused for {count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
             await LoadAsync();
         }
         catch (Exception ex)
@@ -2388,6 +2388,7 @@
     {
         editing = connection;
         isNew = false;
+        atlassianReplacing = false;
         form = ConnectionForm.FromConnection(connection);
         editingGitHubInstallationId = form.GitHubInstallationId;
         editingGitHubAccount = form.GitHubAccount;
@@ -2400,6 +2401,7 @@
     private void CancelEdit()
     {
         editing = null;
+        atlassianReplacing = false;
         testMessage = null;
     }
 
@@ -2494,7 +2496,7 @@
                 // form opening and saving. Reporting "saved" there would be a lie.
                 // A null config leaves the stored one alone. An Atlassian site's config belongs to
                 // AtlassianSiteService, so a rename here must not rewrite it.
-                var updated = await ConnectionStore.UpdateAsync(editing!.Id,
+                var updated = await Admin.UpdateAsync(editing!.Id,
                     new UpdateConnectionRequest(form.Name.Trim(), form.OwnsConfig ? config : null, secret));
                 ForgetGitHubInstallations(form.Provider);
 
@@ -2510,6 +2512,7 @@
             }
 
             editing = null;
+            atlassianReplacing = false;
             await LoadAsync();
         }
         catch (Exception ex)
@@ -2549,16 +2552,21 @@
         {
             // SourceCount above is a snapshot from the last load, so a source added since then
             // still reaches the store's own refusal — caught below rather than assumed away.
-            bool deleted = await ConnectionStore.DeleteAsync(connection.Id);
+            var deleted = await Admin.DeleteAsync(connection.Id, connection.Name);
             ForgetGitHubInstallations(connection.Provider);
-            if (deleted)
+            switch (deleted.Outcome)
             {
-                await AuditLogger.LogAsync("connection.deleted", "connection", connection.Id.ToString(),
-                    new { connection.Name, Provider = connection.Provider.ToString() });
-                Succeed($"Connection '{connection.Name}' deleted.");
+                case ConnectionDeleteOutcome.Deleted:
+                    Succeed($"Connection '{connection.Name}' deleted.");
+                    break;
+                case ConnectionDeleteOutcome.HasSources:
+                    Fail($"'{connection.Name}' still has {deleted.Sources!.Count} source(s) using it: "
+                         + $"{string.Join(", ", deleted.Sources.Select(s => s.Name))}. Remove or repoint them first.");
+                    break;
+                default:
+                    Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
+                    break;
             }
-            else
-                Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
 
             await LoadAsync();
         }

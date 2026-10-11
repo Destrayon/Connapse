@@ -5,10 +5,12 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Tests.Connectors;
+using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Storage.Connectors.Atlassian;
 using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -372,6 +374,159 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("id").GetGuid();
+    }
+
+    private async Task<Guid> AddSourceAsync(Guid connectionId, string name)
+    {
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            name, connectionId, """{"kind":"confluence-space","spaceId":"1","spaceKey":"ENG"}"""));
+        return source.Id;
+    }
+
+    private async Task<List<(string Action, string Details)>> AuditFor(Guid connectionId)
+    {
+        using var scope = _fixture.Factory.Services.CreateScope();
+        await using var db = await scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        string id = connectionId.ToString();
+        var rows = await db.AuditLogs.Where(a => a.ResourceId == id).OrderBy(a => a.CreatedAt).ToListAsync();
+        return rows.Select(r => (r.Action, r.Details?.RootElement.GetRawText() ?? "")).ToList();
+    }
+
+    [Fact]
+    public async Task NewRoutes_NonAdmin_Return403()
+    {
+        using var editor = await EditorClientAsync();
+        Guid id = Guid.NewGuid();
+
+        (await editor.GetAsync(Sites)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.PatchAsJsonAsync($"{Sites}/{id}", new { name = "x" })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.PostAsync($"{Sites}/{id}/pause", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.PostAsJsonAsync($"{Sites}/{id}/resume", new { })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.DeleteAsync($"{Sites}/{id}?confirmName=x")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task List_ReturnsOnlyAtlassianSites_WithoutTheSecret()
+    {
+        Guid id = await CreateSiteAsync("listed.atlassian.net");
+        using (var scope = _fixture.Factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+                new CreateConnectionRequest($"list-not-atlassian-{Guid.NewGuid():N}"[..28], ConnectionProvider.Filesystem,
+                    "{\"allowedRoots\":[\"/tmp\"]}", null), null);
+        }
+
+        var response = await _fixture.AdminClient.GetAsync(Sites);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        string raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain(Secret);
+        var sites = JsonDocument.Parse(raw).RootElement.EnumerateArray().ToList();
+        sites.Should().NotContain(s => s.GetProperty("name").GetString()!.StartsWith("list-not-atlassian"));
+        var listed = sites.Single(s => s.GetProperty("id").GetGuid() == id);
+        listed.GetProperty("siteUrl").GetString().Should().Be("https://listed.atlassian.net");
+        listed.GetProperty("syncPaused").GetBoolean().Should().BeFalse();
+        listed.TryGetProperty("scopes", out _).Should().BeFalse("only a single site carries its scopes");
+    }
+
+    [Fact]
+    public async Task Rename_RenamesTheSiteAndAuditsIt()
+    {
+        Guid id = await CreateSiteAsync("rename.atlassian.net");
+
+        var response = await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = "Rename wiki" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("name").GetString().Should().Be("Rename wiki");
+        (await FindAsync("Rename wiki")).Should().NotBeNull();
+        (await AuditFor(id)).Should().Contain(e => e.Action == "connection.updated"
+            && e.Details.Contains("rename.atlassian.net") && e.Details.Contains("Rename wiki"));
+    }
+
+    [Fact]
+    public async Task Rename_BlankOrTakenName_IsRefused()
+    {
+        Guid id = await CreateSiteAsync("rename-refused.atlassian.net");
+        await CreateSiteAsync("rename-taken.atlassian.net");
+
+        (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = " " }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = "rename-taken.atlassian.net" }))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{Guid.NewGuid()}", new { name = "x" }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task PauseAndResume_DisableAndReEnableTheSitesSources()
+    {
+        Guid id = await CreateSiteAsync("pause.atlassian.net");
+        Guid first = await AddSourceAsync(id, $"pause-a-{Guid.NewGuid():N}"[..20]);
+        Guid second = await AddSourceAsync(id, $"pause-b-{Guid.NewGuid():N}"[..20]);
+
+        var paused = await _fixture.AdminClient.PostAsync($"{Sites}/{id}/pause", null);
+        paused.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await paused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("sources").GetInt32().Should().Be(2);
+        (await (await _fixture.AdminClient.GetAsync($"{Sites}/{id}")).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("syncPaused").GetBoolean().Should().BeTrue();
+
+        (await _fixture.AdminClient.PostAsJsonAsync($"{Sites}/{id}/resume", new { sourceIds = new[] { Guid.NewGuid() } }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest, "a source that isn't on the site");
+
+        var resumed = await _fixture.AdminClient.PostAsJsonAsync($"{Sites}/{id}/resume", new { sourceIds = new[] { first } });
+        resumed.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        (await sources.GetAsync(first))!.Enabled.Should().BeTrue();
+        (await sources.GetAsync(second))!.Enabled.Should().BeFalse("only the chosen source was turned back on");
+        (await AuditFor(id)).Select(e => e.Action).Should().Contain(["connection.paused", "connection.resumed"]);
+    }
+
+    [Fact]
+    public async Task Pause_SiteWithoutSources_Returns409()
+    {
+        Guid id = await CreateSiteAsync("pause-empty.atlassian.net");
+
+        (await _fixture.AdminClient.PostAsync($"{Sites}/{id}/pause", null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Delete_NeedsTheNameTyped_IsRefusedWhileSourcesUseIt_ThenDeletesAndAudits()
+    {
+        Guid id = await CreateSiteAsync("delete.atlassian.net");
+        string sourceName = $"delete-src-{Guid.NewGuid():N}"[..24];
+        Guid source = await AddSourceAsync(id, sourceName);
+
+        (await _fixture.AdminClient.DeleteAsync($"{Sites}/{id}")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await _fixture.AdminClient.DeleteAsync($"{Sites}/{id}?confirmName=delete")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var refused = await _fixture.AdminClient.DeleteAsync($"{Sites}/{id}?confirmName=delete.atlassian.net");
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("sources")[0].GetProperty("name").GetString()
+            .Should().Be(sourceName);
+        (await FindAsync("delete.atlassian.net")).Should().NotBeNull();
+
+        using (var scope = _fixture.Factory.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<ISourceStore>().DeleteAsync(source);
+
+        (await _fixture.AdminClient.DeleteAsync($"{Sites}/{id}?confirmName=delete.atlassian.net"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await FindAsync("delete.atlassian.net")).Should().BeNull();
+        (await AuditFor(id)).Should().Contain(e => e.Action == "connection.deleted");
+    }
+
+    [Fact]
+    public async Task Delete_ConnectionThatIsNotAtlassian_Returns404()
+    {
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var other = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+            new CreateConnectionRequest("delete-not-atlassian", ConnectionProvider.Filesystem, "{\"allowedRoots\":[\"/tmp\"]}", null), null);
+
+        (await _fixture.AdminClient.DeleteAsync($"{Sites}/{other.Id}?confirmName=delete-not-atlassian"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     private void MapSpaces() => _api.MapJson(Root + "/api/v2/spaces", new

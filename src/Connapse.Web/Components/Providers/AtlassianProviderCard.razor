@@ -4,10 +4,7 @@
 @using Connapse.Storage.Connectors.Atlassian
 @using Connapse.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
-@inject IProviderCredentialStore Credentials
-@inject IAtlassianIdentityLinkReader Links
-@inject AtlassianUserSignIn SignIn
-@inject IAuditLogger Audit
+@inject AtlassianLinkAppService LinkApp
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
@@ -311,17 +308,9 @@
 
     private async Task LoadAsync()
     {
-        linkApp = await Credentials.GetAtlassianLinkAppAsync();
+        linkApp = await LinkApp.GetAsync();
         appClientId = linkApp?.ClientId; // not a secret, so the saved one is shown for editing
-        try
-        {
-            linkedPeople = await Links.CountLinksAsync();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Could not count linked Atlassian accounts");
-            linkedPeople = null;
-        }
+        linkedPeople = await LinkApp.CountLinkedPeopleAsync();
     }
 
     private void SetExpanded(bool expanded)
@@ -375,30 +364,22 @@
         try
         {
             string clientId = appClientId.Trim();
-            var result = await SignIn.CheckAppAsync(clientId, appClientSecret, CallbackUrl);
-            await Audit.LogAsync("provider.credential.checked", "provider", "atlassian",
-                new { ClientId = clientId, Result = result.ToString() });
+            var state = await AuthState.GetAuthenticationStateAsync();
+            Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
 
-            if (result == AtlassianLinkAppCheck.Rejected)
+            var outcome = await LinkApp.SaveAsync(clientId, appClientSecret, CallbackUrl, userId);
+            if (outcome == AtlassianLinkAppSaveOutcome.Rejected)
             {
                 // The secret stays in the field, so it can be corrected rather than copied again.
                 secretError = "Atlassian rejected this client ID and secret, so nothing was saved. Copy both again from Settings on the app in the developer console.";
                 secretRejected = true;
                 return;
             }
-            if (result == AtlassianLinkAppCheck.Unknown)
+            if (outcome == AtlassianLinkAppSaveOutcome.Unreachable)
             {
                 appError = "Couldn't reach Atlassian to check the app, so nothing was saved. Check that this server can reach auth.atlassian.com over HTTPS, then try again.";
                 return;
             }
-
-            var state = await AuthState.GetAuthenticationStateAsync();
-            Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
-
-            await Credentials.SaveAtlassianLinkAppAsync(clientId, appClientSecret.Trim(), userId, DateTime.UtcNow);
-            // The same event GitHub's App writes. The client ID only: never the secret.
-            await Audit.LogAsync("provider.credential.saved", "provider", "atlassian",
-                new { ClientId = clientId, Via = "manual" });
             // Never rendered back, and no reason to keep it in the circuit's memory.
             appClientSecret = null;
             showAppSetup = false;
@@ -424,9 +405,7 @@
         checkBusy = true;
         try
         {
-            var result = await SignIn.CheckStoredAppAsync(CallbackUrl);
-            await Audit.LogAsync("provider.credential.checked", "provider", "atlassian",
-                new { linkApp?.ClientId, Result = result?.ToString() ?? "NotStored" });
+            var result = await LinkApp.RecheckAsync(CallbackUrl);
             await LoadAsync();
 
             switch (result)
@@ -464,13 +443,11 @@
         bool enable = !linkApp.SignInEnabled;
         try
         {
-            if (!await Credentials.SetAtlassianSignInEnabledAsync(enable))
+            if (!await LinkApp.SetSignInEnabledAsync(enable))
             {
                 alertMessage = "No linking app is stored.";
                 return;
             }
-            await Audit.LogAsync(enable ? "provider.sign_in.enabled" : "provider.sign_in.disabled", "provider", "atlassian",
-                new { linkApp.ClientId });
             await LoadAsync();
             statusMessage = enable
                 ? "Atlassian sign-in is on. People can link their accounts from their profile."
@@ -488,9 +465,13 @@
         ClearMessages();
         try
         {
-            string? clientId = linkApp?.ClientId;
-            await Credentials.DeleteAsync("atlassian");
-            await Audit.LogAsync("provider.credential.deleted", "provider", "atlassian", new { ClientId = clientId });
+            // ProviderResetAction enabled the confirm button only once the client ID was typed.
+            if (await LinkApp.RemoveAsync(linkApp?.ClientId) != AtlassianLinkAppRemoveOutcome.Removed)
+            {
+                await LoadAsync();
+                alertMessage = "No linking app is stored.";
+                return;
+            }
             await LoadAsync();
             statusMessage = "The linking app was removed. People who linked keep their links, but nobody can link an account until a new app is added.";
         }

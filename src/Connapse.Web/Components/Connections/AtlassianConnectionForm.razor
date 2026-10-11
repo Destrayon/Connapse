@@ -82,11 +82,8 @@
             <div class="alert alert-danger py-2 small" role="alert" id="atlassian-needs-credentials">
                 <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
                 <strong>Needs new credentials.</strong> Atlassian refused this site's stored credential, so its sources can't sync.
-                Create a new OAuth 2.0 credential on the service account and enter it here.
-                @if (!replacing)
-                {
-                    <button type="button" class="btn btn-sm btn-danger ms-1" @onclick="OpenReplace">Replace credentials</button>
-                }
+                Create a new OAuth 2.0 credential on the service account, then enter it with
+                <strong>Replace credentials</strong> below.
             </div>
         }
 
@@ -358,6 +355,9 @@
 
     [Parameter] public EventCallback OnCancel { get; set; }
 
+    /// <summary>Raised when the Replace credentials section opens or closes, so the page can keep one primary action.</summary>
+    [Parameter] public EventCallback<bool> ReplacingChanged { get; set; }
+
     /// <summary>The Confluence scopes the service account's credential needs, space separated as Atlassian shows them.</summary>
     public const string ConfluenceScopeList =
         "read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence "
@@ -587,14 +587,15 @@
         }
     }
 
-    private void OpenReplace()
+    private async Task OpenReplace()
     {
         replacing = true;
         replaceResult = null;
         replaceError = null;
+        await ReplacingChanged.InvokeAsync(true);
     }
 
-    private void CloseReplace()
+    private async Task CloseReplace()
     {
         replacing = false;
         replaceClientId = null;
@@ -604,6 +605,7 @@
         replaceError = null;
         replaceClientIdError = null;
         replaceClientSecretError = null;
+        await ReplacingChanged.InvokeAsync(false);
     }
 
     private async Task ReplaceAsync(bool saveAnyway)
@@ -627,7 +629,7 @@
             switch (replaced.Outcome)
             {
                 case AtlassianReplaceOutcome.Replaced:
-                    CloseReplace();
+                    await CloseReplace();
                     current = replaced.Connection;
                     retest = replaced.Test;
                     await OnUpdated.InvokeAsync(replaced.Connection!);
