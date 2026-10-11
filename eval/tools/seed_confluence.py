@@ -310,7 +310,7 @@ def push(args):
         found = c.call("GET", f"/api/v2/pages?space-id={space_id}&title={quote(title)}")["results"]
         return found[0]["id"] if found else None
 
-    updated = []
+    updated, failed = [], []
 
     def ensure_page(space, title, storage, parent_id=None):
         existing = find_page(spaces[space], title)
@@ -319,11 +319,15 @@ def push(args):
                 current = c.call("GET", f"/api/v2/pages/{existing}")
                 # Confluence normalises what it stores, so the version message records which converter wrote it.
                 if current["version"].get("message") != FORMAT:
-                    c.write("PUT", f"/api/v2/pages/{existing}", json={
-                        "id": existing, "status": "current", "title": title,
-                        "body": {"representation": "storage", "value": storage},
-                        "version": {"number": current["version"]["number"] + 1, "message": FORMAT}})
-                    updated.append(title)
+                    # The v1 content API: v2's page update answered 404 for pages this account owns.
+                    try:
+                        c.write("PUT", f"/rest/api/content/{existing}", json={
+                            "id": existing, "type": "page", "title": title,
+                            "body": {"storage": {"value": storage, "representation": "storage"}},
+                            "version": {"number": current["version"]["number"] + 1, "message": FORMAT}})
+                        updated.append(title)
+                    except RuntimeError as e:
+                        failed.append(f"{title}: {e}")
             return existing, False
         body = {"spaceId": spaces[space], "status": "current", "title": title,
                 "body": {"representation": "storage", "value": storage}}
@@ -364,6 +368,10 @@ def push(args):
             print(f"pages: {n}/{len(seed['pages'])}")
     print(f"pages: {made} created, {len(seed['pages']) - made} already there"
           + (f", {len(updated)} reformatted" if args.update else ""))
+    for f in failed[:5]:
+        print("could not reformat:", f)
+    if len(failed) > 5:
+        print(f"... and {len(failed) - 5} more pages could not be reformatted")
 
     comment = seed["comment"]
     if comment["page"] in fresh:
