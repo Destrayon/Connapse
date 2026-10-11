@@ -262,6 +262,45 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
     }
 
     [Fact]
+    public async Task Connect_SignInTurnedOff_SaysSoAndStartsNothing()
+    {
+        await WithLinkAppAsync(async credentials =>
+        {
+            await credentials.SetAtlassianSignInEnabledAsync(false);
+            using var adminClient = Client(fixture.AdminToken);
+
+            var response = await adminClient.GetAsync("/api/v1/auth/cloud/atlassian/connect");
+
+            response.Headers.Location!.OriginalString.Should().Be("/profile/integrations?error=atlassian_sign_in_off");
+        });
+    }
+
+    [Fact]
+    public async Task Callback_LinkAppRejected_RecordsAFailedCheckAndSaysSo()
+    {
+        Guid admin = AdminUserId();
+        await WithLinkAppAsync(async credentials =>
+        {
+            string state = await StartSignInAsync(admin);
+            Api.FailTokenWith(HttpStatusCode.Unauthorized);
+            try
+            {
+                using var anon = Client(null);
+
+                var response = await anon.GetAsync($"/api/v1/auth/cloud/atlassian/callback?code=code-any&state={state}");
+
+                response.Headers.Location!.OriginalString.Should().Be("/profile/integrations?error=atlassian_app_rejected");
+                (await credentials.GetAtlassianLinkAppAsync())!.CheckAccepted.Should().BeFalse();
+                (await LinkOf(admin)).Should().BeNull();
+            }
+            finally
+            {
+                Api.FailTokenWith(null);
+            }
+        });
+    }
+
+    [Fact]
     public async Task Connect_WithoutALinkApp_SaysAtlassianIsNotSetUp()
     {
         using var adminClient = Client(fixture.AdminToken);

@@ -550,7 +550,15 @@ public static class CloudIdentityEndpoints
                 (verifier, challenge) = OidcPkce.Create();
 
             string state = GenerateRandomToken();
-            string? url = await signIn.SignInUrlAsync(AtlassianCallbackUrl(http), state, challenge, ct);
+            string? url;
+            try
+            {
+                url = await signIn.SignInUrlAsync(AtlassianCallbackUrl(http), state, challenge, ct);
+            }
+            catch (AtlassianSignInOffException)
+            {
+                return Results.Redirect("/profile/integrations?error=atlassian_sign_in_off");
+            }
             if (url is null)
                 return Results.Redirect("/profile/integrations?error=atlassian_not_configured");
 
@@ -600,6 +608,15 @@ public static class CloudIdentityEndpoints
                     Path = AtlassianConfirmCookiePath,
                 });
                 return Results.Redirect("/api/v1/auth/cloud/atlassian/confirm");
+            }
+            catch (AtlassianSignInOffException)
+            {
+                return Results.Redirect("/profile/integrations?error=atlassian_sign_in_off");
+            }
+            catch (AtlassianLinkAppRejectedException)
+            {
+                logger.LogWarning("Atlassian rejected the linking app's client ID or secret during a sign-in");
+                return Results.Redirect("/profile/integrations?error=atlassian_app_rejected");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

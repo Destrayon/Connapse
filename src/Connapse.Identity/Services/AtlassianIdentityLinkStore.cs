@@ -24,6 +24,12 @@ public sealed class AtlassianIdentityLinkStore(
         return await db.UserAtlassianIdentityLinks.AsNoTracking().SingleOrDefaultAsync(x => x.UserId == userId, ct);
     }
 
+    public async Task<int> CountLinksAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        return await db.UserAtlassianIdentityLinks.CountAsync(ct);
+    }
+
     /// <summary>How many times the user has unlinked. A sign-in records this when it starts and passes
     /// it to <see cref="TrySaveAsync"/>.</summary>
     public async Task<long> GetRevocationGenerationAsync(Guid userId, CancellationToken ct = default)
