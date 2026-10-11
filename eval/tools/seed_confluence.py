@@ -16,7 +16,8 @@ other only in a PDF attached to a page.
     python eval/tools/seed_confluence.py build
     python eval/tools/seed_confluence.py push --site acme.atlassian.net --service-account-id <id> [--dry-run]
 
-`build` downloads the benchmark files into eval/.cache the first time (about 1.4 GB).
+`build` downloads the benchmark files into eval/.cache the first time (about 1.4 GB). Needs
+pyarrow, requests and markdown-it-py (`pip install pyarrow requests markdown-it-py`).
 `push` reads CONFLUENCE_EMAIL and CONFLUENCE_API_TOKEN (an Atlassian API token for your own
 account) from the environment and never prints them. It is safe to re-run: spaces and pages
 that already exist are reused.
@@ -36,6 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 SOURCE = os.path.join(ROOT, "eval", ".cache", "sources", "enterprise-rag-bench")
 OUT = os.path.join(ROOT, "eval", ".cache", "confluence-seed")
 DISTRACTORS = 70
+FORMAT = "seed_confluence.py format 2 (markdown-it)"
 
 SPACES = {
     "ENG": ("Engineering", "Runbooks, design docs, release notes and guides for Redwood's platform.", False),
@@ -144,81 +146,59 @@ def build():
 
 # --- Markdown to Confluence storage format ----------------------------------------------------
 
-def inline(text):
-    text = html.escape(text, quote=False)
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
-    text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
-    text = re.sub(r"(?<![\w*])\*([^*\n]+)\*(?![\w*])", r"<em>\1</em>", text)
-    return text
+# Unfenced commands the benchmark writes on their own lines, usually under a list item.
+COMMAND = re.compile(
+    r"^(\$ )?(kubectl|aws|terraform|helm|curl|gpuctl|python3?|pip|git|docker|npm|npx|cd|export|sudo|make|go|cargo|psql|"
+    r"redis-cli|gcloud|az|jq|grep|ssh|scp|openssl|vault|argocd|istioctl|promtool|quota-bumper|"
+    r"(GET|POST|PUT|PATCH|DELETE) /|[./~]*/[\w.-]+/[\w./-]+ |--[\w-]+)")
+
+# Languages Confluence's code macro accepts, keyed by the fence names the benchmark uses.
+CODE_LANGUAGES = {"bash": "bash", "sh": "bash", "shell": "bash", "console": "bash", "json": "json", "yaml": "yaml",
+                  "yml": "yaml", "python": "py", "py": "py", "sql": "sql", "javascript": "js", "js": "js",
+                  "typescript": "js", "ts": "js", "java": "java", "go": "go", "xml": "xml", "html": "html",
+                  "css": "css", "diff": "diff", "powershell": "powershell", "ruby": "ruby", "csharp": "c#", "cpp": "cpp"}
+
+
+def mark_commands(markdown):
+    """Wraps lines that are shell or HTTP commands in backticks, outside fenced code."""
+    out, fenced = [], False
+    for line in markdown.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            fenced = not fenced
+        elif not fenced and "`" not in stripped and COMMAND.match(stripped):
+            line = line[:len(line) - len(line.lstrip())] + "`" + stripped + "`"
+        out.append(line)
+    return "\n".join(out)
+
+
+def code_macro(match):
+    language = CODE_LANGUAGES.get((match.group(1) or "").lower())
+    body = html.unescape(match.group(2)).rstrip("\n").replace("]]>", "]]]]><![CDATA[>")
+    param = f'<ac:parameter ac:name="language">{language}</ac:parameter>' if language else ""
+    return f'<ac:structured-macro ac:name="code">{param}<ac:plain-text-body><![CDATA[{body}]]></ac:plain-text-body></ac:structured-macro>'
 
 
 def to_storage(markdown):
-    out, para, lists = [], [], []
+    """CommonMark to Confluence storage format, as md2cf and md2conf do: parse properly, then map."""
+    from markdown_it import MarkdownIt
+
     # Some benchmark pages carry their line breaks as the two characters backslash-n.
-    if markdown.count("\\n") > 5:
-        markdown = markdown.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "    ").replace('\\"', '"')
-    lines = markdown.replace("\r\n", "\n").split("\n")
+    if markdown.count("\n") > 5:
+        markdown = markdown.replace("\r\n", "\n").replace("\n", "\n").replace("\t", "    ").replace('\\"', '"')
+    markdown = mark_commands(markdown.replace("\r\n", "\n"))
 
-    def flush():
-        if para:
-            out.append("<p>" + inline(" ".join(para)) + "</p>")
-            para.clear()
-
-    def close_lists(depth=0):
-        while len(lists) > depth:
-            out.append(f"</li></{lists.pop()}>")
-
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            flush(); close_lists()
-            body = []
-            i += 1
-            while i < len(lines) and not lines[i].strip().startswith("```"):
-                body.append(lines[i]); i += 1
-            code = "\n".join(body).replace("]]>", "]]]]><![CDATA[>")
-            out.append('<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA['
-                       + code + "]]></ac:plain-text-body></ac:structured-macro>")
-        elif not stripped:
-            flush(); close_lists()
-        elif re.match(r"^#{1,6}\s", stripped):
-            flush(); close_lists()
-            level = min(len(stripped) - len(stripped.lstrip("#")), 6)
-            out.append(f"<h{level}>{inline(stripped[level:].strip())}</h{level}>")
-        elif re.match(r"^(-{3,}|\*{3,}|_{3,})$", stripped):
-            flush(); close_lists()
-            out.append("<hr />")
-        elif stripped.startswith("|") and i + 1 < len(lines) and re.match(r"^\|?\s*:?-{2,}", lines[i + 1].strip()):
-            flush(); close_lists()
-            cells = lambda row: [c.strip() for c in row.strip().strip("|").split("|")]
-            rows = ["<tr>" + "".join(f"<th>{inline(c)}</th>" for c in cells(line)) + "</tr>"]
-            i += 2
-            while i < len(lines) and lines[i].strip().startswith("|"):
-                rows.append("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in cells(lines[i])) + "</tr>")
-                i += 1
-            out.append("<table><tbody>" + "".join(rows) + "</tbody></table>")
-            continue
-        elif re.match(r"^\s*([-*+]|\d+[.)])\s+", line):
-            flush()
-            indent = len(line) - len(line.lstrip())
-            depth = indent // 2 + 1
-            kind = "ol" if re.match(r"^\s*\d", line) else "ul"
-            item = re.sub(r"^\s*([-*+]|\d+[.)])\s+", "", line)
-            if len(lists) < depth:
-                while len(lists) < depth:
-                    out.append(f"<{kind}><li>"); lists.append(kind)
-            else:
-                close_lists(depth)
-                out.append("</li><li>")
-            out.append(inline(item))
-        else:
-            close_lists()
-            para.append(stripped)
-        i += 1
-    flush(); close_lists()
-    return "\n".join(out)
+    # breaks: the benchmark writes one statement per line, so keep its line breaks.
+    parser = MarkdownIt("commonmark", {"breaks": True, "html": False, "xhtmlOut": True}).enable(["table", "strikethrough"])
+    tokens = parser.parse(markdown)
+    for token in tokens:
+        # Confluence's editor stores list items as <li><p>text</p></li>; bare text renders under the bullet.
+        if token.type in ("paragraph_open", "paragraph_close"):
+            token.hidden = False
+    # The renderer's newlines between tags would become stray text nodes inside list items. Code
+    # inside <pre> is still escaped here, so this only ever touches tags.
+    rendered = re.sub(r">\n\s*<", "><", parser.renderer.render(tokens, parser.options, {}))
+    return re.sub(r'<pre><code(?: class="language-([^"]*)")?>(.*?)</code></pre>', code_macro, rendered, flags=re.S)
 
 
 def tiny_pdf(text_lines):
@@ -336,13 +316,13 @@ def push(args):
         existing = find_page(spaces[space], title)
         if existing:
             if args.update:
-                current = c.call("GET", f"/api/v2/pages/{existing}?body-format=storage")
-                # Confluence normalises what it stores, so compare on the defect, not the markup.
-                if current["body"]["storage"]["value"].count("\\n") > 5:
+                current = c.call("GET", f"/api/v2/pages/{existing}")
+                # Confluence normalises what it stores, so the version message records which converter wrote it.
+                if current["version"].get("message") != FORMAT:
                     c.write("PUT", f"/api/v2/pages/{existing}", json={
                         "id": existing, "status": "current", "title": title,
                         "body": {"representation": "storage", "value": storage},
-                        "version": {"number": current["version"]["number"] + 1, "message": "Reformatted by seed_confluence.py"}})
+                        "version": {"number": current["version"]["number"] + 1, "message": FORMAT}})
                     updated.append(title)
             return existing, False
         body = {"spaceId": spaces[space], "status": "current", "title": title,
