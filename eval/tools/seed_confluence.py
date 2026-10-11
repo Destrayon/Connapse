@@ -154,6 +154,9 @@ def inline(text):
 
 def to_storage(markdown):
     out, para, lists = [], [], []
+    # Some benchmark pages carry their line breaks as the two characters backslash-n.
+    if markdown.count("\\n") > 5:
+        markdown = markdown.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "    ").replace('\\"', '"')
     lines = markdown.replace("\r\n", "\n").split("\n")
 
     def flush():
@@ -327,9 +330,20 @@ def push(args):
         found = c.call("GET", f"/api/v2/pages?space-id={space_id}&title={quote(title)}")["results"]
         return found[0]["id"] if found else None
 
+    updated = []
+
     def ensure_page(space, title, storage, parent_id=None):
         existing = find_page(spaces[space], title)
         if existing:
+            if args.update:
+                current = c.call("GET", f"/api/v2/pages/{existing}?body-format=storage")
+                # Confluence normalises what it stores, so compare on the defect, not the markup.
+                if current["body"]["storage"]["value"].count("\\n") > 5:
+                    c.write("PUT", f"/api/v2/pages/{existing}", json={
+                        "id": existing, "status": "current", "title": title,
+                        "body": {"representation": "storage", "value": storage},
+                        "version": {"number": current["version"]["number"] + 1, "message": "Reformatted by seed_confluence.py"}})
+                    updated.append(title)
             return existing, False
         body = {"spaceId": spaces[space], "status": "current", "title": title,
                 "body": {"representation": "storage", "value": storage}}
@@ -368,7 +382,8 @@ def push(args):
             restrict(ids[p["title"]], [me], p["title"])
         if n % 25 == 0:
             print(f"pages: {n}/{len(seed['pages'])}")
-    print(f"pages: {made} created, {len(seed['pages']) - made} already there")
+    print(f"pages: {made} created, {len(seed['pages']) - made} already there"
+          + (f", {len(updated)} reformatted" if args.update else ""))
 
     comment = seed["comment"]
     if comment["page"] in fresh:
@@ -397,6 +412,7 @@ def main():
     p.add_argument("--site", required=True, help="your site, e.g. acme.atlassian.net")
     p.add_argument("--service-account-id", help="the service account's Atlassian account ID, for space access and restrictions")
     p.add_argument("--dry-run", action="store_true", help="print what would be created without calling Atlassian")
+    p.add_argument("--update", action="store_true", help="rewrite pages that already exist when their content differs")
     args = ap.parse_args()
     build() if args.cmd == "build" else push(args)
 
