@@ -38,6 +38,9 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     /// <summary>The <c>expires_in</c> the token endpoint reports, in seconds.</summary>
     public int TokenExpiresIn { get; set; } = 3600;
 
+    /// <summary>The space-separated <c>scope</c> the token endpoint reports granting; null leaves it out.</summary>
+    public string? TokenScope { get; set; }
+
     /// <summary>Answers the next Confluence request 429 with a <c>Retry-After</c> of 30 seconds.</summary>
     public bool RateLimitNext { get; set; }
 
@@ -64,7 +67,17 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
 
     public void FailWith(HttpStatusCode? status) { lock (_gate) FailingStatus = status; }
 
-    public void FailTokenWith(HttpStatusCode? status) { lock (_gate) FailingTokenStatus = status; }
+    public void FailTokenWith(HttpStatusCode? status, string? body = null)
+    {
+        lock (_gate)
+        {
+            FailingTokenStatus = status;
+            FailingTokenBody = body;
+        }
+    }
+
+    /// <summary>The body sent with <see cref="FailingTokenStatus"/>, if any.</summary>
+    public string? FailingTokenBody { get; private set; }
 
     /// <summary>Answers every token-endpoint request 200 with this raw JSON body until cleared with <c>AnswerTokenWith(null)</c>.</summary>
     public string? RawTokenBody { get; private set; }
@@ -158,7 +171,9 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     private HttpResponseMessage IssueToken(string body)
     {
         if (FailingTokenStatus is { } failing)
-            return new HttpResponseMessage(failing);
+            return FailingTokenBody is { } failBody
+                ? new HttpResponseMessage(failing) { Content = new StringContent(failBody, Encoding.UTF8, "application/json") }
+                : new HttpResponseMessage(failing);
 
         if (RawTokenBody is { } raw)
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(raw, Encoding.UTF8, "application/json") };
@@ -183,6 +198,8 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
 
         string token = "token-" + ++_tokensIssued;
         _validTokens.Add(token);
-        return Json(new { access_token = token, expires_in = TokenExpiresIn, token_type = "Bearer" });
+        return TokenScope is { } scope
+            ? Json(new { access_token = token, expires_in = TokenExpiresIn, token_type = "Bearer", scope })
+            : Json(new { access_token = token, expires_in = TokenExpiresIn, token_type = "Bearer" });
     }
 }

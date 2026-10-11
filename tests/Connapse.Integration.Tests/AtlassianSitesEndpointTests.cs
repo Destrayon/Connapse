@@ -70,7 +70,14 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         }
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    // The fake is shared across the collection: a refused token left behind would fail other classes' sign-ins and checks.
+    public Task DisposeAsync()
+    {
+        _api.FailTokenWith(null);
+        _api.AnswerTokenWith(null);
+        _api.FailWith(null);
+        return Task.CompletedTask;
+    }
 
     private async Task<HttpClient> EditorClientAsync()
     {
@@ -163,6 +170,148 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         body.GetProperty("step").GetString().Should().Be("token");
         (await response.Content.ReadAsStringAsync()).Should().NotContain(Secret);
         (await FindAsync("failing.atlassian.net")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Create_FailingTester_ReportsThePlainStepAndTroubleshootingLink()
+    {
+        _api.FailTokenWith(HttpStatusCode.Unauthorized);
+
+        var response = await CreateAsync(_fixture.AdminClient, "failing-labels.atlassian.net");
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("stepLabel").GetString().Should().Be("Signing in as the service account");
+        body.GetProperty("troubleshootingUrl").GetString()
+            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#client-id-or-secret-rejected");
+        body.GetProperty("detail").GetString().Should().Contain("HTTP 401");
+    }
+
+    [Fact]
+    public async Task Create_SiteWithNoPages_Returns422WarningUnlessSaveAnyway()
+    {
+        _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
+
+        var warned = await CreateAsync(_fixture.AdminClient, "no-pages.atlassian.net");
+        warned.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await warned.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("warning").GetBoolean().Should().BeTrue();
+        (await FindAsync("no-pages.atlassian.net")).Should().BeNull();
+
+        var saved = await _fixture.AdminClient.PostAsJsonAsync(Sites,
+            new { siteUrl = "https://no-pages.atlassian.net", clientId = "client-1", clientSecret = Secret, saveAnyway = true });
+
+        saved.StatusCode.Should().Be(HttpStatusCode.Created);
+        var connection = await FindAsync("no-pages.atlassian.net");
+        connection!.Health!.Warning.Should().BeTrue();
+        connection.Health.Succeeded.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Get_ReturnsTheSiteItsHealthAndTheScopesItNeeds_WithoutTheSecret()
+    {
+        Guid id = await CreateSiteAsync("detail.atlassian.net");
+
+        var response = await _fixture.AdminClient.GetAsync($"{Sites}/{id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        string raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain(Secret);
+        var body = JsonDocument.Parse(raw).RootElement;
+        body.GetProperty("siteUrl").GetString().Should().Be("https://detail.atlassian.net");
+        body.GetProperty("health").GetProperty("succeeded").GetBoolean().Should().BeTrue();
+        body.GetProperty("health").GetProperty("lastSucceededAt").ValueKind.Should().Be(JsonValueKind.String);
+        body.GetProperty("scopes").GetArrayLength().Should().Be(7);
+    }
+
+    [Fact]
+    public async Task Test_RunsTheProbesWithTheStoredSecretAndRecordsTheResult()
+    {
+        Guid id = await CreateSiteAsync("retest.atlassian.net");
+        _api.FailTokenWith(HttpStatusCode.Unauthorized);
+        try
+        {
+            var response = await _fixture.AdminClient.PostAsync($"{Sites}/{id}/test", null);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            body.GetProperty("success").GetBoolean().Should().BeFalse();
+            body.GetProperty("step").GetString().Should().Be("token");
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        var connection = await FindAsync("retest.atlassian.net");
+        connection!.Health!.CredentialRejected.Should().BeTrue();
+        connection.Health.LastSucceededAt.Should().NotBeNull("the save before it passed");
+    }
+
+    [Fact]
+    public async Task Test_NonAdmin_Returns403()
+    {
+        using var editor = await EditorClientAsync();
+
+        (await editor.PostAsync($"{Sites}/{Guid.NewGuid()}/test", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.PutAsJsonAsync($"{Sites}/{Guid.NewGuid()}/credentials", new { clientId = "c", clientSecret = "s" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.GetAsync($"{Sites}/{Guid.NewGuid()}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task ReplaceCredentials_Passing_UpdatesInPlaceAndSourcesKeepTheirConnection()
+    {
+        Guid id = await CreateSiteAsync("replace.atlassian.net");
+        using (var scope = _fixture.Factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+                $"replace-src-{Guid.NewGuid():N}"[..24], id, """{"kind":"confluence-space","spaceId":"1","spaceKey":"ENG"}"""));
+        }
+
+        var response = await _fixture.AdminClient.PutAsJsonAsync($"{Sites}/{id}/credentials",
+            new { clientId = "client-2", clientSecret = "rotated-secret-456" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).Should().NotContain("rotated-secret-456");
+        using var check = _fixture.Factory.Services.CreateScope();
+        var store = check.ServiceProvider.GetRequiredService<IConnectionStore>();
+        var connection = await store.GetAsync(id);
+        connection!.SourceCount.Should().Be(1);
+        AtlassianSite.FromConfigJson(connection.ConfigJson)!.ClientId.Should().Be("client-2");
+        (await store.GetSecretAsync(id)).Should().Be("rotated-secret-456");
+    }
+
+    [Fact]
+    public async Task ReplaceCredentials_Failing_Returns422AndKeepsTheOldCredential()
+    {
+        Guid id = await CreateSiteAsync("replace-failing.atlassian.net");
+        _api.FailTokenWith(HttpStatusCode.Unauthorized);
+        try
+        {
+            var response = await _fixture.AdminClient.PutAsJsonAsync($"{Sites}/{id}/credentials",
+                new { clientId = "client-2", clientSecret = "wrong-secret" });
+
+            response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("step").GetString().Should().Be("token");
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        using var scope = _fixture.Factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        (await store.GetSecretAsync(id)).Should().Be(Secret);
+        AtlassianSite.FromConfigJson((await store.GetAsync(id))!.ConfigJson)!.ClientId.Should().Be("client-1");
+    }
+
+    [Fact]
+    public async Task ReplaceCredentials_MissingFields_Returns400()
+    {
+        Guid id = await CreateSiteAsync("replace-missing.atlassian.net");
+
+        var response = await _fixture.AdminClient.PutAsJsonAsync($"{Sites}/{id}/credentials", new { clientId = "client-2" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

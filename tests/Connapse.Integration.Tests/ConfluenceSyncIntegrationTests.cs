@@ -152,6 +152,39 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
     }
 
     [Fact]
+    public async Task CredentialRefused_MarksTheConnectionAsNeedingNewCredentials_UntilASyncReadsAgain()
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
+        try
+        {
+            var failed = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+            failed.Error.Should().NotBeNull();
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        var refused = await connections.GetAsync(connection.Id);
+        refused!.Health.Should().NotBeNull();
+        refused.Health!.CredentialRejected.Should().BeTrue();
+        refused.Health.Origin.Should().Be("sync");
+        refused.Health.Message.Should().NotContain("service-secret");
+
+        var restored = await service.SyncSourceAsync((await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(source.Id))!,
+            refused, CancellationToken.None);
+
+        restored.Error.Should().BeNull();
+        (await connections.GetAsync(connection.Id))!.Health!.CredentialRejected.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task FirstSync_EnqueuesEveryPageAndBlogpost()
     {
         SeedSpace(pages: 3);

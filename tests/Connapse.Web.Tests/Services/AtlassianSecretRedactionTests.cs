@@ -32,6 +32,32 @@ public class AtlassianSecretRedactionTests
     }
 
     [Fact]
+    public void ReplaceAtlassianCredentialsRequest_ToString_RedactsTheClientSecret()
+    {
+        string text = new ReplaceAtlassianCredentialsRequest("client-2", Secret).ToString();
+
+        text.Should().NotContain(Secret).And.Contain("ClientSecret = ***").And.Contain("client-2");
+    }
+
+    [Fact]
+    public void CreateConnectionRequest_ToString_RedactsTheSecret()
+    {
+        string text = new Connapse.Core.CreateConnectionRequest("acme.atlassian.net", Connapse.Core.ConnectionProvider.Atlassian,
+            "{\"clientId\":\"client-1\"}", Secret).ToString();
+
+        text.Should().NotContain(Secret).And.Contain("Secret = ***").And.Contain("acme.atlassian.net");
+    }
+
+    [Fact]
+    public void UpdateConnectionRequest_ToString_RedactsTheSecret()
+    {
+        string text = new Connapse.Core.UpdateConnectionRequest("renamed", null, Secret).ToString();
+
+        text.Should().NotContain(Secret).And.Contain("Secret = ***").And.Contain("renamed");
+        new Connapse.Core.UpdateConnectionRequest("renamed").ToString().Should().Contain("Secret = null");
+    }
+
+    [Fact]
     public void AtlassianPendingSignIn_ToString_RedactsTheCodeVerifier()
     {
         string text = new AtlassianPendingSignIn("state-1", Secret, Guid.Empty, DateTime.UnixEpoch, DateTime.UnixEpoch, RevocationGeneration: 0).ToString();

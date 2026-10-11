@@ -1,0 +1,68 @@
+@using Connapse.Core
+@using Connapse.Web.Services
+
+@*
+    One Atlassian site test result: what failed in plain words (never the internal step id), what
+    to do, the troubleshooting entry for it, and Atlassian's own answer behind "Show details". A
+    warning (no page or no other user yet) does not block: it offers to save anyway.
+*@
+
+<div id="@Id" class="alert @AlertClass py-2 mt-2 mb-0 small" role="@(report.Success || report.Warning ? "status" : "alert")">
+    <span class="@IconClass me-1" aria-hidden="true"></span>
+    @if (!report.Success && report.StepLabel is { } label)
+    {
+        <strong>@(report.Warning ? "Couldn't finish" : "Failed"): @label.</strong>
+    }
+    @report.Message
+    @if (!report.Success && report.TroubleshootingUrl is { } url)
+    {
+        <div class="mt-1">
+            <a class="alert-link" href="@url" target="_blank" rel="noopener">Troubleshooting: @report.StepLabel<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </div>
+    }
+    @if (!report.Success)
+    {
+        <details class="mt-1" id="@($"{Id}-details")">
+            <summary>Show details</summary>
+            <dl class="mb-0 mt-1">
+                <dt>Step</dt>
+                <dd>@report.StepLabel</dd>
+                @if (report.Detail is { Length: > 0 } detail)
+                {
+                    <dt>Atlassian's answer</dt>
+                    <dd><code class="text-break">@detail</code></dd>
+                }
+                @if (Result.Duration is { } took)
+                {
+                    <dt>Time taken</dt>
+                    <dd>@took.TotalSeconds.ToString("0.0") s</dd>
+                }
+            </dl>
+        </details>
+    }
+    @if (report.Warning && OnSaveAnyway.HasDelegate)
+    {
+        <div class="mt-2">
+            <button type="button" id="@($"{Id}-save-anyway")" class="btn btn-sm btn-warning" disabled="@Busy" @onclick="OnSaveAnyway">
+                @SaveAnywayLabel
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ConnectionTestResult Result { get; set; } = null!;
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+
+    /// <summary>Offered on a warning: saves what was tested even though administrator access is unconfirmed.</summary>
+    [Parameter] public EventCallback OnSaveAnyway { get; set; }
+    [Parameter] public string SaveAnywayLabel { get; set; } = "Save anyway";
+    [Parameter] public bool Busy { get; set; }
+
+    private AtlassianTestReport report = null!;
+
+    protected override void OnParametersSet() => report = AtlassianTestReport.From(Result);
+
+    private string AlertClass => report.Success ? "alert-success" : report.Warning ? "alert-warning" : "alert-danger";
+    private string IconClass => report.Success ? "bi-check-circle" : report.Warning ? "bi-exclamation-triangle" : "bi-x-circle";
+}

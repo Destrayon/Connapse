@@ -219,6 +219,15 @@ public class SourceSyncService(
                     result.Unsupported, source.Id, Sanitize(source.Name));
             }
 
+            // A site whose credential was refused, then replaced or restored in Atlassian, reads
+            // again: the connection stops asking for new credentials.
+            if (connection is { Health.CredentialRejected: true })
+            {
+                await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
+                    new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null,
+                        Message: $"Source '{source.Name}' synced with the stored credential.", Origin: "sync"), ct);
+            }
+
             // The remote answered, so it is readable again: its documents come back into search.
             if (source.AccessRevokedAt is not null)
             {
@@ -242,6 +251,17 @@ public class SourceSyncService(
                 logger.LogWarning(
                     "Source {SourceId} ({Name}) refused access; its documents are hidden from search until it is readable again",
                     source.Id, Sanitize(source.Name));
+            }
+
+            // Atlassian refused the service account's credential (revoked, rotated, or expired):
+            // the site's connection says it needs new credentials rather than failing quietly.
+            if (connection is { Provider: ConnectionProvider.Atlassian }
+                && ex is Connapse.Storage.Connectors.Atlassian.AtlassianAuthException)
+            {
+                await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
+                    new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token",
+                        Message: $"Atlassian refused the stored credential while syncing source '{source.Name}'.",
+                        Origin: "sync", CredentialRejected: true), ct);
             }
 
             // Record the failure without discarding progress: a transient outage must not

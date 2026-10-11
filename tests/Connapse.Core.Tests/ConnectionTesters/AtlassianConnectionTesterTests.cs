@@ -126,16 +126,123 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     }
 
     [Fact]
-    public async Task Test_PermissionCheckAnswers401_FailsAtAdminStep()
+    public async Task Test_PermissionCheckAnswers401_FailsAtAdminStepAsAMissingScope()
     {
+        // The same token read Confluence a moment ago, so a 401 here is the token's scopes, not the account.
         _api.Map(Root + "/rest/api/content/4242/permission/check", _ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
 
         var result = await _tester.TestConnectionAsync(_request);
 
         result.Success.Should().BeFalse();
         result.Details!["step"].Should().Be(AtlassianConnectionTester.AdminStep);
-        result.Message.Should().Contain("Confluence Administrator");
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
+        result.Message.Should().Contain("read:content.permission:confluence").And.NotContain("isn't Confluence Administrator");
     }
+
+    [Fact]
+    public async Task Test_PermissionCheck403NamingAScope_IsAMissingScopeWithAtlassiansAnswer()
+    {
+        _api.Map(Root + "/rest/api/content/4242/permission/check", _ => FakeAtlassianApi.Json(
+            new { code = 403, message = "Unauthorized; scope does not match" }, HttpStatusCode.Forbidden));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Details!["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
+        result.Details["detail"].Should().Be("HTTP 403 (Forbidden): 403 Unauthorized; scope does not match");
+    }
+
+    [Fact]
+    public async Task Test_PermissionCheck403_WhenTheTokenListsNoPermissionScope_IsAMissingScope()
+    {
+        _api.TokenScope = "read:space:confluence read:page:confluence";
+        _api.Map(Root + "/rest/api/content/4242/permission/check", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Details!["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
+    }
+
+    [Fact]
+    public async Task Test_NotAdmin_LinksNotAdministrator()
+    {
+        _api.TokenScope = string.Join(' ', AtlassianSiteScopes.All.Select(s => s.Name));
+        _api.Map(Root + "/rest/api/content/4242/permission/check", _ => FakeAtlassianApi.Json(
+            new { message = "User is not permitted to check permissions" }, HttpStatusCode.Forbidden));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Details!["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NotAdministrator);
+        result.Message.Should().Contain("isn't Confluence Administrator").And.Contain("then test again");
+    }
+
+    [Fact]
+    public async Task Test_Pass_SaysWhatWasVerified_AndConfirmsTheGrantedScopes()
+    {
+        _api.TokenScope = "read:space:confluence read:page:confluence read:content.permission:confluence offline_access";
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("found the site").And.Contain("signed in").And.Contain("listed spaces");
+        ((string[])result.Details!["scopes"]).Should().Equal(
+            "read:space:confluence", "read:page:confluence", "read:content.permission:confluence");
+    }
+
+    [Fact]
+    public async Task Test_Pass_WithoutGrantedScopes_ConfirmsTheScopesTheProbesUsed()
+    {
+        var result = await _tester.TestConnectionAsync(_request);
+
+        ((string[])result.Details!["scopes"]).Should().Equal(AtlassianSiteScopes.ProvenByTest);
+    }
+
+    [Fact]
+    public async Task Test_WithoutTheAttachmentScope_StillPasses()
+    {
+        _api.TokenScope = string.Join(' ', AtlassianSiteScopes.All.Where(s => !s.Optional).Select(s => s.Name));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Test_BadSecret_IsMarkedRejected_WithAtlassiansErrorCodeButNotTheSecret()
+    {
+        _api.FailTokenWith(HttpStatusCode.Unauthorized, """{"error":"access_denied","error_description":"Unauthorized"}""");
+
+        const string secret = "S3cr3t-Value-XYZ";
+
+        var result = await _tester.TestConnectionAsync(_request with { ClientSecret = secret });
+
+        result.Details!["rejected"].Should().Be(true);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CredentialsRejected);
+        ((string)result.Details["detail"]).Should().Contain("HTTP 401").And.Contain("access_denied");
+        result.Details.Values.OfType<string>().Should().NotContain(v => v.Contains(secret));
+        result.Message.Should().NotContain(secret);
+    }
+
+    [Fact]
+    public async Task Test_EveryFailure_CarriesAStepTroubleshootingEntryAndItsDuration()
+    {
+        _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Details!["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NoSpaces);
+        result.Details["stepMs"].Should().BeOfType<long>();
+        result.Details["detail"].Should().Be("HTTP 403 (Forbidden)");
+        result.Message.Should().Contain("Viewer role");
+    }
+
+    [Theory]
+    [InlineData("site", "Finding the site")]
+    [InlineData("token", "Signing in as the service account")]
+    [InlineData("identity", "Reading Confluence")]
+    [InlineData("spaces", "Listing spaces")]
+    [InlineData("admin", "Checking access permissions")]
+    public void StepLabel_IsPlainWords(string step, string label) =>
+        AtlassianConnectionTester.StepLabel(step).Should().Be(label);
 
     [Fact]
     public async Task Test_MalformedSpacesBody_FailsAtSpacesStep()
@@ -272,6 +379,10 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Success.Should().BeFalse();
         result.Details!["step"].Should().Be(AtlassianConnectionTester.AdminStep);
         result.Details["warning"].Should().Be(true);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NothingToCheckYet);
+        result.Details["cloudId"].Should().Be(CloudId);
+        result.Details["siteUrl"].Should().Be("https://acme.atlassian.net");
+        result.Message.Should().Contain("save anyway");
         _api.Calls.Keys.Should().NotContain(p => p.EndsWith("/permission/check"));
     }
 
@@ -287,6 +398,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
 
         result.Success.Should().BeFalse();
         result.Details!["step"].Should().Be(AtlassianConnectionTester.AdminStep);
+        result.Details["warning"].Should().Be(true);
         _api.Calls.Keys.Should().NotContain(p => p.EndsWith("/permission/check"));
     }
 
