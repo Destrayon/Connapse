@@ -37,7 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 SOURCE = os.path.join(ROOT, "eval", ".cache", "sources", "enterprise-rag-bench")
 OUT = os.path.join(ROOT, "eval", ".cache", "confluence-seed")
 DISTRACTORS = 70
-FORMAT = "seed_confluence.py format 2 (markdown-it)"
+FORMAT = "seed_confluence.py format 3 (markdown-it)"
 
 SPACES = {
     "ENG": ("Engineering", "Runbooks, design docs, release notes and guides for Redwood's platform.", False),
@@ -184,8 +184,8 @@ def to_storage(markdown):
     from markdown_it import MarkdownIt
 
     # Some benchmark pages carry their line breaks as the two characters backslash-n.
-    if markdown.count("\n") > 5:
-        markdown = markdown.replace("\r\n", "\n").replace("\n", "\n").replace("\t", "    ").replace('\\"', '"')
+    if markdown.count("\\n") > 5:
+        markdown = markdown.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "    ").replace('\\"', '"')
     markdown = mark_commands(markdown.replace("\r\n", "\n"))
 
     # breaks: the benchmark writes one statement per line, so keep its line breaks.
