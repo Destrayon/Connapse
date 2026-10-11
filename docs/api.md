@@ -1200,7 +1200,7 @@ Base path: `/api/sources`
 
 A **source** is an external system Connapse mirrors read-only — an S3 bucket, an SFTP directory, or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
 
-**Connections have no REST surface.** They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
+**Connections have no REST surface**, apart from [Atlassian sites](#atlassian-sites), which are saved only after every check passes. They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
 
 | Method | Route | Role |
 |--------|-------|------|
@@ -1233,8 +1233,21 @@ Scope keys by provider:
 | S3 | `bucketName`, `prefix` |
 | SFTP | `subPath`, `includePatterns`, `excludePatterns` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
+| GitHub | `owner`, `repo`, `kind`, `includePatterns`, `includeComments` |
+| Atlassian | `spaceId`, `includeAttachments`, `maxAttachmentMb` |
 
 The scope must fall inside the `allowedLocations` or `allowedRoot` its connection declares, or creation fails.
+
+For an **Atlassian** connection, the request runs the checks the New source dialog runs: `spaceId` must be a space the site's service account can view now, the space must not already have a source on the connection, and `maxAttachmentMb` must be 1 to 100. `spaceKey` and `kind` are written from Atlassian's answer, over anything sent. `name` may be left out; it then defaults to `<site host> / <space name>`, as in the dialog.
+
+```json
+{
+  "connectionId": "8a1b...",
+  "scopeJson": "{\"spaceId\":\"98306\",\"includeAttachments\":true,\"maxAttachmentMb\":25}"
+}
+```
+
+A failed check is a `400` naming the field, for example `{ "error": "...", "field": "spaceId" }`. If Atlassian can't be reached, the response is `502`.
 
 ### Source Response
 
@@ -1282,6 +1295,16 @@ Queues every document of the source whose ingestion failed again, with a fresh a
 **Endpoint**: `DELETE /api/sources/{id}`
 
 Removes the source and its indexed documents. **The external data is untouched.**
+
+### Atlassian Sites
+
+Base path: `/api/v1/atlassian/sites`. Administrator only. Setup steps and every field are in the [Atlassian setup guide](atlassian-setup.md).
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| POST | `/resolve` | `{ "siteUrl" }` → `{ siteUrl, cloudId }`. `400` if the address is not `https://<name>.atlassian.net`, `404` if no site is there |
+| POST | `/` | `{ "siteUrl", "clientId", "clientSecret" }`. Runs every site check and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId }`. A failed check is `422` with `{ success: false, step, message }`; the secret is never returned |
+| GET | `/{connectionId}/spaces?includePersonal=false` | The spaces the site's service account can view: `[{ id, key, name, type }]`. `502` if Atlassian can't be reached |
 
 ---
 

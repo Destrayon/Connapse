@@ -16,7 +16,7 @@ A small Confluence Cloud site for testing the Atlassian connector (#540) end to 
 3. Invite a second person: another email address you own. In Atlassian Administration, go to **Directory** → **Users** → **Invite users**, give them Confluence access, and accept the invitation from that inbox. This person should see the Engineering space but not Incident reviews or Company Operations.
 
 ## 2. Create the service account
-Follow the steps on Connapse's **Connections** page (New connection → Atlassian). Then copy the service account's **account ID**: in Atlassian Administration, go to **Directory** → **Service accounts** and open the account. The ID is the long value at the end of the page's address. The seeding script uses it to give the account access to both spaces and the Incident reviews tree.
+Follow [step 2 of the Atlassian setup guide](atlassian-setup.md#2-service-account) (the same steps are on Connapse's **Connections** page under **Add connection** → **Atlassian site**). Then copy the service account's **account ID**: in Atlassian Administration, go to **Directory** → **Service accounts** and open the account. The ID is the long value at the end of the page's address. The seeding script uses it to give the account access to both spaces and the Incident reviews tree.
 
 ## 3. Seed the content
 1. Create an API token for **your own** account at [id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens) (**Create API token**, not the scoped kind). The script uses it to create pages as you.
@@ -32,12 +32,15 @@ Follow the steps on Connapse's **Connections** page (New connection → Atlassia
    It takes a few minutes. Re-running it is safe: it reuses anything already created. If a step can't be done through the API, it prints what to do by hand at the end.
 
 ## 4. Connect Connapse
-1. **Connections** → Atlassian: enter the site, the service account's client ID and secret, and **Test and save**.
-2. **New source** → Confluence → tick **Engineering** and **Company Operations**, and include attachments.
-3. Link accounts: as yourself, go to **Profile** → **Integrations** → Atlassian and sign in as your Atlassian account. Then, as a second Connapse user, link the second person's Atlassian account.
+The full field-by-field steps are in the [Atlassian setup guide](atlassian-setup.md).
+
+1. **Admin** → **Providers** → **Atlassian**: create and save the linking app ([step 1 of the guide](atlassian-setup.md#1-linking-app)). Without it, nobody can link an account in step 4.4, so every search shows no Confluence results.
+2. **Connections** → **Add connection** → **Atlassian site**: enter the site, the service account's client ID and secret, and **Test and save**.
+3. **Sources** → **New source** → choose the site's connection → tick **Engineering** and **Company Operations**, leave **Include attachments** ticked, and **Create source**.
+4. Link accounts: as yourself, go to **Profile** → **Integrations** → Atlassian and sign in as your Atlassian account. Then, as a second Connapse user, link the second person's Atlassian account.
 
 ## 5. Check the results
-Search in Connapse as each person once the sources finish syncing. These five cover every case; the full list of 64 questions, with the page that answers each one, is in `eval/.cache/confluence-seed/questions.md` after `build`.
+Search in Connapse as each person once the sources finish syncing. These six cover every case; the full list of 64 questions, with the page that answers each one, is in `eval/.cache/confluence-seed/questions.md` after `build`.
 
 | Question | Answer page | You | Second person | Unlinked user |
 |---|---|---|---|---|
