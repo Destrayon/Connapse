@@ -164,6 +164,45 @@ public class PostgresConnectionStore(
         }
     }
 
+    public async Task<ConnectionHealth?> RecordHealthAsync(Guid id, ConnectionHealth health, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(health);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Connections.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (entity is null) return null;
+
+        ConnectionHealth? previous = ReadHealth(entity.HealthJson);
+        ConnectionHealth stored = health.Succeeded
+            ? health with { LastSucceededAt = health.CheckedAt }
+            : health with
+            {
+                LastSucceededAt = health.LastSucceededAt ?? previous?.LastSucceededAt,
+                ConfirmedScopes = health.ConfirmedScopes ?? previous?.ConfirmedScopes,
+            };
+
+        // UpdatedAt is left alone: a check changes nothing an admin configured.
+        entity.HealthJson = JsonSerializer.Serialize(stored, HealthJsonOptions);
+        await context.SaveChangesAsync(ct);
+        return stored;
+    }
+
+    private static readonly JsonSerializerOptions HealthJsonOptions = new(JsonSerializerDefaults.Web);
+
+    private static ConnectionHealth? ReadHealth(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<ConnectionHealth>(json, HealthJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static Connection MapToModel(ConnectionEntity entity, int sourceCount) => new(
         Id: entity.Id,
         Name: entity.Name,
@@ -173,5 +212,6 @@ public class PostgresConnectionStore(
         CreatedAt: entity.CreatedAt,
         UpdatedAt: entity.UpdatedAt,
         HasSecret: !string.IsNullOrEmpty(entity.SecretProtected),
-        SourceCount: sourceCount);
+        SourceCount: sourceCount,
+        Health: ReadHealth(entity.HealthJson));
 }

@@ -32,8 +32,8 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
             if (entry.Fresh(time) is { } refreshed)
                 return refreshed;
 
-            var (token, lifetime) = await FetchAsync(site, clientSecret, ct);
-            Volatile.Write(ref entry.Current, new Issued(token, time.GetUtcNow() + lifetime - RefreshMargin));
+            var (token, lifetime, scopes) = await FetchAsync(site, clientSecret, ct);
+            Volatile.Write(ref entry.Current, new Issued(token, time.GetUtcNow() + lifetime - RefreshMargin, scopes));
             return token;
         }
         finally
@@ -61,10 +61,17 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
         Interlocked.CompareExchange(ref entry.Current, null, observed);
     }
 
+    /// <summary>
+    /// The scopes Atlassian said it granted with the site's current token, or null when there is no
+    /// token yet or Atlassian's answer named none.
+    /// </summary>
+    public IReadOnlyList<string>? GrantedScopes(AtlassianSite site) =>
+        _entries.TryGetValue((site.CloudId, site.ClientId), out var entry) ? Volatile.Read(ref entry.Current)?.Scopes : null;
+
     /// <summary>Test seam: runs after <see cref="Invalidate"/> has matched the token and before it clears it.</summary>
     internal Action? BetweenInvalidateCompareAndClear { get; set; }
 
-    private async Task<(string Token, TimeSpan Lifetime)> FetchAsync(
+    private async Task<(string Token, TimeSpan Lifetime, IReadOnlyList<string>? Scopes)> FetchAsync(
         AtlassianSite site, string clientSecret, CancellationToken ct)
     {
         using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
@@ -88,7 +95,7 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
 
         if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             throw new AtlassianAuthException(
-                $"Atlassian rejected the service account credentials (HTTP {(int)response.StatusCode}). "
+                $"Atlassian rejected the service account credentials (HTTP {(int)response.StatusCode}{await ErrorCodeOfAsync(response, ct)}). "
                 + "Check the client id and secret.");
 
         response.EnsureSuccessStatusCode();
@@ -97,7 +104,34 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
         if (string.IsNullOrEmpty(body?.AccessToken))
             throw new AtlassianAuthException("Atlassian's token endpoint returned no access token.");
 
-        return (body.AccessToken, TimeSpan.FromSeconds(body.ExpiresIn > 0 ? body.ExpiresIn : 3600));
+        IReadOnlyList<string>? scopes = string.IsNullOrWhiteSpace(body.Scope)
+            ? null
+            : body.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return (body.AccessToken, TimeSpan.FromSeconds(body.ExpiresIn > 0 ? body.ExpiresIn : 3600), scopes);
+    }
+
+    /// <summary>
+    /// Atlassian's OAuth error code (<c>error</c>, such as <c>access_denied</c>) from a refused token
+    /// request, as ", access_denied". Only that one field is read, and only when it looks like a
+    /// code, so nothing that was sent can be echoed back through it.
+    /// </summary>
+    private static async Task<string> ErrorCodeOfAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind == System.Text.Json.JsonValueKind.String
+                && error.GetString() is { Length: > 0 and <= 64 } code
+                && code.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.'))
+                return ", " + code;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+        return "";
     }
 
     private sealed class Entry
@@ -111,9 +145,10 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
             Volatile.Read(ref Current) is { } issued && time.GetUtcNow() < issued.ExpiresAt ? issued.Token : null;
     }
 
-    private sealed record Issued(string Token, DateTimeOffset ExpiresAt);
+    private sealed record Issued(string Token, DateTimeOffset ExpiresAt, IReadOnlyList<string>? Scopes);
 
     private sealed record TokenResponse(
         [property: JsonPropertyName("access_token")] string? AccessToken,
-        [property: JsonPropertyName("expires_in")] int ExpiresIn);
+        [property: JsonPropertyName("expires_in")] int ExpiresIn,
+        [property: JsonPropertyName("scope")] string? Scope = null);
 }
