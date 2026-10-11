@@ -94,6 +94,9 @@ public sealed partial class FakeConfluence
                 return limited;
             }
 
+            if (RefuseAttachmentsWith is { } refusedListing)
+                return new HttpResponseMessage(refusedListing);
+
             if (!_pages.TryGetValue(pageId, out var page) || page.Kind != singular)
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
 
@@ -114,6 +117,8 @@ public sealed partial class FakeConfluence
         if (DownloadRoute().Match(rest) is { Success: true } download)
         {
             string attId = download.Groups["att"].Value;
+            if (RefuseAttachmentsWith is { } refusedDownload)
+                return new HttpResponseMessage(refusedDownload);
             if (!_attachments.TryGetValue(attId, out var attachment) || attachment.PageId != download.Groups["page"].Value)
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
 
@@ -146,6 +151,12 @@ public sealed partial class FakeConfluence
 
     /// <summary>Overrides where a download redirects, for the client's host checks.</summary>
     public string? DownloadRedirect { get; set; }
+
+    /// <summary>
+    /// When set, every attachment listing and download answers this status, as Atlassian does when
+    /// the credential lacks <c>read:attachment:confluence</c> but reads pages fine.
+    /// </summary>
+    public HttpStatusCode? RefuseAttachmentsWith { get; set; }
 
     public void AddAttachment(FakeConfluenceAttachment attachment) { lock (_gate) _attachments[attachment.Id] = attachment; }
 

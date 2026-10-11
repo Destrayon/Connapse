@@ -7,6 +7,7 @@
 @using Connapse.Storage.Connectors.GitHub
 @using Connapse.Web.Components.Settings
 @using Connapse.Web.Components.Shared
+@using Connapse.Web.Components.Sources
 @using Connapse.Web.Services
 @inject ISourceStore SourceStore
 @inject IConnectionStore ConnectionStore
@@ -63,11 +64,59 @@
                     <dt class="col-sm-3 fw-normal text-muted">Connection</dt>
                     <dd class="col-sm-9">@(connection?.Name ?? (source.Provider is { } p ? $"{p} (no connection)" : "(missing connection)"))</dd>
                     <dt class="col-sm-3 fw-normal text-muted">Scope</dt>
-                    <dd class="col-sm-9 font-monospace">@(SourceScopeSummary.Describe(source.ScopeJson) ?? "—")</dd>
+                    <dd class="col-sm-9 font-monospace">@(SourceScopeSummary.Describe(source.ScopeJson, SiteHost) ?? "—")</dd>
                 </dl>
-                <div class="form-text">To read from somewhere else, add a new source.</div>
+                <div class="form-text">
+                    @if (form.Confluence is not null)
+                    {
+                        <text>@ConfluenceSpaceSelection.SpaceFixedNote</text>
+                    }
+                    else
+                    {
+                        <text>To read from somewhere else, add a new source.</text>
+                    }
+                </div>
             </div>
         </section>
+
+        @if (form.Confluence is { } confluence)
+        {
+            <section class="card mb-3">
+                <div class="card-body">
+                    <fieldset id="confluence-attachments-group">
+                        <legend class="h6 mb-3">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
+                        <div class="form-check">
+                            <input id="confluence-attachments" type="checkbox" class="form-check-input" aria-describedby="confluence-attachments-help"
+                                   @bind="confluence.IncludeAttachments" @bind:after="AttachmentsChanged" />
+                            <label for="confluence-attachments" class="form-check-label">@ConfluenceSpaceSelection.IncludeAttachmentsLabel</label>
+                            <div id="confluence-attachments-help" class="form-text mt-0">
+                                @ConfluenceSpaceSelection.IncludeAttachmentsHelp
+                                @ConfluenceSpaceSelection.AttachmentScopeHelp
+                                <a href="@ConfluenceSpaceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">How to add it<span class="visually-hidden"> (opens in a new tab)</span></a>.
+                            </div>
+                        </div>
+                        <div class="ms-4 mt-2">
+                            <label class="form-label small" for="confluence-max-attachment-mb">@ConfluenceSpaceSelection.MaxAttachmentMbLabel</label>
+                            <input id="confluence-max-attachment-mb" type="number" class="form-control form-control-sm @(confluence.MaxAttachmentMbError is null ? "" : "is-invalid")"
+                                   min="@ConfluenceSpaceSelection.MinAttachmentMb" max="@ConfluenceSpaceSelection.MaxAttachmentMbLimit" style="max-width: 8rem;"
+                                   aria-describedby="@(confluence.MaxAttachmentMbError is null ? "confluence-max-attachment-mb-help" : "confluence-max-attachment-mb-error confluence-max-attachment-mb-help")"
+                                   aria-invalid="@(confluence.MaxAttachmentMbError is null ? null : "true")"
+                                   disabled="@(!confluence.IncludeAttachments)"
+                                   @bind="confluence.MaxAttachmentMb" @bind:after="ValidateMaxSize" @onblur="ValidateMaxSize" />
+                            @if (confluence.MaxAttachmentMbError is { } sizeError)
+                            {
+                                <div id="confluence-max-attachment-mb-error" class="invalid-feedback d-block fw-semibold" role="alert">
+                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@sizeError
+                                </div>
+                            }
+                            <div id="confluence-max-attachment-mb-help" class="form-text">
+                                @ConfluenceSpaceSelection.MaxAttachmentMbHelp
+                            </div>
+                        </div>
+                    </fieldset>
+                </div>
+            </section>
+        }
 
         @if (form.GitHubKind == GitHubContentKind.IssuesAndPullRequests)
         {
@@ -184,6 +233,22 @@
 
     /// <summary>Re-renders the page, so the note about a full re-read follows the pickers.</summary>
     private void PickerChanged() => message = null;
+
+    /// <summary>The Atlassian site's address, which a Confluence scope does not hold itself.</summary>
+    private string? SiteHost =>
+        connection is { Provider: ConnectionProvider.Atlassian }
+        && Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson) is { } site
+            ? new Uri(site.SiteUrl).Host
+            : null;
+
+    private void ValidateMaxSize() => form?.Confluence?.ValidateMaxAttachmentMb();
+
+    // As on the New source dialog: turning attachments off clears a size error; turning them on re-checks it.
+    private void AttachmentsChanged()
+    {
+        if (form?.Confluence is { } confluence && (confluence.MaxAttachmentMbError is not null || !confluence.IncludeAttachments))
+            confluence.ValidateMaxAttachmentMb();
+    }
 
     private async Task Save()
     {

@@ -14,6 +14,7 @@
 @inject IConnectionStore ConnectionStore
 @inject SourceSyncService SyncService
 @inject IAuditLogger AuditLogger
+@inject ILogger<Sources> Logger
 @inject AuthenticationStateProvider AuthStateProvider
 @inject SourceScopePreflight Preflight
 @inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
@@ -1086,7 +1087,7 @@
     /// <summary>A fresh space selection, and which spaces the chosen Atlassian connection already has sources for.</summary>
     private async Task ResetConfluenceAsync()
     {
-        confluenceForm = new ConfluenceSpaceSelection();
+        confluenceForm = ConfluenceSpaceSelection.ForSite(SelectedConnection);
         confluenceExisting = new HashSet<string>();
         if (SelectedConnection is not { Provider: ConnectionProvider.Atlassian } connection)
             return;
@@ -1181,9 +1182,12 @@
         }
         catch (Exception ex)
         {
-            // An exception escaping a Blazor event handler tears down the circuit.
+            // An exception escaping a Blazor event handler tears down the circuit. Its text is for
+            // the log: it can name internals that mean nothing to the person adding a source.
+            Logger.LogError(ex, "Adding Confluence spaces on connection {ConnectionId} ({Name}) failed after {Created} were created",
+                connection.Id, Connapse.Core.Utilities.LogSanitizer.Sanitize(connection.Name), created.Count);
             if (confluenceForm is not null)
-                confluenceForm.SpacesError = $"Could not add the spaces. {ex.Message}";
+                confluenceForm.SpacesError = ConfluenceSpaceSelection.AddFailedMessage(created);
         }
         finally
         {

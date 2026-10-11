@@ -58,6 +58,19 @@ public sealed partial class ConfluenceSpaceConnector(
     /// <summary>How often the titles of folders in use are read again, to catch a renamed folder.</summary>
     internal static readonly TimeSpan FolderRefreshInterval = TimeSpan.FromHours(1);
 
+    /// <summary>The source warning when Atlassian refuses attachment reads with a token that reads pages.</summary>
+    public const string AttachmentScopeNotice =
+        "Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. "
+        + "Add it to the credential, or turn off Include attachments.";
+
+    /// <summary>
+    /// A refusal of an attachment read that is not the credential itself being refused: a 401 with
+    /// a freshly issued token or a 403. A token endpoint refusal is the site's problem and propagates.
+    /// </summary>
+    private static bool IsAttachmentScopeRefusal(Exception ex) =>
+        ex is AtlassianAuthException { TokenRefused: false }
+        || ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized };
+
     /// <summary>
     /// How long a page's attachment list is trusted. Deleted attachments are invisible to the
     /// change query, so every page's list is read again once a day.
@@ -244,6 +257,11 @@ public sealed partial class ConfluenceSpaceConnector(
         {
             throw new PermanentIngestionException(
                 $"Confluence attachment {attachment.Id} could not be downloaded: {ex.Message}", ex);
+        }
+        catch (Exception ex) when (IsAttachmentScopeRefusal(ex))
+        {
+            // A retry is refused the same way until the credential gains the scope.
+            throw new PermanentIngestionException($"Confluence attachment {attachment.Id} was not downloaded. {AttachmentScopeNotice}", ex);
         }
 
         return new SizeCappedStream(
@@ -531,10 +549,20 @@ public sealed partial class ConfluenceSpaceConnector(
                     && (page.AttachmentChangeAt is null || at > page.AttachmentChangeAt))
                     page.AttachmentChangeAt = at;
             }
-            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
             {
-                // Gone or hidden since the listing; the next listing settles which. The page keeps
-                // its previous list meanwhile.
+                // Gone since the listing; the next listing settles it. The page keeps its previous
+                // list meanwhile.
+            }
+            catch (Exception ex) when (IsAttachmentScopeRefusal(ex))
+            {
+                // The page was readable moments ago, so a refusal here is the credential lacking the
+                // optional attachment scope: a problem of this source's setting, not of the site.
+                // Pages keep syncing; every page keeps its previous list and stays due.
+                _logger.LogWarning(
+                    "Confluence space {SpaceKey}: attachment listing refused ({Reason}); attachments skipped this cycle",
+                    LogSanitizer.Sanitize(config.SpaceKey), ex is HttpRequestException http ? $"HTTP {(int?)http.StatusCode}" : "HTTP 401");
+                return AttachmentScopeNotice;
             }
             catch (AtlassianRateLimitedException ex)
             {

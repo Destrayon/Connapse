@@ -35,7 +35,11 @@ public class NewSourceConfluenceTests : IDisposable
     private readonly Connection connection = new(
         Guid.NewGuid(), "acme.atlassian.net", ConnectionProvider.Atlassian,
         $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}""",
-        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true,
+        Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
+            ConfirmedScopes: ["read:space:confluence", "read:page:confluence", ConfluenceSpaceSelection.AttachmentScope]));
+
+    /// <summary>A site whose last test confirmed no attachment scope (it has never been tested).</summary>
     private readonly Connection otherConnection = new(
         Guid.NewGuid(), "globex.atlassian.net", ConnectionProvider.Atlassian,
         $$"""{"siteUrl":"https://globex.atlassian.net","cloudId":"{{OtherCloudId}}","clientId":"client-2"}""",
@@ -331,6 +335,57 @@ public class NewSourceConfluenceTests : IDisposable
 
         requests.Should().ContainSingle().Which.Name.Should().Be("acme.atlassian.net / Handbook");
         skipped.Should().Equal("Engineering");
+    }
+
+    [Fact]
+    public void Dialog_SiteThatConfirmedTheAttachmentScope_StartsWithAttachmentsOnAndNoScopeNote()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+
+        cut.Find("#confluence-attachments").HasAttribute("checked").Should().BeTrue();
+        cut.FindAll("#confluence-attachments-scope").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Dialog_SiteWithoutAConfirmedAttachmentScope_StartsWithAttachmentsOffAndSaysWhy()
+    {
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>()
+            .NavigateTo($"/sources?new={otherConnection.Id}");
+        var cut = ctx.Render<SourcesPage>();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(1));
+
+        cut.Find("#confluence-attachments").HasAttribute("checked").Should().BeFalse();
+        cut.Find("#confluence-max-attachment-mb").HasAttribute("disabled").Should().BeTrue();
+        var note = cut.Find("#confluence-attachments-scope");
+        note.TextContent.Should().Contain("read:attachment:confluence");
+        note.QuerySelector("a")!.GetAttribute("href").Should().Be(
+            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+        cut.Find("#confluence-attachments").GetAttribute("aria-describedby")
+            .Should().Be("confluence-attachments-help confluence-attachments-scope");
+
+        cut.Find("#space-700").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => created.Should().ContainSingle());
+        using var doc = JsonDocument.Parse(created[0].ScopeJson);
+        doc.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public void Create_UnexpectedFailure_ShowsAPlainMessageAndNotTheExceptionText()
+    {
+        sources.CreateAsync(Arg.Any<CreateSourceRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Source>>(_ => throw new TimeoutException("Npgsql: connection to 10.0.0.5:5432 timed out"));
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+
+        cut.Find("#space-100").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces-error").TextContent
+            .Should().Contain("The spaces could not be added. Try again; if it keeps failing, check the server log."));
+        cut.Markup.Should().NotContain("Npgsql").And.NotContain("10.0.0.5");
     }
 
     [Fact]

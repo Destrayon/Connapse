@@ -37,7 +37,8 @@ public static class ConfluenceSourceScope
 
         var selection = new ConfluenceSpaceSelection
         {
-            IncludeAttachments = parsed.IncludeAttachments ?? true,
+            // Left out, attachments are on only when the site's last test confirmed their scope, as on the dialog.
+            IncludeAttachments = parsed.IncludeAttachments ?? ConfluenceSpaceSelection.AttachmentScopeConfirmed(connection.Health),
             MaxAttachmentMb = parsed.MaxAttachmentMb ?? ConfluenceSpaceSelection.DefaultMaxAttachmentMb,
         };
         selection.Selected.Add(spaceId);
@@ -98,12 +99,17 @@ public static class ConfluenceSourceScope
 
         bool includeAttachments = parsed.IncludeAttachments
             ?? (current["includeAttachments"]?.GetValueKind() is JsonValueKind.False ? false : true);
-        int maxAttachmentMb = parsed.MaxAttachmentMb
-            ?? (current["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int stored) ? stored : ConfluenceSpaceSelection.DefaultMaxAttachmentMb);
+        int storedMb = current["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int stored)
+            ? ConfluenceSpaceSelection.StorableMaxAttachmentMb(stored)
+            : ConfluenceSpaceSelection.DefaultMaxAttachmentMb;
+        int maxAttachmentMb = parsed.MaxAttachmentMb ?? storedMb;
 
         var selection = new ConfluenceSpaceSelection { IncludeAttachments = includeAttachments, MaxAttachmentMb = maxAttachmentMb };
         if (!selection.ValidateMaxAttachmentMb())
             return Result.Fail(Outcome.Invalid, "maxAttachmentMb", selection.MaxAttachmentMbError!);
+
+        // Not checked with attachments off, so an out-of-range size then keeps the stored one.
+        maxAttachmentMb = ConfluenceSpaceSelection.StorableMaxAttachmentMb(maxAttachmentMb, storedMb);
 
         current["includeAttachments"] = includeAttachments;
         current["maxAttachmentMb"] = maxAttachmentMb;

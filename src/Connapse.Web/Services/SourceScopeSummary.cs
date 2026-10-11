@@ -21,7 +21,13 @@ public static class SourceScopeSummary
     /// Summarizes the scope, or returns null when there is nothing meaningful to show. Never
     /// throws: a scope that cannot be parsed is a display problem, not a reason to fail the page.
     /// </summary>
-    public static string? Describe(string? scopeJson)
+    public static string? Describe(string? scopeJson) => Describe(scopeJson, siteHost: null);
+
+    /// <summary>
+    /// As <see cref="Describe(string?)"/>, also naming the site a Confluence space is on when
+    /// <paramref name="siteHost"/> is known: the scope itself holds only the space.
+    /// </summary>
+    public static string? Describe(string? scopeJson, string? siteHost)
     {
         if (string.IsNullOrWhiteSpace(scopeJson)) return null;
 
@@ -36,6 +42,9 @@ public static class SourceScopeSummary
         }
 
         if (node is null) return null;
+
+        if (ConfluenceSpace(node, siteHost) is { } space)
+            return space;
 
         if (GitHubRepository(node) is { } repository)
         {
@@ -63,6 +72,35 @@ public static class SourceScopeSummary
         // comparing two sources on the same directory needs to see them.
         string? patterns = Patterns(node);
         return patterns is null ? scope : $"{scope} ({patterns})";
+    }
+
+    /// <summary>
+    /// <c>host / Space name (KEY) · attachments up to 25 MB</c> for a Confluence space scope, or
+    /// null for any other provider's. Sources made before the space name was kept show the key alone.
+    /// </summary>
+    private static string? ConfluenceSpace(JsonObject node, string? siteHost)
+    {
+        if (!string.Equals(Str(node, "kind"), "confluence-space", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        string? key = Str(node, "spaceKey");
+        string? name = Str(node, "spaceName");
+        string space = (name, key) switch
+        {
+            ({ } n, { } k) => $"{n} ({k})",
+            ({ } n, null) => n,
+            (null, { } k) => k,
+            _ => "space " + (node["spaceId"]?.ToString() ?? "?"),
+        };
+        if (!string.IsNullOrWhiteSpace(siteHost))
+            space = $"{siteHost} / {space}";
+
+        // The same defaults the connector applies when a key is missing.
+        bool include = node["includeAttachments"]?.GetValueKind() != System.Text.Json.JsonValueKind.False;
+        int maxMb = node["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int mb)
+            ? mb
+            : Components.Sources.ConfluenceSpaceSelection.DefaultMaxAttachmentMb;
+        return include ? $"{space} · attachments up to {maxMb} MB" : $"{space} · attachments off";
     }
 
     /// <summary><c>owner/repo</c> for a GitHub scope, or null for any other provider's.</summary>

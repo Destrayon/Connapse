@@ -91,18 +91,18 @@ public sealed class AtlassianTokenSource(IHttpClientFactory httpClients, TimePro
         if ((int)response.StatusCode is >= 300 and < 400)
             throw new AtlassianAuthException(
                 $"Atlassian's token endpoint answered with a redirect (HTTP {(int)response.StatusCode}); "
-                + "Connapse does not follow redirects with service account credentials.");
+                + "Connapse does not follow redirects with service account credentials.", tokenRefused: true);
 
         if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             throw new AtlassianAuthException(
                 $"Atlassian rejected the service account credentials (HTTP {(int)response.StatusCode}{await ErrorCodeOfAsync(response, ct)}). "
-                + "Check the client id and secret.");
+                + "Check the client id and secret.", tokenRefused: true);
 
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadFromJsonAsync<TokenResponse>(ct);
         if (string.IsNullOrEmpty(body?.AccessToken))
-            throw new AtlassianAuthException("Atlassian's token endpoint returned no access token.");
+            throw new AtlassianAuthException("Atlassian's token endpoint returned no access token.", tokenRefused: true);
 
         IReadOnlyList<string>? scopes = string.IsNullOrWhiteSpace(body.Scope)
             ? null

@@ -81,10 +81,39 @@ public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) 
         return (await scope.ServiceProvider.GetRequiredService<ISourceStore>().ListByConnectionAsync(connectionId)).Count;
     }
 
+    /// <summary>A site whose test confirmed every scope, the attachment one included.</summary>
+    private async Task<Guid> CreateSiteWithAttachmentScopeAsync(string host)
+    {
+        _api.TokenScope = string.Join(' ', Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.All.Select(s => s.Name));
+        try
+        {
+            return await CreateSiteAsync(host);
+        }
+        finally
+        {
+            _api.TokenScope = null;
+        }
+    }
+
+    [Fact]
+    public async Task Create_SiteWithoutAConfirmedAttachmentScope_DefaultsAttachmentsOffButHonoursAnExplicitOn()
+    {
+        Guid site = await CreateSiteAsync("confluence-api-noattach.atlassian.net");
+
+        var defaulted = await CreateSourceAsync(site, new { spaceId = "100" });
+        var explicitOn = await CreateSourceAsync(site, new { spaceId = "200", includeAttachments = true });
+
+        defaulted.StatusCode.Should().Be(HttpStatusCode.Created, await defaulted.Content.ReadAsStringAsync());
+        using var off = JsonDocument.Parse(await StoredScopeAsync((await BodyAsync(defaulted)).GetProperty("id").GetGuid()));
+        off.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeFalse();
+        using var on = JsonDocument.Parse(await StoredScopeAsync((await BodyAsync(explicitOn)).GetProperty("id").GetGuid()));
+        on.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeTrue();
+    }
+
     [Fact]
     public async Task Create_SpaceOnTheSite_IsNamedLikeTheDialogAndTakesItsKeyFromAtlassian()
     {
-        Guid site = await CreateSiteAsync("confluence-api-create.atlassian.net");
+        Guid site = await CreateSiteWithAttachmentScopeAsync("confluence-api-create.atlassian.net");
 
         var response = await CreateSourceAsync(site, new { spaceId = "100", spaceKey = "WRONG", maxAttachmentMb = 40 });
 
@@ -179,7 +208,7 @@ public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) 
     [Fact]
     public async Task Patch_AttachmentSettings_AreCheckedAndTheSpaceIsKept()
     {
-        Guid site = await CreateSiteAsync("confluence-api-patch.atlassian.net");
+        Guid site = await CreateSiteWithAttachmentScopeAsync("confluence-api-patch.atlassian.net");
         var created = await CreateSourceAsync(site, new { spaceId = "100" });
         Guid sourceId = (await BodyAsync(created)).GetProperty("id").GetGuid();
 

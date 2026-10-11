@@ -68,12 +68,20 @@
 <fieldset id="confluence-attachments-group">
     <legend class="form-label fs-6 mb-1">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
     <div class="form-check">
-        <input id="confluence-attachments" type="checkbox" class="form-check-input" aria-describedby="confluence-attachments-help"
+        <input id="confluence-attachments" type="checkbox" class="form-check-input"
+               aria-describedby="@(Selection.AttachmentScopeUnconfirmed ? "confluence-attachments-help confluence-attachments-scope" : "confluence-attachments-help")"
                @bind="Selection.IncludeAttachments" @bind:after="AttachmentsChanged" />
         <label for="confluence-attachments" class="form-check-label">@ConfluenceSpaceSelection.IncludeAttachmentsLabel</label>
         <div id="confluence-attachments-help" class="form-text mt-0">
-            Index files attached to pages, such as PDFs and Word documents. Comments and blog posts are always included.
+            @ConfluenceSpaceSelection.IncludeAttachmentsHelp
         </div>
+        @if (Selection.AttachmentScopeUnconfirmed)
+        {
+            <div id="confluence-attachments-scope" class="form-text mt-1">
+                <span class="bi-info-circle me-1" aria-hidden="true"></span>@ConfluenceSpaceSelection.AttachmentScopeUnconfirmedNote
+                <a href="@ConfluenceSpaceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">See Missing scope in the setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
+            </div>
+        }
     </div>
     <div class="ms-4 mb-0">
         <label class="form-label small" for="confluence-max-attachment-mb">@ConfluenceSpaceSelection.MaxAttachmentMbLabel</label>
@@ -89,7 +97,7 @@
             </div>
         }
         <div id="confluence-max-attachment-mb-help" class="form-text">
-            @ConfluenceSpaceSelection.MinAttachmentMb to @ConfluenceSpaceSelection.MaxAttachmentMbLimit MB. Larger attachments are skipped.
+            @ConfluenceSpaceSelection.MaxAttachmentMbHelp
         </div>
     </div>
 </fieldset>
