@@ -312,9 +312,12 @@ def push(args):
 
     updated, failed = [], []
 
-    def ensure_page(space, title, storage, parent_id=None):
+    def ensure_page(space, title, storage, parent_id=None, restrict_to=None):
         existing = find_page(spaces[space], title)
         if existing:
+            if restrict_to and args.update:
+                # Restrictions made before view-and-edit ones left the page uneditable even by its owner.
+                restrict(existing, restrict_to, title)
             if args.update:
                 current = c.call("GET", f"/api/v2/pages/{existing}")
                 # Confluence normalises what it stores, so the version message records which converter wrote it.
@@ -333,13 +336,17 @@ def push(args):
                 "body": {"representation": "storage", "value": storage}}
         if parent_id:
             body["parentId"] = parent_id
-        return c.write("POST", "/api/v2/pages", json=body)["id"], True
+        page_id = c.write("POST", "/api/v2/pages", json=body)["id"]
+        if restrict_to:
+            restrict(page_id, restrict_to, title)
+        return page_id, True
 
     def restrict(page_id, account_ids, label):
         users = [{"type": "known", "accountId": a} for a in account_ids]
+        # Both operations: a view restriction alone leaves editing restricted to nobody.
         try:
             c.write("PUT", f"/rest/api/content/{page_id}/restriction",
-                    json=[{"operation": "read", "restrictions": {"user": users, "group": []}}])
+                    json=[{"operation": op, "restrictions": {"user": users, "group": []}} for op in ("read", "update")])
             print(f"restricted: {label}")
         except RuntimeError as e:
             manual.append(f"Restrict '{label}' to {'you and the service account' if len(account_ids) > 1 else 'only you'}: {e}")
@@ -348,22 +355,20 @@ def push(args):
     for p in seed["pages"]:
         key = (p["space"], p["parent"])
         if p["parent"] and key not in parents:
-            parents[key], created = ensure_page(p["space"], p["parent"], f"<p>{html.escape(p['parent'])}.</p>")
-            if p["bucket"] == "incidents":
-                if sa:
-                    restrict(parents[key], [me, sa], p["parent"])
-                else:
-                    manual.append("Restrict 'Incident reviews' to you and the service account (lock icon > Specific people)")
+            restrict_to = [me, sa] if p["bucket"] == "incidents" and sa else None
+            if p["bucket"] == "incidents" and not sa:
+                manual.append("Restrict 'Incident reviews' to you and the service account (lock icon > Specific people)")
+            parents[key], created = ensure_page(p["space"], p["parent"], f"<p>{html.escape(p['parent'])}.</p>",
+                                                restrict_to=restrict_to)
 
     ids, fresh, made = {}, set(), 0
     for n, p in enumerate(seed["pages"], 1):
         parent_id = parents.get((p["space"], p["parent"])) if p["parent"] else None
-        ids[p["title"]], created = ensure_page(p["space"], p["title"], to_storage(p["markdown"]), parent_id)
+        ids[p["title"]], created = ensure_page(p["space"], p["title"], to_storage(p["markdown"]), parent_id,
+                                               restrict_to=[me] if p["bucket"] == "hidden" else None)
         made += created
         if created:
             fresh.add(p["title"])
-        if p["bucket"] == "hidden" and created:
-            restrict(ids[p["title"]], [me], p["title"])
         if n % 25 == 0:
             print(f"pages: {n}/{len(seed['pages'])}")
     print(f"pages: {made} created, {len(seed['pages']) - made} already there"
