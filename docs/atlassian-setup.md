@@ -62,7 +62,8 @@ in the [Atlassian developer console](https://developer.atlassian.com/console/mya
    People then see a notice that Atlassian hasn't reviewed the app. That is expected.
 6. **Settings**: copy the client ID and the secret.
 
-Back on the card, paste them and choose **Save**:
+Back on the card, paste them and choose **Check and save**. Connapse asks Atlassian to accept the pair
+before it saves anything:
 
 | Field | Required | Where to get it |
 |-------|----------|-----------------|
@@ -100,7 +101,7 @@ In [Atlassian Administration](https://admin.atlassian.com):
    | `read:space:confluence` | Listing the spaces you choose from |
    | `read:page:confluence` | Indexing pages and blog posts |
    | `read:comment:confluence` | Indexing comments |
-   | `read:attachment:confluence` | Indexing attachments (optional: needed only if a source includes attachments) |
+   | `read:attachment:confluence` | Indexing attachments (optional: needed only if a source includes attachments; see [step 4](#4-confluence-sources)) |
    | `read:folder:confluence` | Following folders in the page tree |
    | `read:content-details:confluence` | Reading page restrictions |
    | `read:content.permission:confluence` | Checking what each person may read |
@@ -145,14 +146,31 @@ service account can view.
 |-------|---------|-------|
 | Spaces | None ticked | Tick one or more. Each becomes its own source named `<site host> / <space name>`. A space that already has a source on this site shows **already added**. A space missing from the list is one the service account can't view: give it the **Viewer** role in that space (step 2) |
 | Include personal spaces | Off | Also lists people's personal spaces |
-| Include attachments | On | Indexes files attached to pages, when Connapse can read their file type |
+| Include attachments | On if the site's last test confirmed `read:attachment:confluence`, otherwise Off | Indexes files attached to pages, when Connapse can read their file type. Needs the optional `read:attachment:confluence` scope (step 2.4) |
 | Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
 
 Choose **Create source**. The sources sync on the next cycle, or press **Sync**. Comments and blog posts are
 always included.
 
-Sources can also be created with `POST /api/sources`; see [Connections, Sources, and
-Containers](connectors.md#configuration-by-provider). The API runs the same checks as the dialog.
+**Attachments and their scope.** When the site's last **Test connection** did not confirm the
+`read:attachment:confluence` scope, **Include attachments** starts off and the dialog says why. You can
+still turn it on. If Atlassian then refuses to list or download attachments, the source keeps syncing
+its pages and comments, skips attachments for that sync, and shows this warning on the Sources page:
+*Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it
+to the credential, or turn off Include attachments.* The site itself is not marked **Needs new
+credentials**, because its credential still works for everything else. To fix it, see [Missing
+scope](#missing-scope).
+
+**Changing a source.** Choose **Edit** next to the source on the Sources page. Its **Reads from** section shows the site,
+the space and its key, and the attachment settings. You can change **Include attachments** and **Max
+attachment size (MB)** there, under the same rules as the New source dialog; the next sync re-reads the
+space with the new settings. The space itself can't be changed: *A source covers one space; add a new
+source for another space.*
+
+Sources can also be created with `POST /api/sources` and changed with `PATCH /api/sources/{id}`; see
+[Connections, Sources, and Containers](connectors.md#configuration-by-provider) and the
+[API reference](api.md). The API runs the same checks as the dialog, and leaving `includeAttachments`
+out follows the same default.
 
 ## Troubleshooting
 
@@ -202,11 +220,18 @@ test again. If the role is already admin, see [Missing scope](#missing-scope).
 
 **Symptom:** *The credential is missing the read:content.permission:confluence scope, so Connapse can't
 check what other people may read.* while **Checking access permissions**, or *The credential can't read
-Confluence on this site.* although the service account has a Confluence role.
-**Likely cause:** the credential was created without one of the scopes in step 2.4.
+Confluence on this site.* although the service account has a Confluence role. For attachments only: a
+Confluence source shows *Attachments were skipped: the site's credential lacks the
+read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* on
+the Sources page, or the New source dialog says *the site's last connection test didn't confirm the
+read:attachment:confluence permission*.
+**Likely cause:** the credential was created without one of the scopes in step 2.4. For attachments, it
+is the optional `read:attachment:confluence`.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
 search and tick each one (step 2.4), then use **Replace credentials** on the site with the new client ID
-and secret.
+and secret. The replacement is tested before it is used, and its test records which scopes it has, so
+new sources then start with attachments on. If you don't want
+attachments, turn off **Include attachments** on the source instead (see [step 4](#4-confluence-sources)).
 
 ### Site has no pages or no other users yet
 
@@ -219,15 +244,21 @@ and choose **Test connection**.
 
 ### Linking app rejected
 
-**Symptom:** linking an account under **Profile → Integrations** ends with *Atlassian did not complete
-the sign-in, so no account was linked*, or Atlassian's own page shows an error about the app or the
-redirect URL.
-**Likely cause:** the client ID or secret on the **Linking app** card is wrong, the callback URL in the
-developer console doesn't match the one the card shows, or the app is not shared, so only its creator
-can sign in.
-**Fix:** compare the callback URL on the card with the one under **Authorization** in the developer
-console. Check that **Distribution** → **Sharing** is on. If both match, paste the client ID and secret
-from the app's **Settings** again.
+**Symptom:** one of these:
+- linking an account under **Profile → Integrations** ends with *Could not connect your Atlassian
+  account: Atlassian rejected Connapse's linking app. Tell an administrator to replace its client secret
+  under Providers → Atlassian.*
+- the **Linking app** card shows **Rejected by Atlassian**, or *Atlassian rejected the stored client ID
+  or secret, so nobody new can link an account. Choose Change the linking app and paste a new secret.*
+- **Check and save** answers *Atlassian rejected this client ID and secret, so nothing was saved.*
+- Atlassian's own page shows an error about the app or the redirect URL.
+
+**Likely cause:** the client ID or secret on the **Linking app** card is wrong or was rotated in the
+developer console, the callback URL in the developer console doesn't match the one the card shows, or
+the app is not shared, so only its creator can sign in.
+**Fix:** on the **Linking app** card, choose **Change the linking app** and paste the client ID and
+secret from the app's **Settings** again. Compare the callback URL on the card with the one under
+**Authorization** in the developer console, and check that **Distribution** → **Sharing** is on.
 
 ### Sign-in failed
 
@@ -235,10 +266,14 @@ from the app's **Settings** again.
 
 | Message | Cause | Fix |
 |---------|-------|-----|
-| *Atlassian sign-in is not set up yet* | No linking app is saved | An administrator finishes [step 1](#1-linking-app) |
-| *You cancelled on Atlassian* | Access was declined on Atlassian's page | Start again and choose **Accept** |
-| *took too long or was started in another tab* | The sign-in expired | Start again from the same tab |
-| *started by a different Connapse user* | Someone else's browser finished the sign-in | Sign in to Connapse as yourself and start again |
+| *Could not connect your Atlassian account: Atlassian sign-in is not set up yet. An administrator sets up the linking app under Providers.* | No linking app is saved | An administrator finishes [step 1](#1-linking-app) |
+| *Could not connect your Atlassian account: an administrator has turned Atlassian sign-in off. Accounts already linked stay linked.* | Sign-in is paused on the **Linking app** card | An administrator chooses **Turn on Atlassian sign-in** on the **Linking app** card |
+| *Could not connect your Atlassian account: Atlassian rejected Connapse's linking app. Tell an administrator to replace its client secret under Providers → Atlassian.* | Atlassian refused the linking app's client ID or secret | See [Linking app rejected](#linking-app-rejected) |
+| *You cancelled on Atlassian, so no account was linked.* | Access was declined on Atlassian's page | Start again and choose **Accept** |
+| *That Atlassian sign-in took too long or was started in another tab. Start it again.* | The sign-in expired, or it was finished in a different tab or browser | Start again, and finish in the same tab |
+| *That Atlassian sign-in was started by a different Connapse user, so nothing was linked. Sign in to Connapse as yourself and start again.* | Someone else's Connapse session finished the sign-in | Sign in to Connapse as yourself and start again |
+| *You disconnected Atlassian while the sign-in was finishing, so nothing was linked. Start it again to link.* | **Disconnect** was chosen while the sign-in was still finishing | Start again to link |
+| *Atlassian did not complete the sign-in, so no account was linked. Try again; if it keeps failing, tell an administrator.* | Atlassian returned no sign-in code, or the sign-in failed for another reason (the server log has the detail) | Try again. If it keeps failing, an administrator checks the server log and [Linking app rejected](#linking-app-rejected) |
 
 If a linked person still sees no Confluence results, check in Confluence that they can open the page,
 that the page's space has a source, and that the source has synced.

@@ -378,6 +378,72 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         thrown.Which.Should().NotBeOfType<Connapse.Core.Interfaces.PermanentIngestionException>();
     }
 
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.Unauthorized)]
+    [InlineData(System.Net.HttpStatusCode.Forbidden)]
+    public async Task GetChanges_AttachmentReadsRefused_SyncsPagesAndWarnsInsteadOfFailing(System.Net.HttpStatusCode refusal)
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
+        _api.Confluence.RefuseAttachmentsWith = refusal;
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/pages/1.md", "/pages/2.md");
+        delta.Notice.Should().Be(ConfluenceSpaceConnector.AttachmentScopeNotice);
+        _api.Confluence.AttachmentListings.Should().HaveCount(1, "the first refusal stops the attachment reads for this cycle");
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentReadsRefusedAfterAnEarlierListing_KeepsThePreviousAttachments()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
+        string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
+
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        _api.Confluence.RefuseAttachmentsWith = System.Net.HttpStatusCode.Unauthorized;
+        var delta = await _connector.GetChangesAsync(cursor);
+
+        delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/pages/1.md", "/attachments/501/a.txt");
+        delta.Notice.Should().Contain("read:attachment:confluence");
+    }
+
+    [Fact]
+    public async Task GetChanges_TokenEndpointRefusesDuringAttachmentReads_StillFailsAsARejectedCredential()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
+        // The attachment listing answers 401, so the client asks for a new token, which is refused:
+        // the credential itself is gone, and that is the site's problem, not this source's.
+        _api.Intercept = uri =>
+        {
+            if (!uri.AbsolutePath.EndsWith("/attachments", StringComparison.Ordinal))
+                return null;
+            _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized);
+        };
+
+        (await FluentActions.Awaiting(() => _connector.GetChangesAsync(null)).Should().ThrowAsync<AtlassianAuthException>())
+            .Which.TokenRefused.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.Unauthorized)]
+    [InlineData(System.Net.HttpStatusCode.Forbidden)]
+    public async Task ReadFile_AttachmentDownloadRefused_IsPermanentAndNamesTheMissingScope(System.Net.HttpStatusCode refusal)
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "notes.txt"));
+        await _connector.GetChangesAsync(null);
+        _api.Confluence.RefuseAttachmentsWith = refusal;
+
+        (await FluentActions.Awaiting(() => _connector.ReadFileAsync("/attachments/501/notes.txt"))
+            .Should().ThrowAsync<Connapse.Core.Interfaces.PermanentIngestionException>())
+            .WithMessage("*read:attachment:confluence*");
+    }
+
     [Fact]
     public async Task GetChanges_RateLimitedMidSweep_KeepsThePreviousAttachments()
     {

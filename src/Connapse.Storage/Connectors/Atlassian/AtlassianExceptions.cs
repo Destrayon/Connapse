@@ -14,7 +14,14 @@ public sealed class AtlassianRateLimitedException(TimeSpan? retryAfter)
 /// Atlassian refused the service-account credentials: the token endpoint rejected them, or the API
 /// answered 401 even with a freshly issued token.
 /// </summary>
-public sealed class AtlassianAuthException(string message) : Exception(message);
+/// <param name="tokenRefused">
+/// The token endpoint itself refused the credential, so nothing on the site can be read. False for
+/// an API call refused with a fresh token, which can be one endpoint the credential's scopes don't cover.
+/// </param>
+public sealed class AtlassianAuthException(string message, bool tokenRefused = false) : Exception(message)
+{
+    public bool TokenRefused { get; } = tokenRefused;
+}
 
 /// <summary>
 /// Atlassian answered 200 with a body that is not the shape asked for: a listing with no

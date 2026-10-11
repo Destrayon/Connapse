@@ -67,4 +67,15 @@ public class ConfluenceSourceScopeTests
         ConfluenceSourceScope.Update(Current, """{"includeAttachments":false,"maxAttachmentMb":0}""").Outcome
             .Should().Be(ConfluenceSourceScope.Outcome.Valid);
     }
+
+    [Fact]
+    public void Update_OutOfRangeSizeWithAttachmentsOff_KeepsTheStoredSizeSoTheSourceStillSyncs()
+    {
+        // The connector refuses a cap that is not positive whether or not attachments are on.
+        var result = ConfluenceSourceScope.Update(Current, """{"includeAttachments":false,"maxAttachmentMb":0}""");
+
+        using var doc = JsonDocument.Parse(result.ScopeJson!);
+        doc.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("maxAttachmentMb").GetInt32().Should().Be(25);
+    }
 }

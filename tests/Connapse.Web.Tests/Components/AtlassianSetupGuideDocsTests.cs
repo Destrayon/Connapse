@@ -62,5 +62,36 @@ public class AtlassianSetupGuideDocsTests
 
         ConfluenceSpaceSelection.GuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
         anchors.Should().Contain(ConfluenceSpaceSelection.GuideUrl.Split('#')[1]);
+        ConfluenceSpaceSelection.MissingScopeGuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+        anchors.Should().Contain(ConfluenceSpaceSelection.MissingScopeGuideUrl.Split('#')[1]);
+    }
+
+    /// <summary>Markdown wraps lines; a message quoted in the guide is compared with whitespace collapsed.</summary>
+    private static string Flat(string text) => Regex.Replace(text, @"\s+", " ");
+
+    [Fact]
+    public void SetupGuide_QuotesEveryAtlassianSignInErrorTheProfilePageShows()
+    {
+        string page = File.ReadAllText(Path.Combine(
+            PageTestPaths.RepositoryRoot(), "src", "Connapse.Web", "Components", "Pages", "ProfileIntegrations.razor"));
+        var messages = Regex.Matches(page, @"(?:""atlassian_[a-z_]+""|_) => ""(?<message>[^""]+)""")
+            .Select(m => m.Groups["message"].Value)
+            .Where(m => m.Contains("Atlassian", StringComparison.Ordinal))
+            .ToList();
+        string guide = Flat(Guide());
+
+        messages.Should().HaveCountGreaterThanOrEqualTo(8, "every error code, and the fallback, has its own message");
+        foreach (string message in messages)
+            guide.Should().Contain(message, "the Sign-in failed table quotes each message exactly");
+    }
+
+    [Fact]
+    public void SetupGuide_QuotesTheAttachmentScopeWarningAndTheFixedSpaceNote()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain(Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConnector.AttachmentScopeNotice);
+        guide.Should().Contain(ConfluenceSpaceSelection.SpaceFixedNote);
+        guide.Should().Contain("**Check and save**").And.NotContain("choose **Save**:");
     }
 }

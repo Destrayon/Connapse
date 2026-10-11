@@ -720,6 +720,32 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
             .And.NotContain(p => p.StartsWith("/attachments/601/", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.Unauthorized)]
+    [InlineData(System.Net.HttpStatusCode.Forbidden)]
+    public async Task AttachmentsRefused_PagesSyncAndTheSourceWarnsWithoutFlaggingTheSite(System.Net.HttpStatusCode refusal)
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+        _api.Confluence.RefuseAttachmentsWith = refusal;
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Error.Should().BeNull();
+        result.Notice.Should().Be(ConfluenceSpaceConnector.AttachmentScopeNotice);
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+
+        var stored = (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(source.Id))!;
+        stored.LastSyncStatus.Should().Be(SyncStatus.Succeeded);
+        stored.LastSyncError.Should().Be(ConfluenceSpaceConnector.AttachmentScopeNotice);
+        var site = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetAsync(connection.Id);
+        (site!.Health?.CredentialRejected ?? false).Should().BeFalse("one source's attachment setting is not the site's credential failing");
+    }
+
     [Fact]
     public async Task UnsupportedAttachment_SkippedAndCounted()
     {
