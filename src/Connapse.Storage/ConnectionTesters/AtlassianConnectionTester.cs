@@ -63,8 +63,14 @@ public static class AtlassianSiteTroubleshooting
     public const string MissingScope = "missing-scope";
     public const string NothingToCheckYet = "site-has-no-pages-or-no-other-users-yet";
 
+    /// <summary>
+    /// The guide's Troubleshooting section as a whole: for a timeout, a rate limit or an unreadable
+    /// answer, which say nothing about the credential, so no single entry fits.
+    /// </summary>
+    public const string General = "troubleshooting";
+
     public static IReadOnlyList<string> All { get; } =
-        [SiteNotFound, CredentialsRejected, CantReadConfluence, NoSpaces, NotAdministrator, MissingScope, NothingToCheckYet];
+        [SiteNotFound, CredentialsRejected, CantReadConfluence, NoSpaces, NotAdministrator, MissingScope, NothingToCheckYet, General];
 
     public static string UrlOf(string anchor) => $"{GuideUrl}#{anchor}";
 }
@@ -200,7 +206,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             {
                 // An unreadable token answer or a failed exchange; rate limits and cancellation pass through.
                 return run.Fail("Atlassian's sign-in service didn't answer properly. Wait a minute and test again.",
-                    detail: Describe(ex));
+                    AtlassianSiteTroubleshooting.General, Describe(ex));
             }
 
             IReadOnlyList<string>? granted = tokens.GrantedScopes(site);
@@ -342,22 +348,27 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 new Dictionary<string, object> { ["cloudId"] = cloudId, ["siteUrl"] = siteUrl, ["scopes"] = confirmed.ToArray() },
                 run.Elapsed);
         }
+        // None of these is about the credential, so none may point at the step's usual entry (at the
+        // sign-in step, "Client ID or secret rejected").
         catch (AtlassianRateLimitedException ex)
         {
-            return run.Fail($"{ex.Message} Wait, then test again.");
+            return run.Fail($"{ex.Message} Atlassian is limiting requests; wait, then test again.",
+                AtlassianSiteTroubleshooting.General);
         }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested && !ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            // This test's own time limit, or the HTTP client's.
             return run.Fail(
-                "Atlassian didn't answer in time. Check that this server can reach api.atlassian.com over HTTPS, then test again.",
-                detail: "No answer within the time limit.");
+                "Atlassian didn't answer in time. Wait a minute and test again; if it keeps happening, check that this server "
+                + "can reach api.atlassian.com and auth.atlassian.com over HTTPS.",
+                AtlassianSiteTroubleshooting.General, "No answer within the time limit.");
         }
         catch (HttpRequestException ex)
         {
             return run.Fail(
                 "Couldn't reach Atlassian from this server. Check that it can reach api.atlassian.com, auth.atlassian.com and "
                 + "your site's address over HTTPS, then test again.",
-                detail: Describe(ex));
+                AtlassianSiteTroubleshooting.General, Describe(ex));
         }
     }
 

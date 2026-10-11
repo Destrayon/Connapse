@@ -17,7 +17,7 @@
     @if (!report.Success && report.TroubleshootingUrl is { } url)
     {
         <div class="mt-1">
-            <a class="alert-link" href="@url" target="_blank" rel="noopener">Troubleshooting: @report.StepLabel<span class="visually-hidden"> (opens in a new tab)</span></a>
+            <a class="alert-link" href="@url" target="_blank" rel="noopener">@(url.EndsWith("#" + Connapse.Storage.ConnectionTesters.AtlassianSiteTroubleshooting.General, StringComparison.Ordinal) ? "Troubleshooting guide" : $"Troubleshooting: {report.StepLabel}")<span class="visually-hidden"> (opens in a new tab)</span></a>
         </div>
     }
     @if (!report.Success)
