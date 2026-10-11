@@ -1238,7 +1238,7 @@ Scope keys by provider:
 
 The scope must fall inside the `allowedLocations` or `allowedRoot` its connection declares, or creation fails.
 
-For an **Atlassian** connection, the request runs the checks the New source dialog runs: `spaceId` must be a space the site's service account can view now, the space must not already have a source on the connection, and `maxAttachmentMb` must be 1 to 100. `spaceKey` and `kind` are written from Atlassian's answer, over anything sent. `name` may be left out; it then defaults to `<site host> / <space name>`, as in the dialog.
+For an **Atlassian** connection, the request runs the checks the New source dialog runs: `spaceId` must be a space the site's service account can view now, the space must not already have a source on the connection, and `maxAttachmentMb` must be 1 to 100 while attachments are on. `kind`, `spaceKey` and `spaceName` are written from Atlassian's answer, over anything sent. `name` may be left out; it then defaults to `<site host> / <space name>`, as in the dialog.
 
 ```json
 {
@@ -1247,9 +1247,44 @@ For an **Atlassian** connection, the request runs the checks the New source dial
 }
 ```
 
+| Field | Type | Default | Rule |
+|-------|------|---------|------|
+| `spaceId` | string of digits (a number is accepted) | required | A space the site's service account can view now, with no source on this connection yet |
+| `includeAttachments` | boolean | `true` if the site's last connection test confirmed the `read:attachment:confluence` scope, otherwise `false` | Attachments need that scope on the site's credential |
+| `maxAttachmentMb` | whole number | `25` | 1 to 100 while `includeAttachments` is `true`. With attachments off it is not checked, and an out-of-range value is stored as `25` |
+
 A failed check is a `400` naming the field, for example `{ "error": "...", "field": "spaceId" }`. A space that already has a source on the connection is a `409`, and if Atlassian can't be reached the response is `502`.
 
-`PATCH /api/sources/{id}` on a Confluence source may change `includeAttachments` and `maxAttachmentMb`, checked the same way. Its `spaceId` cannot change; add the space as a new source instead.
+If a source includes attachments but the site's credential lacks `read:attachment:confluence`, syncing still succeeds for pages and comments. The source's `lastSyncStatus` stays `"Succeeded"` and `lastSyncError` carries the notice *Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* The site is not marked as needing new credentials.
+
+### Update a Confluence Source
+
+**Endpoint**: `PATCH /api/sources/{id}`
+
+`name`, `description`, `syncIntervalSeconds` and `enabled` work as for any source. In `scopeJson`, send only the attachment fields to change; fields left out keep their stored values. A changed scope makes the next sync re-read the space.
+
+```json
+{
+  "scopeJson": "{\"includeAttachments\":false}"
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `includeAttachments` | `true` or `false` |
+| `maxAttachmentMb` | A whole number from 1 to 100 while attachments are on. With attachments off it is not checked, and an out-of-range value keeps the stored size |
+| `spaceId` | May be sent only if it is the source's current space. A source covers one space; add another space as a new source |
+
+**Errors** (`400`, naming the field; a `scopeJson` that is not valid JSON at all is a `400` with no `field`):
+
+| `field` | When |
+|---------|------|
+| `scopeJson` | The scope is JSON but not an object |
+| `spaceId` | It names a different space, or is not a string of digits |
+| `includeAttachments` | It is not `true` or `false` |
+| `maxAttachmentMb` | It is not a whole number, or is outside 1 to 100 while attachments are on |
+
+The Sources page's **Edit** view changes the same two settings under the same rules.
 
 ### Source Response
 
