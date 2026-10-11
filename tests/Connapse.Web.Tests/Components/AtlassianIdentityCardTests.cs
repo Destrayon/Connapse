@@ -28,6 +28,16 @@ public class AtlassianIdentityCardTests : IDisposable
     }
 
     [Fact]
+    public void Render_NoLink_ExplainsWhatConnapseReadsBeforeTheSignIn()
+    {
+        var cut = ctx.Render<AtlassianIdentityCard>(p => p.Add(c => c.SignInAvailable, true));
+
+        cut.Find("#atlassian-consent-help").TextContent
+            .Should().Contain("reads only your Atlassian account ID, to check what Confluence pages you can see");
+        cut.Find("#atlassian-connect").GetAttribute("aria-describedby").Should().Be("atlassian-consent-help");
+    }
+
+    [Fact]
     public void Render_Linked_ShowsTheLinkDateAndUnlinks()
     {
         bool disconnected = false;

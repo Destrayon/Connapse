@@ -1867,6 +1867,18 @@
         }
         else if (Key == "atlassian")
         {
+            <p class="text-muted" id="atlassian-intro">
+                Two parts: the linking app people sign in through, set up here, and one connection per
+                Atlassian site with the service account Connapse reads it as, added on the Connections page.
+                Every field, where to find its value, and what each error means are in the
+                <a href="@AtlassianLinkAppFieldSpecs.GuideSection" target="_blank" rel="noopener">Atlassian setup guide</a>.
+            </p>
+            <p class="text-muted small">
+                The linking app asks Atlassian for one permission, <code>read:me</code>, which lets Connapse read
+                only each person's Atlassian account ID. Confluence content appears in search only for people who
+                link their Atlassian account under Profile → Integrations, and only the pages they can read in Confluence.
+            </p>
+
             <AtlassianProviderCard />
         }
 

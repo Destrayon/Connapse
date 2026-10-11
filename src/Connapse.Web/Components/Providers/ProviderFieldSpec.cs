@@ -80,3 +80,25 @@ public static class GitHubFieldSpecs
     /// <summary>Every field, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } = [AppId, PrivateKey, ClientSecret, Repository, DocPatterns];
 }
+
+/// <summary>The Atlassian linking app's fields, in the order an administrator copies them from the developer console.</summary>
+public static class AtlassianLinkAppFieldSpecs
+{
+    public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md";
+    public const string GuideSection = Guide + "#1-linking-app";
+    public const string TroubleshootingRejected = Guide + "#linking-app-rejected";
+    private const string AppCredentials = "App credentials";
+
+    public static readonly ProviderFieldSpec ClientId = new(
+        "atlassian-app-client-id", "Client ID", ProviderFieldKind.Text, Required: true,
+        "Shown under Settings on the app in the Atlassian developer console.",
+        AppCredentials, GuideSection, "Where to find this", MaxWidth: "28rem");
+
+    public static readonly ProviderFieldSpec ClientSecret = new(
+        "atlassian-app-client-secret", "Client secret",ProviderFieldKind.Secret, Required: true,
+        "Shown under Settings on the app, below the client ID. Stored encrypted and never shown again.",
+        AppCredentials, GuideSection, "Where to find this", MaxWidth: "28rem");
+
+    /// <summary>Every field, in the order they are rendered, for the check that the setup guide documents each one.</summary>
+    public static IReadOnlyList<ProviderFieldSpec> All { get; } = [ClientId, ClientSecret];
+}
