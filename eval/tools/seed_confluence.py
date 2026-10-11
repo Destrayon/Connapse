@@ -269,6 +269,24 @@ class Confluence:
         return self.call(method, path, **kw)
 
 
+def grant_view(c, key, space_id, account_id, dry_run):
+    """Lets the account view the space, through space roles on sites that use them."""
+    if dry_run:
+        return
+    mode = (c.call("GET", "/api/v2/space-role-mode") or {}).get("mode", "")
+    if "ROLES" not in str(mode).upper():
+        c.call("POST", f"/rest/api/space/{key}/permission",
+               json={"subject": {"type": "user", "identifier": account_id}, "operation": {"key": "read", "target": "space"}})
+        return
+    roles = c.call("GET", f"/api/v2/space-roles?space-id={space_id}&limit=250")["results"]
+    viewer = next((r for r in roles if r.get("name", "").strip().lower() == "viewer"), None)
+    if viewer is None:
+        raise RuntimeError("this site has no space role named Viewer; roles found: " + ", ".join(r.get("name", "?") for r in roles))
+    # Only the entries sent are changed; everyone else's roles are left as they are.
+    c.call("POST", f"/api/v2/spaces/{space_id}/role-assignments",
+           json=[{"principal": {"principalType": "USER", "principalId": account_id}, "roleId": viewer["id"]}])
+
+
 def push(args):
     with open(os.path.join(OUT, "seed.json"), encoding="utf-8") as f:
         seed = json.load(f)
@@ -294,14 +312,13 @@ def push(args):
             print(f"space {key}: created{' (private)' if private else ''}")
         if sa:
             try:
-                c.write("POST", f"/rest/api/space/{key}/permission",
-                        json={"subject": {"type": "user", "identifier": sa}, "operation": {"key": "read", "target": "space"}})
+                grant_view(c, key, spaces[key], sa, args.dry_run)
                 print(f"space {key}: service account can view")
             except RuntimeError as e:
                 if "already" in str(e).lower():
                     print(f"space {key}: service account already can view")
                 else:
-                    manual.append(f"Give the service account view access in {name} (Space settings > Permissions): {e}")
+                    manual.append(f"Give the service account the Viewer role in {name} (Space settings > Permissions): {e}")
 
     def find_page(space_id, title):
         if args.dry_run:
