@@ -225,7 +225,8 @@ public sealed partial class FakeConfluence
                     id = h.Id,
                     type = h.Type,
                     title = h.Title,
-                    container = new { id = h.PageId, type = h.PageType },
+                    // A number, as the real search API sends it (strings elsewhere).
+                    container = new { id = long.Parse(h.PageId, CultureInfo.InvariantCulture), type = h.PageType },
                 },
                 lastModified = h.At.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
             }),

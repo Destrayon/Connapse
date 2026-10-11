@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -933,9 +934,25 @@ public sealed partial class ConfluenceSpaceConnector(
 
     private sealed record FolderResponse(string? Id, string? Title, string? ParentId, string? ParentType);
 
-    private sealed record SearchContainer(string? Id, string? Type);
+    // Confluence's search sends a container's id as a JSON number, unlike the v2 API's strings.
+    private sealed record SearchContainer([property: JsonConverter(typeof(StringOrNumberId))] string? Id, string? Type);
 
-    private sealed record SearchContent(string? Id, string? Type, SearchContainer? Container);
+    private sealed record SearchContent([property: JsonConverter(typeof(StringOrNumberId))] string? Id, string? Type, SearchContainer? Container);
+
+    /// <summary>A content id given as either a JSON string or a whole number; anything else is malformed.</summary>
+    private sealed class StringOrNumberId : JsonConverter<string?>
+    {
+        public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            reader.TokenType switch
+            {
+                JsonTokenType.String => reader.GetString(),
+                JsonTokenType.Number when reader.TryGetInt64(out long id) => id.ToString(CultureInfo.InvariantCulture),
+                _ => throw new JsonException($"A Confluence content id was a {reader.TokenType}."),
+            };
+
+        public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(value);
+    }
 
     private sealed record SearchHit(SearchContent? Content, DateTimeOffset? LastModified);
 
