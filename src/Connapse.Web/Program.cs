@@ -156,6 +156,8 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
+builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
+builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
 builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
@@ -405,6 +407,7 @@ api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
 api.MapGitHubAppEndpoints();
 api.MapAtlassianEndpoints();
+api.MapAtlassianLinkAppEndpoints();
 
 // Map OAuth 2.1 endpoints (discovery, token, registration)
 app.MapOAuthEndpoints();

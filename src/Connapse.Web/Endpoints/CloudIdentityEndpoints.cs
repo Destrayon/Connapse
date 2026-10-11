@@ -812,7 +812,7 @@ public static class CloudIdentityEndpoints
     private static string GitHubCallbackUrl(HttpContext http) =>
         $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{Connapse.Web.Services.GitHubAppManifest.UserCallbackPath}";
 
-    private static string AtlassianCallbackUrl(HttpContext http) =>
+    internal static string AtlassianCallbackUrl(HttpContext http) =>
         $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{AtlassianCallbackPath}";
 
     private static string GenerateRandomToken() =>

@@ -441,6 +441,52 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Message.Should().Contain("rate limiting");
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, "limiting requests")]
+    [InlineData(HttpStatusCode.InternalServerError, "didn't answer properly")]
+    public async Task Test_SignInStepRateLimitedOrUnanswered_PointsAtTheGeneralSection_NotRejectedCredentials(
+        HttpStatusCode status, string says)
+    {
+        _api.FailTokenWith(status);
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.TokenStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
+        result.Details.Should().NotContainKey("rejected");
+        result.Message.Should().Contain(says).And.Contain("test again");
+    }
+
+    [Fact]
+    public async Task Test_SignInStepTimesOut_FailsWithoutThrowing_AndPointsAtTheGeneralSection()
+    {
+        var tester = new AtlassianConnectionTester(new TimingOutTokenFactory(_api));
+
+        var result = await tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.TokenStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
+        result.Message.Should().Contain("didn't answer in time");
+    }
+
+    /// <summary>Atlassian's token endpoint never answers: the HTTP client's own timeout fires.</summary>
+    private sealed class TimingOutTokenFactory(FakeAtlassianApi api) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(new Handler(api), disposeHandler: true);
+
+        private sealed class Handler(FakeAtlassianApi api) : DelegatingHandler(api)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+                request.RequestUri!.AbsolutePath == FakeAtlassianApi.TokenPath
+                    ? throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout")
+                    : base.SendAsync(request, ct);
+
+            // The fake is shared with the test class, which disposes it.
+            protected override void Dispose(bool disposing) { }
+        }
+    }
+
     private sealed class FakeFactory(FakeAtlassianApi api) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => api.CreateClient();

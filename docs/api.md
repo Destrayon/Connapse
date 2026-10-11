@@ -1300,13 +1300,60 @@ Removes the source and its indexed documents. **The external data is untouched.*
 
 ### Atlassian Sites
 
-Base path: `/api/v1/atlassian/sites`. Administrator only. Setup steps and every field are in the [Atlassian setup guide](atlassian-setup.md).
+Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connections page can do to a site is here, with the same field names, the same checks and the same audit events. Setup steps and every field are in the [Atlassian setup guide](atlassian-setup.md). The client secret is accepted on the way in and never returned.
 
 | Method | Route | Purpose |
 |--------|-------|---------|
+| GET | `/` | Every saved site, as [site objects](#atlassian-site-object) without `scopes` |
 | POST | `/resolve` | `{ "siteUrl" }` → `{ siteUrl, cloudId }`. `400` if the address is not `https://<name>.atlassian.net`, `404` if no site is there |
-| POST | `/` | `{ "siteUrl", "clientId", "clientSecret" }`. Runs every site check and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId }`. A failed check is `422` with `{ success: false, step, message }`; the secret is never returned |
+| POST | `/` | `{ "siteUrl", "clientId", "clientSecret", "saveAnyway"? }`. Runs every site check and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId, test }`, where `test` is a [test report](#atlassian-test-report). The site is named after its host. A failed check is `422` with the test report. `saveAnyway: true` saves a site whose only problem is a warning (`warning: true`: no page or no other user yet to check administrator access against); any other failure is never saved. `409` if a connection for the site already exists |
+| GET | `/{connectionId}` | One [site object](#atlassian-site-object), with `scopes`. `404` if it isn't an Atlassian site |
+| PATCH | `/{connectionId}` | `{ "name" }` renames the site, as the Name field does. `200` with the site object. `400` if the name is blank or over 128 characters, `409` if another connection has it. Audited as `connection.updated` |
+| POST | `/{connectionId}/test` | Runs every check again with the stored secret and records the result as the site's health: `200` with a [test report](#atlassian-test-report), passed or not. `404` if the site is gone or its stored secret can't be read |
+| PUT | `/{connectionId}/credentials` | `{ "clientId", "clientSecret", "saveAnyway"? }`. Tests the new credential and replaces the stored one only if it passes, keeping the connection's id so its sources keep syncing: `200` with `{ id, name, clientId, test }`. `422` with the test report if it fails (nothing changes), `409` if the site now has a different Cloud ID (it is a different site; add it as a new connection). Audited as `connection.credentials_replaced` |
+| POST | `/{connectionId}/pause` | Pause syncing: disables every source on the site. Nothing is deleted and documents stay searchable. `200` with `{ syncPaused: true, sources }`; `409` if the site has no sources. Audited as `connection.paused` |
+| POST | `/{connectionId}/resume` | Resume syncing. Optional body `{ "sourceIds": [...] }` turns back on only those sources (as the page's Resume dialog lets you untick some); without it, every source. `200` with `{ syncPaused, sources }`. `400` if a `sourceIds` entry isn't on this site. Audited as `connection.resumed` |
+| DELETE | `/{connectionId}?confirmName=<name>` | Deletes the site. `confirmName` must equal the site's name, the value the page asks you to type, or the answer is `400`. `409` while any source uses the site, with `{ error, sources: [{ id, name }] }`: remove or repoint them first. `204` when deleted. Audited as `connection.deleted` |
 | GET | `/{connectionId}/spaces?includePersonal=false` | The spaces the site's service account can view: `[{ id, key, name, type }]`. `502` if Atlassian can't be reached |
+
+#### Atlassian site object
+
+| Field | Meaning |
+|-------|---------|
+| `id`, `name` | The connection's id and name |
+| `siteUrl`, `cloudId` | The site's address and Atlassian's own ID for it |
+| `clientId` | The service account credential's client ID. The secret is never returned; `hasSecret` says one is stored |
+| `sourceCount` | How many sources use the site |
+| `syncPaused` | `true` when the site has sources and every one is disabled |
+| `health` | The last check, or `null` before one: `{ checkedAt, succeeded, warning, step, stepLabel, message, origin, credentialRejected, lastSucceededAt, confirmedScopes }`. `origin` is `test` or `sync`; `credentialRejected: true` is what the page shows as **Needs new credentials** |
+| `scopes` | Single site only: `[{ name, reason, optional }]`, every scope the credential needs and why |
+
+#### Atlassian test report
+
+Returned by `/test`, inside `test` on a create or replace, and as the `422` body of a failed one.
+
+| Field | Meaning |
+|-------|---------|
+| `success` | `true` when every check passed |
+| `warning` | `true` when the only problem is a site with no page or no other user yet; `saveAnyway` can save past it |
+| `message` | What happened and what to do, as the page shows it |
+| `step` | The check that failed: `site`, `token`, `identity`, `spaces` or `admin`; `null` on success |
+| `stepLabel` | That check in the page's words, for example "Signing in as the service account" |
+| `troubleshootingUrl` | The setup guide entry for the failure. A timeout, a rate limit or an answer Atlassian didn't finish links the guide's general Troubleshooting section, not a credential entry |
+| `detail` | Atlassian's own answer when it gave one, such as `HTTP 401 (Unauthorized)`; never a secret or token |
+| `scopes` | On success, the scopes the test confirmed the credential carries |
+
+### Atlassian Linking App
+
+Base path: `/api/v1/atlassian/linking-app`. Administrator only. The app people sign in through to link their Atlassian accounts, at parity with the Linking app card on the Providers page: the same check with Atlassian before saving, the same typed confirmation to remove it, and the same audit events. The client secret is accepted on the way in and never returned.
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/` | `{ clientId, permission, signInEnabled, lastCheckedAt, lastCheckAccepted, lastUsedForSignInAt, peopleLinked }`. `lastCheckAccepted` is `null` before a check; `peopleLinked` is `null` if it can't be counted. `404` when no app is stored |
+| PUT | `/` | `{ "clientId", "clientSecret" }`. Asks Atlassian whether it accepts the pair and stores it, in place of any app already stored, only if it does. Saving turns sign-in on. `200` with the app as `GET` returns it. `400` if a field is missing, `422` with `{ error, troubleshootingUrl }` if Atlassian rejects the pair, `502` if Atlassian can't be reached or gives no clear answer. Nothing is stored on a failure. Audited as `provider.credential.checked`, then `provider.credential.saved` |
+| POST | `/check` | Checks the stored pair with Atlassian again and records the answer as the last check: `200` with `{ result, message, troubleshootingUrl? }`, where `result` is `accepted`, `rejected` or `unknown` (couldn't reach Atlassian; nothing recorded). `404` when no app is stored. Audited as `provider.credential.checked` |
+| PUT | `/sign-in` | `{ "signInEnabled": false }` turns Atlassian sign-in off: nobody new can link, and people who linked keep their links. `true` turns it back on. `200` with the app. `400` without `signInEnabled`, `404` when no app is stored. Audited as `provider.sign_in.disabled` or `provider.sign_in.enabled` |
+| DELETE | `/?confirmClientId=<client ID>` | Removes the app. `confirmClientId` must equal the stored client ID, the value the page asks you to type, or the answer is `400`. People who linked keep their links, but nobody can link until an app is added again. `204` when removed, `404` when none is stored. Audited as `provider.credential.deleted` |
 
 ---
 
