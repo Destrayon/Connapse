@@ -1200,7 +1200,7 @@ Base path: `/api/sources`
 
 A **source** is an external system Connapse mirrors read-only — an S3 bucket, an SFTP directory, or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
 
-**Connections have no REST surface**, apart from [Atlassian sites](#atlassian-sites), which are saved only after every check passes. They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
+**Connections have no REST surface**, apart from [Atlassian sites](#atlassian-sites), which are saved only after every check passes, and the [Atlassian linking app](#atlassian-linking-app), which is saved only after Atlassian accepts it. They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
 
 | Method | Route | Role |
 |--------|-------|------|
