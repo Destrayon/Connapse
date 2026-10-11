@@ -5,8 +5,8 @@ using Connapse.Core.Utilities;
 
 namespace Connapse.Storage.Connectors.Atlassian;
 
-/// <summary>The Atlassian account a user signed in as.</summary>
-public sealed record AtlassianUserAccount(string AccountId, string DisplayName, string? Email);
+/// <summary>The Atlassian account a user signed in as: its id only, never the name or email /me also returns.</summary>
+public sealed record AtlassianUserAccount(string AccountId);
 
 /// <summary>
 /// The user sign-in that links an Atlassian account, through the link app an administrator stored.
@@ -91,8 +91,7 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
         if (string.IsNullOrWhiteSpace(me?.AccountId))
             throw new AtlassianAuthException("Atlassian returned an account without an id.");
 
-        string displayName = string.IsNullOrWhiteSpace(me.Name) ? me.AccountId : me.Name;
-        return new AtlassianUserAccount(me.AccountId, displayName, string.IsNullOrWhiteSpace(me.Email) ? null : me.Email);
+        return new AtlassianUserAccount(me.AccountId);
     }
 
     private static async Task<string> ErrorReasonAsync(HttpResponseMessage response, CancellationToken ct)
@@ -117,8 +116,5 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
 
     private sealed record TokenResponse([property: JsonPropertyName("access_token")] string? AccessToken);
 
-    private sealed record MeResponse(
-        [property: JsonPropertyName("account_id")] string? AccountId,
-        [property: JsonPropertyName("name")] string? Name,
-        [property: JsonPropertyName("email")] string? Email);
+    private sealed record MeResponse([property: JsonPropertyName("account_id")] string? AccountId);
 }

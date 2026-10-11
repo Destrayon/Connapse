@@ -27,15 +27,10 @@
 
             @if (Link is not null)
             {
-                <div class="d-flex gap-4 mb-3">
-                    <div>
-                        <small class="text-muted d-block">Connected as</small>
-                        <span class="small" id="atlassian-display-name">@Link.DisplayName</span>
-                    </div>
-                    <div>
-                        <small class="text-muted d-block">Connected</small>
-                        <small>@Link.ConnectedAt.ToString("MMM dd, yyyy")</small>
-                    </div>
+                @* Only the account id is stored, so there is no name to show (#695). *@
+                <div class="mb-3" id="atlassian-linked">
+                    <small class="text-muted d-block">Linked to your Atlassian account</small>
+                    <small>Since @Link.ConnectedAt.ToString("MMM dd, yyyy")</small>
                 </div>
             }
             else if (!SignInAvailable)

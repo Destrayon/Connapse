@@ -28,13 +28,13 @@ public class AtlassianIdentityCardTests : IDisposable
     }
 
     [Fact]
-    public void Render_Linked_ShowsTheDisplayNameAndUnlinks()
+    public void Render_Linked_ShowsTheLinkDateAndUnlinks()
     {
         bool disconnected = false;
         var link = new UserAtlassianIdentityLinkEntity
         {
             Id = Guid.NewGuid(), UserId = Guid.NewGuid(), AccountId = "acc-1",
-            DisplayName = "Ada Lovelace", ConnectedAt = DateTime.UtcNow,
+            ConnectedAt = new DateTime(2026, 10, 11, 0, 0, 0, DateTimeKind.Utc),
         };
 
         var cut = ctx.Render<AtlassianIdentityCard>(p => p
@@ -42,7 +42,7 @@ public class AtlassianIdentityCardTests : IDisposable
             .Add(c => c.SignInAvailable, false)
             .Add(c => c.OnDisconnect, () => disconnected = true));
 
-        cut.Find("#atlassian-display-name").TextContent.Should().Be("Ada Lovelace");
+        cut.Find("#atlassian-linked").TextContent.Should().Contain("Linked to your Atlassian account").And.Contain("Oct 11, 2026");
         cut.FindAll("#atlassian-connect").Should().BeEmpty();
         cut.Find("#atlassian-disconnect").Click();
         cut.Find("#atlassian-disconnect-confirm").Click();

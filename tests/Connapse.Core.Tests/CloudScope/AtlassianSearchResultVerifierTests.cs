@@ -30,7 +30,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         _presence = new AtlassianConnectionPresence(_clock);
         _documents.GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .Returns(_ => (IReadOnlyDictionary<string, string?>)_uris);
-        _links.GetLinkAsync(_user, Arg.Any<CancellationToken>()).Returns(new AtlassianIdentityRef(Account, "Ada"));
+        _links.GetLinkAsync(_user, Arg.Any<CancellationToken>()).Returns(new AtlassianIdentityRef(Account));
     }
 
     public void Dispose()

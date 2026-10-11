@@ -15,7 +15,7 @@ public sealed class AtlassianIdentityLinkStore(
     public async Task<AtlassianIdentityRef?> GetLinkAsync(Guid userId, CancellationToken ct = default)
     {
         var link = await GetAsync(userId, ct);
-        return link is null ? null : new AtlassianIdentityRef(link.AccountId, link.DisplayName);
+        return link is null ? null : new AtlassianIdentityRef(link.AccountId);
     }
 
     public async Task<UserAtlassianIdentityLinkEntity?> GetAsync(Guid userId, CancellationToken ct = default)
@@ -36,9 +36,8 @@ public sealed class AtlassianIdentityLinkStore(
     }
 
     /// <summary>Stores a user's link, replacing any existing one.</summary>
-    public async Task SaveAsync(
-        Guid userId, string accountId, string displayName, string? email, CancellationToken ct = default) =>
-        await SaveCoreAsync(userId, expectedGeneration: null, accountId, displayName, email, ct);
+    public async Task SaveAsync(Guid userId, string accountId, CancellationToken ct = default) =>
+        await SaveCoreAsync(userId, expectedGeneration: null, accountId, ct);
 
     /// <summary>
     /// Stores a user's link only if they have not unlinked since <paramref name="revocationGeneration"/>
@@ -47,17 +46,14 @@ public sealed class AtlassianIdentityLinkStore(
     /// </summary>
     /// <returns>False, with nothing written, when the user unlinked in between.</returns>
     public async Task<bool> TrySaveAsync(
-        Guid userId, long revocationGeneration, string accountId, string displayName, string? email,
-        CancellationToken ct = default) =>
-        await SaveCoreAsync(userId, revocationGeneration, accountId, displayName, email, ct);
+        Guid userId, long revocationGeneration, string accountId, CancellationToken ct = default) =>
+        await SaveCoreAsync(userId, revocationGeneration, accountId, ct);
 
     /// <remarks>Every writer of a user's link first locks the user's revocation row, so two concurrent
     /// saves serialize there instead of racing on the link's unique index.</remarks>
-    private async Task<bool> SaveCoreAsync(
-        Guid userId, long? expectedGeneration, string accountId, string displayName, string? email, CancellationToken ct)
+    private async Task<bool> SaveCoreAsync(Guid userId, long? expectedGeneration, string accountId, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
 
         await using var db = await factory.CreateDbContextAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -74,8 +70,6 @@ public sealed class AtlassianIdentityLinkStore(
         }
 
         existing.AccountId = accountId;
-        existing.DisplayName = displayName;
-        existing.Email = email;
         existing.ConnectedAt = timeProvider.GetUtcNow().UtcDateTime;
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

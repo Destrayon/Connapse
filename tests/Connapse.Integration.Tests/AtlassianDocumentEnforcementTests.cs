@@ -103,7 +103,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         await db.SaveChangesAsync();
 
         if (atlassianAccount is not null)
-            await sp.GetRequiredService<AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount, "Someone", null);
+            await sp.GetRequiredService<AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount);
         return user.Id;
     }
 
@@ -218,7 +218,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         };
         (await users.CreateAsync(user, Password)).Succeeded.Should().BeTrue();
         await users.AddToRoleAsync(user, "Viewer");
-        await sp.GetRequiredService<AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount, "Someone", null);
+        await sp.GetRequiredService<AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount);
 
         using var anon = fixture.Factory.CreateClient();
         var response = await anon.PostAsJsonAsync("/api/v1/auth/token", new { email, password = Password });

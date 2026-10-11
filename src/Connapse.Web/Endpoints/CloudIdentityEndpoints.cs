@@ -589,8 +589,7 @@ public static class CloudIdentityEndpoints
 
                 var account = await signIn.ResolveAsync(code, pending.CodeVerifier, AtlassianCallbackUrl(http), ct);
                 string confirmCode = flow.Park(new PendingAtlassianLink(
-                    pending.UserId, account.AccountId, account.DisplayName, account.Email, pending.StartedAtUtc,
-                    pending.RevocationGeneration));
+                    pending.UserId, account.AccountId, pending.StartedAtUtc, pending.RevocationGeneration));
 
                 http.Response.Cookies.Append(AtlassianConfirmCookieName, confirmCode, new CookieOptions
                 {
@@ -644,8 +643,7 @@ public static class CloudIdentityEndpoints
             // An unlink after the sign-in began must win, including one that lands after the claim
             // above: the save is refused in the same transaction that checks the user's unlink count,
             // so nothing has to be deleted afterwards and the link is never visible after the unlink.
-            if (!await links.TrySaveAsync(userId.Value, link.RevocationGeneration,
-                    link.AccountId, link.DisplayName, link.Email, ct))
+            if (!await links.TrySaveAsync(userId.Value, link.RevocationGeneration, link.AccountId, ct))
             {
                 logger.LogInformation("An Atlassian link confirmed while the user was unlinking was discarded");
                 return Results.Redirect("/profile/integrations?error=atlassian_link_unlinked");
@@ -764,7 +762,7 @@ public static class CloudIdentityEndpoints
     {
         // First, because the link is already saved: nothing after this may cost it its record.
         await audit.LogAsync("identity.atlassian.linked", "user", userId.ToString(),
-            new { link.AccountId, link.DisplayName }, ct);
+            new { link.AccountId }, ct);
 
         try
         {

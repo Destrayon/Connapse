@@ -129,7 +129,7 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
         Guid admin = AdminUserId();
         var flow = fixture.Factory.Services.GetRequiredService<AtlassianLinkFlow>();
         // The admin started the sign-in; the colleague's browser completed it and holds the cookie.
-        string code = flow.Park(new PendingAtlassianLink(admin, "colleague-account", "Colleague", null, DateTime.UtcNow, 0));
+        string code = flow.Park(new PendingAtlassianLink(admin, "colleague-account", DateTime.UtcNow, 0));
 
         try
         {
@@ -160,7 +160,7 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
         await using (var scope = fixture.Factory.Services.CreateAsyncScope())
             generation = await scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>().GetRevocationGenerationAsync(admin);
         // Parked a moment before the unlink, as when the user disconnects while Atlassian is redirecting back.
-        string code = flow.Park(new PendingAtlassianLink(admin, "acc-race", "Racer", null, DateTime.UtcNow.AddSeconds(-1), generation));
+        string code = flow.Park(new PendingAtlassianLink(admin, "acc-race", DateTime.UtcNow.AddSeconds(-1), generation));
         using var adminClient = Client(fixture.AdminToken);
 
         try
@@ -187,7 +187,7 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
         {
             await using var scope = fixture.Factory.Services.CreateAsyncScope();
             var links = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
-            await links.SaveAsync(admin, "acc-before", "Before", null);
+            await links.SaveAsync(admin, "acc-before");
             using var adminClient = Client(fixture.AdminToken);
 
             var connect = await adminClient.GetAsync("/api/v1/auth/cloud/atlassian/connect");
@@ -253,7 +253,7 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
             var confirmed = await adminClient.SendAsync(Confirm(code));
 
             confirmed.Headers.Location!.OriginalString.Should().Be("/profile/integrations?linked=atlassian");
-            (await LinkOf(admin)).Should().Be(new AtlassianIdentityRef("acc-ada", "Ada Lovelace"));
+            (await LinkOf(admin)).Should().Be(new AtlassianIdentityRef("acc-ada"));
             (await credentials.GetAtlassianLinkAppAsync())!.VerifiedAt.Should().NotBeNull();
 
             (await adminClient.DeleteAsync("/api/v1/auth/cloud/atlassian")).StatusCode.Should().Be(HttpStatusCode.NoContent);

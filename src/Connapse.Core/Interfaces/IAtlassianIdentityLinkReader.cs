@@ -1,7 +1,7 @@
 namespace Connapse.Core.Interfaces;
 
-/// <summary>A Connapse user's linked Atlassian account: the account id is the key, the display name is for the UI.</summary>
-public sealed record AtlassianIdentityRef(string AccountId, string DisplayName);
+/// <summary>A Connapse user's linked Atlassian account: only its id, which Atlassian doesn't treat as personal data.</summary>
+public sealed record AtlassianIdentityRef(string AccountId);
 
 /// <summary>
 /// Which Atlassian account a Connapse user signed in as, for deciding what Confluence content they

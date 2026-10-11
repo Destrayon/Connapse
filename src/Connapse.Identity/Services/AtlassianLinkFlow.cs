@@ -17,7 +17,7 @@ public sealed record AtlassianPendingSignIn(string State, string? CodeVerifier, 
 /// <summary>An Atlassian account the callback resolved, held until a signed-in user can be shown to own it.</summary>
 /// <param name="SignInStartedAtUtc">When the sign-in began: an unlink after it refuses the link, however long the callback took.</param>
 /// <param name="RevocationGeneration">Carried from <see cref="AtlassianPendingSignIn.RevocationGeneration"/>.</param>
-public sealed record PendingAtlassianLink(Guid StartedByUserId, string AccountId, string DisplayName, string? Email, DateTime SignInStartedAtUtc, long RevocationGeneration);
+public sealed record PendingAtlassianLink(Guid StartedByUserId, string AccountId, DateTime SignInStartedAtUtc, long RevocationGeneration);
 
 /// <summary>
 /// The in-flight state of linking an Atlassian account, the same three steps as

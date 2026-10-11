@@ -665,7 +665,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
-        await sp.GetRequiredService<Connapse.Identity.Services.AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount, "Someone", null);
+        await sp.GetRequiredService<Connapse.Identity.Services.AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount);
         return user.Id;
     }
 

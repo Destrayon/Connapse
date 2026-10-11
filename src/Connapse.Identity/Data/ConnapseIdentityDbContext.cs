@@ -739,8 +739,6 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             // Atlassian's account id: permanent across renames, so it is what a link means.
             entity.Property(e => e.AccountId).HasColumnName("account_id").HasMaxLength(128).IsRequired();
-            entity.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(256).IsRequired();
-            entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(320);
             entity.Property(e => e.ConnectedAt).HasColumnName("connected_at").HasDefaultValueSql("now()");
 
             // One link per user: linking again replaces it.

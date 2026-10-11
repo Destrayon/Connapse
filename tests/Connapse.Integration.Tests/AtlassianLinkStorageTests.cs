@@ -36,11 +36,25 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
 
-        await store.SaveAsync(userId, "5b10ac8d82e05b22cc7d4ef5", "Ada Lovelace", "ada@example.com");
+        await store.SaveAsync(userId, "5b10ac8d82e05b22cc7d4ef5");
 
         var reader = scope.ServiceProvider.GetRequiredService<IAtlassianIdentityLinkReader>();
-        (await reader.GetLinkAsync(userId)).Should().Be(new AtlassianIdentityRef("5b10ac8d82e05b22cc7d4ef5", "Ada Lovelace"));
-        (await store.GetAsync(userId))!.Email.Should().Be("ada@example.com");
+        (await reader.GetLinkAsync(userId)).Should().Be(new AtlassianIdentityRef("5b10ac8d82e05b22cc7d4ef5"));
+    }
+
+    [Fact]
+    public async Task Table_HoldsNoNameOrEmail()
+    {
+        // Atlassian treats a name or email as personal data an app must report weekly (#695).
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
+
+        var columns = await db.Database.SqlQueryRaw<string>(
+            "SELECT column_name AS \"Value\" FROM information_schema.columns WHERE table_name = 'user_atlassian_identity_links'")
+            .ToListAsync();
+
+        columns.Should().BeEquivalentTo("id", "user_id", "account_id", "connected_at");
     }
 
     [Fact]
@@ -50,14 +64,13 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
 
-        await store.SaveAsync(userId, "account-one", "Ada", null);
-        await store.SaveAsync(userId, "account-two", "Ada Renamed", null);
+        await store.SaveAsync(userId, "account-one");
+        await store.SaveAsync(userId, "account-two");
 
         await using var db = await scope.ServiceProvider
             .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
         var rows = await db.UserAtlassianIdentityLinks.AsNoTracking().Where(x => x.UserId == userId).ToListAsync();
         rows.Should().ContainSingle().Which.AccountId.Should().Be("account-two");
-        (await store.GetLinkAsync(userId))!.DisplayName.Should().Be("Ada Renamed");
     }
 
     [Fact]
@@ -66,7 +79,7 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
-        await store.SaveAsync(userId, "account-one", "Ada", null);
+        await store.SaveAsync(userId, "account-one");
 
         (await store.DeleteAsync(userId)).Should().BeTrue();
 
@@ -80,15 +93,15 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
-        await store.SaveAsync(userId, "account-one", "Ada", null);
+        await store.SaveAsync(userId, "account-one");
         long generation = await store.GetRevocationGenerationAsync(userId);
 
         // The confirmation has claimed its link and is paused; the unlink completes, then it resumes.
         (await store.DeleteAsync(userId)).Should().BeTrue();
 
-        (await store.TrySaveAsync(userId, generation, "account-revived", "Ada", null)).Should().BeFalse();
+        (await store.TrySaveAsync(userId, generation, "account-revived")).Should().BeFalse();
         (await store.GetLinkAsync(userId)).Should().BeNull();
-        await store.Invoking(s => s.TrySaveAsync(userId, generation, "account-revived", "Ada", null, new CancellationToken(canceled: true)))
+        await store.Invoking(s => s.TrySaveAsync(userId, generation, "account-revived", new CancellationToken(canceled: true)))
             .Should().ThrowAsync<OperationCanceledException>();
         (await store.GetLinkAsync(userId)).Should().BeNull("a resumed confirmation that is then cancelled leaves nothing to clean up");
     }
@@ -101,14 +114,14 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
         var store = scope.ServiceProvider.GetRequiredService<AtlassianIdentityLinkStore>();
         long generation = await store.GetRevocationGenerationAsync(userId);
 
-        (await store.TrySaveAsync(userId, generation, "account-one", "Ada", null)).Should().BeTrue();
+        (await store.TrySaveAsync(userId, generation, "account-one")).Should().BeTrue();
         (await store.GetLinkAsync(userId))!.AccountId.Should().Be("account-one");
 
         (await store.DeleteAsync(userId)).Should().BeTrue();
         (await store.DeleteAsync(userId)).Should().BeFalse();
-        (await store.TrySaveAsync(userId, generation + 1, "account-two", "Ada", null)).Should().BeFalse(
+        (await store.TrySaveAsync(userId, generation + 1, "account-two")).Should().BeFalse(
             "the second unlink found no link but still refuses a sign-in started before it");
-        (await store.TrySaveAsync(userId, generation + 2, "account-two", "Ada", null)).Should().BeTrue();
+        (await store.TrySaveAsync(userId, generation + 2, "account-two")).Should().BeTrue();
     }
 
     [Fact]

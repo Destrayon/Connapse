@@ -16,7 +16,7 @@ public sealed class AtlassianSearchScopeResolverTests
 
     public AtlassianSearchScopeResolverTests()
     {
-        _links.GetLinkAsync(_linked, Arg.Any<CancellationToken>()).Returns(new AtlassianIdentityRef("557058:abc", "Ada"));
+        _links.GetLinkAsync(_linked, Arg.Any<CancellationToken>()).Returns(new AtlassianIdentityRef("557058:abc"));
         _resolver = new AtlassianSearchScopeResolver(AtlassianConnectionStore(), _links);
     }
 

@@ -41,7 +41,7 @@ public class AtlassianUserSignInTests
     }
 
     [Fact]
-    public async Task ResolveAsync_SendsTheVerifierAndReturnsTheAccount()
+    public async Task ResolveAsync_SendsTheVerifierAndReturnsOnlyTheAccountId()
     {
         using var api = new FakeAtlassianApi();
         api.AcceptAuthorizationCode("code-1");
@@ -49,7 +49,8 @@ public class AtlassianUserSignInTests
 
         var account = await SignIn(api).ResolveAsync("code-1", "verifier-1", Redirect);
 
-        account.Should().Be(new AtlassianUserAccount("acc-1", "Ada Lovelace", "ada@example.com"));
+        // /me also sends the name and email; neither is kept.
+        account.Should().Be(new AtlassianUserAccount("acc-1"));
         api.AuthorizationCodeBodies.Should().ContainSingle()
             .Which.Should().Contain("\"code_verifier\":\"verifier-1\"").And.Contain("\"client_secret\":\"secret-1\"");
         api.Requests.Should().Contain(new Uri(AtlassianUserSignIn.MeEndpoint));
