@@ -170,7 +170,8 @@ public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) 
     [InlineData(101)]
     public async Task Create_MaxAttachmentSizeOutOfRange_Returns400NamingTheField(int mb)
     {
-        Guid site = await CreateSiteAsync($"confluence-api-size-{mb}.atlassian.net");
+        // Attachments on (by default here), since the size is checked only when they are.
+        Guid site = await CreateSiteWithAttachmentScopeAsync($"confluence-api-size-{mb}.atlassian.net");
 
         var response = await CreateSourceAsync(site, new { spaceId = "100", maxAttachmentMb = mb });
 
