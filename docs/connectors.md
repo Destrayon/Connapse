@@ -242,7 +242,7 @@ Scope keys by provider:
 
 Reads are viewer-level; every mutation is administrator-only, because a source chooses what external data gets indexed.
 
-**The response never contains the scope.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token. Returning either would turn a read route into reconnaissance. `lastSyncError` is administrator-only for the same reason — a provider's failure text routinely echoes what failed, as in `Access Denied for bucket payroll-data`.
+**The response never contains the scope.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token. Returning either would turn a read route into reconnaissance. `lastSyncError` is administrator-only for the same reason — a provider's failure text routinely echoes what failed, as in `Access Denied for bucket payroll-data`. The one exception is a Confluence source's settings (`spaceId`, `spaceKey`, `spaceName`, `includeAttachments`, `maxAttachmentMb`), which administrators edit on the Sources page and get back under `confluence`; see the [API reference](api.md#source-response).
 
 Deleting a source removes its indexed documents. The external data is untouched.
 

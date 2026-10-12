@@ -53,6 +53,17 @@ public sealed class AtlassianApiClient(
     }
 
     /// <summary>
+    /// A GET whose response is handed back for the caller to read the status of, as
+    /// <see cref="PostAsync"/>'s is. The caller owns (and must dispose) it. Rate limits and rejected
+    /// credentials still throw.
+    /// </summary>
+    public Task<HttpResponseMessage> GetAsync(string relative, CancellationToken ct)
+    {
+        Uri url = Resolve(relative);
+        return SendAsync(() => new HttpRequestMessage(HttpMethod.Get, url), ct);
+    }
+
+    /// <summary>
     /// Posts a JSON body and hands back the response for the caller to read the status of. The
     /// caller owns (and must dispose) it. Rate limits and rejected credentials still throw.
     /// </summary>

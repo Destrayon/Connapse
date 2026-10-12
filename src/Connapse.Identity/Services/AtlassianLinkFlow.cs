@@ -4,12 +4,13 @@ namespace Connapse.Identity.Services;
 
 /// <summary>What was recorded when an Atlassian sign-in was started: the PKCE verifier (when PKCE is on) and who started it.</summary>
 /// <param name="RevocationGeneration">The user's unlink count when the sign-in began; the link is saved only while it is unchanged.</param>
-public sealed record AtlassianPendingSignIn(string State, string? CodeVerifier, Guid UserId, DateTime ExpiresAtUtc, DateTime StartedAtUtc, long RevocationGeneration)
+/// <param name="Attempt">The id the sign-in's audit events share, from <c>link_started</c> to <c>linked</c> or <c>link_failed</c>.</param>
+public sealed record AtlassianPendingSignIn(string State, string? CodeVerifier, Guid UserId, DateTime ExpiresAtUtc, DateTime StartedAtUtc, long RevocationGeneration, Guid Attempt = default)
 {
     // The PKCE verifier is what redeems the sign-in code; the generated ToString would print it.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"State = {State}, CodeVerifier = ***, UserId = {UserId}, ExpiresAtUtc = {ExpiresAtUtc}, StartedAtUtc = {StartedAtUtc}, RevocationGeneration = {RevocationGeneration}");
+        builder.Append($"State = {State}, CodeVerifier = ***, UserId = {UserId}, ExpiresAtUtc = {ExpiresAtUtc}, StartedAtUtc = {StartedAtUtc}, RevocationGeneration = {RevocationGeneration}, Attempt = {Attempt}");
         return true;
     }
 }
@@ -17,7 +18,8 @@ public sealed record AtlassianPendingSignIn(string State, string? CodeVerifier, 
 /// <summary>An Atlassian account the callback resolved, held until a signed-in user can be shown to own it.</summary>
 /// <param name="SignInStartedAtUtc">When the sign-in began: an unlink after it refuses the link, however long the callback took.</param>
 /// <param name="RevocationGeneration">Carried from <see cref="AtlassianPendingSignIn.RevocationGeneration"/>.</param>
-public sealed record PendingAtlassianLink(Guid StartedByUserId, string AccountId, DateTime SignInStartedAtUtc, long RevocationGeneration);
+/// <param name="Attempt">Carried from <see cref="AtlassianPendingSignIn.Attempt"/>.</param>
+public sealed record PendingAtlassianLink(Guid StartedByUserId, string AccountId, DateTime SignInStartedAtUtc, long RevocationGeneration, Guid Attempt = default);
 
 /// <summary>
 /// The in-flight state of linking an Atlassian account, the same three steps as

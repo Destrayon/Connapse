@@ -158,6 +158,13 @@ public class ConnectionsPageLifecycleTests
     }
 
     [Fact]
+    public void TestConnection_IsASecondaryButton_SoSaveIsTheOnlyFilledPrimary()
+    {
+        Markup.Should().Contain("<button id=\"connection-test\" class=\"btn btn-outline-secondary\" @onclick=\"Test\"")
+            .And.NotContain("btn-info", "a filled Test button competes with the one primary action");
+    }
+
+    [Fact]
     public void RenameDeleteAndPause_GoThroughTheSharedServiceTheRestApiUses()
     {
         Markup.Should().Contain("await Admin.UpdateAsync(editing!.Id,")

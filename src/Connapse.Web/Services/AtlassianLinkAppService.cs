@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors.Atlassian;
 
@@ -12,7 +13,8 @@ public sealed record AtlassianLinkAppSaveResult(AtlassianLinkAppSaveOutcome Outc
 
 /// <summary>
 /// The Atlassian linking app's lifecycle, shared by the Providers page and the REST API so both
-/// check with Atlassian before saving and write the same audit events: <c>provider.credential.checked</c>,
+/// check with Atlassian before saving and write the same audit events: <c>provider.credential.check_started</c>
+/// and <c>provider.credential.checked</c> (sharing an attempt id),
 /// <c>provider.credential.saved</c>, <c>provider.sign_in.enabled</c>/<c>disabled</c> and
 /// <c>provider.credential.deleted</c>. Each carries the client ID only, never the secret.
 /// </summary>
@@ -59,9 +61,10 @@ public sealed class AtlassianLinkAppService(
             return new(AtlassianLinkAppSaveOutcome.MissingFields);
 
         string trimmedId = clientId.Trim();
+        Guid attempt = await CheckStartedAsync("save", trimmedId, ct);
+        long started = Stopwatch.GetTimestamp();
         var check = await signIn.CheckAppWithDetailAsync(trimmedId, clientSecret, callbackUrl, ct);
-        await audit.LogAsync("provider.credential.checked", "provider", Provider,
-            new { ClientId = trimmedId, Result = check.Result.ToString(), check.Detail }, ct);
+        await CheckedAsync("save", attempt, trimmedId, check.Result.ToString(), check.Detail, started, ct);
 
         if (check.Result == AtlassianLinkAppCheck.Rejected)
             return new(AtlassianLinkAppSaveOutcome.Rejected, check.Detail);
@@ -82,12 +85,16 @@ public sealed class AtlassianLinkAppService(
         (await RecheckWithDetailAsync(callbackUrl, ct))?.Result;
 
     /// <summary><see cref="RecheckAsync"/>, keeping Atlassian's answer as the result's detail.</summary>
-    public async Task<AtlassianLinkAppCheckResult?> RecheckWithDetailAsync(string callbackUrl, CancellationToken ct = default)
+    public Task<AtlassianLinkAppCheckResult?> RecheckWithDetailAsync(string callbackUrl, CancellationToken ct = default) =>
+        RecheckWithDetailAsync(callbackUrl, "recheck", ct);
+
+    private async Task<AtlassianLinkAppCheckResult?> RecheckWithDetailAsync(string callbackUrl, string mode, CancellationToken ct)
     {
         var app = await credentials.GetAtlassianLinkAppAsync(ct);
+        Guid attempt = await CheckStartedAsync(mode, app?.ClientId, ct);
+        long started = Stopwatch.GetTimestamp();
         var check = await signIn.CheckStoredAppWithDetailAsync(callbackUrl, ct);
-        await audit.LogAsync("provider.credential.checked", "provider", Provider,
-            new { app?.ClientId, Result = check?.Result.ToString() ?? "NotStored", check?.Detail }, ct);
+        await CheckedAsync(mode, attempt, app?.ClientId, check?.Result.ToString() ?? "NotStored", check?.Detail, started, ct);
 
         // An answer from Atlassian proves the callback URL is one it takes, so the daily check reuses it.
         if (app is not null && check is { Result: not AtlassianLinkAppCheck.Unknown })
@@ -112,8 +119,34 @@ public sealed class AtlassianLinkAppService(
             return null;
         }
 
-        return await RecheckWithDetailAsync(app.CallbackUrl, ct);
+        return await RecheckWithDetailAsync(app.CallbackUrl, "scheduled", ct);
     }
+
+    /// <summary>
+    /// <c>provider.credential.check_started</c>: opens a check's attempt, which its
+    /// <c>provider.credential.checked</c> event closes with the same id and the time taken, so
+    /// time-to-verified and abandoned checks can be measured as a site test's can.
+    /// </summary>
+    private async Task<Guid> CheckStartedAsync(string mode, string? clientId, CancellationToken ct)
+    {
+        Guid attempt = Guid.NewGuid();
+        await audit.LogAsync("provider.credential.check_started", "provider", Provider,
+            new { ClientId = clientId, Mode = mode, Attempt = attempt }, ct);
+        return attempt;
+    }
+
+    /// <summary>The answer, its attempt id and duration. The client ID and Atlassian's error code only: never the secret.</summary>
+    private Task CheckedAsync(
+        string mode, Guid attempt, string? clientId, string result, string? detail, long started, CancellationToken ct) =>
+        audit.LogAsync("provider.credential.checked", "provider", Provider, new
+        {
+            ClientId = clientId,
+            Mode = mode,
+            Attempt = attempt,
+            Result = result,
+            Detail = detail,
+            TotalMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+        }, ct);
 
     /// <summary>Turns Atlassian sign-in on or off without touching the stored app.</summary>
     /// <returns>False when no app is stored.</returns>

@@ -47,6 +47,11 @@ public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) 
             results = new object[] { new { user = new { accountId = "svc" } }, new { user = new { accountId = "other" } } },
         });
         _api.MapJson(Root + "/rest/api/content/7/permission/check", new { hasPermission = true });
+        // The site test's attachment probe: granted only when the credential lists the scope.
+        _api.Map(Root + "/api/v2/pages/7/attachments", _ =>
+            _api.TokenScope?.Contains(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.Attachment) == true
+                ? FakeAtlassianApi.Json(new { results = Array.Empty<object>() })
+                : FakeAtlassianApi.Json(new { code = 403, message = "Unauthorized; scope does not match" }, HttpStatusCode.Forbidden));
         return Task.CompletedTask;
     }
 
@@ -127,6 +132,33 @@ public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) 
         scope.RootElement.GetProperty("spaceKey").GetString().Should().Be("ENG");
         scope.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeTrue();
         scope.RootElement.GetProperty("maxAttachmentMb").GetInt32().Should().Be(40);
+    }
+
+    [Fact]
+    public async Task Get_ReadsBackTheSettingsTheUiShows_UnderTheNamesCreateAndPatchTake()
+    {
+        Guid site = await CreateSiteWithAttachmentScopeAsync("confluence-api-read.atlassian.net");
+        var created = await CreateSourceAsync(site, new { spaceId = "100", maxAttachmentMb = 40 });
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
+        Guid id = (await BodyAsync(created)).GetProperty("id").GetGuid();
+
+        var patched = await Admin.PatchAsJsonAsync($"/api/sources/{id}",
+            new { scopeJson = JsonSerializer.Serialize(new { includeAttachments = false }) });
+        patched.StatusCode.Should().Be(HttpStatusCode.OK, await patched.Content.ReadAsStringAsync());
+
+        foreach (var response in new[] { patched, await Admin.GetAsync($"/api/sources/{id}") })
+        {
+            var confluence = (await BodyAsync(response)).GetProperty("confluence");
+            confluence.GetProperty("spaceId").GetString().Should().Be("100");
+            confluence.GetProperty("spaceKey").GetString().Should().Be("ENG");
+            confluence.GetProperty("spaceName").GetString().Should().Be("Engineering");
+            confluence.GetProperty("includeAttachments").GetBoolean().Should().BeFalse();
+            confluence.GetProperty("maxAttachmentMb").GetInt32().Should().Be(40);
+        }
+
+        string listed = await (await Admin.GetAsync("/api/sources?take=200")).Content.ReadAsStringAsync();
+        listed.Should().Contain("\"spaceKey\":\"ENG\"");
+        listed.Should().NotContain(Secret).And.NotContain("scopeJson").And.NotContain("syncCursor");
     }
 
     [Fact]

@@ -118,9 +118,10 @@ public static class AtlassianLinkAppEndpoints
                 });
             }
 
-            var outcome = await linkApp.SaveAsync(request.ClientId, request.ClientSecret,
+            var saved = await linkApp.CheckAndSaveAsync(request.ClientId, request.ClientSecret,
                 CloudIdentityEndpoints.AtlassianCallbackUrl(http), UserIdOf(http), ct);
-            return outcome switch
+            // detail is Atlassian's own answer (status and error code), as the card's Details shows it; never the secret.
+            return saved.Outcome switch
             {
                 AtlassianLinkAppSaveOutcome.MissingFields =>
                     Results.BadRequest(new { error = "clientId and clientSecret are required." }),
@@ -128,10 +129,13 @@ public static class AtlassianLinkAppEndpoints
                 {
                     error = "Atlassian rejected this client ID and secret, so nothing was saved. Copy both again from Settings on the app in the developer console.",
                     troubleshootingUrl = AtlassianLinkAppFieldSpecs.TroubleshootingRejected,
+                    detail = saved.Detail,
                 }),
                 AtlassianLinkAppSaveOutcome.Unreachable => Results.Json(new
                 {
                     error = "Couldn't reach Atlassian to check the app, so nothing was saved. Check that this server can reach auth.atlassian.com over HTTPS, then try again.",
+                    troubleshootingUrl = AtlassianLinkAppFieldSpecs.Guide + "#couldnt-reach-atlassian",
+                    detail = saved.Detail,
                 }, statusCode: StatusCodes.Status502BadGateway),
                 _ => Results.Ok(await ViewAsync(linkApp, (await linkApp.GetAsync(ct))!, ct)),
             };
@@ -144,25 +148,31 @@ public static class AtlassianLinkAppEndpoints
             [FromServices] AtlassianLinkAppService linkApp,
             CancellationToken ct) =>
         {
-            var result = await linkApp.RecheckAsync(CloudIdentityEndpoints.AtlassianCallbackUrl(http), ct);
-            return result switch
+            var check = await linkApp.RecheckWithDetailAsync(CloudIdentityEndpoints.AtlassianCallbackUrl(http), ct);
+            // detail is Atlassian's own answer (status and error code), as the card's Details shows it; never the secret.
+            return check?.Result switch
             {
                 null => Results.NotFound(new { error = "No linking app is stored." }),
                 AtlassianLinkAppCheck.Accepted => Results.Ok(new
                 {
                     result = "accepted",
                     message = "Atlassian accepted the stored client ID and secret.",
+                    troubleshootingUrl = (string?)null,
+                    detail = check.Detail,
                 }),
                 AtlassianLinkAppCheck.Rejected => Results.Ok(new
                 {
                     result = "rejected",
                     message = "Atlassian rejected the stored client ID or secret, so nobody new can link an account. Save a new client ID and secret.",
-                    troubleshootingUrl = AtlassianLinkAppFieldSpecs.TroubleshootingRejected,
+                    troubleshootingUrl = (string?)AtlassianLinkAppFieldSpecs.TroubleshootingRejected,
+                    detail = check.Detail,
                 }),
                 _ => Results.Ok(new
                 {
                     result = "unknown",
-                    message = "Couldn't reach Atlassian to check the app. Nothing was changed; try again.",
+                    message = "Couldn't reach Atlassian to check the app. Nothing was changed. Check that this server can reach auth.atlassian.com over HTTPS, then try again.",
+                    troubleshootingUrl = (string?)(AtlassianLinkAppFieldSpecs.Guide + "#couldnt-reach-atlassian"),
+                    detail = check.Detail,
                 }),
             };
         }).RequireAuthorization("RequireAdmin");

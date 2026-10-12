@@ -201,9 +201,12 @@
                                     <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => ToggleEnabled(source)">
                                         @(source.Enabled ? "Pause syncing" : "Resume syncing")
                                     </button>
-                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(source)">
-                                        Delete
-                                    </button>
+                                    @* Set apart from the other actions, as on the Connections list. *@
+                                    <span class="border-start ms-2 ps-2">
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(source)">
+                                            Delete
+                                        </button>
+                                    </span>
                                 </td>
                             }
                         </tr>
@@ -1139,6 +1142,8 @@
         if (SelectedConnection is not { Provider: ConnectionProvider.Atlassian } connection)
             return;
 
+        var opened = confluenceForm;
+        await RecordSetupAsync(() => ConfluenceSourceSetupEvents.StartedAsync(AuditLogger, opened, connection.Id));
         try
         {
             confluenceExisting = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
@@ -1154,18 +1159,38 @@
     /// own, so a name clash on one still creates the others and says so. A space that already has
     /// a source on the connection is skipped, matched on its id.
     /// </summary>
+    /// <summary>Writes a Confluence setup event; a failure to record it never reaches the dialog.</summary>
+    private async Task RecordSetupAsync(Func<Task> write)
+    {
+        try
+        {
+            await write();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not record a Confluence source setup event");
+        }
+    }
+
     private async Task CreateConfluenceSpacesAsync(Connection connection)
     {
         if (confluenceForm is null) return;
+        var selection = confluenceForm;
+        Task CreateFailed(string reason) => RecordSetupAsync(() => ConfluenceSourceSetupEvents.StepFailedAsync(
+            AuditLogger, selection, connection.Id, ConfluenceSourceSetupEvents.CreateStep, reason));
 
         // Every problem here is shown beside the field it is about, not at the top of the dialog.
         if (confluenceForm.Validate() is not null)
+        {
+            await CreateFailed("invalid");
             return;
+        }
 
         var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
         if (site is null)
         {
             confluenceForm.SpacesError = $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.";
+            await CreateFailed("incomplete_site");
             return;
         }
 
@@ -1182,6 +1207,7 @@
             if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
             {
                 confluenceForm.SpacesError = onSite.Error ?? "Could not check the chosen spaces against this site. Try again.";
+                await CreateFailed("unavailable");
                 return;
             }
 
@@ -1190,6 +1216,7 @@
             if (refused.Count > 0 && requests.Count == 0 && skipped.Count == 0)
             {
                 confluenceForm.SpacesError = $"Nothing added. Not spaces on this site: {string.Join(", ", refused)}.";
+                await CreateFailed("not_on_site");
                 return;
             }
 
@@ -1215,9 +1242,12 @@
                     + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
                     + (refused.Count > 0 ? $"Not spaces on this site: {string.Join(", ", refused)}. " : "")
                     + string.Join(" ", failed)).TrimEnd();
+                await CreateFailed("nothing_added");
                 return;
             }
 
+            await RecordSetupAsync(() => ConfluenceSourceSetupEvents.CompletedAsync(
+                AuditLogger, selection, connection.Id, created.Count, skipped.Count, refused.Count + failed.Count));
             form = null;
             confluenceForm = null;
             Succeed($"Added {created.Count} {(created.Count == 1 ? "source" : "sources")}: {string.Join(", ", created)}. They sync on the next cycle, or press Sync."
@@ -1235,6 +1265,7 @@
                 connection.Id, Connapse.Core.Utilities.LogSanitizer.Sanitize(connection.Name), created.Count);
             if (confluenceForm is not null)
                 confluenceForm.SpacesError = ConfluenceSpaceSelection.AddFailedMessage(created);
+            await CreateFailed("error");
         }
         finally
         {

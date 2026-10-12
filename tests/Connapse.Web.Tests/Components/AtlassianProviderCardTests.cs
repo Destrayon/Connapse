@@ -606,6 +606,60 @@ public class AtlassianProviderCardTests : IDisposable
         cut.WaitForAssertion(() => ctx.LastFocused(cut)?.Id.Should().Be("atlassian-app-client-id"));
     }
 
+    [Fact]
+    public void RemoveTheLinkingApp_SitsInItsOwnDangerZone_NotBesideTheSignInToggle()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
+
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        var zone = cut.Find("#atlassian-app-danger-zone");
+        zone.ClassList.Should().Contain("border-top", "a divider sets the destructive action apart");
+        cut.Find("#atlassian-app-danger-heading").TextContent.Should().Be("Remove the linking app");
+        zone.QuerySelectorAll("button").Should().ContainSingle()
+            .Which.TextContent.Should().Contain("Remove the linking app from Connapse");
+        zone.QuerySelector("#atlassian-sign-in-toggle").Should().BeNull();
+        cut.Find("#atlassian-sign-in-toggle").ParentElement!.Contains(zone).Should().BeFalse();
+    }
+
+    [Fact]
+    public void TurnOffSignIn_SaysVisiblyThatItAffectsEveryone()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
+
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        var help = cut.Find("#atlassian-sign-in-toggle-help");
+        help.ClassList.Should().NotContain("visually-hidden");
+        help.TextContent.Should().Contain("Stops new links for everyone");
+    }
+
+    [Fact]
+    public void SetupOpen_CheckAndSaveIsTheOnlyPrimaryAction()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
+
+        var cut = ctx.Render<AtlassianProviderCard>();
+        cut.Find("#atlassian-app-edit-toggle").Click();
+
+        cut.FindAll("#atlassian-app .btn-primary, #atlassian-app .btn-outline-primary").Select(b => b.Id)
+            .Should().Equal("atlassian-app-save");
+        cut.Find("#atlassian-add-site").ClassList.Should().Contain("btn-outline-secondary");
+    }
+
+    [Fact]
+    public void ClientSecret_RevealButton_IsNamedForTheField()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        var reveal = cut.Find("#atlassian-app-client-secret-reveal");
+        reveal.GetAttribute("aria-label").Should().Be("Show client secret");
+        reveal.GetAttribute("aria-controls").Should().Be("atlassian-app-client-secret");
+    }
+
     /// <summary>Atlassian's token endpoint, answering every request one way, or unreachable.</summary>
     private sealed class TokenEndpoint : HttpMessageHandler
     {

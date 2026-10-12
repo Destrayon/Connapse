@@ -535,6 +535,7 @@ public static class CloudIdentityEndpoints
             [FromServices] AtlassianLinkFlow flow,
             [FromServices] AtlassianIdentityLinkStore links,
             [FromServices] IConfiguration configuration,
+            [FromServices] IAuditLogger audit,
             CancellationToken ct) =>
         {
             var userId = GetUserId(http);
@@ -549,6 +550,12 @@ public static class CloudIdentityEndpoints
             if (configuration.GetValue("Atlassian:UsePkce", true))
                 (verifier, challenge) = OidcPkce.Create();
 
+            // Every event of this sign-in carries the attempt, so time-to-linked and where people
+            // drop off can be measured. The user id and Atlassian account id only.
+            Guid attempt = Guid.NewGuid();
+            DateTime startedAt = DateTime.UtcNow;
+            await audit.LogAsync(AtlassianLinkStartedEvent, "user", userId.Value.ToString(), new { Attempt = attempt }, ct);
+
             string state = GenerateRandomToken();
             string? url;
             try
@@ -557,13 +564,17 @@ public static class CloudIdentityEndpoints
             }
             catch (AtlassianSignInOffException)
             {
+                await AtlassianLinkFailedAsync(audit, userId.Value, attempt, startedAt, "atlassian_sign_in_off", ct);
                 return Results.Redirect("/profile/integrations?error=atlassian_sign_in_off");
             }
             if (url is null)
+            {
+                await AtlassianLinkFailedAsync(audit, userId.Value, attempt, startedAt, "atlassian_not_configured", ct);
                 return Results.Redirect("/profile/integrations?error=atlassian_not_configured");
+            }
 
             flow.AddSignIn(new AtlassianPendingSignIn(state, verifier, userId.Value,
-                DateTime.UtcNow.Add(AtlassianLinkFlow.SignInLifetime), DateTime.UtcNow, revocationGeneration));
+                startedAt.Add(AtlassianLinkFlow.SignInLifetime), startedAt, revocationGeneration, attempt));
             return Results.Redirect(url);
         }).RequireAuthorization();
 
@@ -576,12 +587,23 @@ public static class CloudIdentityEndpoints
             [FromServices] AtlassianLinkFlow flow,
             [FromServices] AtlassianUserSignIn signIn,
             [FromServices] ILoggerFactory loggerFactory,
+            [FromServices] IAuditLogger audit,
             CancellationToken ct) =>
         {
             var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Atlassian");
+            AtlassianPendingSignIn? pending = null;
+
+            // A failed sign-in closes its attempt, so drop-off is measurable. Unknown sign-ins have no attempt to close.
+            async Task<IResult> FailAsync(string reason)
+            {
+                if (pending is not null)
+                    await AtlassianLinkFailedAsync(audit, pending.UserId, pending.Attempt, pending.StartedAtUtc, reason, ct);
+                return Results.Redirect($"/profile/integrations?error={reason}");
+            }
+
             try
             {
-                var pending = flow.TakeSignIn(state);
+                pending = flow.TakeSignIn(state);
                 if (pending is null)
                 {
                     logger.LogWarning("An Atlassian sign-in callback arrived for a sign-in this deployment did not start or that already expired");
@@ -590,14 +612,14 @@ public static class CloudIdentityEndpoints
 
                 // Atlassian sends error=access_denied when the person cancels on its consent page.
                 if (string.Equals(error, "access_denied", StringComparison.Ordinal))
-                    return Results.Redirect("/profile/integrations?error=atlassian_link_declined");
+                    return await FailAsync("atlassian_link_declined");
 
                 if (string.IsNullOrEmpty(code))
-                    return Results.Redirect("/profile/integrations?error=atlassian_link_failed");
+                    return await FailAsync("atlassian_link_failed");
 
                 var account = await signIn.ResolveAsync(code, pending.CodeVerifier, AtlassianCallbackUrl(http), ct);
                 string confirmCode = flow.Park(new PendingAtlassianLink(
-                    pending.UserId, account.AccountId, pending.StartedAtUtc, pending.RevocationGeneration));
+                    pending.UserId, account.AccountId, pending.StartedAtUtc, pending.RevocationGeneration, pending.Attempt));
 
                 http.Response.Cookies.Append(AtlassianConfirmCookieName, confirmCode, new CookieOptions
                 {
@@ -611,19 +633,19 @@ public static class CloudIdentityEndpoints
             }
             catch (AtlassianSignInOffException)
             {
-                return Results.Redirect("/profile/integrations?error=atlassian_sign_in_off");
+                return await FailAsync("atlassian_sign_in_off");
             }
             catch (AtlassianLinkAppRejectedException)
             {
                 logger.LogWarning("Atlassian rejected the linking app's client ID or secret during a sign-in");
-                return Results.Redirect("/profile/integrations?error=atlassian_app_rejected");
+                return await FailAsync("atlassian_app_rejected");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Logged, never echoed: the redirect is not a place for exception text, and the code
                 // is a credential until spent.
                 logger.LogWarning(ex, "Atlassian sign-in callback failed");
-                return Results.Redirect("/profile/integrations?error=atlassian_link_failed");
+                return await FailAsync("atlassian_link_failed");
             }
         }).AllowAnonymous();
 
@@ -654,6 +676,7 @@ public static class CloudIdentityEndpoints
             if (link.StartedByUserId != userId.Value)
             {
                 logger.LogWarning("An Atlassian sign-in was completed by a different user than the one who started it; refusing to link");
+                await AtlassianLinkFailedAsync(audit, link.StartedByUserId, link.Attempt, link.SignInStartedAtUtc, "atlassian_link_wrong_user", ct);
                 return Results.Redirect("/profile/integrations?error=atlassian_link_wrong_user");
             }
 
@@ -663,6 +686,7 @@ public static class CloudIdentityEndpoints
             if (!await links.TrySaveAsync(userId.Value, link.RevocationGeneration, link.AccountId, ct))
             {
                 logger.LogInformation("An Atlassian link confirmed while the user was unlinking was discarded");
+                await AtlassianLinkFailedAsync(audit, userId.Value, link.Attempt, link.SignInStartedAtUtc, "atlassian_link_unlinked", ct);
                 return Results.Redirect("/profile/integrations?error=atlassian_link_unlinked");
             }
 
@@ -772,6 +796,20 @@ public static class CloudIdentityEndpoints
         return app;
     }
 
+    /// <summary>Opens an Atlassian sign-in's attempt; <c>identity.atlassian.linked</c> or <see cref="AtlassianLinkFailedEvent"/> closes it.</summary>
+    public const string AtlassianLinkStartedEvent = "identity.atlassian.link_started";
+
+    /// <summary>An Atlassian sign-in that ended without a link, with the error code the profile page shows.</summary>
+    public const string AtlassianLinkFailedEvent = "identity.atlassian.link_failed";
+
+    private static long ElapsedMs(DateTime startedAtUtc) =>
+        Math.Max(0, (long)(DateTime.UtcNow - startedAtUtc).TotalMilliseconds);
+
+    private static Task AtlassianLinkFailedAsync(
+        IAuditLogger audit, Guid userId, Guid attempt, DateTime startedAtUtc, string reason, CancellationToken ct) =>
+        audit.LogAsync(AtlassianLinkFailedEvent, "user", userId.ToString(),
+            new { Attempt = attempt, Reason = reason, TotalMs = ElapsedMs(startedAtUtc) }, ct);
+
     /// <summary>Records a saved Atlassian link: the audit event, and that the link app works.</summary>
     internal static async Task RecordAtlassianLinkAsync(
         IAuditLogger audit, IProviderCredentialStore credentials, ILogger logger,
@@ -779,7 +817,7 @@ public static class CloudIdentityEndpoints
     {
         // First, because the link is already saved: nothing after this may cost it its record.
         await audit.LogAsync("identity.atlassian.linked", "user", userId.ToString(),
-            new { link.AccountId }, ct);
+            new { link.AccountId, link.Attempt, TotalMs = ElapsedMs(link.SignInStartedAtUtc) }, ct);
 
         try
         {

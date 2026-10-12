@@ -5,11 +5,13 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Tests.Connectors;
+using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -298,6 +300,74 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
                 Api.FailTokenWith(null);
             }
         });
+    }
+
+    /// <summary>The admin's Atlassian sign-in events since <paramref name="since"/>, oldest first.</summary>
+    private async Task<List<(string Action, JsonElement Details)>> LinkEventsAsync(Guid user, DateTime since)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        string id = user.ToString();
+        var rows = await db.AuditLogs
+            .Where(a => a.ResourceId == id && a.CreatedAt >= since && a.Action.StartsWith("identity.atlassian."))
+            .OrderBy(a => a.CreatedAt).ToListAsync();
+        return rows.Select(r => (r.Action, r.Details?.RootElement.Clone() ?? default)).ToList();
+    }
+
+    [Fact]
+    public async Task Link_ConnectToConfirm_IsOneMeasuredAttempt_WithNoPersonalDataBeyondTheIds()
+    {
+        Guid admin = AdminUserId();
+        DateTime since = DateTime.UtcNow;
+        await WithLinkAppAsync(async _ =>
+        {
+            using var adminClient = Client(fixture.AdminToken);
+            var connect = await adminClient.GetAsync("/api/v1/auth/cloud/atlassian/connect");
+            string state = System.Web.HttpUtility.ParseQueryString(connect.Headers.Location!.Query)["state"]!;
+            Api.AcceptAuthorizationCode("code-funnel");
+            Api.MapJson("/me", new { account_id = "acc-funnel", name = "Grace Hopper", email = "grace@example.com" });
+            using var anon = Client(null);
+            var callback = await anon.GetAsync($"/api/v1/auth/cloud/atlassian/callback?code=code-funnel&state={state}");
+            string cookie = callback.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(ConfirmCookie + "="));
+            string code = cookie.Split(';')[0][(ConfirmCookie.Length + 1)..];
+
+            (await adminClient.SendAsync(Confirm(code))).Headers.Location!.OriginalString
+                .Should().Be("/profile/integrations?linked=atlassian");
+        });
+
+        var events = await LinkEventsAsync(admin, since);
+        events.Select(e => e.Action).Should().ContainInOrder("identity.atlassian.link_started", "identity.atlassian.linked");
+        var started = events.First(e => e.Action == "identity.atlassian.link_started").Details;
+        var linked = events.First(e => e.Action == "identity.atlassian.linked").Details;
+        linked.GetProperty("Attempt").GetString().Should().Be(started.GetProperty("Attempt").GetString());
+        linked.GetProperty("TotalMs").GetInt64().Should().BeGreaterThanOrEqualTo(0);
+        linked.GetProperty("AccountId").GetString().Should().Be("acc-funnel");
+        events.Should().OnlyContain(e => !e.Details.GetRawText().Contains("Grace") && !e.Details.GetRawText().Contains("grace@"));
+    }
+
+    [Fact]
+    public async Task Link_SignInDeclined_ClosesTheAttemptAsFailed()
+    {
+        Guid admin = AdminUserId();
+        DateTime since = DateTime.UtcNow;
+        await WithLinkAppAsync(async _ =>
+        {
+            using var adminClient = Client(fixture.AdminToken);
+            var connect = await adminClient.GetAsync("/api/v1/auth/cloud/atlassian/connect");
+            string state = System.Web.HttpUtility.ParseQueryString(connect.Headers.Location!.Query)["state"]!;
+            using var anon = Client(null);
+
+            (await anon.GetAsync($"/api/v1/auth/cloud/atlassian/callback?error=access_denied&state={state}"))
+                .Headers.Location!.OriginalString.Should().Be("/profile/integrations?error=atlassian_link_declined");
+        });
+
+        var events = await LinkEventsAsync(admin, since);
+        var started = events.Single(e => e.Action == "identity.atlassian.link_started").Details;
+        var failed = events.Single(e => e.Action == "identity.atlassian.link_failed").Details;
+        failed.GetProperty("Attempt").GetString().Should().Be(started.GetProperty("Attempt").GetString());
+        failed.GetProperty("Reason").GetString().Should().Be("atlassian_link_declined");
+        failed.GetProperty("TotalMs").GetInt64().Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]

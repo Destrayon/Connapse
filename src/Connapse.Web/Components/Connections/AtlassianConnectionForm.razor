@@ -118,7 +118,7 @@
         </details>
 
         <div class="d-flex flex-wrap gap-2">
-            <button type="button" id="atlassian-retest" class="btn btn-sm btn-info" disabled="@(retesting || replaceBusy)" @onclick="RetestAsync">
+            <button type="button" id="atlassian-retest" class="btn btn-sm btn-outline-secondary" disabled="@(retesting || replaceBusy)" @onclick="RetestAsync">
                 @if (retesting)
                 {
                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Testing…</span>

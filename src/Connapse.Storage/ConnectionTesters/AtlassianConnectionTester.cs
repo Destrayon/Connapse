@@ -30,21 +30,32 @@ public sealed record AtlassianScope(string Name, string Reason, bool Optional = 
 public static class AtlassianSiteScopes
 {
     public const string ContentPermission = "read:content.permission:confluence";
+    public const string Comment = "read:comment:confluence";
+    public const string Attachment = "read:attachment:confluence";
+    public const string Folder = "read:folder:confluence";
+    public const string ContentDetails = "read:content-details:confluence";
 
     public static IReadOnlyList<AtlassianScope> All { get; } =
     [
         new("read:space:confluence", "list the site's spaces so you can choose which to index"),
         new("read:page:confluence", "read page text so it can be searched"),
-        new("read:comment:confluence", "read page comments, which are indexed with every page"),
-        new("read:attachment:confluence", "read attached files; needed only if a source includes attachments", Optional: true),
-        new("read:folder:confluence", "follow folders so each page keeps its place in the space"),
-        new("read:content-details:confluence", "find what changed since the last sync and look up people"),
+        new(Comment, "read page comments, which are indexed with every page"),
+        new(Attachment, "read attached files; needed only if a source includes attachments", Optional: true),
+        new(Folder, "follow folders so each page keeps its place in the space"),
+        new(ContentDetails, "find what changed since the last sync and look up people"),
         new(ContentPermission, "check which pages each person may read, so search shows them only those"),
     ];
 
-    /// <summary>The scopes a passing test exercises when Atlassian does not list what it granted.</summary>
+    /// <summary>
+    /// The scopes every passing test exercises: all the required ones. The attachment scope is
+    /// probed too, and confirmed only when that probe passes.
+    /// </summary>
     public static IReadOnlyList<string> ProvenByTest { get; } =
-        ["read:space:confluence", "read:page:confluence", ContentPermission];
+        ["read:space:confluence", "read:page:confluence", Comment, Folder, ContentDetails, ContentPermission];
+
+    /// <summary>The scope's reason, as the list above words it.</summary>
+    public static string ReasonOf(string scope) =>
+        All.FirstOrDefault(s => string.Equals(s.Name, scope, StringComparison.OrdinalIgnoreCase))?.Reason ?? "sync this site";
 }
 
 /// <summary>
@@ -90,7 +101,8 @@ public static class AtlassianSiteTroubleshooting
 /// <summary>
 /// Validates an Atlassian site's service account before it is saved. Each probe is one thing
 /// Connapse needs later, and the failing one is named in <c>Details["step"]</c>: finding the site,
-/// the token exchange, reading Confluence, seeing a space, and being Confluence Administrator
+/// the token exchange, reading Confluence, seeing a space, reading comments, folders and changes
+/// (one probe per scope a sync needs), and being Confluence Administrator
 /// (needed to ask what another user may read). A failure also carries the troubleshooting entry
 /// for it (<c>Details["troubleshoot"]</c>), how long its step took (<c>Details["stepMs"]</c>), and,
 /// when Atlassian said why, its answer (<c>Details["detail"]</c>: a status and Atlassian's own code
@@ -108,10 +120,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     public const string TokenStep = "token";
     public const string IdentityStep = "identity";
     public const string SpacesStep = "spaces";
+    public const string ContentStep = "content";
     public const string AdminStep = "admin";
 
     /// <summary>Every step in the order the test runs them.</summary>
-    public static IReadOnlyList<string> Steps { get; } = [SiteStep, TokenStep, IdentityStep, SpacesStep, AdminStep];
+    public static IReadOnlyList<string> Steps { get; } = [SiteStep, TokenStep, IdentityStep, SpacesStep, ContentStep, AdminStep];
 
     /// <summary>What a step does, in the words an admin sees.</summary>
     public static string StepLabel(string? step) => step switch
@@ -120,6 +133,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         TokenStep => "Signing in as the service account",
         IdentityStep => "Reading Confluence",
         SpacesStep => "Listing spaces",
+        ContentStep => "Reading comments, folders and changes",
         AdminStep => "Checking access permissions",
         _ => "Checking the connection",
     };
@@ -130,8 +144,16 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         TokenStep => AtlassianSiteTroubleshooting.CredentialsRejected,
         IdentityStep => AtlassianSiteTroubleshooting.CantReadConfluence,
         SpacesStep => AtlassianSiteTroubleshooting.NoSpaces,
+        ContentStep => AtlassianSiteTroubleshooting.MissingScope,
         _ => AtlassianSiteTroubleshooting.NotAdministrator,
     };
+
+    /// <summary>A probe's credential lacks <paramref name="scope"/>: what Connapse then can't do, and the fix.</summary>
+    public static string MissingScopeMessage(string scope) =>
+        $"The credential is missing the {scope} scope, which Connapse needs to {AtlassianSiteScopes.ReasonOf(scope)}. "
+        + "Create a new OAuth 2.0 credential on the service account with every scope listed in the setup steps, then enter it here.";
+
+    private enum Probe { Granted, Missing, Unanswered }
 
     private const string UnverifiedMessage =
         "Couldn't verify Confluence Administrator access because Atlassian didn't answer the check properly. "
@@ -256,10 +278,12 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             }
 
             string? pageId;
+            string? folderId;
             try
             {
                 using var pages = await api.GetJsonAsync<JsonDocument>("api/v2/pages?limit=1", linked);
                 pageId = FirstId(pages.RootElement);
+                folderId = FirstParentFolder(pages.RootElement);
             }
             catch (Exception ex) when (IsProbeFailure(ex))
             {
@@ -268,6 +292,36 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                     + "then test again.",
                     AtlassianSiteTroubleshooting.MissingScope, Describe(ex));
             }
+
+            // One cheap read per scope a sync needs that the steps around this one don't use, each the
+            // kind of call the connector makes, so a credential missing one fails here and not at sync.
+            run.Enter(ContentStep);
+            var probes = new List<(string Scope, string Path)>();
+            if (pageId is not null)
+            {
+                string page = Uri.EscapeDataString(pageId);
+                probes.Add((AtlassianSiteScopes.Comment, $"api/v2/pages/{page}/footer-comments?limit=1"));
+                // A folder the page sits in when there is one. Otherwise the page's own id: Atlassian
+                // checks the scope before it looks the folder up, so "not found" still proves the scope.
+                probes.Add((AtlassianSiteScopes.Folder, $"api/v2/folders/{Uri.EscapeDataString(folderId ?? pageId)}"));
+            }
+            probes.Add((AtlassianSiteScopes.ContentDetails, $"rest/api/user/bulk?accountId={Uri.EscapeDataString(ownAccountId)}"));
+            probes.Add((AtlassianSiteScopes.ContentDetails, $"rest/api/search?cql={Uri.EscapeDataString("type=comment")}&limit=1"));
+
+            foreach (var (scope, path) in probes)
+            {
+                var (outcome, probeDetail) = await ProbeAsync(api, path, linked);
+                if (outcome == Probe.Missing)
+                    return run.Fail(MissingScopeMessage(scope), AtlassianSiteTroubleshooting.MissingScope, probeDetail);
+                if (outcome == Probe.Unanswered)
+                    return run.Fail(
+                        $"Couldn't check the {scope} scope because Atlassian didn't answer properly. Wait a minute and test again.",
+                        AtlassianSiteTroubleshooting.General, probeDetail);
+            }
+
+            // Optional: recorded as confirmed when it passes, never a failure without it.
+            bool attachmentsConfirmed = pageId is not null
+                && (await ProbeAsync(api, $"api/v2/pages/{Uri.EscapeDataString(pageId)}/attachments?limit=1", linked)).Outcome == Probe.Granted;
 
             run.Enter(AdminStep);
             if (pageId is null)
@@ -350,13 +404,17 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             if (!checkAnswered)
                 return run.Fail(UnverifiedMessage, detail: "Confluence answered the check without saying whether the user may read the page.");
 
-            IReadOnlyList<string> confirmed = granted is null
-                ? AtlassianSiteScopes.ProvenByTest
-                : AtlassianSiteScopes.All.Select(s => s.Name).Where(n => granted.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
+            // What the probes proved, and anything else Atlassian says it granted.
+            var proven = new HashSet<string>(AtlassianSiteScopes.ProvenByTest, StringComparer.OrdinalIgnoreCase);
+            if (attachmentsConfirmed)
+                proven.Add(AtlassianSiteScopes.Attachment);
+            IReadOnlyList<string> confirmed = AtlassianSiteScopes.All.Select(s => s.Name)
+                .Where(n => proven.Contains(n) || (granted?.Contains(n, StringComparer.OrdinalIgnoreCase) ?? false))
+                .ToList();
 
             return ConnectionTestResult.CreateSuccess(
                 $"Connected to {siteUrl}: found the site, signed in as the service account, read Confluence, listed spaces, "
-                + "and confirmed it can check what other people may read.",
+                + "read comments, folders and changes, and confirmed it can check what other people may read.",
                 new Dictionary<string, object> { ["cloudId"] = cloudId, ["siteUrl"] = siteUrl, ["scopes"] = confirmed.ToArray() },
                 run.Elapsed);
         }
@@ -492,6 +550,44 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         }
 
         return null;
+    }
+
+    /// <summary>The folder the first listed page sits in, or null when it sits elsewhere.</summary>
+    private static string? FirstParentFolder(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var item in results.EnumerateArray())
+            return string.Equals(Text(item, "parentType"), "folder", StringComparison.Ordinal) ? Text(item, "parentId") : null;
+        return null;
+    }
+
+    /// <summary>
+    /// One GET read only for its status. Success, or a 404/400 (Atlassian checks a token's scopes
+    /// before it looks anything up), shows the scope is granted; a 401 or 403 that it is missing.
+    /// </summary>
+    private static async Task<(Probe Outcome, string? Detail)> ProbeAsync(AtlassianApiClient api, string path, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await api.GetAsync(path, ct);
+            if (response.IsSuccessStatusCode || response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+                return (Probe.Granted, null);
+
+            string detail = DescribeAnswer(response.StatusCode, await response.Content.ReadAsStringAsync(ct));
+            return response.StatusCode == HttpStatusCode.Forbidden ? (Probe.Missing, detail) : (Probe.Unanswered, detail);
+        }
+        catch (AtlassianAuthException ex)
+        {
+            // Two 401s in a row after the same token read Confluence: the token's scopes don't cover this call.
+            return (Probe.Missing, ex.Detail ?? ex.Message);
+        }
+        catch (HttpRequestException ex)
+        {
+            return (Probe.Unanswered, Describe(ex));
+        }
     }
 
     // search/user results look like { results: [ { user: { accountId } } ] }; a flat shape is accepted too.
