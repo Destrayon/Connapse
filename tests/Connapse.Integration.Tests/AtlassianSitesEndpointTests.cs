@@ -505,8 +505,12 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 
         var refused = await _fixture.AdminClient.DeleteAsync($"{Sites}/{id}?confirmName=delete.atlassian.net");
         refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("sources")[0].GetProperty("name").GetString()
-            .Should().Be(sourceName);
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("sources")[0].GetProperty("name").GetString().Should().Be(sourceName);
+        body.GetProperty("sources")[0].GetProperty("url").GetString().Should().Be($"/sources/{source}");
+        body.GetProperty("error").GetString().Should().Be(
+            $"'delete.atlassian.net' can't be deleted while 1 source uses it: {sourceName}. Delete that source first.",
+            "the API names the sources, as the page's dialog does");
         (await FindAsync("delete.atlassian.net")).Should().NotBeNull();
 
         using (var scope = _fixture.Factory.Services.CreateScope())

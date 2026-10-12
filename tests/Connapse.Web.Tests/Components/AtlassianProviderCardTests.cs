@@ -90,10 +90,50 @@ public class AtlassianProviderCardTests : IDisposable
         string html = cut.Find("#atlassian-app").InnerHtml;
         html.IndexOf("developer.atlassian.com/console", StringComparison.Ordinal)
             .Should().BeLessThan(html.IndexOf("id=\"atlassian-app-client-id\"", StringComparison.Ordinal));
-        cut.Find("#atlassian-app-credentials-heading").TextContent.Should().Be("App credentials");
-        cut.Find("#atlassian-app").TextContent.Should().Contain("paste them under App credentials below")
-            .And.NotContain("Manual values")
+        // GitHub's heading for hand-entered values, so the two provider pages read alike.
+        cut.Find("#atlassian-app-credentials-heading").TextContent.Should().Be("Manual values");
+        cut.Find("#atlassian-app").TextContent.Should().Contain("paste them under Manual values below")
+            .And.NotContain("App credentials")
             .And.Contain("Atlassian's name for signing people in");
+    }
+
+    [Fact]
+    public void LinkingApp_Stored_SummaryOffersAddASite_AsGitHubsOffersAddAConnection()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(new AtlassianLinkAppRegistration("stored-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
+
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        var add = cut.Find("#atlassian-app-summary #atlassian-add-site");
+        add.GetAttribute("href").Should().Be("/connections?new=atlassian");
+        add.ClassList.Should().Contain(["btn", "btn-sm", "btn-outline-primary"]);
+        add.TextContent.Trim().Should().Be("Add an Atlassian site");
+    }
+
+    [Fact]
+    public void LinkingApp_NotStored_SummaryHasNoAddASiteButton()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.FindAll("#atlassian-add-site").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckAndSave_UsesGitHubsOutlineStyle()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-save").ClassList.Should().Contain("btn-outline-primary").And.NotContain("btn-primary");
+    }
+
+    [Fact]
+    public void Fields_SayWhatTheValuesLookLike_BeforeAnythingIsSubmitted()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app").TextContent.Should().Contain("one string of letters and digits, with no spaces")
+            .And.Contain("Labelled Secret, below the client ID: one long string of characters.");
     }
 
     [Fact]

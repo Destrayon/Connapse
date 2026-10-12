@@ -40,12 +40,16 @@ public sealed record RenameAtlassianSiteRequest(string? Name);
 public sealed record ResumeAtlassianSiteRequest(IReadOnlyList<Guid>? SourceIds = null);
 
 /// <summary>The linking app's client ID and secret, checked with Atlassian before they are stored.</summary>
-public sealed record SaveAtlassianLinkAppRequest(string? ClientId, string? ClientSecret)
+/// <param name="ReplaceExisting">
+/// Must be true when an app is already stored: the confirmation the Providers page asks for with
+/// "Check and replace", since every new sign-in then goes through the new app.
+/// </param>
+public sealed record SaveAtlassianLinkAppRequest(string? ClientId, string? ClientSecret, bool? ReplaceExisting = null)
 {
     // The generated ToString would print the secret into any log line or message it reached.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"ClientId = {ClientId}, ClientSecret = ***");
+        builder.Append($"ClientId = {ClientId}, ClientSecret = ***, ReplaceExisting = {ReplaceExisting}");
         return true;
     }
 }
@@ -91,13 +95,29 @@ public static class AtlassianLinkAppEndpoints
             .RequireAuthorization("RequireAdmin");
 
         // PUT /api/v1/atlassian/linking-app — checks the client ID and secret with Atlassian and,
-        // only when Atlassian accepts them, stores them in place of any app already stored.
+        // only when Atlassian accepts them, stores them. Replacing a stored app needs
+        // replaceExisting: true, as the page needs "Check and replace".
         group.MapPut("/", async (
             HttpContext http,
             [FromBody] SaveAtlassianLinkAppRequest request,
             [FromServices] AtlassianLinkAppService linkApp,
             CancellationToken ct) =>
         {
+            // Checked before Atlassian is asked, so an unconfirmed replace costs nothing and changes nothing.
+            if (!string.IsNullOrWhiteSpace(request.ClientId) && !string.IsNullOrWhiteSpace(request.ClientSecret)
+                && request.ReplaceExisting != true && await linkApp.GetAsync(ct) is { } stored)
+            {
+                int? linked = await linkApp.CountLinkedPeopleAsync(ct);
+                string count = linked is { } n ? $" ({n})" : "";
+                return Results.Conflict(new
+                {
+                    error = $"A linking app is already stored (client ID {stored.ClientId}). Replacing it sends every new "
+                            + $"sign-in through the new app; everyone who linked an Atlassian account{count} keeps their link. "
+                            + "Send replaceExisting: true to replace it.",
+                    field = "replaceExisting",
+                });
+            }
+
             var outcome = await linkApp.SaveAsync(request.ClientId, request.ClientSecret,
                 CloudIdentityEndpoints.AtlassianCallbackUrl(http), UserIdOf(http), ct);
             return outcome switch
@@ -386,8 +406,8 @@ public static class AtlassianEndpoints
                 }),
                 ConnectionDeleteOutcome.HasSources => Results.Conflict(new
                 {
-                    error = $"'{deleted.Connection!.Name}' still has {deleted.Sources!.Count} source(s) using it. Remove or repoint them first.",
-                    sources = deleted.Sources.Select(s => new { id = s.Id, name = s.Name }),
+                    error = ConnectionAdminService.InUseMessage(deleted.Connection!.Name, deleted.Sources!),
+                    sources = deleted.Sources!.Select(s => new { id = s.Id, name = s.Name, url = $"/sources/{s.Id}" }),
                 }),
                 ConnectionDeleteOutcome.NotFound => Results.NotFound(new { error = "No such Atlassian site." }),
                 _ => Results.NoContent(),

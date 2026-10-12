@@ -97,6 +97,23 @@ public class SourceEditFormTests
         form.Validate().Should().Be(expected);
     }
 
+    [Fact]
+    public void Validate_BothFieldsWrong_GivesEachFieldItsOwnError()
+    {
+        var form = SourceEditForm.From(MakeSource(IssuesScope), ConnectionProvider.GitHub);
+        form.Name = " ";
+        form.SyncIntervalSeconds = 10;
+
+        form.Validate().Should().Be(SourceEditForm.NameRequired);
+        form.NameError.Should().Be(SourceEditForm.NameRequired);
+        form.SyncIntervalError.Should().Be(SourceEditForm.IntervalTooShort, "the page shows both at once, beside their fields");
+
+        form.Name = "fixed";
+        form.ValidateName().Should().BeTrue();
+        form.NameError.Should().BeNull();
+        form.SyncIntervalError.Should().NotBeNull("checking one field leaves the other's error alone");
+    }
+
     private const string ConfluenceScope =
         """{"kind":"confluence-space","spaceId":"100","spaceKey":"ENG","spaceName":"Engineering","includeAttachments":true,"maxAttachmentMb":25}""";
 

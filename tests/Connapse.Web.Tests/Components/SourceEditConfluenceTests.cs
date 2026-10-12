@@ -135,6 +135,66 @@ public class SourceEditConfluenceTests : IDisposable
     }
 
     [Fact]
+    public void ConfluenceSection_OpensWithTheSetupGuideLink_AndKeepsAttachmentHelpToTwoSentences()
+    {
+        var cut = Render();
+
+        cut.Find("#confluence-setup-guide a").GetAttribute("href").Should().Be(
+            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
+        cut.Markup.IndexOf("id=\"confluence-setup-guide\"", StringComparison.Ordinal)
+            .Should().BeLessThan(cut.Markup.IndexOf("id=\"confluence-attachments-group\"", StringComparison.Ordinal));
+
+        var help = cut.Find("#confluence-attachments-help");
+        string text = System.Text.RegularExpressions.Regex.Replace(help.TextContent, @"\s+", " ").Trim();
+        text.Should().StartWith("Index files attached to pages, such as PDFs and Word documents. Attachments need the read:attachment:confluence permission");
+        text.Should().NotContain("Comments and blog posts");
+        // Only the specific troubleshooting link stays inline.
+        help.QuerySelectorAll("a").Select(a => a.GetAttribute("href"))
+            .Should().Equal("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+    }
+
+    [Fact]
+    public void Name_Blank_IsFlaggedBesideTheFieldOnBlur_AndBlocksSave()
+    {
+        var cut = Render();
+
+        cut.Find("#source-name").Change("  ");
+        cut.Find("#source-name").Blur();
+
+        var name = cut.Find("#source-name");
+        name.GetAttribute("aria-invalid").Should().Be("true");
+        name.GetAttribute("aria-describedby").Should().Be("source-name-error");
+        cut.Find("#source-name-error").TextContent.Should().Contain("A source name is required.");
+
+        cut.Find("button.btn-primary").Click();
+        updates.Should().BeEmpty();
+        cut.FindAll(".alert-danger").Should().BeEmpty("the error is shown beside the field, not repeated at the bottom");
+
+        cut.Find("#source-name").Change("Renamed");
+        cut.FindAll("#source-name-error").Should().BeEmpty();
+        cut.Find("#source-name").HasAttribute("aria-invalid").Should().BeFalse();
+    }
+
+    [Fact]
+    public void SyncInterval_TooShort_IsFlaggedBesideTheFieldOnSubmit()
+    {
+        var cut = Render();
+
+        cut.Find("#source-interval").Change("30");
+        cut.Find("button.btn-primary").Click();
+
+        var interval = cut.Find("#source-interval");
+        interval.GetAttribute("aria-invalid").Should().Be("true");
+        interval.GetAttribute("aria-describedby").Should().Be("source-interval-error source-interval-help");
+        cut.Find("#source-interval-error").TextContent.Should().Contain("at least 60 seconds");
+        updates.Should().BeEmpty();
+
+        cut.Find("#source-interval").Change("120");
+        cut.FindAll("#source-interval-error").Should().BeEmpty();
+        cut.Find("#source-interval").GetAttribute("aria-describedby").Should().Be("source-interval-help");
+    }
+
+    [Fact]
     public void Save_NothingChanged_SendsNothing()
     {
         var cut = Render();

@@ -1407,6 +1407,27 @@
     </div>
 }
 
+@if (blockedDelete is { } blocked)
+{
+    <div id="delete-blocked-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="delete-blocked-title" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="delete-blocked-title">Can't delete @blocked.Connection.Name yet</h5>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => blockedDelete = null"></button>
+                </div>
+                <div class="modal-body">
+                    <ConnectionInUseList Id="delete-blocked-sources" ConnectionName="@blocked.Connection.Name" Sources="blocked.Sources" />
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="() => blockedDelete = null">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<Connection> connections = [];
     private IReadOnlyList<string> allowedRoots = [];
@@ -1458,6 +1479,11 @@
     /// <summary>The connection whose deletion is awaiting confirmation.</summary>
     private Connection? pendingDelete;
     private string? deleteConfirmText;
+
+    /// <summary>A connection that can't be deleted yet, with the sources that use it.</summary>
+    private BlockedDelete? blockedDelete;
+
+    private sealed record BlockedDelete(Connection Connection, IReadOnlyList<Source> Sources);
 
     protected override async Task OnInitializedAsync()
     {
@@ -1681,6 +1707,7 @@
         // The dialogs are plain markup, so focus is moved into one and kept there by script.
         await HoldDialogFocusAsync("delete-connection-dialog", pendingDelete is not null);
         await HoldDialogFocusAsync("resume-connection-dialog", pendingResume is not null);
+        await HoldDialogFocusAsync("delete-blocked-dialog", blockedDelete is not null);
 
         if (!firstRender) return;
 
@@ -2526,16 +2553,28 @@
     }
 
     /// <summary>Refuses while sources depend on the connection; otherwise asks before deleting.</summary>
-    private void ConfirmDelete(Connection connection)
+    private async Task ConfirmDelete(Connection connection)
     {
         statusMessage = null;
 
-        // Said plainly rather than letting the store's exception surface. The count is already on
-        // the model, so the operator can be told what to remove first.
+        // Said plainly rather than letting the store's exception surface, naming each source so
+        // the operator can go straight to the ones to remove.
         if (connection.SourceCount > 0)
         {
-            Fail($"'{connection.Name}' still has {connection.SourceCount} source(s) using it. Remove or repoint them first.");
-            return;
+            try
+            {
+                var blocking = await SourceStore.ListByConnectionAsync(connection.Id);
+                if (blocking.Count > 0)
+                {
+                    blockedDelete = new BlockedDelete(connection, blocking);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Fail($"Could not list the sources on '{connection.Name}': {ex.Message}");
+                return;
+            }
         }
 
         deleteConfirmText = null;
@@ -2560,8 +2599,7 @@
                     Succeed($"Connection '{connection.Name}' deleted.");
                     break;
                 case ConnectionDeleteOutcome.HasSources:
-                    Fail($"'{connection.Name}' still has {deleted.Sources!.Count} source(s) using it: "
-                         + $"{string.Join(", ", deleted.Sources.Select(s => s.Name))}. Remove or repoint them first.");
+                    blockedDelete = new BlockedDelete(connection, deleted.Sources!);
                     break;
                 default:
                     Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");

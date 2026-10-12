@@ -43,7 +43,17 @@
                 <h2 class="h6 mb-3">General</h2>
                 <div class="mb-3">
                     <label class="form-label" for="source-name">Name</label>
-                    <input id="source-name" class="form-control" @bind="form.Name" />
+                    <input id="source-name" @ref="nameInput" class="form-control @(form.NameError is null ? "" : "is-invalid")" required
+                           aria-invalid="@(form.NameError is null ? null : "true")"
+                           aria-describedby="@(form.NameError is null ? null : "source-name-error")"
+                           @bind="form.Name" @bind:after="() => { if (form.NameError is not null) form.ValidateName(); }"
+                           @onblur="() => form.ValidateName()" />
+                    @if (form.NameError is { } nameError)
+                    {
+                        <div id="source-name-error" class="invalid-feedback d-block fw-semibold" role="alert">
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span>@nameError
+                        </div>
+                    }
                 </div>
                 <div class="mb-3">
                     <label class="form-label" for="source-description">Description <span class="text-muted">(optional)</span></label>
@@ -51,8 +61,17 @@
                 </div>
                 <div>
                     <label class="form-label" for="source-interval">Sync interval, seconds <span class="text-muted">(optional)</span></label>
-                    <input id="source-interval" type="number" min="60" class="form-control" style="max-width:12rem"
-                           @bind="form.SyncIntervalSeconds" aria-describedby="source-interval-help" />
+                    <input id="source-interval" @ref="intervalInput" type="number" min="60" class="form-control @(form.SyncIntervalError is null ? "" : "is-invalid")" style="max-width:12rem"
+                           aria-invalid="@(form.SyncIntervalError is null ? null : "true")"
+                           aria-describedby="@(form.SyncIntervalError is null ? "source-interval-help" : "source-interval-error source-interval-help")"
+                           @bind="form.SyncIntervalSeconds" @bind:after="() => form.ValidateSyncInterval()"
+                           @onblur="() => form.ValidateSyncInterval()" />
+                    @if (form.SyncIntervalError is { } intervalError)
+                    {
+                        <div id="source-interval-error" class="invalid-feedback d-block fw-semibold" role="alert">
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span>@intervalError
+                        </div>
+                    }
                     <div id="source-interval-help" class="form-text">Empty uses the configured default. The minimum is 60.</div>
                 </div>
             </div>
@@ -84,6 +103,7 @@
         {
             <section class="card mb-3">
                 <div class="card-body">
+                    <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
                     <fieldset id="confluence-attachments-group">
                         <legend class="h6 mb-3">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
                         <div class="form-check">
@@ -91,7 +111,7 @@
                                    @bind="confluence.IncludeAttachments" @bind:after="AttachmentsChanged" />
                             <label for="confluence-attachments" class="form-check-label">@ConfluenceSpaceSelection.IncludeAttachmentsLabel</label>
                             <div id="confluence-attachments-help" class="form-text mt-0">
-                                @ConfluenceSpaceSelection.IncludeAttachmentsHelp
+                                @ConfluenceSpaceSelection.IncludeAttachmentsShortHelp
                                 @ConfluenceSpaceSelection.AttachmentScopeHelp
                                 <a href="@ConfluenceSpaceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">How to add it<span class="visually-hidden"> (opens in a new tab)</span></a>.
                             </div>
@@ -204,6 +224,8 @@
     private string? message;
     private bool success;
     private bool saving;
+    private ElementReference nameInput;
+    private ElementReference intervalInput;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -257,9 +279,12 @@
         if (source is null || form is null) return;
 
         message = null;
-        if (form.Validate() is { } invalid)
+        // Every error renders beside its own field, so nothing is repeated at the bottom.
+        // Focus goes to the first field in error, so a screen reader hears it there.
+        if (form.Validate() is not null)
         {
-            (message, success) = (invalid, false);
+            if (form.NameError is not null) await nameInput.FocusAsync();
+            else if (form.SyncIntervalError is not null) await intervalInput.FocusAsync();
             return;
         }
 

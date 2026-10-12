@@ -341,6 +341,40 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
+    public void Existing_SaysHowToRevokeTheCredentialInAtlassian_AndLinksTheGuide()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, AtlassianConnection()));
+
+        var revoke = cut.Find("#atlassian-revoke-help");
+        string text = System.Text.RegularExpressions.Regex.Replace(revoke.TextContent, @"\s+", " ");
+        text.Should().Contain("Atlassian Administration").And.Contain("Directory → Service accounts")
+            .And.Contain("delete its OAuth 2.0 credential");
+        revoke.QuerySelectorAll("a").Select(a => a.GetAttribute("href")).Should().Equal(
+            "https://admin.atlassian.com",
+            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#3-site-connection");
+    }
+
+    [Fact]
+    public void New_GuideLinkUsesTheSameSentenceAsEveryOtherAtlassianSurface()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+
+        cut.Find("#atlassian-setup-guide").TextContent.Should()
+            .Contain("Every field, where to find its value, and what each error means are in the");
+        cut.Markup.IndexOf("id=\"atlassian-setup-guide\"", StringComparison.Ordinal)
+            .Should().BeLessThan(cut.Markup.IndexOf("id=\"atlassian-site-url\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void New_CredentialFields_SayWhatTheValuesLookLike()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+
+        cut.Markup.Should().Contain("one string of letters and digits, with no spaces")
+            .And.Contain("One long string of characters, shown only once, when the credential is created.");
+    }
+
+    [Fact]
     public void Existing_ShowsStatusLastSuccessAndWhichScopesTheLastTestConfirmed()
     {
         var checkedAt = new DateTime(2026, 10, 1, 9, 30, 0, DateTimeKind.Utc);

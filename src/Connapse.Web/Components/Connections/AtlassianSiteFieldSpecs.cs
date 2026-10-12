@@ -17,11 +17,12 @@ public static class AtlassianSiteFieldSpecs
     private const string CredentialGroup = "Service account credential";
     private const string WhereToFind = "Where to find this";
 
+    // Atlassian publishes no fixed format or length for these, so the shape is described loosely.
     private const string ClientIdHelp =
-        "On the service account in Atlassian Administration, under its OAuth 2.0 credential.";
+        "On the service account in Atlassian Administration, under its OAuth 2.0 credential: one string of letters and digits, with no spaces.";
 
     private const string ClientSecretHelp =
-        "Shown once, when the credential is created. Stored encrypted and never shown again.";
+        "One long string of characters, shown only once, when the credential is created. Stored encrypted and never shown again.";
 
     public static readonly ProviderFieldSpec SiteUrl = new(
         "atlassian-site-url", "Site URL", ProviderFieldKind.Text, Required: true,

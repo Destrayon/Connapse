@@ -67,7 +67,7 @@
                     question (<strong>No</strong>: Connapse keeps only each linked person's Atlassian account ID, never their name or email).
                     People then see a notice that Atlassian hasn't reviewed the app, which is expected.
                 </li>
-                <li><strong>Settings</strong>: copy the client ID and secret, and paste them under <strong>App credentials</strong> below.</li>
+                <li><strong>Settings</strong>: copy the client ID and secret, and paste them under <strong>@AtlassianLinkAppFieldSpecs.ClientId.Group</strong> below.</li>
             </ol>
             <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@appCopyMessage</span>
         </ProviderSetupGuide>
@@ -112,7 +112,7 @@
             else
             {
                 <div class="d-flex gap-2">
-                    <button type="button" id="atlassian-app-save" class="btn btn-sm btn-primary" disabled="@appBusy" @onclick="SaveAppAsync">
+                    <button type="button" id="atlassian-app-save" class="btn btn-sm btn-outline-primary" disabled="@appBusy" @onclick="SaveAppAsync">
                         @if (appBusy)
                         {
                             <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking with Atlassian…</span>
@@ -263,7 +263,7 @@
         : @<div id="atlassian-app-summary">
               @if (app.CheckAccepted == false)
               {
-                  <p class="mb-2">@ProviderSetupReader.AtlassianLinkAppRejectedDetail Paste a new secret under App credentials.</p>
+                  <p class="mb-2">@ProviderSetupReader.AtlassianLinkAppRejectedDetail Paste a new secret under @AtlassianLinkAppFieldSpecs.ClientId.Group.</p>
               }
               else if (!app.SignInEnabled)
               {
@@ -291,6 +291,12 @@
                       <dt>People linked</dt><dd id="atlassian-app-linked">@count</dd>
                   }
               </dl>
+              @* The next step, as GitHub's summary offers "Add a GitHub connection". *@
+              <div class="mt-2 d-flex gap-2 flex-wrap">
+                  <a id="atlassian-add-site" class="btn btn-sm btn-outline-primary" href="/connections?new=atlassian">
+                      <span class="bi-plug me-1" aria-hidden="true"></span> Add an Atlassian site
+                  </a>
+              </div>
           </div>;
 
     // Null without an app, so the card draws no empty actions row.

@@ -149,6 +149,45 @@ public class AtlassianSetupGuideDocsTests
             guide.Should().Contain(message, "the Sign-in failed table quotes each message exactly");
     }
 
+    private static string Doc(string name) =>
+        Flat(File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", name)));
+
+    [Fact]
+    public void Docs_GiveTheAttachmentDefaultTheFormAndApiApply()
+    {
+        // Attachments start on only when the site's last test confirmed their scope (ConfluenceSpaceSelection.ForSite).
+        Doc("connectors.md").Should().NotContain("`includeAttachments` defaults to `true`")
+            .And.Contain("`includeAttachments` defaults on when the site's last test confirmed the `read:attachment:confluence` scope, otherwise off");
+        Doc("confluence-test-site.md").Should().NotContain("leave **Include attachments** ticked")
+            .And.Contain("tick **Include attachments** if it isn't already");
+    }
+
+    [Fact]
+    public void SetupGuide_ScopeTable_GivesTheReasonsTheSiteTestShows()
+    {
+        string guide = Flat(Guide());
+        string reason = Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.All
+            .Single(s => s.Name == "read:content-details:confluence").Reason;
+
+        reason.Should().Be("find what changed since the last sync and look up people");
+        guide.Should().Contain("| `read:content-details:confluence` | Finding what changed since the last sync and looking up people |")
+            .And.NotContain("Reading page restrictions");
+    }
+
+    [Fact]
+    public void SetupGuide_SaysDeletingASiteNamesItsSources_AndHowToRevokeTheCredential()
+    {
+        Flat(Guide()).Should().Contain("the refusal lists each of those sources, linked to its page")
+            .And.Contain("Directory** → **Service accounts**, choose the service account, and delete its OAuth 2.0 credential");
+    }
+
+    [Fact]
+    public void ApiReference_LinkingAppPut_DocumentsReplaceExisting()
+    {
+        Doc("api.md").Should().Contain("`{ \"clientId\", \"clientSecret\", \"replaceExisting\"? }`")
+            .And.Contain("Without it the answer is `409` with `{ error, field: \"replaceExisting\" }`");
+    }
+
     [Fact]
     public void SetupGuide_QuotesTheAttachmentScopeWarningAndTheFixedSpaceNote()
     {

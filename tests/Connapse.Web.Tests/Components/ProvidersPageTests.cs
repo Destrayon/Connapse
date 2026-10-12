@@ -201,6 +201,33 @@ public class ProvidersPageTests
             .And.NotContain("confirmResetSamlApplication");
     }
 
+    /// <summary>
+    /// Every provider page ends the intro under its title with the same guide sentence, and the
+    /// Atlassian surfaces without an intro (connection form, New source and edit source) open with
+    /// it through SetupGuideLink, so the guide is always the first thing under a title.
+    /// </summary>
+    [Fact]
+    public void SetupGuideLink_SitsInTheSameSlotWithTheSameWords_OnEveryProviderAndAtlassianSurface()
+    {
+        const string Sentence = "Every field, where to find its value, and what each error means are in the";
+        string root = PageTestPaths.RepositoryRoot();
+        string Read(params string[] parts) => Regex.Replace(
+            File.ReadAllText(Path.Combine([root, "src", "Connapse.Web", "Components", .. parts])), @"\s+", " ");
+
+        string providers = Read("Pages", "Providers.razor");
+        foreach (string guide in new[] { "AWS setup guide", "Azure setup guide", "GitHub setup guide", "Atlassian setup guide" })
+        {
+            int link = providers.IndexOf(guide, StringComparison.Ordinal);
+            link.Should().BePositive();
+            providers.LastIndexOf(Sentence, link, StringComparison.Ordinal).Should().BeGreaterThan(link - 200,
+                $"the {guide} link ends its provider's intro with the shared sentence");
+        }
+
+        Read("Shared", "SetupGuideLink.razor").Should().Contain(Sentence);
+        Read("Connections", "AtlassianConnectionForm.razor").Should().Contain("<SetupGuideLink Id=\"atlassian-setup-guide\"");
+        Read("Sources", "ConfluenceSpaceForm.razor").Should().Contain("<SetupGuideLink Id=\"confluence-setup-guide\"");
+        Read("Pages", "SourceEdit.razor").Should().Contain("<SetupGuideLink Id=\"confluence-setup-guide\"");
+    }
 }
 
 /// <summary>Shared path helper for tests that read component source rather than render it.</summary>

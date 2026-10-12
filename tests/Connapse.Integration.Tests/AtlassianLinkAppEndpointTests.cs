@@ -152,6 +152,40 @@ public sealed class AtlassianLinkAppEndpointTests(SharedWebAppFixture fixture) :
     }
 
     [Fact]
+    public async Task Save_OverAStoredApp_WithoutReplaceExisting_Returns409AndChangesNothing()
+    {
+        Api.FailTokenWith(HttpStatusCode.BadRequest, InvalidGrant);
+        (await SaveAsync()).StatusCode.Should().Be(HttpStatusCode.OK);
+        DateTime since = DateTime.UtcNow;
+
+        var refused = await SaveAsync(clientId: "other-client", secret: "other-secret-value");
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("field").GetString().Should().Be("replaceExisting");
+        body.GetProperty("error").GetString().Should().Contain("link-client").And.Contain("keeps their link")
+            .And.Contain("replaceExisting: true");
+        (await (await fixture.AdminClient.GetAsync(LinkApp)).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("clientId").GetString().Should().Be("link-client");
+        (await AuditActionsAsync(since)).Should().BeEmpty("Atlassian is not asked about an unconfirmed replace");
+
+        var replaced = await fixture.AdminClient.PutAsJsonAsync(LinkApp,
+            new { clientId = "other-client", clientSecret = "other-secret-value", replaceExisting = true });
+
+        replaced.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await replaced.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("clientId").GetString().Should().Be("other-client");
+    }
+
+    [Fact]
+    public async Task Save_NothingStored_NeedsNoReplaceExisting()
+    {
+        Api.FailTokenWith(HttpStatusCode.BadRequest, InvalidGrant);
+
+        (await fixture.AdminClient.PutAsJsonAsync(LinkApp, new { clientId = "link-client", clientSecret = Secret, replaceExisting = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Save_MissingSecret_Returns400()
     {
         (await fixture.AdminClient.PutAsJsonAsync(LinkApp, new { clientId = "link-client" }))

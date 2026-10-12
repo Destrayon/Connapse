@@ -81,17 +81,42 @@ public sealed class SourceEditForm
         (scope["includeAttachments"]?.GetValueKind() != System.Text.Json.JsonValueKind.False,
          scope["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int mb) ? mb : ConfluenceSpaceSelection.DefaultMaxAttachmentMb);
 
+    public const string NameRequired = "A source name is required.";
+    public const string IntervalTooShort = "Sync interval must be at least 60 seconds.";
+
+    /// <summary>The Name field's error from the last check, shown beside the field.</summary>
+    public string? NameError { get; private set; }
+
+    /// <summary>The Sync interval field's error from the last check, shown beside the field.</summary>
+    public string? SyncIntervalError { get; private set; }
+
+    /// <summary>Checks the name, as on leaving the field; true when it is valid.</summary>
+    public bool ValidateName()
+    {
+        NameError = string.IsNullOrWhiteSpace(Name) ? NameRequired : null;
+        return NameError is null;
+    }
+
+    /// <summary>Checks the sync interval, as on leaving the field; true when it is valid.</summary>
+    public bool ValidateSyncInterval()
+    {
+        SyncIntervalError = SyncIntervalSeconds is { } interval && interval < 60 ? IntervalTooShort : null;
+        return SyncIntervalError is null;
+    }
+
+    /// <summary>
+    /// Checks every field, setting each one's own error, and returns the first problem, or null
+    /// when the form can be saved.
+    /// </summary>
     public string? Validate()
     {
-        if (string.IsNullOrWhiteSpace(Name))
-            return "A source name is required.";
+        bool nameOk = ValidateName();
+        bool intervalOk = ValidateSyncInterval();
+        bool sizeOk = Confluence is not { } confluence || confluence.ValidateMaxAttachmentMb();
 
-        if (SyncIntervalSeconds is { } interval && interval < 60)
-            return "Sync interval must be at least 60 seconds.";
-
-        if (Confluence is { } confluence && !confluence.ValidateMaxAttachmentMb())
-            return confluence.MaxAttachmentMbError;
-
+        if (!nameOk) return NameError;
+        if (!intervalOk) return SyncIntervalError;
+        if (!sizeOk) return Confluence!.MaxAttachmentMbError;
         return null;
     }
 
