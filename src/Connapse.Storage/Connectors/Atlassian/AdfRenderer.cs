@@ -85,12 +85,26 @@ public static class AdfRenderer
             return text;
 
         string rest = text[start..];
-        bool escape = rest[0] is '#' or '>'
+        bool escape = rest[0] is '#' or '>' or '|'
+            || rest.StartsWith("- ", StringComparison.Ordinal)
+            || rest.StartsWith("+ ", StringComparison.Ordinal)
+            || rest.StartsWith("* ", StringComparison.Ordinal)
+            || rest.StartsWith("***", StringComparison.Ordinal)
+            || rest.StartsWith("___", StringComparison.Ordinal)
+            || IsOrderedMarker(rest)
             || rest.StartsWith("```", StringComparison.Ordinal)
             || rest.StartsWith("~~~", StringComparison.Ordinal)
             || rest.StartsWith("---", StringComparison.Ordinal)
             || rest.All(c => c is '=' or '-' or ' ');
         return escape ? text[..start] + "\\" + rest : text;
+    }
+
+    private static bool IsOrderedMarker(string text)
+    {
+        int digits = 0;
+        while (digits < text.Length && char.IsAsciiDigit(text[digits]))
+            digits++;
+        return digits > 0 && digits < text.Length - 1 && text[digits] is '.' or ')' && text[digits + 1] == ' ';
     }
 
     private static string EscapeLines(string text) =>
@@ -211,7 +225,7 @@ public static class AdfRenderer
                 case "table":
                     return Table(node, depth);
                 case "blockCard":
-                    return Clean(StringAttr(node, "url") ?? string.Empty);
+                    return HttpHref(StringAttr(node, "url")) ?? string.Empty;
                 case "media":
                     return Media(node);
                 case "mediaSingle":
@@ -290,7 +304,7 @@ public static class AdfRenderer
                     return text.StartsWith("@@", StringComparison.Ordinal) ? "@" + text.TrimStart('@') : text;
                 }
                 case "inlineCard":
-                    return Clean(StringAttr(node, "url") ?? string.Empty);
+                    return HttpHref(StringAttr(node, "url")) ?? string.Empty;
                 case "status":
                     return Clean(StringAttr(node, "text") ?? string.Empty);
                 case "emoji":

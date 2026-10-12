@@ -270,4 +270,33 @@ public class AdfRendererTests
         RenderDoc($$"""{"type":"blockquote","content":[{{P("one")}},{{P("two")}}]},{"type":"rule"}""")
             .Should().Be("> one\n>\n> two\n\n---");
     }
+
+    [Theory]
+    [InlineData("inlineCard", "# x")]
+    [InlineData("inlineCard", "```")]
+    [InlineData("inlineCard", "javascript:alert(1)")]
+    [InlineData("blockCard", "# x")]
+    [InlineData("blockCard", "```")]
+    [InlineData("blockCard", "javascript:alert(1)")]
+    public void Render_HostileCardUrl_EmitsNothing(string card, string url)
+    {
+        string md = RenderDoc($$$"""{{{P("before")}}},{"type":"{{{card}}}","attrs":{"url":"{{{url}}}"}},{{{P("after")}}}""");
+
+        md.Should().NotContain("#").And.NotContain("```").And.NotContain("javascript");
+        md.Should().Contain("before").And.Contain("after");
+    }
+
+    [Theory]
+    [InlineData("- item")]
+    [InlineData("+ item")]
+    [InlineData("* item")]
+    [InlineData("12. item")]
+    [InlineData("3) item")]
+    [InlineData("***")]
+    [InlineData("___")]
+    [InlineData("| a |")]
+    public void Render_LineStartListRuleTable_IsEscaped(string text)
+    {
+        RenderDoc(P(text)).Should().Be("\\" + text);
+    }
 }
