@@ -221,12 +221,67 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     {
         foreach (string commentId in issue.Comments.Select(c => c.Id).ToList())
         {
-            api.Map(Root + $"/issue/{issue.Id}/comment/{commentId}", _ =>
-                issue.Comments.FirstOrDefault(c => c.Id == commentId) is { } live
-                    ? FakeAtlassianApi.Json(Comment(live))
-                    : new HttpResponseMessage(HttpStatusCode.NotFound));
+            api.Map(Root + $"/issue/{issue.Id}/comment/{commentId}", request =>
+            {
+                if (issue.Comments.FirstOrDefault(c => c.Id == commentId) is not { } live)
+                    return new HttpResponseMessage(HttpStatusCode.NotFound);
+                bool rendered = request.RequestUri!.Query.Contains("expand=renderedBody", StringComparison.Ordinal);
+                if (rendered)
+                    RenderedReads.Add(commentId);
+                return FakeAtlassianApi.Json(Comment(live, rendered));
+            });
         }
     }
+
+    /// <summary>The comment ids read with <c>expand=renderedBody</c>, in order.</summary>
+    public List<string> RenderedReads { get; } = [];
+
+    // ── Attachments: listed by bulkfetch, downloaded through a redirect to the media host ──────
+
+    /// <summary>Where <c>attachment/content/{id}</c> redirects, as Jira sends downloads to Atlassian's media service.</summary>
+    public const string MediaHost = FakeConfluence.MediaHost;
+
+    /// <summary>Overrides where a download redirects, for the client's host checks.</summary>
+    public string? DownloadRedirect { get; set; }
+
+    /// <summary>When set, every attachment download answers this status, as a credential without the attachment scope would.</summary>
+    public HttpStatusCode? RefuseDownloadsWith { get; set; }
+
+    private readonly Dictionary<string, (FakeJiraIssue Issue, FakeJiraAttachment Attachment)> _attachments = [];
+
+    /// <summary>Attaches a file to <paramref name="issue"/> and serves its download.</summary>
+    public FakeJiraAttachment Attach(FakeJiraIssue issue, FakeJiraAttachment attachment)
+    {
+        issue.Attachments.Add(attachment);
+        _attachments[attachment.Id] = (issue, attachment);
+        api.Media = AnswerMedia;
+        api.Map(Root + $"/attachment/content/{attachment.Id}", _ =>
+        {
+            if (RefuseDownloadsWith is { } refused)
+                return new HttpResponseMessage(refused);
+            if (!issue.Attachments.Contains(attachment))
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            var redirect = new HttpResponseMessage(HttpStatusCode.SeeOther);
+            redirect.Headers.Location = new Uri(DownloadRedirect ?? $"https://{MediaHost}/file/{attachment.Id}/binary?token=media-{attachment.Id}");
+            return redirect;
+        });
+        return attachment;
+    }
+
+    /// <summary>The media host's answer for an attachment of this fake; null leaves it to Confluence's.</summary>
+    private HttpResponseMessage? AnswerMedia(Uri uri)
+    {
+        var match = MediaRoute().Match(uri.AbsolutePath);
+        if (!match.Success || !_attachments.TryGetValue(match.Groups["att"].Value, out var entry))
+            return null;
+        return uri.Query.Contains($"token=media-{entry.Attachment.Id}", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(entry.Attachment.Content) }
+            : new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^/file/(?<att>\d+)/binary$")]
+    private static partial System.Text.RegularExpressions.Regex MediaRoute();
 
     /// <summary>Jira's own timestamp shape, with a colon-less offset.</summary>
     public static string Time(DateTimeOffset at) =>
@@ -282,7 +337,15 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
                 {
                     summary = i.Summary,
                     updated = Time(i.Updated),
-                    attachment = Array.Empty<object>(),
+                    attachment = i.Attachments.Select(a => new
+                    {
+                        id = a.Id,
+                        filename = a.FileName,
+                        mimeType = a.MimeType,
+                        size = a.DeclaredSize ?? a.Content.Length,
+                        created = Time(a.Created),
+                        content = $"https://acme.atlassian.net/rest/api/3/attachment/content/{a.Id}",
+                    }),
                     comment = new { total = i.Comments.Count, maxResults = 20, startAt = 0, comments = i.Comments.Take(20).Select(Comment) },
                 },
             }),
@@ -316,7 +379,9 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
         return FakeAtlassianApi.Json(new { startAt, maxResults, total = issue.Comments.Count, comments = page });
     }
 
-    private static Dictionary<string, object?> Comment(FakeJiraComment c)
+    private static Dictionary<string, object?> Comment(FakeJiraComment c) => Comment(c, rendered: false);
+
+    private static Dictionary<string, object?> Comment(FakeJiraComment c, bool rendered)
     {
         var comment = new Dictionary<string, object?>
         {
@@ -330,6 +395,8 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
             comment["visibility"] = visibility;
         if (c.JsdPublic is { } jsdPublic)
             comment["jsdPublic"] = jsdPublic;
+        if (rendered)
+            comment["renderedBody"] = c.RenderedBody ?? $"<p>{System.Net.WebUtility.HtmlEncode(c.Text)}</p>";
         return comment;
     }
 
@@ -347,10 +414,17 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     }
 }
 
-/// <summary>A comment on a <see cref="FakeJiraIssue"/>. <paramref name="Visibility"/> is sent as Jira's visibility object.</summary>
+/// <summary>
+/// A comment on a <see cref="FakeJiraIssue"/>. <paramref name="Visibility"/> is sent as Jira's visibility object;
+/// <paramref name="RenderedBody"/> is the HTML a read with <c>expand=renderedBody</c> answers.
+/// </summary>
 public sealed record FakeJiraComment(
     string Id, string Author, string Text, DateTimeOffset Created,
-    DateTimeOffset? Updated = null, object? Visibility = null, bool? JsdPublic = null);
+    DateTimeOffset? Updated = null, object? Visibility = null, bool? JsdPublic = null, string? RenderedBody = null);
+
+/// <summary>A file attached to a <see cref="FakeJiraIssue"/>. <paramref name="DeclaredSize"/> overrides the size Jira lists.</summary>
+public sealed record FakeJiraAttachment(
+    string Id, string FileName, byte[] Content, DateTimeOffset Created, long? DeclaredSize = null, string MimeType = "text/plain");
 
 /// <summary>An issue the fake serves; tests edit it in place between syncs.</summary>
 public sealed class FakeJiraIssue(string id, string key, string summary, DateTimeOffset updated)
@@ -363,6 +437,7 @@ public sealed class FakeJiraIssue(string id, string key, string summary, DateTim
     public string ProjectId { get; set; } = FakeJira.ProjectId;
     public object? Description { get; set; }
     public List<FakeJiraComment> Comments { get; } = [];
+    public List<FakeJiraAttachment> Attachments { get; } = [];
 
     /// <summary>Extra fields in the full issue read, such as a rich-text custom field's ADF.</summary>
     public Dictionary<string, object?> Fields { get; } = [];

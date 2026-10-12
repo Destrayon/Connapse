@@ -26,6 +26,12 @@ internal sealed class JiraStoredAttachment
     public long Size { get; set; }
     public DateTimeOffset Created { get; set; }
     public string? RestrictingCommentId { get; set; }
+
+    /// <summary>
+    /// Linked from restricted comments that disagree, from one Connapse cannot interpret, or from
+    /// one whose restriction changed while it was read: indexed so that nobody sees it.
+    /// </summary>
+    public bool DenyAll { get; set; }
 }
 
 /// <summary>What the last fetch said about one issue.</summary>
