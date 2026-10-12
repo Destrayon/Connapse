@@ -55,7 +55,8 @@ public sealed record AtlassianTestReport(
     string? StepLabel,
     string? TroubleshootingUrl,
     string? Detail,
-    IReadOnlyList<string> Scopes)
+    IReadOnlyList<string> Scopes,
+    IReadOnlyList<AtlassianProductNote>? OtherProducts = null)
 {
     public static AtlassianTestReport From(ConnectionTestResult result)
     {
@@ -69,9 +70,25 @@ public sealed record AtlassianTestReport(
             step is null ? null : AtlassianConnectionTester.StepLabel(step),
             anchor is null ? null : AtlassianSiteTroubleshooting.UrlOf(anchor),
             result.Details?.GetValueOrDefault("detail") as string,
-            result.Details?.GetValueOrDefault("scopes") as string[] ?? []);
+            result.Details?.GetValueOrDefault("scopes") as string[] ?? [],
+            OtherProductsOf(result));
     }
+
+    // Each product that didn't pass, unless its message is the one the report already shows.
+    private static IReadOnlyList<AtlassianProductNote> OtherProductsOf(ConnectionTestResult result) =>
+        [.. new[] { AtlassianSiteScopes.ConfluenceProduct, AtlassianSiteScopes.JiraProduct }
+            .Where(p => result.Details?.GetValueOrDefault("product:" + p) is string message && message != result.Message)
+            .Select(p => new AtlassianProductNote(
+                AtlassianSiteScopes.DisplayName(p),
+                (string)result.Details!["product:" + p],
+                result.Details.GetValueOrDefault($"product:{p}:step") is string step ? AtlassianConnectionTester.StepLabel(step) : null,
+                result.Details.GetValueOrDefault($"product:{p}:troubleshoot") is string anchor
+                    ? AtlassianSiteTroubleshooting.UrlOf(anchor)
+                    : null))];
 }
+
+/// <summary>A product the test reported on apart from the main message: why it isn't ready, and where to read more.</summary>
+public sealed record AtlassianProductNote(string Name, string Message, string? StepLabel, string? TroubleshootingUrl);
 
 /// <summary>
 /// What adding, resolving, re-testing and replacing the credentials of an Atlassian site mean,

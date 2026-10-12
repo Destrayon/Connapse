@@ -89,7 +89,24 @@ In [Atlassian Administration](https://admin.atlassian.com):
    role: open the space, choose **•••** next to its name in the sidebar → **Space settings** →
    **Users**, add the service account, and choose **Viewer**. On older sites without space roles the
    page is **Permissions**, where it needs **View**. Being an admin does not grant this.
-4. Back on the service account, choose **Create credentials** → **OAuth 2.0**. On **Select scopes**,
+4. **Only if you will index Jira**, give the service account Jira access and the **Administer Jira**
+   global permission: under **Directory** → **Service accounts**, choose the service account and set
+   **Jira** to its admin role, which holds Administer Jira. Connapse needs it to ask Jira what each person
+   may read, and the site check in step 3 confirms it. Then add the service account to **every group and
+   project role your team restricts comments to**: a comment restricted to a group or role the service
+   account isn't in is never indexed, and Connapse can't tell it exists.
+
+   When you create the credential in step 5, add the Jira scopes as well (**Copy required Jira scopes**
+   on the site form copies these 25), so one credential holds both groups. If the credential already
+   exists, create a new one with both groups and use **Replace credentials** on the site:
+
+   ```
+   read:project:jira read:issue:jira read:issue-details:jira read:comment:jira read:permission:jira read:group:jira read:project-role:jira read:issue-security-level:jira read:user:jira read:application-role:jira read:avatar:jira read:audit-log:jira read:comment.property:jira read:field:jira read:field-configuration:jira read:issue-meta:jira read:issue-type:jira read:issue-type-hierarchy:jira read:issue.changelog:jira read:issue.vote:jira read:project-category:jira read:project-version:jira read:project.component:jira read:project.property:jira read:status:jira
+   ```
+
+   Only if a Jira source will include attachments, also add `read:attachment:jira`. Atlassian marks the
+   Jira scopes Beta; they are the granular scopes the Jira calls Connapse makes require.
+5. Back on the service account, choose **Create credentials** → **OAuth 2.0**. On **Select scopes**,
    paste the required scopes into the scope search box (**Copy required scopes** on the site form copies
    them). The list narrows to exactly these six; tick each one:
 
@@ -111,7 +128,7 @@ In [Atlassian Administration](https://admin.atlassian.com):
    | `read:content-details:confluence` | Finding what changed since the last sync and looking up people |
    | `read:content.permission:confluence` | Checking what each person may read |
 
-5. Create the credential, then copy the **client ID** and **secret**. The secret is shown only once.
+6. Create the credential, then copy the **client ID** and **secret**. The secret is shown only once.
 
 **Pages with view restrictions that don't include the service account are never indexed.** To index
 one, add the service account (or one of its groups) to the page's restrictions.
@@ -135,8 +152,11 @@ account**, **Reading Confluence**, **Listing spaces**, **Reading comments, folde
 small read for each of `read:comment:confluence`, `read:folder:confluence` and
 `read:content-details:confluence`, so a credential missing one fails here rather than at the first
 sync), and **Checking access permissions** (the admin role). The optional `read:attachment:confluence`
-is tried too: the test records whether it is there but never fails without it. The site is saved when
-every check passes, named after its host. A failure names the check, says
+is tried too: the test records whether it is there but never fails without it. Jira is then checked the
+same way: **Reading Jira**, **Listing Jira projects**, **Reading issues and comments**, **Checking Jira
+access permissions** (Administer Jira) and **Reading Jira groups and project roles**. The site is saved
+when every check of Confluence or of Jira passes, named after its host, and shows which products are
+ready; the result says why the other one isn't. A failure names the check, says
 what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Details** shows
 Atlassian's own answer. If the test fails, the secret is kept for your next attempt. A brand-new site
 with no pages or no other users can be saved with **Save anyway**.
@@ -159,7 +179,7 @@ service account can view.
 |-------|---------|-------|
 | Spaces | None ticked | Tick one or more. Each becomes its own source named `<site host> / <space name>`. A space that already has a source on this site shows **already added**. A space missing from the list is one the service account can't view: give it the **Viewer** role in that space (step 2) |
 | Include personal spaces | Off | Also lists people's personal spaces |
-| Include attachments | On if the site's last test confirmed `read:attachment:confluence`, otherwise Off | Indexes files attached to pages, when Connapse can read their file type. Needs the optional `read:attachment:confluence` scope (step 2.4) |
+| Include attachments | On if the site's last test confirmed `read:attachment:confluence`, otherwise Off | Indexes files attached to pages, when Connapse can read their file type. Needs the optional `read:attachment:confluence` scope (step 2.5) |
 | Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
 
 Choose **Create source**. The sources sync on the next cycle, or press **Sync**. Comments and blog posts are
@@ -204,7 +224,7 @@ account credential, so Connapse can't read the site.*
 **Likely cause:** the values were swapped or partly copied, they come from the linking app instead of
 the service account, or the credential was deleted or revoked.
 **Fix:** in Atlassian Administration, open the service account, create a new OAuth 2.0 credential (step
-2.4), and enter both values. For a saved site, use **Replace credentials**; its sources keep working.
+2.5), and enter both values. For a saved site, use **Replace credentials**; its sources keep working.
 
 ### Can't read Confluence
 
@@ -213,7 +233,7 @@ with *Atlassian refused the service account's requests even with a new token.* T
 **Likely cause:** the service account has no Confluence role on this site, or the credential was created
 without the Confluence scopes.
 **Fix:** set Confluence to its admin role on the service account (step 2.2). If it already has it,
-create a new credential with the scopes in step 2.4.
+create a new credential with the scopes in step 2.5.
 
 ### No Confluence access or no spaces
 
@@ -244,10 +264,10 @@ Confluence source shows *Attachments were skipped: the site's credential lacks t
 read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* on
 the Sources page, or the New source dialog says *the site's last connection test didn't confirm the
 read:attachment:confluence permission*.
-**Likely cause:** the credential was created without one of the scopes in step 2.4. For attachments, it
+**Likely cause:** the credential was created without one of the scopes in step 2.5. For attachments, it
 is the optional `read:attachment:confluence`.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
-search and tick each one (step 2.4; for attachments, include `read:attachment:confluence`), then use
+search and tick each one (step 2.5; for attachments, include `read:attachment:confluence`), then use
 **Replace credentials** on the site with the new client ID
 and secret. The replacement is tested before it is used, and its test records which scopes it has, so
 new sources then start with attachments on. If you don't want
@@ -255,7 +275,9 @@ attachments, turn off **Include attachments** on the source instead (see [step 4
 
 ### Site has no pages or no other users yet
 
-**Symptom:** *This site has no pages yet…* or *The site has no user other than the service account…*
+**Symptom:** *This site has no pages yet…* or *The site has no user other than the service account…*,
+or for Jira, *The service account can't see any Jira project yet…* or *The site has no Jira user other
+than the service account…*
 **Likely cause:** the admin check asks Confluence whether another person can read a page, so it needs
 at least one page the service account can view and one other user.
 **Fix:** choose **Save anyway** to save the site now; it is marked with a warning until the check can

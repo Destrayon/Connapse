@@ -101,6 +101,20 @@ public class AtlassianSiteStatusTests
     }
 
     [Fact]
+    public void ProductsOf_ReadsWhichProductsTheLastTestCouldRead()
+    {
+        AtlassianSiteStatus.ProductsOf(Site(null)).Select(p => p.Text).Should().AllBe("Not checked yet");
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["confluence", "jira"] }))
+            .Select(p => p.Text).Should().Equal("Ready", "Ready");
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["jira"] }))
+            .Select(p => (p.Name, p.Ready)).Should().Equal(("Confluence", false), ("Jira", true));
+        // A check from before Jira was tested listed no products, and tested only Confluence.
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true))).Select(p => p.Ready).Should().Equal(true, false);
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, step: "token") with { Products = ["jira"] }))
+            .Last().Text.Should().Be("Ready at the last successful check");
+    }
+
+    [Fact]
     public void Status_RejectedOrMissingSecret_NeedsNewCredentials()
     {
         AtlassianSiteStatus.Of(Site(Check(ok: false, rejected: true, step: "token"))).NeedsNewCredentials.Should().BeTrue();

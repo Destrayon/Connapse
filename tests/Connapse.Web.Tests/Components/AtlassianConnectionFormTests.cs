@@ -97,6 +97,67 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
+    public void ConnectionForm_ShowsConfluenceAndJiraScopeGroups()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+
+        cut.FindAll("#atlassian-scopes-confluence code").Select(c => c.TextContent)
+            .Should().Equal(AtlassianSiteScopes.Confluence.Select(s => s.Name));
+        var jira = cut.FindAll("#atlassian-scopes-jira li");
+        jira.Select(li => li.QuerySelector("code")!.TextContent).Should().Equal(AtlassianSiteScopes.Jira.Select(s => s.Name));
+        foreach (var (row, scope) in jira.Zip(AtlassianSiteScopes.Jira))
+        {
+            row.TextContent.Should().Contain(scope.Reason);
+            row.TextContent.Contains("Optional").Should().Be(scope.Optional, scope.Name);
+        }
+
+        cut.Find("#atlassian-copy-jira-required").Click();
+        cut.Find("#atlassian-copy-jira-with-attachments").Click();
+        cut.Find("#atlassian-copy-required").Click();
+
+        var copied = ctx.JSInterop.Invocations.Where(i => i.Identifier == "connapse.copyToClipboard")
+            .Select(i => ((string)i.Arguments[0]!).Split(' ')).ToList();
+        copied[0].Should().Equal(AtlassianSiteScopes.Jira.Where(s => !s.Optional).Select(s => s.Name));
+        copied[1].Should().Equal(AtlassianSiteScopes.Jira.Select(s => s.Name));
+        copied[2].Should().OnlyContain(s => s.EndsWith(":confluence"), "each group copies only its own product's scopes");
+        cut.Find("#atlassian-service-account-guide").TextContent.Should().Contain("Jira")
+            .And.Contain("project role");
+    }
+
+    [Fact]
+    public void TestResult_SaysWhyAProductDidNotPass_WithItsStepAndTroubleshooting()
+    {
+        var result = ConnectionTestResult.CreateSuccess("Connected to https://acme.atlassian.net: found the site.",
+            new Dictionary<string, object>
+            {
+                ["products"] = "confluence",
+                ["product:jira"] = "The credential can't read Jira on this site.",
+                ["product:jira:step"] = AtlassianConnectionTester.JiraIdentityStep,
+                ["product:jira:troubleshoot"] = AtlassianSiteTroubleshooting.CantReadJira,
+            });
+
+        var cut = ctx.Render<AtlassianTestResultView>(p => p.Add(v => v.Result, result).Add(v => v.Id, "r"));
+
+        var note = cut.Find("#r-products li");
+        note.TextContent.Should().Contain("Jira (Reading Jira):").And.Contain("can't read Jira");
+        note.QuerySelector("a")!.GetAttribute("href").Should().EndWith("atlassian-setup.md#cant-read-jira");
+    }
+
+    [Fact]
+    public void SiteStatus_ShowsPerProductState()
+    {
+        var site = AtlassianConnection(health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: "ok",
+            Origin: "test", Products: ["jira"], ConfirmedScopes: ["read:project:jira"]));
+
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
+
+        cut.Find("#atlassian-site-product-confluence").TextContent.Should().Contain("Confluence").And.Contain("Not available");
+        cut.Find("#atlassian-site-product-jira").TextContent.Should().Contain("Jira").And.Contain("Ready");
+        cut.Find("#atlassian-site-scopes").TextContent.Should().Contain("Confluence: 0 of 7 confirmed")
+            .And.Contain($"Jira: 1 of {AtlassianSiteScopes.Jira.Count} confirmed");
+    }
+
+    [Fact]
     public void SetupGuideLink_RendersAsTheTitleRowLink_ToTheSiteConnectionSection()
     {
         var link = ctx.Render<Connapse.Web.Components.Shared.SetupGuideLink>(p => p
@@ -427,7 +488,7 @@ public class AtlassianConnectionFormTests : IDisposable
         cut.Find("#atlassian-site-last-success").TextContent.Should().Contain("2026-10-01 09:30 UTC");
         var scopes = cut.Find("#atlassian-site-scopes");
         scopes.TextContent.Should().Contain("2 of 7 confirmed");
-        scopes.QuerySelectorAll("li").Select(li => li.TextContent.Contains("Not confirmed"))
+        scopes.QuerySelectorAll("#atlassian-site-scopes-confluence li").Select(li => li.TextContent.Contains("Not confirmed"))
             .Should().Equal(false, false, true, true, true, true, true);
     }
 
