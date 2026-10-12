@@ -47,7 +47,7 @@ public static class ConfluenceSourceScope
 
         if (AtlassianSite.FromConfigJson(connection.ConfigJson) is not { } site)
             return Result.Fail(Outcome.Invalid, "connectionId",
-                $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.");
+                $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.");
 
         // Asked now, as the site's service account, exactly as the dialog asks before it creates anything.
         var onSite = await sites.ListSpacesAsync(connection.Id, includePersonal: true, ct);

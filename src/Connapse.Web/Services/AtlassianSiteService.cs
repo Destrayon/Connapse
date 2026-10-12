@@ -222,7 +222,7 @@ public sealed class AtlassianSiteService(
         string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
         if (site is null || string.IsNullOrEmpty(secret))
             return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
-                Error: $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.");
+                Error: $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.");
 
         try
         {

@@ -1196,7 +1196,7 @@
         var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
         if (site is null)
         {
-            confluenceForm.SpacesError = $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Connections page.";
+            confluenceForm.SpacesError = $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.";
             await CreateFailed("incomplete_site");
             return;
         }
@@ -1239,7 +1239,8 @@
                 catch (InvalidOperationException ex)
                 {
                     // A duplicate name: this space already has a source of that name.
-                    failed.Add(ex.Message);
+                    Logger.LogInformation(ex, "Could not add Confluence source {Name}", LogSanitizer.Sanitize(request.Name));
+                    failed.Add($"{request.Name}: a source with this name already exists");
                 }
             }
 

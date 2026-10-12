@@ -115,7 +115,7 @@ public sealed class AtlassianLinkAppService(
         if (string.IsNullOrWhiteSpace(app.CallbackUrl))
         {
             logger.LogInformation(
-                "Atlassian linking app check skipped: no callback URL recorded yet. Choose Test connection on the linking app on the Providers page once.");
+                "Atlassian linking app check skipped: no callback URL recorded yet. Choose Recheck on the linking app on the Providers page once.");
             return null;
         }
 

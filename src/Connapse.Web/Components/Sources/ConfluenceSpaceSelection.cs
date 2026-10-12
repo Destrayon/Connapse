@@ -67,7 +67,7 @@ public sealed class ConfluenceSpaceSelection
     /// <summary>Shown when the site's last test did not confirm the attachment scope, so attachments start off.</summary>
     public const string AttachmentScopeUnconfirmedNote =
         "Off by default: the site's last connection test didn't confirm the " + AttachmentScope
-        + " permission, which attachments need. Add it to the site's credential and test the site again, then turn this on.";
+        + " permission, which attachments need. Create a credential that includes it, enter it with Replace credentials on the site, then turn this on.";
 
     /// <summary>
     /// A selection for a new source on <paramref name="site"/>. Attachments start on only when the
