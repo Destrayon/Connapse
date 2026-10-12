@@ -354,7 +354,7 @@
                 @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
                 <span>Create connection</span>
             </button>
-            <button class="btn btn-info me-2" @onclick="TestLocalSetup" disabled="@(testing || !LocalSetupReady())">
+            <button class="btn btn-outline-secondary me-2" @onclick="TestLocalSetup" disabled="@(testing || !LocalSetupReady())">
                 @if (testing) { <span class="spinner-border spinner-border-sm me-1"></span> }
                 <span>Test first</span>
             </button>
@@ -828,7 +828,7 @@
                         <span class="text-muted">(optional — leave blank to keep the stored key)</span>
                     }
                 </label>
-                <SecretTextArea Id="sftp-key" Rows="5" DescribedBy="sftp-key-help"
+                <SecretTextArea Id="sftp-key" Label="Private key" Rows="5" DescribedBy="sftp-key-help"
                                 Placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…"
                                 @bind-Value="form.PrivateKey" />
                 <div id="sftp-key-help" class="form-text">
@@ -847,7 +847,7 @@
 
             <div class="col-md-6">
                 <label class="form-label" for="sftp-passphrase">Key passphrase <span class="text-muted">(optional)</span></label>
-                <SecretTextArea Id="sftp-passphrase" Multiline="false" @bind-Value="form.Passphrase"
+                <SecretTextArea Id="sftp-passphrase" Label="Key passphrase" Multiline="false" @bind-Value="form.Passphrase"
                                 Placeholder="Only if the key is encrypted" />
             </div>
 
@@ -1285,7 +1285,7 @@
             <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
             @if (form.IsCloudProvider || form.Provider is ConnectionProvider.Sftp or ConnectionProvider.GitHub)
             {
-                <button class="btn btn-info" @onclick="Test" disabled="@testing">
+                <button id="connection-test" class="btn btn-outline-secondary" @onclick="Test" disabled="@testing">
                     @if (testing)
                     {
                         <span class="spinner-border spinner-border-sm me-1"></span>

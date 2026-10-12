@@ -239,6 +239,9 @@
         _ => RequirementStatus.Satisfied,
     };
 
+    /// <summary>Whether the client ID and secret fields are on screen, as the step card decides.</summary>
+    private bool SetupOpen => AppStatus != RequirementStatus.Satisfied || showAppSetup;
+
     private string AppStatusLabel => linkApp switch
     {
         null => "Not set up",
@@ -293,7 +296,8 @@
               </dl>
               @* The next step, as GitHub's summary offers "Add a GitHub connection". *@
               <div class="mt-2 d-flex gap-2 flex-wrap">
-                  <a id="atlassian-add-site" class="btn btn-sm btn-outline-primary" href="/connections?new=atlassian">
+                  @* While the setup is open, Check and save is the one primary action. *@
+                  <a id="atlassian-add-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=atlassian">
                       <span class="bi-plug me-1" aria-hidden="true"></span> Add an Atlassian site
                   </a>
               </div>
@@ -311,7 +315,7 @@
                 <span class="bi-plug me-1" aria-hidden="true"></span><span>Test connection</span>
             }
         </button>
-        <div class="ms-auto d-flex gap-2 align-items-start flex-wrap">
+        <div>
             <button type="button" id="atlassian-sign-in-toggle" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSignInAsync"
                     disabled="@(toggleBusy || removeBusy)" aria-describedby="atlassian-sign-in-toggle-help">
                 @if (toggleBusy)
@@ -324,11 +328,16 @@
                     @(app.SignInEnabled ? "Turn off Atlassian sign-in" : "Turn on Atlassian sign-in")
                 }
             </button>
-            <span id="atlassian-sign-in-toggle-help" class="visually-hidden">
+            <div id="atlassian-sign-in-toggle-help" class="form-text mt-1">
                 @(app.SignInEnabled
-                    ? "Stops new links. People who linked keep their links. You can turn it back on."
+                    ? "Stops new links for everyone. People who linked keep their links. You can turn it back on."
                     : "Lets people link their Atlassian accounts again.")
-            </span>
+            </div>
+        </div>
+        @* Removing is destructive, so it sits in its own section below every other action. *@
+        <section id="atlassian-app-danger-zone" class="w-100 border-top border-danger-subtle pt-2 mt-2"
+                 aria-labelledby="atlassian-app-danger-heading">
+            <h3 id="atlassian-app-danger-heading" class="h6 text-danger mb-2">Remove the linking app</h3>
             <ProviderResetAction OnReset="RemoveAppAsync"
                                  Label="Remove the linking app from Connapse"
                                  ConfirmLabel="Remove the linking app"
@@ -336,7 +345,7 @@
                                  BusyLabel="Removing…"
                                  Disabled="@toggleBusy"
                                  HelpText="@RemoveHelp" />
-        </div>
+        </section>
     </text>;
 
     protected override async Task OnInitializedAsync()

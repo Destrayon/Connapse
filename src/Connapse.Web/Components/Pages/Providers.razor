@@ -369,7 +369,7 @@
                                             <span class="text-muted">(optional — leave blank to keep the current key)</span>
                                         }
                                     </label>
-                                    <SecretTextArea Id="ra-key" Rows="3" CssClass="form-control-sm"
+                                    <SecretTextArea Id="ra-key" Label="Private key" Rows="3" CssClass="form-control-sm"
                                                     Placeholder="@(hasStoredRaCredential ? "Kept unless you paste a new key" : "-----BEGIN PRIVATE KEY-----")"
                                                     DescribedBy="ra-key-help" @bind-Value="manualPrivateKeyPem" />
                                     <div id="ra-key-help" class="form-text">
