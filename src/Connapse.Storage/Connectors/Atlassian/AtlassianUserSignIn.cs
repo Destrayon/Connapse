@@ -144,8 +144,10 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
             return null;
 
         var checkedApp = await CheckAppWithDetailAsync(app.ClientId, secret, redirectUri, ct);
+        // Recorded against the secret checked: one saved in the meantime keeps its own result.
         if (checkedApp.Result != AtlassianLinkAppCheck.Unknown)
-            await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, checkedApp.Result == AtlassianLinkAppCheck.Accepted, DateTime.UtcNow, ct);
+            await credentials.RecordAtlassianLinkAppCheckAsync(
+                app.ClientId, secret, checkedApp.Result == AtlassianLinkAppCheck.Accepted, DateTime.UtcNow, ct);
         return checkedApp;
     }
 
@@ -194,7 +196,7 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
             if (Classify(exchanged.StatusCode, error?.Error) == AtlassianLinkAppCheck.Rejected)
             {
                 // The administrator's page shows this as a failed check, so a revoked secret is not silent.
-                await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, accepted: false, DateTime.UtcNow, ct);
+                await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, secret, accepted: false, DateTime.UtcNow, ct);
                 throw new AtlassianLinkAppRejectedException();
             }
             throw new AtlassianAuthException($"Atlassian did not accept the sign-in code (HTTP {(int)exchanged.StatusCode}{reason}).");

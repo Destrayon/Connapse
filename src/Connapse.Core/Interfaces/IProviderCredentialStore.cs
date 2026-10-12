@@ -158,10 +158,14 @@ public interface IProviderCredentialStore
         string clientId, string clientSecret, Guid? createdByUserId, DateTime? checkedAt = null,
         CancellationToken ct = default);
 
-    /// <summary>Records what Atlassian answered when the stored app was checked.</summary>
-    /// <returns>False when nothing was written: no app is stored, or a different client ID is now.</returns>
+    /// <summary>
+    /// Records what Atlassian answered when the stored app was checked with <paramref name="checkedSecret"/>.
+    /// Written only while that secret is still the stored one, so a check that was overtaken by a
+    /// new secret for the same client ID never lands on it.
+    /// </summary>
+    /// <returns>False when nothing was written: no app is stored, or a different client ID or secret is now.</returns>
     Task<bool> RecordAtlassianLinkAppCheckAsync(
-        string clientId, bool accepted, DateTime when, CancellationToken ct = default);
+        string clientId, string checkedSecret, bool accepted, DateTime when, CancellationToken ct = default);
 
     /// <summary>Records the sign-in callback URL used with the stored app.</summary>
     /// <returns>False when nothing was written: no app is stored, a different client ID is now, or it is unchanged.</returns>

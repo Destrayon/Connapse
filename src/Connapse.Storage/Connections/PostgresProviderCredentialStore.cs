@@ -358,12 +358,16 @@ public class PostgresProviderCredentialStore(
         await MarkVerifiedAsync(AtlassianProvider, when, ct);
 
     public Task<bool> RecordAtlassianLinkAppCheckAsync(
-        string clientId, bool accepted, DateTime when, CancellationToken ct = default) =>
-        UpdateAtlassianLinkAppConfigAsync(
+        string clientId, string checkedSecret, bool accepted, DateTime when, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(checkedSecret);
+        return UpdateAtlassianLinkAppConfigAsync(
             config => string.Equals(config.ClientId, clientId?.Trim(), StringComparison.Ordinal)
                 ? config with { CheckedAt = when, CheckAccepted = accepted }
                 : null,
-            ct);
+            ct,
+            requireSecret: checkedSecret);
+    }
 
     public Task<bool> RememberAtlassianCallbackUrlAsync(string clientId, string callbackUrl, CancellationToken ct = default) =>
         UpdateAtlassianLinkAppConfigAsync(
@@ -380,36 +384,67 @@ public class PostgresProviderCredentialStore(
     /// <summary>
     /// Changes the stored app's non-secret settings. Written only if the row still holds what was
     /// read, so a save replacing the app in between is never overwritten with the old app's settings.
+    /// The secret is part of what was read: a save that rotates only the secret also makes the write retry.
     /// </summary>
+    /// <param name="requireSecret">
+    /// When set, written only while the stored secret is this one; a different or unreadable secret writes nothing.
+    /// </param>
     private async Task<bool> UpdateAtlassianLinkAppConfigAsync(
-        Func<AtlassianLinkAppConfig, AtlassianLinkAppConfig?> change, CancellationToken ct)
+        Func<AtlassianLinkAppConfig, AtlassianLinkAppConfig?> change, CancellationToken ct, string? requireSecret = null)
     {
         for (int attempt = 0; attempt < 5; attempt++)
         {
             await using var db = await factory.CreateDbContextAsync(ct);
 
-            string? current = await db.ProviderCredentials
+            var row = await db.ProviderCredentials
                 .AsNoTracking()
                 .Where(c => c.Provider == AtlassianProvider)
-                .Select(c => c.ConfigJson)
+                .Select(c => new { c.ConfigJson, c.SecretProtected })
                 .FirstOrDefaultAsync(ct);
+            string? current = row?.ConfigJson;
             if (string.IsNullOrWhiteSpace(current)) return false;
+
+            if (requireSecret is not null && !StoredSecretIs(row!.SecretProtected, requireSecret)) return false;
 
             var config = System.Text.Json.JsonSerializer.Deserialize<AtlassianLinkAppConfig>(current, AppJson);
             if (string.IsNullOrWhiteSpace(config?.ClientId) || change(config) is not { } next) return false;
 
             int updated = await db.Database.ExecuteSqlRawAsync(
-                "UPDATE provider_credentials SET config_json = @next WHERE provider = @provider AND config_json = @current",
+                """
+                UPDATE provider_credentials SET config_json = @next
+                WHERE provider = @provider AND config_json = @current
+                  AND secret_protected IS NOT DISTINCT FROM @currentSecret
+                """,
                 [
                     new NpgsqlParameter("next", System.Text.Json.JsonSerializer.Serialize(next, AppJson)),
                     new NpgsqlParameter("provider", AtlassianProvider),
                     new NpgsqlParameter("current", current),
+                    new NpgsqlParameter("currentSecret", (object?)row!.SecretProtected ?? DBNull.Value) { NpgsqlDbType = NpgsqlDbType.Text },
                 ],
                 ct);
             if (updated > 0) return true;
         }
 
         return false;
+    }
+
+    /// <summary>Whether the protected secret decrypts to <paramref name="expected"/>, compared in constant time.</summary>
+    private bool StoredSecretIs(string? protectedSecret, string expected)
+    {
+        if (string.IsNullOrEmpty(protectedSecret)) return false;
+
+        string stored;
+        try
+        {
+            stored = Protector.Unprotect(protectedSecret);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(stored), System.Text.Encoding.UTF8.GetBytes(expected));
     }
 
     private static GitHubAppRegistration? ReadApp(string? json)

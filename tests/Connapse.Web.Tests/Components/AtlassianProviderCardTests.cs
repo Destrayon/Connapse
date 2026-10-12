@@ -313,7 +313,7 @@ public class AtlassianProviderCardTests : IDisposable
         cut.Find("#atlassian-app-recheck").Click();
 
         cut.WaitForAssertion(() => cut.Find("#provider-page-alert").TextContent.Should().Contain("Atlassian rejected the stored client ID or secret"));
-        credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", Secret, false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
         cut.Find("#atlassian-app").ClassList.Should().Contain("provider-step--failed");
         cut.Find("#atlassian-app-checked").TextContent.Should().Contain("rejected by Atlassian");
         cut.Markup.Should().NotContain(Secret);
@@ -330,7 +330,7 @@ public class AtlassianProviderCardTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find("#provider-page-status").TextContent.Should().Contain("Atlassian accepted"));
         cut.Find("#provider-page-status").GetAttribute("role").Should().Be("status");
-        credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", true, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", Secret, true, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

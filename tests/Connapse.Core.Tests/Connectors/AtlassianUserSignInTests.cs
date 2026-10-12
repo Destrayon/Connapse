@@ -108,7 +108,7 @@ public class AtlassianUserSignInTests
         (await SignIn(new TokenEndpoint(HttpStatusCode.OK, """{"access_token":"tok-1"}"""), credentials).CheckStoredAppAsync(Redirect))
             .Should().Be(AtlassianLinkAppCheck.Unknown);
 
-        await credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+        await credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default!, default, default, default);
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public class AtlassianUserSignInTests
         var result = await SignIn(token, credentials).CheckStoredAppAsync(Redirect);
 
         result.Should().Be(AtlassianLinkAppCheck.Rejected);
-        await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", "secret-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public class AtlassianUserSignInTests
 
         (await SignIn(new TokenEndpoint(throws: true), credentials).CheckStoredAppAsync(Redirect)).Should().Be(AtlassianLinkAppCheck.Unknown);
 
-        await credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+        await credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default!, default, default, default);
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public class AtlassianUserSignInTests
         var act = () => SignIn(token, credentials).ResolveAsync("code-1", null, Redirect);
 
         await act.Should().ThrowAsync<AtlassianLinkAppRejectedException>();
-        await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", "secret-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class AtlassianUserSignInTests
             .CheckStoredAppWithDetailAsync(Redirect);
 
         result!.Detail.Should().Be("HTTP 401, invalid_client");
-        await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", "secret-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
