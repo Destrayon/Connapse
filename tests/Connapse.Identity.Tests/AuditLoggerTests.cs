@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -62,6 +63,54 @@ public class AuditLoggerTests
 
         var entry = await db.AuditLogs.SingleAsync();
         entry.UserId.Should().Be(userId);
+    }
+
+    /// <summary>The authentication state of a Blazor circuit, or of a REST request where none is set.</summary>
+    private sealed class CircuitState(ClaimsPrincipal? user) : AuthenticationStateProvider
+    {
+        public override Task<AuthenticationState> GetAuthenticationStateAsync() => user is null
+            ? throw new InvalidOperationException("GetAuthenticationStateAsync was called before SetAuthenticationState.")
+            : Task.FromResult(new AuthenticationState(user));
+    }
+
+    [Fact]
+    public async Task LogAsync_FromABlazorCircuitWithNoHttpContext_StoresTheCircuitsUser()
+    {
+        using var db = CreateDbContext();
+        var userId = Guid.NewGuid();
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        accessor.HttpContext.Returns((HttpContext?)null);
+        var sut = new AuditLogger(db, accessor, NullLogger<AuditLogger>.Instance, new CircuitState(CreateUserPrincipal(userId)));
+
+        await sut.LogAsync("connection.updated");
+
+        (await db.AuditLogs.SingleAsync()).UserId.Should().Be(userId);
+    }
+
+    [Fact]
+    public async Task LogAsync_FromABlazorCircuit_PrefersTheCircuitsUserToAStaleHttpContext()
+    {
+        using var db = CreateDbContext();
+        var userId = Guid.NewGuid();
+        var (_, accessor) = CreateService(db, CreateUserPrincipal(Guid.NewGuid()));
+        var sut = new AuditLogger(db, accessor, NullLogger<AuditLogger>.Instance, new CircuitState(CreateUserPrincipal(userId)));
+
+        await sut.LogAsync("connection.updated");
+
+        (await db.AuditLogs.SingleAsync()).UserId.Should().Be(userId);
+    }
+
+    [Fact]
+    public async Task LogAsync_FromARestRequest_WhereNoAuthenticationStateIsSet_StoresTheRequestsUser()
+    {
+        using var db = CreateDbContext();
+        var userId = Guid.NewGuid();
+        var (_, accessor) = CreateService(db, CreateUserPrincipal(userId));
+        var sut = new AuditLogger(db, accessor, NullLogger<AuditLogger>.Instance, new CircuitState(null));
+
+        await sut.LogAsync("source.deleted");
+
+        (await db.AuditLogs.SingleAsync()).UserId.Should().Be(userId);
     }
 
     [Fact]
