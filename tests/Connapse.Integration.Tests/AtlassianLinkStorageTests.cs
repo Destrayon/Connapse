@@ -211,11 +211,11 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
             saved.CheckAccepted.Should().BeTrue();
             saved.SignInEnabled.Should().BeTrue();
 
-            (await store.RecordAtlassianLinkAppCheckAsync("another-client", accepted: false, checkedAt.AddHours(1)))
+            (await store.RecordAtlassianLinkAppCheckAsync("another-client", "secret-1", accepted: false, checkedAt.AddHours(1)))
                 .Should().BeFalse("a check of an app that has since been replaced must not mark the new one");
             (await store.GetAtlassianLinkAppAsync())!.CheckAccepted.Should().BeTrue();
 
-            (await store.RecordAtlassianLinkAppCheckAsync("atl-client-id", accepted: false, checkedAt.AddHours(2))).Should().BeTrue();
+            (await store.RecordAtlassianLinkAppCheckAsync("atl-client-id", "secret-1", accepted: false, checkedAt.AddHours(2))).Should().BeTrue();
             var rejected = (await store.GetAtlassianLinkAppAsync())!;
             rejected.CheckAccepted.Should().BeFalse();
             rejected.CheckedAt.Should().Be(checkedAt.AddHours(2));
@@ -225,6 +225,86 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
         {
             await store.DeleteAsync("atlassian");
         }
+    }
+
+    /// <summary>
+    /// A check that started with secret A must not record its answer on secret B, saved for the
+    /// same client ID while the check was waiting on Atlassian.
+    /// </summary>
+    [Fact]
+    public async Task CheckStoredApp_SecretRotatedWhileChecking_LeavesTheNewSecretsResultAlone()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+        var savedAt = new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc);
+
+        try
+        {
+            await store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-a", createdByUserId: null, savedAt);
+
+            // Atlassian refuses secret A, but only after an administrator has saved secret B.
+            var atlassian = new RotateThenRefuse(() => store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-b", null, savedAt));
+            var http = new SingleClientFactory(atlassian);
+            var signIn = new Connapse.Storage.Connectors.Atlassian.AtlassianUserSignIn(http, store);
+
+            var result = await signIn.CheckStoredAppAsync("https://connapse.example/api/v1/auth/cloud/atlassian/callback");
+
+            result.Should().Be(Connapse.Storage.Connectors.Atlassian.AtlassianLinkAppCheck.Rejected);
+            atlassian.Rotated.Should().BeTrue();
+            (await store.GetAtlassianLinkAppSecretAsync()).Should().Be("secret-b");
+            var app = (await store.GetAtlassianLinkAppAsync())!;
+            app.CheckAccepted.Should().BeTrue("secret A's refusal says nothing about secret B");
+            app.CheckedAt.Should().Be(savedAt);
+        }
+        finally
+        {
+            await store.DeleteAsync("atlassian");
+        }
+    }
+
+    [Fact]
+    public async Task RecordAtlassianLinkAppCheckAsync_WritesOnlyForTheSecretThatWasChecked()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+        var checkedAt = new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc);
+
+        try
+        {
+            await store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-b", createdByUserId: null, checkedAt);
+
+            (await store.RecordAtlassianLinkAppCheckAsync("atl-client-id", "secret-a", accepted: false, checkedAt.AddHours(1)))
+                .Should().BeFalse("secret A is no longer the stored secret");
+            (await store.GetAtlassianLinkAppAsync())!.CheckAccepted.Should().BeTrue();
+
+            (await store.RecordAtlassianLinkAppCheckAsync("atl-client-id", "secret-b", accepted: false, checkedAt.AddHours(2)))
+                .Should().BeTrue();
+            (await store.GetAtlassianLinkAppAsync())!.CheckAccepted.Should().BeFalse();
+        }
+        finally
+        {
+            await store.DeleteAsync("atlassian");
+        }
+    }
+
+    private sealed class RotateThenRefuse(Func<Task> rotate) : HttpMessageHandler
+    {
+        public bool Rotated { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            await rotate();
+            Rotated = true;
+            return new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("""{"error":"access_denied"}""", System.Text.Encoding.UTF8, "application/json"),
+            };
+        }
+    }
+
+    private sealed class SingleClientFactory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
     }
 
     [Fact]

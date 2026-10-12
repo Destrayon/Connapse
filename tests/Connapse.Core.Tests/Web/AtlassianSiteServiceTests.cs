@@ -177,6 +177,26 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _events.Should().OnlyContain(e => e.Id == site.Id.ToString());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Retest_RedirectOrNoToken_RecordsAFailedCheck_NotRejectedCredentials(bool redirect)
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        if (redirect)
+            _api.FailTokenWith(System.Net.HttpStatusCode.Redirect);
+        else
+            _api.AnswerTokenWith("{}");
+
+        var result = await _sites.RetestAsync(site.Id);
+
+        result!.Success.Should().BeFalse();
+        await _store.Received(1).RecordHealthAsync(site.Id,
+            Arg.Is<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token"), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public void Report_UsesPlainLabelsAndTheGuidesAnchors()
     {

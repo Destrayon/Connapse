@@ -108,6 +108,19 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckAndSaveAsync_TokenEndpointAnswersTwoHundred_StoresNothing()
+    {
+        // Something in front of Atlassian answered a made-up code with a token: not an acceptance.
+        _api.AnswerTokenWith("""{"access_token":"tok-1","token_type":"Bearer"}""");
+
+        var result = await _service.CheckAndSaveAsync("link-client", Secret, Callback, null);
+
+        result.Outcome.Should().Be(AtlassianLinkAppSaveOutcome.Unreachable);
+        await _credentials.DidNotReceiveWithAnyArgs().SaveAtlassianLinkAppAsync(default!, default!, default, default, default);
+        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
     public async Task SaveAsync_MissingSecret_AsksAtlassianNothing()
     {
         (await _service.SaveAsync("link-client", " ", Callback, null)).Should().Be(AtlassianLinkAppSaveOutcome.MissingFields);
@@ -178,7 +191,7 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
         var result = await _service.RecheckWithDetailAsync(Callback);
 
         result.Should().Be(new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Rejected, "HTTP 401, invalid_client"));
-        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", Secret, false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
         await _credentials.Received(1).RememberAtlassianCallbackUrlAsync("link-client", Callback, Arg.Any<CancellationToken>());
     }
 
@@ -191,7 +204,7 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
         (await _service.RecheckWithDetailAsync(Callback))!.Result.Should().Be(AtlassianLinkAppCheck.Unknown);
 
         await _credentials.DidNotReceiveWithAnyArgs().RememberAtlassianCallbackUrlAsync(default!, default!, default);
-        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default!, default, default, default);
     }
 
     [Fact]
@@ -204,7 +217,7 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
 
         result!.Result.Should().Be(AtlassianLinkAppCheck.Accepted);
         _api.TokenRequests.Should().Be(1);
-        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", true, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", Secret, true, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
         _events.Should().ContainSingle(e => e.Action == "provider.credential.checked");
     }
 
@@ -221,7 +234,7 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
         (await _service.ScheduledRecheckAsync()).Should().BeNull(because);
 
         _api.TokenRequests.Should().Be(0);
-        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default!, default, default, default);
     }
 
     [Fact]
@@ -232,7 +245,7 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
 
         await new AtlassianLinkAppCheckJob(_service, NullLogger<AtlassianLinkAppCheckJob>.Instance).RunAsync(CancellationToken.None);
 
-        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", Secret, false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

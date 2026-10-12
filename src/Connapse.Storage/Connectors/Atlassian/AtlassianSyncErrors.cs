@@ -30,6 +30,14 @@ public static class AtlassianSyncErrors
         "Confluence on this site didn't answer properly, so nothing changed this cycle. Connapse tries again on the "
         + "next sync. If it keeps failing, check that this server can reach api.atlassian.com over HTTPS.";
 
+    /// <summary>
+    /// True only when Atlassian's token endpoint refused the client ID or secret. A redirect or a
+    /// token answer without a token also fails at the token step, but says nothing about the
+    /// credential. The site test and a sync both decide "needs new credentials" with this.
+    /// </summary>
+    public static bool IsCredentialRefused(AtlassianAuthException ex) =>
+        ex.TokenRefused && ex.Message == CredentialRefused;
+
     private const string SpacePrefix = "Confluence space ";
     private const string SpaceUnreadablePhrase = " can no longer be read";
 

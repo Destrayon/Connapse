@@ -197,6 +197,21 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task GetChanges_RateLimitedAtTheTokenExchange_IsDeferred_AndAReadIsNot()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+
+        var limited = await _connector.GetChangesAsync(null);
+
+        limited.Deferred.Should().BeTrue("nothing was read, so the cycle proves nothing about the credential");
+        limited.Notice.Should().StartWith(AtlassianRateLimitedException.MessagePrefix);
+
+        _api.FailTokenWith(null);
+        (await _connector.GetChangesAsync(null)).Deferred.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task GetChanges_FreshStartRateLimited_LeavesTheOldStoreReadable()
     {
         _api.Confluence.MaxPageSize = 1;

@@ -82,7 +82,7 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
     /// Asks Atlassian whether it accepts a client ID and secret, without anyone signing in: a code
     /// exchange with a code that cannot be valid. Atlassian checks the client first, so
     /// <c>invalid_grant</c> (a bad code) means the pair was accepted, and <c>access_denied</c>,
-    /// <c>unauthorized_client</c> or a 401 means it was not.
+    /// <c>unauthorized_client</c> or a 401 means it was not. A 2xx is <see cref="AtlassianLinkAppCheck.Unknown"/>.
     /// </summary>
     public async Task<AtlassianLinkAppCheck> CheckAppAsync(
         string clientId, string clientSecret, string redirectUri, CancellationToken ct = default) =>
@@ -108,8 +108,11 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
         {
             using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
             using var response = await http.PostAsJsonAsync(AtlassianTokenSource.TokenEndpoint, body, ct);
+            // The code is made up, so Atlassian never answers 2xx: whatever did is not Atlassian
+            // accepting the client. Only invalid_grant, below, counts as accepted.
             if (response.IsSuccessStatusCode)
-                return new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Accepted);
+                return new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Unknown,
+                    $"HTTP {(int)response.StatusCode} from the token endpoint, which should refuse a made-up code; check for a proxy");
 
             var error = await ErrorAsync(response, ct);
             var result = Classify(response.StatusCode, error?.Error);
@@ -141,8 +144,10 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
             return null;
 
         var checkedApp = await CheckAppWithDetailAsync(app.ClientId, secret, redirectUri, ct);
+        // Recorded against the secret checked: one saved in the meantime keeps its own result.
         if (checkedApp.Result != AtlassianLinkAppCheck.Unknown)
-            await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, checkedApp.Result == AtlassianLinkAppCheck.Accepted, DateTime.UtcNow, ct);
+            await credentials.RecordAtlassianLinkAppCheckAsync(
+                app.ClientId, secret, checkedApp.Result == AtlassianLinkAppCheck.Accepted, DateTime.UtcNow, ct);
         return checkedApp;
     }
 
@@ -191,7 +196,7 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
             if (Classify(exchanged.StatusCode, error?.Error) == AtlassianLinkAppCheck.Rejected)
             {
                 // The administrator's page shows this as a failed check, so a revoked secret is not silent.
-                await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, accepted: false, DateTime.UtcNow, ct);
+                await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, secret, accepted: false, DateTime.UtcNow, ct);
                 throw new AtlassianLinkAppRejectedException();
             }
             throw new AtlassianAuthException($"Atlassian did not accept the sign-in code (HTTP {(int)exchanged.StatusCode}{reason}).");

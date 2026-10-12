@@ -222,7 +222,9 @@ public class SourceSyncService(
             // A site whose credential was refused, then replaced or restored in Atlassian, reads
             // again: the connection stops asking for new credentials.
             // So does one whose sign-in failed during an earlier sync for any other reason.
-            if (connection is { Health.CredentialRejected: true } or { Provider: ConnectionProvider.Atlassian, Health: { Succeeded: false, Origin: "sync" } })
+            // Not on a deferred cycle: a rate limit's wait obtained no token and read nothing.
+            if (!result.Deferred
+                && connection is { Health.CredentialRejected: true } or { Provider: ConnectionProvider.Atlassian, Health: { Succeeded: false, Origin: "sync" } })
             {
                 await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
                     new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null,
@@ -230,7 +232,7 @@ public class SourceSyncService(
             }
 
             // The remote answered, so it is readable again: its documents come back into search.
-            if (source.AccessRevokedAt is not null)
+            if (source.AccessRevokedAt is not null && !result.Deferred)
             {
                 await sourceStore.UpdateAccessRevokedAsync(source.Id, revokedAt: null, ct);
                 logger.LogInformation(
@@ -298,9 +300,7 @@ public class SourceSyncService(
     internal static ConnectionHealth AtlassianSignInHealth(
         Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth, string sourceName)
     {
-        bool credentialRefused = auth.TokenRefused
-            && auth.Message == Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.CredentialRefused;
-        if (credentialRefused)
+        if (Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.IsCredentialRefused(auth))
         {
             return new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.TokenStep,
                 Message: $"Atlassian refused the stored credential while syncing source '{sourceName}'.",
@@ -449,7 +449,7 @@ public class SourceSyncService(
 
         return new SourceSyncResult(
             upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld,
-            Notice: delta.Notice, Unsupported: unsupported);
+            Notice: delta.Notice, Unsupported: unsupported, Deferred: delta.Deferred);
     }
 
     private async Task<SourceSyncResult> SyncViaListAndDiffAsync(

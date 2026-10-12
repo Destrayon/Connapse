@@ -156,7 +156,7 @@ public sealed partial class ConfluenceSpaceConnector(
             _logger.LogWarning(
                 "Confluence space {SpaceKey}: rate limited; keeping the last listing and retrying next cycle",
                 LogSanitizer.Sanitize(config.SpaceKey));
-            return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message);
+            return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message, Deferred: true);
         }
         catch (Exception ex) when (IsUnavailable(ex, ct))
         {

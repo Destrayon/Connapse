@@ -305,6 +305,42 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Message.Should().NotContain(secret);
     }
 
+    public enum TokenAnswer { Refused, Redirect, NoAccessToken }
+
+    // Only a refusal says the client ID or secret is wrong; a redirect from a proxy or a token
+    // answer with no token says nothing about them, so it must not ask for new credentials.
+    [Theory]
+    [InlineData(TokenAnswer.Refused, true)]
+    [InlineData(TokenAnswer.Redirect, false)]
+    [InlineData(TokenAnswer.NoAccessToken, false)]
+    public async Task Test_SignInStep_OnlyARefusalIsRejectedCredentials(TokenAnswer answer, bool rejected)
+    {
+        switch (answer)
+        {
+            case TokenAnswer.Refused: _api.FailTokenWith(HttpStatusCode.Unauthorized, """{"error":"access_denied"}"""); break;
+            case TokenAnswer.Redirect: _api.FailTokenWith(HttpStatusCode.Redirect); break;
+            default: _api.AnswerTokenWith("{}"); break;
+        }
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.TokenStep);
+        if (rejected)
+        {
+            result.Details["rejected"].Should().Be(true);
+            result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CredentialsRejected);
+            result.Message.Should().Contain("rejected the client ID or secret");
+        }
+        else
+        {
+            result.Details.Should().NotContainKey("rejected");
+            result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
+            result.Message.Should().Contain("didn't answer properly").And.NotContain("rejected");
+            result.Details.Should().ContainKey("detail");
+        }
+    }
+
     [Fact]
     public async Task Test_EveryFailure_CarriesAStepTroubleshootingEntryAndItsDuration()
     {

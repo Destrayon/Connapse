@@ -172,6 +172,9 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         "Atlassian rejected the client ID or secret. Copy both again from the service account's OAuth 2.0 credential in "
         + "Atlassian Administration. If the secret is lost, create a new credential.";
 
+    private const string SignInUnansweredMessage =
+        "Atlassian's sign-in service didn't answer properly. Wait a minute and test again.";
+
     private const string CantReadConfluenceMessage =
         "The credential can't read Confluence on this site. Check that the service account's Confluence role isn't None "
         + "and that its credential has every scope listed in the setup steps, then test again.";
@@ -230,17 +233,21 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             {
                 await tokens.GetTokenAsync(site, request.ClientSecret, linked);
             }
-            catch (AtlassianAuthException ex)
+            catch (AtlassianAuthException ex) when (AtlassianSyncErrors.IsCredentialRefused(ex))
             {
                 var rejected = run.Fail(CredentialsRejectedMessage, detail: ex.Detail ?? ex.Message);
                 rejected.Details!["rejected"] = true;
                 return rejected;
             }
+            catch (AtlassianAuthException ex)
+            {
+                // A redirect, or a token answer without a token: nothing about the credential itself.
+                return run.Fail(SignInUnansweredMessage, AtlassianSiteTroubleshooting.General, ex.Detail ?? ex.Message);
+            }
             catch (Exception ex) when (ex is JsonException or HttpRequestException)
             {
                 // An unreadable token answer or a failed exchange; rate limits and cancellation pass through.
-                return run.Fail("Atlassian's sign-in service didn't answer properly. Wait a minute and test again.",
-                    AtlassianSiteTroubleshooting.General, Describe(ex));
+                return run.Fail(SignInUnansweredMessage, AtlassianSiteTroubleshooting.General, Describe(ex));
             }
 
             IReadOnlyList<string>? granted = tokens.GrantedScopes(site);
