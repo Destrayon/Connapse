@@ -130,9 +130,13 @@ provider page.
 **Look up site** shows the site's **Cloud ID**, Atlassian's permanent identifier for the site, so you
 can confirm it's the right one before entering the credential.
 
-**Check and save** runs five checks in order: **Finding the site**, **Signing in as the service
-account**, **Reading Confluence**, **Listing spaces**, and **Checking access permissions** (the admin
-role). The site is saved when every check passes, named after its host. A failure names the check, says
+**Check and save** runs six checks in order: **Finding the site**, **Signing in as the service
+account**, **Reading Confluence**, **Listing spaces**, **Reading comments, folders and changes** (one
+small read for each of `read:comment:confluence`, `read:folder:confluence` and
+`read:content-details:confluence`, so a credential missing one fails here rather than at the first
+sync), and **Checking access permissions** (the admin role). The optional `read:attachment:confluence`
+is tried too: the test records whether it is there but never fails without it. The site is saved when
+every check passes, named after its host. A failure names the check, says
 what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Details** shows
 Atlassian's own answer. If the test fails, the secret is kept for your next attempt. A brand-new site
 with no pages or no other users can be saved with **Save anyway**.
@@ -232,7 +236,9 @@ test again. If the role is already admin, see [Missing scope](#missing-scope).
 ### Missing scope
 
 **Symptom:** *The credential is missing the read:content.permission:confluence scope, so Connapse can't
-check what other people may read.* while **Checking access permissions**, or *The credential can't read
+check what other people may read.* while **Checking access permissions**, *The credential is missing the
+read:comment:confluence scope* (or `read:folder:confluence`, or `read:content-details:confluence`) while
+**Reading comments, folders and changes**, or *The credential can't read
 Confluence on this site.* although the service account has a Confluence role. For attachments only: a
 Confluence source shows *Attachments were skipped: the site's credential lacks the
 read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* on

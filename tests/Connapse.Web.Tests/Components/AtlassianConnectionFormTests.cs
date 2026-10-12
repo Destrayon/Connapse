@@ -347,6 +347,16 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
+    public void Existing_TestConnectionIsSecondary_LeavingThePagesSaveNameTheOnlyFilledPrimary()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, AtlassianConnection()));
+
+        cut.Find("#atlassian-retest").ClassList.Should().Contain("btn-outline-secondary").And.NotContain("btn-info");
+        cut.FindAll(".btn-primary, .btn-info, .btn-success, .btn-danger").Should().BeEmpty(
+            "Save name, on the page around this form, is the edit view's one primary action");
+    }
+
+    [Fact]
     public void Existing_SaysHowToRevokeTheCredentialInAtlassian_AndLinksTheGuide()
     {
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, AtlassianConnection()));
@@ -698,6 +708,14 @@ public class AtlassianConnectionFormTests : IDisposable
                 json = NoPages ? """{"results":[]}""" : """{"results":[{"id":"10"}]}""";
             else if (AcceptCredentials && path.EndsWith("/rest/api/search/user", StringComparison.Ordinal))
                 json = """{"results":[{"user":{"accountId":"someone-else"}}]}""";
+            // The content step's probes: comments, folders, changes and people, and attachments.
+            else if (AcceptCredentials && (path.EndsWith("/footer-comments", StringComparison.Ordinal)
+                                           || path.EndsWith("/attachments", StringComparison.Ordinal)
+                                           || path.EndsWith("/rest/api/search", StringComparison.Ordinal)
+                                           || path.EndsWith("/rest/api/user/bulk", StringComparison.Ordinal)))
+                json = """{"results":[]}""";
+            else if (AcceptCredentials && path.Contains("/api/v2/folders/", StringComparison.Ordinal))
+                return new HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
             else if (AcceptCredentials && PermissionCheckScopeError && path.EndsWith("/permission/check", StringComparison.Ordinal))
                 return new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)
                 {

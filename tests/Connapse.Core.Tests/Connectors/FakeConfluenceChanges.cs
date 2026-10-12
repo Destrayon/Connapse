@@ -198,6 +198,10 @@ public sealed partial class FakeConfluence
             return limited;
         }
 
+        // A query without a time, such as the site test's probe of the search scope, finds nothing here.
+        if (!CqlSince().IsMatch(cql))
+            return FakeAtlassianApi.Json(new { results = Array.Empty<object>(), _links = new { } });
+
         string key = CqlSpace().Match(cql).Groups["key"].Value;
         string? spaceId = _spaces.FirstOrDefault(s => s.Value.Key == key).Key;
         DateTimeOffset since = DateTimeOffset.ParseExact(

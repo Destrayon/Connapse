@@ -33,7 +33,17 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
             },
         });
         _api.MapJson(Root + "/rest/api/content/4242/permission/check", new { hasPermission = true });
+        // The content step's probes, one per scope a sync needs.
+        _api.MapJson(Root + CommentsPath, new { results = Array.Empty<object>() });
+        _api.MapJson(Root + FolderPath, new { id = "4242", title = "x" });
+        _api.MapJson(Root + "/rest/api/user/bulk", new { results = Array.Empty<object>() });
+        _api.MapJson(Root + "/rest/api/search", new { results = Array.Empty<object>() });
+        _api.MapJson(Root + AttachmentsPath, new { results = Array.Empty<object>() });
     }
+
+    private const string CommentsPath = "/api/v2/pages/4242/footer-comments";
+    private const string FolderPath = "/api/v2/folders/4242";
+    private const string AttachmentsPath = "/api/v2/pages/4242/attachments";
 
     public void Dispose() => _api.Dispose();
 
@@ -183,27 +193,100 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         var result = await _tester.TestConnectionAsync(_request);
 
         result.Success.Should().BeTrue();
-        result.Message.Should().Contain("found the site").And.Contain("signed in").And.Contain("listed spaces");
-        ((string[])result.Details!["scopes"]).Should().Equal(
-            "read:space:confluence", "read:page:confluence", "read:content.permission:confluence");
+        result.Message.Should().Contain("found the site").And.Contain("signed in").And.Contain("listed spaces")
+            .And.Contain("read comments, folders and changes");
+        // Every required scope was probed; the attachment scope's probe passed too.
+        ((string[])result.Details!["scopes"]).Should().Equal(AtlassianSiteScopes.All.Select(s => s.Name));
     }
 
     [Fact]
     public async Task Test_Pass_WithoutGrantedScopes_ConfirmsTheScopesTheProbesUsed()
     {
+        _api.Map(Root + AttachmentsPath, _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
         var result = await _tester.TestConnectionAsync(_request);
 
         ((string[])result.Details!["scopes"]).Should().Equal(AtlassianSiteScopes.ProvenByTest);
+        AtlassianSiteScopes.ProvenByTest.Should().BeEquivalentTo(
+            AtlassianSiteScopes.All.Where(s => !s.Optional).Select(s => s.Name), "every required scope is probed");
     }
 
     [Fact]
-    public async Task Test_WithoutTheAttachmentScope_StillPasses()
+    public async Task Test_WithoutTheAttachmentScope_StillPasses_AndLeavesItUnconfirmed()
     {
         _api.TokenScope = string.Join(' ', AtlassianSiteScopes.All.Where(s => !s.Optional).Select(s => s.Name));
+        _api.Map(Root + AttachmentsPath, _ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
 
         var result = await _tester.TestConnectionAsync(_request);
 
         result.Success.Should().BeTrue();
+        ((string[])result.Details!["scopes"]).Should().NotContain(AtlassianSiteScopes.Attachment);
+    }
+
+    [Fact]
+    public async Task Test_AttachmentProbePasses_ConfirmsTheAttachmentScope()
+    {
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeTrue();
+        ((string[])result.Details!["scopes"]).Should().Contain(AtlassianSiteScopes.Attachment);
+        _api.Calls.Should().ContainKey(Root + AttachmentsPath);
+    }
+
+    [Theory]
+    [InlineData(CommentsPath, "read:comment:confluence", HttpStatusCode.Forbidden)]
+    [InlineData(CommentsPath, "read:comment:confluence", HttpStatusCode.Unauthorized)]
+    [InlineData(FolderPath, "read:folder:confluence", HttpStatusCode.Forbidden)]
+    [InlineData("/rest/api/user/bulk", "read:content-details:confluence", HttpStatusCode.Forbidden)]
+    [InlineData("/rest/api/search", "read:content-details:confluence", HttpStatusCode.Unauthorized)]
+    public async Task Test_CredentialMissingAScopeASyncNeeds_FailsAtTheContentStep_NamingTheScope(
+        string path, string scope, HttpStatusCode status)
+    {
+        _api.Map(Root + path, _ => FakeAtlassianApi.Json(new { code = (int)status, message = "Unauthorized; scope does not match" }, status));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse("a credential that will fail at sync must not show Working");
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.ContentStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
+        result.Message.Should().Contain($"missing the {scope} scope").And.Contain("Create a new OAuth 2.0 credential");
+        _api.Calls.Keys.Should().NotContain(p => p.EndsWith("/permission/check"), "the test stops at the first missing scope");
+    }
+
+    [Fact]
+    public async Task Test_ContentProbeServerError_IsNotReportedAsAMissingScope()
+    {
+        _api.Map(Root + CommentsPath, _ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.ContentStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
+        result.Message.Should().Contain("Couldn't check the read:comment:confluence scope");
+    }
+
+    [Fact]
+    public async Task Test_FolderProbe_NotFound_StillProvesTheScope()
+    {
+        _api.Map(Root + FolderPath, _ => new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Test_PageInAFolder_ProbesThatFolder()
+    {
+        _api.MapJson(Root + "/api/v2/pages", new { results = new[] { new { id = "4242", parentId = "777", parentType = "folder" } } });
+        _api.MapJson(Root + "/api/v2/folders/777", new { id = "777", title = "Team" });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeTrue();
+        _api.Calls.Should().ContainKey(Root + "/api/v2/folders/777");
+        _api.Calls.Should().NotContainKey(Root + FolderPath);
     }
 
     [Fact]
@@ -240,6 +323,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     [InlineData("token", "Signing in as the service account")]
     [InlineData("identity", "Reading Confluence")]
     [InlineData("spaces", "Listing spaces")]
+    [InlineData("content", "Reading comments, folders and changes")]
     [InlineData("admin", "Checking access permissions")]
     public void StepLabel_IsPlainWords(string step, string label) =>
         AtlassianConnectionTester.StepLabel(step).Should().Be(label);
