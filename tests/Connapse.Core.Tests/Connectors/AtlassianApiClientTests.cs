@@ -474,11 +474,17 @@ public sealed class AtlassianApiClientTests : IDisposable
     }
 
     [Fact]
-    public async Task PageByOffset_StopsOnShortPage()
+    public async Task PageByOffset_StopsOnEmptyPage()
     {
-        _api.Map(JiraRoot + "/rest/api/3/project/search", request => request.RequestUri!.Query.Contains("startAt=2")
-            ? FakeAtlassianApi.Json(new { startAt = 2, maxResults = 2, values = new[] { new { id = "p3" } } })
-            : FakeAtlassianApi.Json(new { startAt = 0, maxResults = 2, values = new[] { new { id = "p1" }, new { id = "p2" } } }));
+        _api.Map(JiraRoot + "/rest/api/3/project/search", request =>
+        {
+            string query = request.RequestUri!.Query;
+            return query.Contains("startAt=3")
+                ? FakeAtlassianApi.Json(new { values = Array.Empty<object>() })
+                : query.Contains("startAt=2")
+                    ? FakeAtlassianApi.Json(new { values = new[] { new { id = "p3" } } })
+                    : FakeAtlassianApi.Json(new { values = new[] { new { id = "p1" }, new { id = "p2" } } });
+        });
 
         var ids = new List<string>();
         await foreach (string id in NewJiraClient().PageByOffsetAsync(
@@ -486,7 +492,40 @@ public sealed class AtlassianApiClientTests : IDisposable
             ids.Add(id);
 
         ids.Should().Equal("p1", "p2", "p3");
-        _api.Requests.Count(r => r.AbsolutePath.EndsWith("/project/search")).Should().Be(2);
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith("/project/search")).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PageByOffset_ServerCapsPageSize_ReadsEverything()
+    {
+        _api.Map(JiraRoot + "/rest/api/3/project/search", request =>
+        {
+            string query = request.RequestUri!.Query;
+            int startAt = int.Parse(System.Text.RegularExpressions.Regex.Match(query, @"startAt=(\d+)").Groups[1].Value);
+            var values = Enumerable.Range(startAt, Math.Min(50, 120 - startAt)).Select(i => new { id = "p" + i }).ToArray();
+            return FakeAtlassianApi.Json(new { startAt, maxResults = 50, total = 120, values });
+        });
+
+        var ids = new List<string>();
+        await foreach (string id in NewJiraClient().PageByOffsetAsync(
+            "rest/api/3/project/search", "values", e => e.GetProperty("id").GetString(), 100, default))
+            ids.Add(id);
+
+        ids.Should().HaveCount(120);
+        ids.Should().OnlyHaveUniqueItems();
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith("/project/search")).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PageByOffset_NonPositivePageSize_Throws()
+    {
+        Func<Task> act = async () =>
+        {
+            await foreach (string _ in NewJiraClient().PageByOffsetAsync(
+                "rest/api/3/project/search", "values", e => e.GetProperty("id").GetString(), 0, default)) { }
+        };
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
     }
 
     private static IEnumerable<string> Issues(JsonElement root) =>

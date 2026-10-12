@@ -151,14 +151,17 @@ public sealed class AtlassianApiClient(
 
     /// <summary>
     /// Walks a Jira list paged by offset (<c>startAt</c>, <c>maxResults</c>), reading each page's items
-    /// from <paramref name="arrayProperty"/>, until <c>isLast</c> is true or a page holds fewer than
-    /// <paramref name="pageSize"/> items. An item <paramref name="item"/> maps to null is skipped.
+    /// from <paramref name="arrayProperty"/>. <c>startAt</c> advances by the items a page returned
+    /// (Jira may cap <c>maxResults</c> below the request) until <c>isLast</c> is true, a page is empty,
+    /// or <c>startAt</c> reaches <c>total</c>. An item <paramref name="item"/> maps to null is skipped.
     /// </summary>
     public async IAsyncEnumerable<T> PageByOffsetAsync<T>(
         string relative, string arrayProperty, Func<JsonElement, T?> item, int pageSize,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        for (int startAt = 0; ; startAt += pageSize)
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
+
+        for (int startAt = 0; ;)
         {
             string path = WithQuery(WithQuery(relative, "startAt", startAt.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 "maxResults", pageSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -184,7 +187,11 @@ public sealed class AtlassianApiClient(
 
             bool isLast = root.ValueKind == JsonValueKind.Object
                 && root.TryGetProperty("isLast", out var last) && last.ValueKind == JsonValueKind.True;
-            if (isLast || count < pageSize)
+            startAt += count;
+            bool reachedTotal = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("total", out var total) && total.ValueKind == JsonValueKind.Number
+                && total.TryGetInt32(out int totalCount) && startAt >= totalCount;
+            if (isLast || count == 0 || reachedTotal)
                 yield break;
         }
     }
