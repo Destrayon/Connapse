@@ -108,6 +108,19 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckAndSaveAsync_TokenEndpointAnswersTwoHundred_StoresNothing()
+    {
+        // Something in front of Atlassian answered a made-up code with a token: not an acceptance.
+        _api.AnswerTokenWith("""{"access_token":"tok-1","token_type":"Bearer"}""");
+
+        var result = await _service.CheckAndSaveAsync("link-client", Secret, Callback, null);
+
+        result.Outcome.Should().Be(AtlassianLinkAppSaveOutcome.Unreachable);
+        await _credentials.DidNotReceiveWithAnyArgs().SaveAtlassianLinkAppAsync(default!, default!, default, default, default);
+        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+    }
+
+    [Fact]
     public async Task SaveAsync_MissingSecret_AsksAtlassianNothing()
     {
         (await _service.SaveAsync("link-client", " ", Callback, null)).Should().Be(AtlassianLinkAppSaveOutcome.MissingFields);

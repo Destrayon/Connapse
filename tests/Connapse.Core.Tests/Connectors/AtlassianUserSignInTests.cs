@@ -84,6 +84,33 @@ public class AtlassianUserSignInTests
             .And.Contain($"\"code\":\"{AtlassianUserSignIn.CheckCode}\"");
     }
 
+    // The check sends a code Atlassian never issued, so a 2xx is not Atlassian accepting the client:
+    // it is a proxy, a captive portal or something else answering in its place.
+    [Theory]
+    [InlineData("<html><body>Sign in to the guest network</body></html>", "text/html")]
+    [InlineData("", "application/json")]
+    [InlineData("""{"access_token":"tok-1","token_type":"Bearer"}""", "application/json")]
+    public async Task CheckAppWithDetailAsync_AnyTwoHundred_IsUnknown(string body, string contentType)
+    {
+        var token = new TokenEndpoint(HttpStatusCode.OK, body, contentType: contentType);
+
+        var result = await SignIn(token).CheckAppWithDetailAsync("client-9", "secret-9", Redirect);
+
+        result.Result.Should().Be(AtlassianLinkAppCheck.Unknown);
+        result.Detail.Should().Be("HTTP 200 from the token endpoint, which should refuse a made-up code; check for a proxy");
+    }
+
+    [Fact]
+    public async Task CheckStoredAppAsync_TwoHundred_RecordsNothing()
+    {
+        var credentials = Credentials();
+
+        (await SignIn(new TokenEndpoint(HttpStatusCode.OK, """{"access_token":"tok-1"}"""), credentials).CheckStoredAppAsync(Redirect))
+            .Should().Be(AtlassianLinkAppCheck.Unknown);
+
+        await credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+    }
+
     [Fact]
     public async Task CheckAppAsync_AccessDenied_IsRejected()
     {
@@ -243,7 +270,8 @@ public class AtlassianUserSignInTests
         SignIn((HttpMessageHandler)api, credentials);
 
     /// <summary>Atlassian's token endpoint answering every request the same way, or unreachable.</summary>
-    private sealed class TokenEndpoint(HttpStatusCode status = HttpStatusCode.OK, string? json = null, bool throws = false) : HttpMessageHandler
+    private sealed class TokenEndpoint(
+        HttpStatusCode status = HttpStatusCode.OK, string? json = null, bool throws = false, string contentType = "application/json") : HttpMessageHandler
     {
         public string? Body { get; private set; }
         public int Calls { get; private set; }
@@ -256,7 +284,7 @@ public class AtlassianUserSignInTests
             Body = await request.Content!.ReadAsStringAsync(ct);
             return new HttpResponseMessage(status)
             {
-                Content = new StringContent(json ?? "", System.Text.Encoding.UTF8, "application/json"),
+                Content = new StringContent(json ?? "", System.Text.Encoding.UTF8, contentType),
             };
         }
     }
