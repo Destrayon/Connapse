@@ -140,7 +140,7 @@
                 <tbody>
                     @foreach (var source in sources)
                     {
-                        <tr class="@(source.Enabled ? "" : "opacity-50")">
+                        <tr class="@(source.Enabled ? "" : "source-paused")">
                             <td>
                                 <div class="fw-medium">@source.Name</div>
                                 @if (!string.IsNullOrWhiteSpace(source.Description))
@@ -210,7 +210,7 @@
 
                         @if (source.LastSyncStatus == SyncStatus.Succeeded && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 <td colspan="7" class="pt-0 border-top-0">
                                     @if (SourceSyncNotice.KindOf(source.LastSyncError) == SyncNoticeKind.Waiting)
                                     {
@@ -239,7 +239,7 @@
                         @if (source.LastSyncStatus == SyncStatus.Failed && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
                             var (failure, failureDetail) = SyncErrorText.Split(source.LastSyncError);
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 @* Administrators only: a provider's failure text routinely quotes the
                                    resource that failed, which is the same infrastructure detail the
                                    API withholds from non-admin readers. *@
@@ -269,7 +269,7 @@
 
                         @if (isAdmin && _unlocated.TryGetValue(source.Id, out int unlocatedCount))
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 <td colspan="7" class="pt-0 border-top-0">
                                     <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small" role="status">
                                         <strong>@unlocatedCount</strong> document@(unlocatedCount == 1 ? "" : "s")
@@ -287,7 +287,7 @@
 
                         @if (source.WithheldDeletions is { } withheld && isAdmin)
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 @* Administrators only, matching the sync-error row: the count
                                    is harmless, but the action it offers is destructive. *@
                                 <td colspan="7" class="pt-0 border-top-0">
