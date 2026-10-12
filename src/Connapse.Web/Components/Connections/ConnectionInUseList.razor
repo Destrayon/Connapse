@@ -1,0 +1,22 @@
+@using Connapse.Core
+
+@* The sources that stop a connection being deleted, each linking to its own page. *@
+
+<p class="mb-2" id="@($"{Id}-text")">
+    <strong>@ConnectionName</strong> can't be deleted while @(Sources.Count == 1 ? "this source uses" : $"these {Sources.Count} sources use") it.
+    Delete @(Sources.Count == 1 ? "it" : "them") on the <a href="/sources">Sources page</a> first.
+</p>
+<ul class="mb-0" id="@Id" aria-labelledby="@($"{Id}-text")">
+    @foreach (Source source in Sources)
+    {
+        <li @key="source.Id"><a href="@($"/sources/{source.Id}")">@source.Name</a></li>
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired] public string ConnectionName { get; set; } = "";
+
+    [Parameter, EditorRequired] public IReadOnlyList<Source> Sources { get; set; } = [];
+
+    [Parameter] public string Id { get; set; } = "connection-in-use";
+}

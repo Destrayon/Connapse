@@ -26,6 +26,14 @@ public sealed class ConnectionAdminService(IConnectionStore connections, ISource
     public const int MaxNameLength = 128;
 
     /// <summary>
+    /// Why a connection can't be deleted yet, naming every source that blocks it. The Connections
+    /// page and the REST API both say this, the page with each name linking to its source.
+    /// </summary>
+    public static string InUseMessage(string connectionName, IReadOnlyCollection<Source> blocking) =>
+        $"'{connectionName}' can't be deleted while {blocking.Count} {(blocking.Count == 1 ? "source uses" : "sources use")} it: "
+        + $"{string.Join(", ", blocking.Select(s => s.Name))}. Delete {(blocking.Count == 1 ? "that source" : "those sources")} first.";
+
+    /// <summary>
     /// Updates a connection and writes <c>connection.updated</c> with the old and new names. Never
     /// records a config or secret value, only whether each changed. Null when the connection is gone.
     /// </summary>
