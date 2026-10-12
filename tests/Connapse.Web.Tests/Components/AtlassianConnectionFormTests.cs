@@ -222,6 +222,33 @@ public class AtlassianConnectionFormTests : IDisposable
         cut.FindAll("#atlassian-secret-kept").Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancel_WhileTheCheckRuns_StopsItAndSavesNothing(bool checkIgnoresCancellation)
+    {
+        stub.AcceptCredentials = true;
+        stub.Hold(checkIgnoresCancellation);
+        store.CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(AtlassianConnection());
+        bool created = false, cancelled = false;
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p
+            .Add(f => f.OnCreated, (Connection _) => created = true)
+            .Add(f => f.OnCancel, () => cancelled = true));
+
+        FillAndSave(cut);
+        await stub.Waiting.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cut.Find("#atlassian-client-secret").HasAttribute("disabled").Should().BeTrue("the secret can't change mid-check");
+        cut.Find("#atlassian-cancel").Click();
+        stub.Release(); // a check that ignored the cancellation finishes, and still nothing is saved
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-save").HasAttribute("disabled").Should().BeFalse());
+        cancelled.Should().BeTrue();
+        created.Should().BeFalse();
+        await store.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
+        cut.FindAll("#atlassian-save-error").Should().BeEmpty("cancelling is not an error");
+    }
+
     [Fact]
     public void Save_WhenAProbeFails_KeepsTheSecretForRetryButOutOfMarkupAndBoundFields()
     {
@@ -563,6 +590,23 @@ public class AtlassianConnectionFormTests : IDisposable
             .And.Contain("await FocusAfterSwapAsync();");
     }
 
+    /// <summary>
+    /// Every provider's edit on the Connections page is saved as the REST API renames a site, so a
+    /// taken name is refused in plain words under the Name field and no exception text is shown.
+    /// </summary>
+    [Fact]
+    public void ConnectionsPage_SavesEditsAsTheApiRenames_AndShowsNoRawExceptionText()
+    {
+        string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
+
+        page.Should().Contain("await Admin.SaveAsync(editing!.Id,").And.NotContain("Admin.UpdateAsync(");
+        page.Should().Contain("ConnectionRenameOutcome.NameTaken")
+            .And.Contain("await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));")
+            .And.Contain("<div id=\"connection-name-error\" class=\"invalid-feedback d-block\" role=\"alert\">");
+        page.Should().NotContain("Fail(ex.Message)", "the exception goes to the log and the page says what happened");
+    }
+
     [Fact]
     public void CopyRequiredScopes_LeavesOutTheAttachmentPermission_WhichHasItsOwnCopy()
     {
@@ -684,10 +728,27 @@ public class AtlassianConnectionFormTests : IDisposable
         public List<string> Requests { get; } = [];
         public List<string> TokenBodies { get; } = [];
 
+        private TaskCompletionSource? held;
+        private bool holdIgnoresCancellation;
+
+        /// <summary>The token request waits until <see cref="Release"/> or until the caller cancels.</summary>
+        public void Hold(bool ignoreCancellation = false) =>
+            (held, holdIgnoresCancellation) = (new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), ignoreCancellation);
+
+        public void Release() => held?.TrySetResult();
+
+        /// <summary>Set once the held request is waiting, so a test can act while the check runs.</summary>
+        public TaskCompletionSource Waiting { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             string path = request.RequestUri!.AbsolutePath;
             lock (Requests) Requests.Add(path);
+            if (held is not null && path.EndsWith("/oauth/token", StringComparison.Ordinal))
+            {
+                Waiting.TrySetResult();
+                await (holdIgnoresCancellation ? held.Task : held.Task.WaitAsync(ct));
+            }
             string? json = null;
 
             if (path.EndsWith("/oauth/token", StringComparison.Ordinal))

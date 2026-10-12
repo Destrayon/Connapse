@@ -1,0 +1,33 @@
+@*
+    The outcome of the last action on the Providers page, at the top of the page for every
+    provider. Both regions are always in the page, so a message added to either is announced:
+    a success politely, a failure at once.
+*@
+<div id="provider-page-status" role="status">
+    @if (Message is { Success: true } success)
+    {
+        <div class="alert alert-success alert-dismissible fade show">
+            <span class="bi-check-circle me-2" aria-hidden="true"></span>@success.Text
+            @success.Extra
+            <button type="button" class="btn-close" aria-label="Dismiss" @onclick="OnDismiss"></button>
+        </div>
+    }
+</div>
+<div id="provider-page-alert" role="alert">
+    @if (Message is { Success: false } failure)
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            <span class="bi-x-circle me-2" aria-hidden="true"></span>@failure.Text
+            @failure.Extra
+            <button type="button" class="btn-close" aria-label="Dismiss" @onclick="OnDismiss"></button>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The message to show, or null for none.</summary>
+    [Parameter] public ProviderPageMessage? Message { get; set; }
+
+    /// <summary>The dismiss button was pressed.</summary>
+    [Parameter] public EventCallback OnDismiss { get; set; }
+}

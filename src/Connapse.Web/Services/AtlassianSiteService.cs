@@ -137,6 +137,9 @@ public sealed class AtlassianSiteService(
 
         string configJson = JsonSerializer.Serialize(new { siteUrl = normalizedSite, cloudId, clientId = trimmedClientId });
 
+        // Cancelled while the check ran: stop before anything is saved.
+        ct.ThrowIfCancellationRequested();
+
         Connection connection;
         try
         {

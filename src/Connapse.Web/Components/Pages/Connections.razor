@@ -28,6 +28,7 @@
 @inject NavigationManager Navigation
 @inject IAuditLogger AuditLogger
 @inject ConnectionAdminService Admin
+@inject ILogger<Connections> Logger
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -542,9 +543,17 @@
            field stays in place, disabled, saying so. *@
         <div class="col-12" style="max-width:32rem">
             <label class="form-label" for="connection-name">Name</label>
-            <input id="connection-name" class="form-control" @bind="form.Name"
+            <input @ref="nameInput" id="connection-name" class="form-control @(nameError is null ? null : "is-invalid")" @bind="form.Name"
+                   @bind:after="() => nameError = null"
                    placeholder="@(NewAtlassianSite ? "your-site.atlassian.net" : "prod-docs-bucket")"
-                   disabled="@NewAtlassianSite" aria-describedby="connection-name-help" />
+                   disabled="@NewAtlassianSite" aria-invalid="@(nameError is null ? "false" : "true")"
+                   aria-describedby="@(nameError is null ? "connection-name-help" : "connection-name-error connection-name-help")" />
+            @if (nameError is not null)
+            {
+                <div id="connection-name-error" class="invalid-feedback d-block" role="alert">
+                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@nameError
+                </div>
+            }
             <div id="connection-name-help" class="form-text">
                 @if (NewAtlassianSite)
                 {
@@ -2434,6 +2443,11 @@
         try
         {
             var form = BuildLocalForm(result);
+            if (await Admin.NameTakenAsync(null, form.Name))
+            {
+                Fail(ConnectionAdminService.NameTakenMessage(form.Name));
+                return;
+            }
 
             await ConnectionStore.CreateAsync(
                 new CreateConnectionRequest(
@@ -2446,7 +2460,8 @@
         }
         catch (Exception ex)
         {
-            Fail(ex.Message);
+            Logger.LogWarning(ex, "Could not save a local folder connection");
+            Fail(SaveFailedMessage);
         }
         finally
         {
@@ -2469,6 +2484,7 @@
         isNew = true;
         focusAfterSwap = () => formHeading.FocusAsync();
         form = new ConnectionForm();
+        nameError = null;
         probeTarget = null;
         testMessage = null;
     }
@@ -2481,6 +2497,7 @@
         focusAfterSwap = () => formHeading.FocusAsync();
         atlassianReplacing = false;
         form = ConnectionForm.FromConnection(connection);
+        nameError = null;
         editingGitHubInstallationId = form.GitHubInstallationId;
         editingGitHubAccount = form.GitHubAccount;
         // Offered as the probe default: an allowed location is, by definition, somewhere this
@@ -2501,9 +2518,26 @@
         form.FirstAllowedLocation()
         ?? (form.Provider == ConnectionProvider.S3 ? "my-bucket" : "my-container");
 
+    // A name the save refused, shown under the Name field in plain words.
+    private string? nameError;
+    private ElementReference nameInput;
+
+    /// <summary>Shows a refused name under the Name field and moves focus there.</summary>
+    private async Task RefuseNameAsync(string message)
+    {
+        nameError = message;
+        StateHasChanged();
+        try { await nameInput.FocusAsync(); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException) { } // prerender or a closed circuit
+    }
+
+    /// <summary>What the page says when a save fails for a reason it can't name; the exception goes to the log.</summary>
+    private const string SaveFailedMessage = "The connection could not be saved. Nothing was changed; try again.";
+
     private async Task Save()
     {
         statusMessage = null;
+        nameError = null;
 
         if (form.Validate(isNew) is { } problem)
         {
@@ -2573,6 +2607,12 @@
 
             if (isNew)
             {
+                if (await Admin.NameTakenAsync(null, form.Name))
+                {
+                    await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));
+                    return;
+                }
+
                 var created = await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
@@ -2589,10 +2629,22 @@
                 // form opening and saving. Reporting "saved" there would be a lie.
                 // A null config leaves the stored one alone. An Atlassian site's config belongs to
                 // AtlassianSiteService, so a rename here must not rewrite it.
-                var updated = await Admin.UpdateAsync(editing!.Id,
+                // Saved as the REST API renames, so a taken name is refused in plain words.
+                var saved = await Admin.SaveAsync(editing!.Id,
                     new UpdateConnectionRequest(form.Name.Trim(), form.OwnsConfig ? config : null, secret));
                 ForgetGitHubInstallations(form.Provider);
 
+                if (saved.Outcome == ConnectionRenameOutcome.NameTaken)
+                {
+                    await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));
+                    return;
+                }
+                if (saved.Outcome == ConnectionRenameOutcome.InvalidName)
+                {
+                    await RefuseNameAsync(ConnectionAdminService.InvalidNameMessage);
+                    return;
+                }
+                var updated = saved.Connection;
                 if (updated is null)
                 {
                     Fail($"Connection '{editing.Name}' no longer exists — it was deleted elsewhere.");
@@ -2611,7 +2663,8 @@
         }
         catch (Exception ex)
         {
-            Fail(ex.Message);
+            Logger.LogWarning(ex, "Could not save a connection");
+            Fail(SaveFailedMessage);
         }
         finally
         {
@@ -2679,7 +2732,8 @@
         {
             // Broad on purpose: an exception escaping a Blazor event handler tears down the
             // circuit and the operator sees the page die rather than a message.
-            Fail(ex.Message);
+            Logger.LogWarning(ex, "Could not delete connection {ConnectionId}", connection.Id);
+            Fail($"Connection '{connection.Name}' could not be deleted. Nothing was changed; try again.");
         }
     }
 

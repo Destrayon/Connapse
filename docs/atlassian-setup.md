@@ -320,7 +320,7 @@ are images or other files no parser can read. Pages and comments still synced.
 
 ### Couldn't reach Atlassian
 
-**Symptom:** **Check and save** or **Test connection** on the **Linking app** card answers *Couldn't reach
+**Symptom:** **Check and save** or **Recheck** on the **Linking app** card answers *Couldn't reach
 Atlassian…*, or a Confluence source failed with *Confluence on this site didn't answer properly, so
 nothing changed this cycle.*, *Atlassian's sign-in service answered with a redirect…* or *Atlassian's sign-in service answered without an access token.* These don't mark the site **Needs new credentials**: its credential may still be fine.
 **Likely cause:** this server can't reach Atlassian over HTTPS (a firewall, a proxy, or DNS), or

@@ -1208,7 +1208,7 @@ A **source** is an external system Connapse mirrors read-only — an S3 bucket, 
 | GET | `/api/sources/{id}` | Viewer |
 | POST | `/api/sources` | **Admin** |
 | PATCH | `/api/sources/{id}` | **Admin** |
-| DELETE | `/api/sources/{id}` | **Admin** |
+| DELETE | `/api/sources/{id}?confirmName=<name>` | **Admin** |
 | POST | `/api/sources/{id}/sync` | **Admin** |
 | POST | `/api/sources/{id}/retry-failed` | **Admin** |
 
@@ -1285,6 +1285,14 @@ If a source includes attachments but the site's credential lacks `read:attachmen
 | `maxAttachmentMb` | It is not a whole number, or is outside 1 to 100 while attachments are on |
 
 The Sources page's **Edit** view changes the same two settings under the same rules.
+
+### Delete Source
+
+**Endpoint**: `DELETE /api/sources/{id}?confirmName=<name>`
+
+Deletes the source and every document Connapse indexed from it; the data in the external system is untouched. `confirmName` must equal the source's name, the value the Sources page asks you to type, or the answer is `400` with `field: "confirmName"` and an `error` saying how many indexed documents the delete would remove. `204` when deleted, `404` if there is no such source.
+
+> **Changed:** `confirmName` is required. A client that sends `DELETE /api/sources/{id}` without it now gets `400` and nothing is deleted.
 
 ### Source Response
 
@@ -1404,7 +1412,7 @@ Base path: `/api/v1/atlassian/linking-app`. Administrator only. The app people s
 |--------|-------|---------|
 | GET | `/` | `{ clientId, permission, signInEnabled, lastCheckedAt, lastCheckAccepted, lastUsedForSignInAt, peopleLinked }`. `lastCheckAccepted` is `null` before a check; `peopleLinked` is `null` if it can't be counted. `404` when no app is stored |
 | PUT | `/` | `{ "clientId", "clientSecret", "replaceExisting"? }`. Asks Atlassian whether it accepts the pair and stores it only if it does. Saving turns sign-in on. When an app is already stored, `replaceExisting: true` is required, as the page asks you to choose **Check and replace**: every new sign-in then goes through the new app, and people who linked keep their links. Without it the answer is `409` with `{ error, field: "replaceExisting" }`, before Atlassian is asked and with nothing changed. `200` with the app as `GET` returns it. `400` if a field is missing, `422` with `{ error, troubleshootingUrl, detail }` if Atlassian rejects the pair, `502` with `{ error, troubleshootingUrl, detail }` if Atlassian can't be reached or gives no clear answer. `detail` is Atlassian's own answer, as the card's **Details** shows it: the status and Atlassian's error code (such as `HTTP 401, access_denied`), or why there was none; never the secret. Nothing is stored on a failure. Audited as `provider.credential.check_started` and `provider.credential.checked` (sharing an attempt id, with the time the check took), then `provider.credential.saved` |
-| POST | `/check` | Checks the stored pair with Atlassian again, as **Test connection** on the card does, and records the answer as the last check: `200` with `{ result, message, troubleshootingUrl, detail }`, where `result` is `accepted`, `rejected` or `unknown` (couldn't reach Atlassian; nothing recorded), `troubleshootingUrl` is the guide entry (`null` when accepted) and `detail` is Atlassian's own answer as on the card (`null` when accepted). `404` when no app is stored. Audited as `provider.credential.check_started` and `provider.credential.checked` |
+| POST | `/check` | Checks the stored pair with Atlassian again, as **Recheck** on the card does, and records the answer as the last check: `200` with `{ result, message, troubleshootingUrl, detail }`, where `result` is `accepted`, `rejected` or `unknown` (couldn't reach Atlassian; nothing recorded), `troubleshootingUrl` is the guide entry (`null` when accepted) and `detail` is Atlassian's own answer as on the card (`null` when accepted). `404` when no app is stored. Audited as `provider.credential.check_started` and `provider.credential.checked` |
 | PUT | `/sign-in` | `{ "signInEnabled": false }` turns Atlassian sign-in off: nobody new can link, and people who linked keep their links. `true` turns it back on. `200` with the app. `400` without `signInEnabled`, `404` when no app is stored. Audited as `provider.sign_in.disabled` or `provider.sign_in.enabled` |
 | DELETE | `/?confirmClientId=<client ID>` | Removes the app. `confirmClientId` must equal the stored client ID, the value the page asks you to type, or the answer is `400`. People who linked keep their links, but nobody can link until an app is added again. `204` when removed, `404` when none is stored. Audited as `provider.credential.deleted` |
 
