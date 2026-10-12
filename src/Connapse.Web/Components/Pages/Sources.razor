@@ -932,8 +932,7 @@
     private string ConnectionName(Guid? connectionId) =>
         connectionId is Guid id && connectionNames.TryGetValue(id, out var name)
             ? name
-            // Null here is a connection-less (Provider-based) source; connector UI for those
-            // is later work in epic #508. A non-null id missing from the dictionary means the
+            // Null here is a connection-less (Provider-based) source. A non-null id missing from the dictionary means the
             // FK target vanished — the sync service skips it silently, so it's worth naming
             // rather than rendering a blank cell.
             : connectionId is null ? "(no connection)" : "(missing connection)";
