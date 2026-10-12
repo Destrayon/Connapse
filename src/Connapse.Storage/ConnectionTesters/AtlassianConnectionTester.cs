@@ -19,32 +19,84 @@ public sealed record AtlassianSiteTestRequest(string SiteUrl, string ClientId, s
 }
 
 /// <summary>One scope the service account's credential needs, and what Connapse does with it.</summary>
+/// <param name="Product">The product the scope belongs to: <c>confluence</c> or <c>jira</c>.</param>
 /// <param name="Optional">Needed only by an option a source can leave off.</param>
-public sealed record AtlassianScope(string Name, string Reason, bool Optional = false);
+public sealed record AtlassianScope(string Name, string Reason, string Product, bool Optional = false);
 
 /// <summary>
-/// The Confluence scopes a site's credential needs. Comments are always indexed with their page, so
-/// their scope is required; attachments are a per-source option, so theirs is not, and the site test
-/// never fails without it.
+/// The scopes a site's credential needs, per product. Comments are always indexed with their page or
+/// issue, so their scope is required; attachments are a per-source option, so theirs is not, and the
+/// site test never fails without it.
 /// </summary>
 public static class AtlassianSiteScopes
 {
+    public const string ConfluenceProduct = "confluence";
+    public const string JiraProduct = "jira";
+
     public const string ContentPermission = "read:content.permission:confluence";
     public const string Comment = "read:comment:confluence";
     public const string Attachment = "read:attachment:confluence";
     public const string Folder = "read:folder:confluence";
     public const string ContentDetails = "read:content-details:confluence";
 
-    public static IReadOnlyList<AtlassianScope> All { get; } =
+    public const string JiraUser = "read:user:jira";
+    public const string JiraProject = "read:project:jira";
+    public const string JiraIssueDetails = "read:issue-details:jira";
+    public const string JiraIssue = "read:issue:jira";
+    public const string JiraComment = "read:comment:jira";
+    public const string JiraAttachment = "read:attachment:jira";
+    public const string JiraPermission = "read:permission:jira";
+    public const string JiraGroup = "read:group:jira";
+    public const string JiraProjectRole = "read:project-role:jira";
+
+    public static IReadOnlyList<AtlassianScope> Confluence { get; } =
     [
-        new("read:space:confluence", "list the site's spaces so you can choose which to index"),
-        new("read:page:confluence", "read page text so it can be searched"),
-        new(Comment, "read page comments, which are indexed with every page"),
-        new(Attachment, "read attached files; needed only if a source includes attachments", Optional: true),
-        new(Folder, "follow folders so each page keeps its place in the space"),
-        new(ContentDetails, "find what changed since the last sync and look up people"),
-        new(ContentPermission, "check which pages each person may read, so search shows them only those"),
+        new("read:space:confluence", "list the site's spaces so you can choose which to index", ConfluenceProduct),
+        new("read:page:confluence", "read page text so it can be searched", ConfluenceProduct),
+        new(Comment, "read page comments, which are indexed with every page", ConfluenceProduct),
+        new(Attachment, "read attached files; needed only if a source includes attachments", ConfluenceProduct, Optional: true),
+        new(Folder, "follow folders so each page keeps its place in the space", ConfluenceProduct),
+        new(ContentDetails, "find what changed since the last sync and look up people", ConfluenceProduct),
+        new(ContentPermission, "check which pages each person may read, so search shows them only those", ConfluenceProduct),
     ];
+
+    /// <summary>
+    /// The Jira scopes: every granular scope Atlassian lists for the REST v3 calls Connapse makes
+    /// (OpenAPI spec of 2026-10-12). Many are needed only because Jira returns that data with an
+    /// issue or project, and a call is refused unless the token has every scope it lists.
+    /// </summary>
+    public static IReadOnlyList<AtlassianScope> Jira { get; } =
+    [
+        new(JiraProject, "list the site's projects so you can choose which to index", JiraProduct),
+        new(JiraIssue, "read issue text so it can be searched", JiraProduct),
+        new(JiraIssueDetails, "search issues and find what changed since the last sync", JiraProduct),
+        new(JiraComment, "read issue comments, which are indexed with every issue", JiraProduct),
+        new(JiraAttachment, "read attached files; needed only if a source includes attachments", JiraProduct, Optional: true),
+        new(JiraPermission, "check which issues each person may read, so search shows them only those", JiraProduct),
+        new(JiraGroup, "read group membership, to check who may read a comment restricted to a group", JiraProduct),
+        new(JiraProjectRole, "read project role membership, to check who may read a comment restricted to a role", JiraProduct),
+        new("read:issue-security-level:jira", "read each issue's security level, to check who may read it", JiraProduct),
+        new(JiraUser, "look up people, and the service account itself", JiraProduct),
+        new("read:application-role:jira", "read people, which Jira returns with the products they can use", JiraProduct),
+        new("read:avatar:jira", "read people and projects, which Jira returns with their avatars", JiraProduct),
+        new("read:audit-log:jira", "search issues, which Jira requires it for", JiraProduct),
+        new("read:comment.property:jira", "read comments, which Jira returns with their properties", JiraProduct),
+        new("read:field:jira", "read issue fields so their text can be searched", JiraProduct),
+        new("read:field-configuration:jira", "read which fields each issue has", JiraProduct),
+        new("read:issue-meta:jira", "read issues, which Jira returns with their metadata", JiraProduct),
+        new("read:issue-type:jira", "read issue types, which Jira returns with each issue and project", JiraProduct),
+        new("read:issue-type-hierarchy:jira", "read issue parents, so each issue keeps its place", JiraProduct),
+        new("read:issue.changelog:jira", "read issues, which Jira returns with their history", JiraProduct),
+        new("read:issue.vote:jira", "read issues, which Jira returns with their votes", JiraProduct),
+        new("read:project-category:jira", "read projects, which Jira returns with their category", JiraProduct),
+        new("read:project-version:jira", "read projects and issues, which Jira returns with their versions", JiraProduct),
+        new("read:project.component:jira", "read projects and issues, which Jira returns with their components", JiraProduct),
+        new("read:project.property:jira", "read projects, which Jira returns with their properties", JiraProduct),
+        new("read:status:jira", "read each issue's status", JiraProduct),
+    ];
+
+    /// <summary>Every product's scopes, Confluence first.</summary>
+    public static IReadOnlyList<AtlassianScope> All { get; } = [.. Confluence, .. Jira];
 
     /// <summary>
     /// The scopes every passing test exercises: all the required ones. The attachment scope is
@@ -52,6 +104,25 @@ public static class AtlassianSiteScopes
     /// </summary>
     public static IReadOnlyList<string> ProvenByTest { get; } =
         ["read:space:confluence", "read:page:confluence", Comment, Folder, ContentDetails, ContentPermission];
+
+    /// <summary>
+    /// The Jira scopes a passing Jira probe names: one per call it makes. The others are confirmed
+    /// only when Atlassian lists them as granted.
+    /// </summary>
+    public static IReadOnlyList<string> JiraProvenByTest { get; } =
+        [JiraUser, JiraProject, JiraIssueDetails, JiraIssue, JiraComment, JiraPermission, JiraGroup, JiraProjectRole];
+
+    /// <summary>A product's scopes, in the order the page lists them.</summary>
+    public static IReadOnlyList<AtlassianScope> Of(string product) =>
+        product == JiraProduct ? Jira : Confluence;
+
+    /// <summary>A product's name as the page shows it.</summary>
+    public static string DisplayName(string product) => product switch
+    {
+        ConfluenceProduct => "Confluence",
+        JiraProduct => "Jira",
+        _ => product,
+    };
 
     /// <summary>The scope's reason, as the list above words it.</summary>
     public static string ReasonOf(string scope) =>
@@ -73,6 +144,9 @@ public static class AtlassianSiteTroubleshooting
     public const string NotAdministrator = "not-confluence-administrator";
     public const string MissingScope = "missing-scope";
     public const string NothingToCheckYet = "site-has-no-pages-or-no-other-users-yet";
+    public const string CantReadJira = "cant-read-jira";
+    public const string NotJiraAdministrator = "not-jira-administrator";
+    public const string CantReadJiraMembership = "cant-read-jira-membership";
 
     /// <summary>A synced space answered 403 or 404: access was taken away, or the space was deleted.</summary>
     public const string SpaceUnreadable = "space-can-no-longer-be-read";
@@ -90,7 +164,8 @@ public static class AtlassianSiteTroubleshooting
     public const string General = "troubleshooting";
 
     public static IReadOnlyList<string> All { get; } =
-        [SiteNotFound, CredentialsRejected, CantReadConfluence, NoSpaces, NotAdministrator, MissingScope, NothingToCheckYet, General];
+        [SiteNotFound, CredentialsRejected, CantReadConfluence, NoSpaces, NotAdministrator, MissingScope, NothingToCheckYet,
+         CantReadJira, NotJiraAdministrator, CantReadJiraMembership, General];
 
     /// <summary>The entries only sync, the spaces dialog and the linking app link to; the site test never fails with these.</summary>
     public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, Unreachable, AttachmentsSkipped];
@@ -137,9 +212,18 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     public const string SpacesStep = "spaces";
     public const string ContentStep = "content";
     public const string AdminStep = "admin";
+    public const string JiraIdentityStep = "jira-identity";
+    public const string JiraProjectsStep = "jira-projects";
+    public const string JiraContentStep = "jira-content";
+    public const string JiraAdminStep = "jira-admin";
+    public const string JiraMembershipStep = "jira-membership";
 
     /// <summary>Every step in the order the test runs them.</summary>
-    public static IReadOnlyList<string> Steps { get; } = [SiteStep, TokenStep, IdentityStep, SpacesStep, ContentStep, AdminStep];
+    public static IReadOnlyList<string> Steps { get; } =
+    [
+        SiteStep, TokenStep, IdentityStep, SpacesStep, ContentStep, AdminStep,
+        JiraIdentityStep, JiraProjectsStep, JiraContentStep, JiraAdminStep, JiraMembershipStep,
+    ];
 
     /// <summary>What a step does, in the words an admin sees.</summary>
     public static string StepLabel(string? step) => step switch
@@ -150,6 +234,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         SpacesStep => "Listing spaces",
         ContentStep => "Reading comments, folders and changes",
         AdminStep => "Checking access permissions",
+        JiraIdentityStep => "Reading Jira",
+        JiraProjectsStep => "Listing Jira projects",
+        JiraContentStep => "Reading issues and comments",
+        JiraAdminStep => "Checking Jira access permissions",
+        JiraMembershipStep => "Reading Jira groups and project roles",
         _ => "Checking the connection",
     };
 
@@ -159,7 +248,10 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         TokenStep => AtlassianSiteTroubleshooting.CredentialsRejected,
         IdentityStep => AtlassianSiteTroubleshooting.CantReadConfluence,
         SpacesStep => AtlassianSiteTroubleshooting.NoSpaces,
-        ContentStep => AtlassianSiteTroubleshooting.MissingScope,
+        ContentStep or JiraContentStep => AtlassianSiteTroubleshooting.MissingScope,
+        JiraIdentityStep or JiraProjectsStep => AtlassianSiteTroubleshooting.CantReadJira,
+        JiraAdminStep => AtlassianSiteTroubleshooting.NotJiraAdministrator,
+        JiraMembershipStep => AtlassianSiteTroubleshooting.CantReadJiraMembership,
         _ => AtlassianSiteTroubleshooting.NotAdministrator,
     };
 
@@ -246,42 +338,59 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
             var results = new List<ProductProbeResult>();
             foreach (IAtlassianProductProbe probe in ProductProbes())
-                results.Add(await probe.RunAsync(site, request.ClientSecret, tokens, run, linked));
+            {
+                try
+                {
+                    results.Add(await probe.RunAsync(site, request.ClientSecret, tokens, run, linked));
+                }
+                catch (Exception ex) when (Unanswered(ex, ct) is { } failure)
+                {
+                    // Ends this product's probe at the step it was on; the next product still runs, so a
+                    // Confluence rate limit can't hide a working Jira.
+                    results.Add(run.For(probe.Product).Fail(failure.Message, failure.Troubleshoot, failure.Detail));
+                }
+            }
 
             return Combine(results, run, siteUrl, cloudId);
         }
-        // None of these is about the credential, so none may point at the step's usual entry (at the
-        // sign-in step, "Client ID or secret rejected").
-        catch (AtlassianRateLimitedException ex)
+        catch (Exception ex) when (Unanswered(ex, ct) is { } failure)
         {
-            return run.Fail($"{ex.Message} Atlassian is limiting requests; wait, then test again.",
-                AtlassianSiteTroubleshooting.General);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            // This test's own time limit, or the HTTP client's.
-            return run.Fail(
-                "Atlassian didn't answer in time. Wait a minute and test again; if it keeps happening, check that this server "
-                + "can reach api.atlassian.com and auth.atlassian.com over HTTPS.",
-                AtlassianSiteTroubleshooting.General, "No answer within the time limit.");
-        }
-        catch (HttpRequestException ex)
-        {
-            return run.Fail(
-                "Couldn't reach Atlassian from this server. Check that it can reach api.atlassian.com, auth.atlassian.com and "
-                + "your site's address over HTTPS, then test again.",
-                AtlassianSiteTroubleshooting.General, Describe(ex));
+            return run.Fail(failure.Message, failure.Troubleshoot, failure.Detail);
         }
     }
 
+    /// <summary>
+    /// A rate limit, a timeout or a connection that failed, in the words a failure shows; null for
+    /// any other exception.
+    /// </summary>
+    private static (string Message, string Troubleshoot, string? Detail)? Unanswered(Exception ex, CancellationToken ct) => ex switch
+    {
+        // None of these is about the credential, so none may point at the step's usual entry (at the
+        // sign-in step, "Client ID or secret rejected").
+        AtlassianRateLimitedException =>
+            ($"{ex.Message} Atlassian is limiting requests; wait, then test again.", AtlassianSiteTroubleshooting.General, null),
+        // This test's own time limit, or the HTTP client's.
+        OperationCanceledException when !ct.IsCancellationRequested =>
+            ("Atlassian didn't answer in time. Wait a minute and test again; if it keeps happening, check that this server "
+                + "can reach api.atlassian.com and auth.atlassian.com over HTTPS.",
+                AtlassianSiteTroubleshooting.General, "No answer within the time limit."),
+        HttpRequestException =>
+            ("Couldn't reach Atlassian from this server. Check that it can reach api.atlassian.com, auth.atlassian.com and "
+                + "your site's address over HTTPS, then test again.",
+                AtlassianSiteTroubleshooting.General, Describe(ex)),
+        _ => null,
+    };
+
     /// <summary>The products a site test probes once the token works, in the order they are reported.</summary>
-    private IReadOnlyList<IAtlassianProductProbe> ProductProbes() => [new ConfluenceSiteProbe(httpClients, time)];
+    private IReadOnlyList<IAtlassianProductProbe> ProductProbes() =>
+        [new ConfluenceSiteProbe(httpClients, time), new JiraSiteProbe(httpClients, time)];
 
     /// <summary>
     /// The test passes if any product passed, warns if none passed but one warned, and otherwise fails
     /// with the first product's failure. <c>Details["products"]</c> names the products that passed or warned,
     /// <c>Details["scopes"]</c> is the union of their confirmed scopes, and <c>Details["product:{name}"]</c>
-    /// holds the message of each product that didn't pass.
+    /// holds the message of each product that didn't pass, with its step and troubleshooting entry in
+    /// <c>Details["product:{name}:step"]</c> and <c>Details["product:{name}:troubleshoot"]</c>.
     /// </summary>
     private static ConnectionTestResult Combine(IReadOnlyList<ProductProbeResult> results, Run run, string siteUrl, string cloudId)
     {
@@ -291,8 +400,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         {
             string[] scopes = passed.SelectMany(r => r.ConfirmedScopes).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             combined = ConnectionTestResult.CreateSuccess(
-                $"Connected to {siteUrl}: found the site, signed in as the service account, "
-                + $"{string.Join("; ", passed.Select(r => r.Message))}.",
+                passed.Count == 1
+                    ? $"Connected to {siteUrl}: found the site, signed in as the service account, {passed[0].Message}."
+                    : $"Connected to {siteUrl}: {string.Join(" and ", passed.Select(r => AtlassianSiteScopes.DisplayName(r.Product)))} "
+                      + "are ready. Connapse found the site and signed in as the service account. "
+                      + string.Join(" ", passed.Select(r => $"In {AtlassianSiteScopes.DisplayName(r.Product)}, it {r.Message}.")),
                 new Dictionary<string, object>
                 {
                     ["cloudId"] = cloudId,
@@ -311,7 +423,13 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         if (usable.Count > 0)
             combined.Details!["products"] = string.Join(",", usable);
         foreach (ProductProbeResult result in results.Where(r => !r.Passed && r.Message is not null))
+        {
             combined.Details!["product:" + result.Product] = result.Message!;
+            if (result.Step is not null)
+                combined.Details["product:" + result.Product + ":step"] = result.Step;
+            if (result.Troubleshoot is not null)
+                combined.Details["product:" + result.Product + ":troubleshoot"] = result.Troubleshoot;
+        }
         return combined;
     }
 

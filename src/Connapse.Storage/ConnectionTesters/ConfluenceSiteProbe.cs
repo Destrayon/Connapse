@@ -202,7 +202,7 @@ internal sealed class ConfluenceSiteProbe(IHttpClientFactory httpClients, TimePr
         var proven = new HashSet<string>(AtlassianSiteScopes.ProvenByTest, StringComparer.OrdinalIgnoreCase);
         if (attachmentsConfirmed)
             proven.Add(AtlassianSiteScopes.Attachment);
-        IReadOnlyList<string> confirmed = AtlassianSiteScopes.All.Select(s => s.Name)
+        IReadOnlyList<string> confirmed = AtlassianSiteScopes.Confluence.Select(s => s.Name)
             .Where(n => proven.Contains(n) || (granted?.Contains(n, StringComparer.OrdinalIgnoreCase) ?? false))
             .ToList();
 

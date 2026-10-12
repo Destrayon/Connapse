@@ -221,7 +221,9 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         body.GetProperty("siteUrl").GetString().Should().Be("https://detail.atlassian.net");
         body.GetProperty("health").GetProperty("succeeded").GetBoolean().Should().BeTrue();
         body.GetProperty("health").GetProperty("lastSucceededAt").ValueKind.Should().Be(JsonValueKind.String);
-        body.GetProperty("scopes").GetArrayLength().Should().Be(7);
+        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("product").GetString())
+            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.All.Select(s => s.Product));
+        body.GetProperty("scopes").EnumerateArray().Count(s => s.GetProperty("product").GetString() == "confluence").Should().Be(7);
     }
 
     [Fact]

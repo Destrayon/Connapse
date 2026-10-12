@@ -75,7 +75,7 @@ public class AtlassianConnectionFormTests : IDisposable
         AtlassianConnectionForm.ConfluenceScopeList.Should().Be(
             "read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence "
             + "read:folder:confluence read:content-details:confluence read:content.permission:confluence");
-        AtlassianSiteScopes.All.Select(s => s.Name).Should().Equal(AtlassianConnectionForm.ConfluenceScopeList.Split(' '));
+        AtlassianSiteScopes.Confluence.Select(s => s.Name).Should().Equal(AtlassianConnectionForm.ConfluenceScopeList.Split(' '));
     }
 
     [Fact]
@@ -84,8 +84,8 @@ public class AtlassianConnectionFormTests : IDisposable
         var cut = ctx.Render<AtlassianConnectionForm>();
 
         var rows = cut.FindAll("#atlassian-scopes-confluence li");
-        rows.Should().HaveCount(AtlassianSiteScopes.All.Count);
-        foreach (var (row, scope) in rows.Zip(AtlassianSiteScopes.All))
+        rows.Should().HaveCount(AtlassianSiteScopes.Confluence.Count);
+        foreach (var (row, scope) in rows.Zip(AtlassianSiteScopes.Confluence))
         {
             row.TextContent.Should().Contain(scope.Reason);
             row.TextContent.Contains("Optional").Should().Be(scope.Optional, scope.Name);
@@ -93,7 +93,7 @@ public class AtlassianConnectionFormTests : IDisposable
             copy.GetAttribute("aria-label").Should().Be($"Copy {scope.Name}");
             copy.GetAttribute("style").Should().Contain("min-width:24px").And.Contain("min-height:24px");
         }
-        AtlassianSiteScopes.All.Where(s => s.Optional).Select(s => s.Name).Should().Equal("read:attachment:confluence");
+        AtlassianSiteScopes.Confluence.Where(s => s.Optional).Select(s => s.Name).Should().Equal("read:attachment:confluence");
     }
 
     [Fact]

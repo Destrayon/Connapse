@@ -94,9 +94,9 @@
         </p>
 
         <details class="mb-2 small" id="atlassian-site-scopes">
-            <summary>Permissions Connapse needs (@ConfirmedCount(site) of @AtlassianSiteScopes.All.Count confirmed by the last test)</summary>
+            <summary>Permissions Connapse needs (@ConfirmedCount(site) of @AtlassianSiteScopes.Confluence.Count confirmed by the last test)</summary>
             <ul class="list-unstyled mt-2 mb-0">
-                @foreach (AtlassianScope scope in AtlassianSiteScopes.All)
+                @foreach (AtlassianScope scope in AtlassianSiteScopes.Confluence)
                 {
                     bool confirmed = site.Health?.ConfirmedScopes?.Contains(scope.Name, StringComparer.OrdinalIgnoreCase) ?? false;
                     <li class="mb-2">
@@ -256,7 +256,7 @@
             </div>
             <div class="small fw-semibold mb-1">Confluence</div>
             <ul class="list-unstyled small mb-0" id="atlassian-scopes-confluence">
-                @foreach (AtlassianScope scope in AtlassianSiteScopes.All)
+                @foreach (AtlassianScope scope in AtlassianSiteScopes.Confluence)
                 {
                     <li class="mb-2">
                         <div class="d-flex align-items-center gap-2">
@@ -732,7 +732,7 @@
     }
 
     private static int ConfirmedCount(Connection site) =>
-        AtlassianSiteScopes.All.Count(s => site.Health?.ConfirmedScopes?.Contains(s.Name, StringComparer.OrdinalIgnoreCase) ?? false);
+        AtlassianSiteScopes.Confluence.Count(s => site.Health?.ConfirmedScopes?.Contains(s.Name, StringComparer.OrdinalIgnoreCase) ?? false);
 
     private static string SourcesPhrase(Connection site) => site.SourceCount switch
     {
@@ -764,7 +764,7 @@
     /// </summary>
     public static string RequiredScopeList => string.Join(' ', RequiredScopes.Select(s => s.Name));
 
-    private static IReadOnlyList<AtlassianScope> RequiredScopes => AtlassianSiteScopes.All.Where(s => !s.Optional).ToList();
+    private static IReadOnlyList<AtlassianScope> RequiredScopes => AtlassianSiteScopes.Confluence.Where(s => !s.Optional).ToList();
 
     private Task CopyRequiredScopes() => CopyAsync(RequiredScopeList);
 

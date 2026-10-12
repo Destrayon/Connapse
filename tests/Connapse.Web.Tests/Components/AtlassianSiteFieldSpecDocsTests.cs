@@ -32,7 +32,8 @@ public class AtlassianSiteFieldSpecDocsTests
             "2-service-account", "3-site-connection",
             "site-not-found", "client-id-or-secret-rejected", "cant-read-confluence",
             "no-confluence-access-or-no-spaces", "not-confluence-administrator", "missing-scope",
-            "site-has-no-pages-or-no-other-users-yet", "troubleshooting");
+            "site-has-no-pages-or-no-other-users-yet", "cant-read-jira", "not-jira-administrator", "cant-read-jira-membership",
+            "troubleshooting");
         AtlassianSiteFieldSpecs.All.Select(f => f.GuideUrl.Split('#')[1]).Should().BeSubsetOf(AtlassianSiteFieldSpecs.GuideAnchors);
     }
 

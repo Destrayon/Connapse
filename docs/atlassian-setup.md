@@ -262,6 +262,36 @@ at least one page the service account can view and one other user.
 run. Then create a page in a space the service account can view, or invite one more user to the site,
 and choose **Test connection**.
 
+### Can't read Jira
+
+**Symptom:** *The credential can't read Jira on this site.* while **Reading Jira** or **Listing Jira
+projects**.
+**Likely cause:** the service account has no Jira access on this site, or the credential was created
+without the Jira scopes. A site you index only for Confluence shows this too; it doesn't stop the site
+from saving.
+**Fix:** set Jira to its admin role on the service account (step 2.4). If it already has it, create a
+new credential with both scope groups (steps 2.4 and 2.5) and use **Replace credentials**.
+
+### Not Jira administrator
+
+**Symptom:** *The service account doesn't have the Administer Jira permission, so Connapse can't check
+what other people may read in Jira.* while **Checking Jira access permissions**.
+**Likely cause:** the service account's Jira role is not the admin role, so it can't ask Jira what
+another person may browse.
+**Fix:** in Atlassian Administration, under **Directory** → **Service accounts**, set its Jira role to
+admin, then test again. If the role is already admin, see [Missing scope](#missing-scope): the
+credential may lack `read:permission:jira`.
+
+### Can't read Jira membership
+
+**Symptom:** *The service account can't read Jira group or project role membership…* while **Reading
+Jira groups and project roles**.
+**Likely cause:** the service account lacks Administer Jira, or the credential lacks
+`read:group:jira` or `read:project-role:jira`. Connapse needs both to tell who may read a comment
+restricted to a group or a project role.
+**Fix:** give the service account the Jira admin role (step 2.4), create a new credential with both
+scope groups (step 2.5), and use **Replace credentials**.
+
 ### Linking app rejected
 
 **Symptom:** one of these:
