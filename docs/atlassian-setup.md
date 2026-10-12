@@ -81,7 +81,8 @@ In [Atlassian Administration](https://admin.atlassian.com):
 
 1. Go to **Directory** → **Service accounts** → **Create a service account**. Name it with 6 to 30
    letters or digits, for example `connapse`.
-2. On **Select app roles**, set **Confluence** to its admin role and leave other apps at **None**.
+2. On **Select app roles**, set **Confluence** to its admin role. If you will index Jira, set **Jira**
+   to its admin role too (step 4 explains why). Leave every other app at **None**.
    Connapse needs Confluence admin rights to check other people's access, and the site check in step 3
    confirms them. You can change the role later under **Directory** → **Service accounts**, or add the
    account to the site's Confluence admin group under **Directory** → **Groups**.
@@ -263,8 +264,13 @@ Confluence on this site.* although the service account has a Confluence role. Fo
 Confluence source shows *Attachments were skipped: the site's credential lacks the
 read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* on
 the Sources page, or the New source dialog says *the site's last connection test didn't confirm the
-read:attachment:confluence permission*.
-**Likely cause:** the credential was created without one of the scopes in step 2.5. For attachments, it
+read:attachment:confluence permission*. For Jira: *The credential is missing the read:project:jira
+scope* while **Listing Jira projects**, *The credential is missing the read:issue-details:jira scope*
+(or `read:issue:jira`, or `read:comment:jira`) while **Reading issues and comments**, or *The credential
+is missing the read:permission:jira scope* or *The service account can't list Jira users…* while
+**Checking Jira access permissions**.
+**Likely cause:** the credential was created without one of the scopes in steps 2.4 and 2.5; listing Jira
+users also needs the **Browse users and groups** global permission, which Jira's admin role includes. For attachments, it
 is the optional `read:attachment:confluence`.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
 search and tick each one (step 2.5; for attachments, include `read:attachment:confluence`), then use
@@ -289,8 +295,9 @@ and choose **Test connection**.
 **Symptom:** *The credential can't read Jira on this site.* while **Reading Jira** or **Listing Jira
 projects**.
 **Likely cause:** the service account has no Jira access on this site, or the credential was created
-without the Jira scopes. A site you index only for Confluence shows this too; it doesn't stop the site
-from saving.
+without the Jira scopes. A site whose Confluence checks pass and whose credential can't read Jira at all
+shows **Jira: Not set up for this site.** instead: Jira is optional, and there is nothing to fix unless
+you want to index it.
 **Fix:** set Jira to its admin role on the service account (step 2.4). If it already has it, create a
 new credential with both scope groups (steps 2.4 and 2.5) and use **Replace credentials**.
 

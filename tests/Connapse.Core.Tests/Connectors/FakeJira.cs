@@ -67,6 +67,12 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     public void Answer(string relative, HttpStatusCode status) =>
         api.Map(Root + relative, _ => new HttpResponseMessage(status));
 
-    private static string Body(HttpRequestMessage request) =>
-        request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? "";
+    // Routes answer synchronously, so the body is read through the content's synchronous stream.
+    private static string Body(HttpRequestMessage request)
+    {
+        if (request.Content is null)
+            return "";
+        using var reader = new StreamReader(request.Content.ReadAsStream());
+        return reader.ReadToEnd();
+    }
 }

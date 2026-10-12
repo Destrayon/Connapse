@@ -78,13 +78,29 @@ public sealed record AtlassianTestReport(
     private static IReadOnlyList<AtlassianProductNote> OtherProductsOf(ConnectionTestResult result) =>
         [.. new[] { AtlassianSiteScopes.ConfluenceProduct, AtlassianSiteScopes.JiraProduct }
             .Where(p => result.Details?.GetValueOrDefault("product:" + p) is string message && message != result.Message)
-            .Select(p => new AtlassianProductNote(
-                AtlassianSiteScopes.DisplayName(p),
-                (string)result.Details!["product:" + p],
-                result.Details.GetValueOrDefault($"product:{p}:step") is string step ? AtlassianConnectionTester.StepLabel(step) : null,
-                result.Details.GetValueOrDefault($"product:{p}:troubleshoot") is string anchor
-                    ? AtlassianSiteTroubleshooting.UrlOf(anchor)
-                    : null))];
+            .Select(p => NotSetUp(result, p)
+                ? new AtlassianProductNote(AtlassianSiteScopes.DisplayName(p), NotSetUpMessage, null, null)
+                : new AtlassianProductNote(
+                    AtlassianSiteScopes.DisplayName(p),
+                    (string)result.Details!["product:" + p],
+                    result.Details.GetValueOrDefault($"product:{p}:step") is string step ? AtlassianConnectionTester.StepLabel(step) : null,
+                    result.Details.GetValueOrDefault($"product:{p}:troubleshoot") is string anchor
+                        ? AtlassianSiteTroubleshooting.UrlOf(anchor)
+                        : null))];
+
+    public const string NotSetUpMessage = "Not set up for this site.";
+
+    /// <summary>
+    /// The site passed, and this product's credential couldn't read it at all: the product was never
+    /// set up, which is a choice, not a fault. A product that got further, or failed for a reason
+    /// that isn't about the credential (a rate limit, a timeout), still shows its problem.
+    /// </summary>
+    private static bool NotSetUp(ConnectionTestResult result, string product) =>
+        result.Success
+        && result.Details!.GetValueOrDefault($"product:{product}:step") is AtlassianConnectionTester.IdentityStep
+            or AtlassianConnectionTester.JiraIdentityStep
+        && result.Details.GetValueOrDefault($"product:{product}:troubleshoot") is AtlassianSiteTroubleshooting.CantReadConfluence
+            or AtlassianSiteTroubleshooting.CantReadJira;
 }
 
 /// <summary>A product the test reported on apart from the main message: why it isn't ready, and where to read more.</summary>

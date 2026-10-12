@@ -345,6 +345,11 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         string raw = await response.Content.ReadAsStringAsync();
         raw.Should().NotContain(Secret);
+        // This fake site has no Jira, which is a choice, not a fault: the report says so without a fix.
+        var jira = JsonDocument.Parse(raw).RootElement.GetProperty("test").GetProperty("otherProducts")[0];
+        jira.GetProperty("name").GetString().Should().Be("Jira");
+        jira.GetProperty("message").GetString().Should().Be("Not set up for this site.");
+        jira.GetProperty("troubleshootingUrl").ValueKind.Should().Be(JsonValueKind.Null);
 
         var connection = await FindAsync("passing.atlassian.net");
         connection.Should().NotBeNull();

@@ -1402,7 +1402,8 @@ Returned by `/test`, inside `test` on a create or replace, and as the `422` body
 | `stepLabel` | That check in the page's words, for example "Signing in as the service account" |
 | `troubleshootingUrl` | The setup guide entry for the failure. A timeout, a rate limit or an answer Atlassian didn't finish links the guide's general Troubleshooting section, not a credential entry |
 | `detail` | Atlassian's own answer when it gave one, such as `HTTP 401 (Unauthorized)`; never a secret or token |
-| `scopes` | On success, the scopes the test confirmed the credential carries: every required one, plus `read:attachment:confluence` when its probe passed |
+| `scopes` | On success, the scopes the test confirmed the credential carries, for every product that passed. For Confluence: every required one, plus `read:attachment:confluence` when its probe passed. For Jira: the scopes its checks call (`read:user:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, `read:comment:jira`, `read:permission:jira`, `read:group:jira`, `read:project-role:jira`), `read:attachment:jira` when its probe passed, and any other Jira scope Atlassian lists as granted |
+| `otherProducts` | Each product (Confluence or Jira) that didn't pass, apart from the one `message` describes: `[{ name, message, stepLabel, troubleshootingUrl }]`. On a site that passes, a product the credential can't read at all reads `Not set up for this site.` with no `stepLabel` or `troubleshootingUrl` |
 
 ### Atlassian Linking App
 

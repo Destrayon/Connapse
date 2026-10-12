@@ -31,6 +31,11 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         + "in Jira. In Atlassian Administration, go to Directory > Service accounts, set its Jira role to the admin role, "
         + "then test again.";
 
+    internal const string CantListUsersMessage =
+        "The service account can't list Jira users, so Connapse can't find another person to check access for. Check that "
+        + "its credential has the " + AtlassianSiteScopes.JiraUser + " scope and that it has the Browse users and groups "
+        + "global permission, then test again.";
+
     internal const string UnverifiedMessage =
         "Couldn't verify Administer Jira access because Atlassian didn't answer the check properly. Wait a minute and test again.";
 
@@ -130,7 +135,7 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         }
         catch (Exception ex) when (IsRefusal(ex))
         {
-            return run.Fail(NotJiraAdministratorMessage, detail: Describe(ex));
+            return run.Fail(CantListUsersMessage, AtlassianSiteTroubleshooting.MissingScope, Describe(ex));
         }
         catch (Exception ex) when (IsProbeFailure(ex))
         {
@@ -193,12 +198,13 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
                 return run.Fail(CantReadMembershipMessage, detail: "Jira answered the role list without its roles.");
 
             // Only the trailing number of a role's address is used: the address itself is never followed.
-            if (FirstRoleId(roles.RootElement) is { } roleId)
-            {
-                using var role = await api.GetJsonAsync<JsonDocument>($"rest/api/3/project/{project}/role/{roleId}", linked);
-                if (!HasArray(role.RootElement, "actors"))
-                    return run.Fail(CantReadMembershipMessage, detail: "Jira answered the role without its members.");
-            }
+            // Without a role to read, role membership is unproven, so the step fails.
+            if (FirstRoleId(roles.RootElement) is not { } roleId)
+                return run.Fail(CantReadMembershipMessage, detail: "Jira listed no project role Connapse could read.");
+
+            using var role = await api.GetJsonAsync<JsonDocument>($"rest/api/3/project/{project}/role/{roleId}", linked);
+            if (!HasArray(role.RootElement, "actors"))
+                return run.Fail(CantReadMembershipMessage, detail: "Jira answered the role without its members.");
         }
         catch (Exception ex) when (IsProbeFailure(ex))
         {
