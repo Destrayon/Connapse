@@ -126,6 +126,21 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
 
     public void RemoveIssue(string id) => _issues.Remove(id);
 
+    /// <summary>
+    /// Maps <c>GET issue/{id}/comment/{commentId}</c> for each comment the issue has now. Each answers
+    /// with the comment's current entry, so a test can replace it; one removed answers 404.
+    /// </summary>
+    public void ServeComments(FakeJiraIssue issue)
+    {
+        foreach (string commentId in issue.Comments.Select(c => c.Id).ToList())
+        {
+            api.Map(Root + $"/issue/{issue.Id}/comment/{commentId}", _ =>
+                issue.Comments.FirstOrDefault(c => c.Id == commentId) is { } live
+                    ? FakeAtlassianApi.Json(Comment(live))
+                    : new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
     /// <summary>Jira's own timestamp shape, with a colon-less offset.</summary>
     public static string Time(DateTimeOffset at) =>
         at.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture) + "+0000";

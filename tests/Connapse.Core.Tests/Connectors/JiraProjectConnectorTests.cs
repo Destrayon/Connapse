@@ -366,6 +366,258 @@ public sealed class JiraProjectConnectorTests : IDisposable
         text.Should().StartWith("# R&D › Ops > ENG-1 Compare a › b\n");
     }
 
+    // ── Restricted comments and internal notes ─────────────────────────────
+
+    private const string GroupA = "6e87dc72-4f1f-421f-9382-2fee8b652487";
+    private const string GroupB = "0b5c3a8e-1d2f-4e6a-9b7c-8d9e0f1a2b3c";
+
+    private static object GroupVisibility(string groupId) => new { type = "group", value = "admins", identifier = groupId };
+
+    private static string CommentPath(string issueId, string commentId) => $"/issues/{issueId}/comments/{commentId}.md";
+
+    private static ConnectorFile? Doc(SyncDelta delta, string path) => delta.Upserted.SingleOrDefault(f => f.Path == path);
+
+    [Fact]
+    public void Route_NoVisibility_Inline()
+    {
+        var route = JiraProjectConnector.Route(new JiraStoredComment { Id = "1" }, ProjectId);
+
+        route.Should().Be((false, false, (JiraRestriction?)null, false));
+    }
+
+    [Fact]
+    public void Route_GroupVisibility_SeparateWithGroupId()
+    {
+        var comment = new JiraStoredComment { Id = "1", VisibilityType = "group", VisibilityIdentifier = GroupA.ToUpperInvariant() };
+
+        var route = JiraProjectConnector.Route(comment, ProjectId);
+
+        route.Should().Be((true, false, new JiraRestriction(JiraRestrictionType.Group, GroupA), false));
+    }
+
+    [Fact]
+    public void Route_RoleVisibility_SeparateWithProjectRole()
+    {
+        var comment = new JiraStoredComment { Id = "1", VisibilityType = "role", VisibilityIdentifier = "Developers" };
+
+        var route = JiraProjectConnector.Route(comment, ProjectId);
+
+        route.Should().Be((true, false, new JiraRestriction(JiraRestrictionType.Role, "Developers", ProjectId), false));
+    }
+
+    [Fact]
+    public void Route_InternalNote_SeparateInternal()
+    {
+        var route = JiraProjectConnector.Route(new JiraStoredComment { Id = "1", Internal = true }, ProjectId);
+
+        route.Should().Be((true, true, (JiraRestriction?)null, false));
+    }
+
+    [Fact]
+    public void Route_InternalNoteWithGroup_Both()
+    {
+        var comment = new JiraStoredComment { Id = "1", VisibilityType = "group", VisibilityIdentifier = GroupA, Internal = true };
+
+        var route = JiraProjectConnector.Route(comment, ProjectId);
+
+        route.Should().Be((true, true, new JiraRestriction(JiraRestrictionType.Group, GroupA), false));
+    }
+
+    [Fact]
+    public async Task Sync_RestrictedAndInternalComments_EachTheirOwnDocument()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Public remark", T0));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0.AddMinutes(1), Visibility: GroupVisibility(GroupA)));
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Role secret", T0.AddMinutes(2),
+            Visibility: new { type = "role", value = "Developers", identifier = "Developers" }));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Internal note", T0.AddMinutes(3), JsdPublic: false));
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo(
+            "/issues/20001.md", CommentPath("20001", "2"), CommentPath("20001", "3"), CommentPath("20001", "4"));
+        Doc(delta, CommentPath("20001", "2"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+        Doc(delta, CommentPath("20001", "3"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraComment(CloudId, "20001", "3", false, new JiraRestriction(JiraRestrictionType.Role, "Developers", ProjectId)));
+        Doc(delta, CommentPath("20001", "4"))!.ResourceUri.Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "4", true, null));
+        foreach (var file in delta.Upserted)
+            AtlassianUri.TryParseJira(file.ResourceUri, out _).Should().BeTrue($"{file.Path} must carry a parseable URI");
+
+        var group = Doc(delta, CommentPath("20001", "2"))!;
+        group.SizeBytes.Should().Be(T0.AddMinutes(1).ToUnixTimeMilliseconds());
+        group.LastModified.Should().Be(T0.AddMinutes(1).UtcDateTime);
+        group.ContentType.Should().Be("text/markdown");
+        group.Metadata.Should().Contain(new Dictionary<string, string>
+        {
+            ["jira:issueKey"] = "ENG-1",
+            ["jira:breadcrumb"] = "Engineering > ENG-1 Login fails > Comment",
+            ["jira:visibility"] = "group",
+            ["jira:url"] = "https://acme.atlassian.net/browse/ENG-1?focusedCommentId=2",
+        });
+        Doc(delta, CommentPath("20001", "3"))!.Metadata!["jira:visibility"].Should().Be("role:Developers");
+        Doc(delta, CommentPath("20001", "4"))!.Metadata!["jira:visibility"].Should().Be("internal");
+    }
+
+    [Fact]
+    public async Task Sync_GroupVisibilityWithoutIdentifier_IndexedAsDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Old comment");
+        issue.Comments.Add(new FakeJiraComment("7", "Ada", "Named group only", T0, Visibility: new { type = "group", value = "admins" }));
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        string? uri = Doc(delta, CommentPath("20001", "7"))!.ResourceUri;
+        uri.Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "7", false, JiraRestriction.DenyAll));
+        AtlassianUri.TryParseJira(uri, out var resource).Should().BeTrue();
+        resource.Restriction.Should().Be(new JiraRestriction(JiraRestrictionType.Group, "00000000-0000-0000-0000-000000000000"));
+        (await ReadAsync("/issues/20001.md")).Should().NotContain("Named group only");
+    }
+
+    [Fact]
+    public async Task Sync_UnknownVisibilityType_IndexedAsDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Odd");
+        issue.Comments.Add(new FakeJiraComment("7", "Ada", "Some new kind", T0, Visibility: new { type = "user", identifier = "acc-1" }));
+        issue.Comments.Add(new FakeJiraComment("8", "Bob", "Group by name", T0, Visibility: new { type = "group", identifier = "admins" }));
+        issue.Comments.Add(new FakeJiraComment("9", "Cy", "No type", T0, Visibility: new { value = "someone" }));
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        foreach (string id in new[] { "7", "8", "9" })
+            Doc(delta, CommentPath("20001", id))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", id, false, JiraRestriction.DenyAll));
+        string text = await ReadAsync("/issues/20001.md");
+        text.Should().NotContain("Some new kind").And.NotContain("Group by name").And.NotContain("No type");
+    }
+
+    [Fact]
+    public async Task Sync_CommentBecomesRestricted_MovesOutAndIssueReRenders()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Was public", T0));
+        var first = await _connector.GetChangesAsync(null);
+        (await ReadAsync("/issues/20001.md")).Should().Contain("Was public");
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        DateTimeOffset edited = _clock.GetUtcNow().AddMinutes(-1);
+        issue.Comments[0] = issue.Comments[0] with { Updated = edited, Visibility = GroupVisibility(GroupA) };
+        issue.Updated = edited;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        Size(second, "/issues/20001.md").Should().NotBe(Size(first, "/issues/20001.md"));
+        Doc(second, CommentPath("20001", "1"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraComment(CloudId, "20001", "1", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+        (await ReadAsync("/issues/20001.md")).Should().NotContain("Was public");
+    }
+
+    [Fact]
+    public async Task Sync_CommentBecomesPublic_DocumentDeleted()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Was secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+        Doc(first, CommentPath("20001", "1")).Should().NotBeNull();
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        DateTimeOffset edited = _clock.GetUtcNow().AddMinutes(-1);
+        issue.Comments[0] = issue.Comments[0] with { Updated = edited, Visibility = null };
+        issue.Updated = edited;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+        Size(second, "/issues/20001.md").Should().NotBe(Size(first, "/issues/20001.md"));
+        (await _connector.ExistsAsync(CommentPath("20001", "1"))).Should().BeFalse();
+        (await ReadAsync("/issues/20001.md")).Should().Contain("Was secret");
+    }
+
+    [Fact]
+    public async Task Sync_RestrictionChangesGroup_UriUpdated()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        DateTimeOffset edited = _clock.GetUtcNow().AddMinutes(-1);
+        issue.Comments[0] = issue.Comments[0] with { Updated = edited, Visibility = GroupVisibility(GroupB) };
+        issue.Updated = edited;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        Doc(second, CommentPath("20001", "1"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraComment(CloudId, "20001", "1", false, new JiraRestriction(JiraRestrictionType.Group, GroupB)));
+        Size(second, CommentPath("20001", "1")).Should().NotBe(Size(first, CommentPath("20001", "1")));
+    }
+
+    [Fact]
+    public async Task Sync_DailySweep_RereadsUnchangedIssues()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Secret", T0, Visibility: GroupVisibility(GroupA)));
+        Issue("20002", "ENG-2", "Quiet");
+        var first = await _connector.GetChangesAsync(null);
+
+        // Restricted to another group without the issue's updated time moving: the change query misses it.
+        issue.Comments[0] = issue.Comments[0] with { Visibility = GroupVisibility(GroupB) };
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        _jira.BulkFetches.Should().BeEmpty("no day has passed since the fresh start read every comment");
+        Doc(second, CommentPath("20001", "1"))!.ResourceUri.Should().EndWith($"/group/{GroupA}");
+
+        _clock.Advance(TimeSpan.FromHours(24));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+
+        _jira.BulkFetches.SelectMany(b => b).Should().BeEquivalentTo("20001", "20002");
+        Doc(third, CommentPath("20001", "1"))!.ResourceUri.Should().EndWith($"/group/{GroupB}");
+
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        await _connector.GetChangesAsync(third.NextCursor);
+
+        _jira.BulkFetches.Should().BeEmpty("the sweep's time was carried in the cursor");
+    }
+
+    [Fact]
+    public async Task Read_RestrictedComment_RendersBreadcrumbAuthorAndBody()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        string text = await ReadAsync(CommentPath("20001", "2"));
+
+        text.Should().Be("# Engineering > ENG-1 Login fails > Comment\n\n--- Comment by Bob, 2026-10-01 ---\nGroup secret\n");
+        (await _connector.ExistsAsync(CommentPath("20001", "2"))).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Read_CommentNoLongerRestricted_FileNotFound()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Was secret", T0, Visibility: GroupVisibility(GroupA)));
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Moved group", T0, Visibility: GroupVisibility(GroupA)));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Deleted", T0, Visibility: GroupVisibility(GroupA)));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.Comments[0] = issue.Comments[0] with { Visibility = null };
+        issue.Comments[1] = issue.Comments[1] with { Visibility = GroupVisibility(GroupB) };
+        issue.Comments.RemoveAt(2);
+
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "2")))
+            .Should().ThrowAsync<FileNotFoundException>();
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "3")))
+            .Should().ThrowAsync<FileNotFoundException>("the listing that queued it carried the old group");
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "4")))
+            .Should().ThrowAsync<FileNotFoundException>();
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "99")))
+            .Should().ThrowAsync<FileNotFoundException>();
+    }
+
     [Fact]
     public void Factory_JiraKind_CreatesJiraConnector()
     {

@@ -36,7 +36,8 @@ public sealed record JiraProjectConfig(
 /// a full listing from the issue-state store: the engine re-ingests what changed signature and
 /// deletes what is gone, so a deleted issue or one moved to another project drops out the same way.
 /// Comments that carry a group or role visibility, and JSM internal notes, are left out of the
-/// issue document.
+/// issue document. Each is its own document instead, whose resource URI carries its restriction
+/// (see <see cref="Route"/>).
 /// </summary>
 public sealed partial class JiraProjectConnector(
     JiraProjectConfig config,
@@ -48,6 +49,14 @@ public sealed partial class JiraProjectConnector(
 {
     /// <summary>How far back of the watermark the change query starts, to cover search indexing lag.</summary>
     internal const long ChangeOverlapMs = 300_000;
+
+    /// <summary>
+    /// Whether every listed issue's comments are re-read once a day. A comment's restriction can
+    /// change without the issue's updated time moving, so the change query alone can miss it.
+    /// </summary>
+    internal static bool SweepEnabled = true;
+
+    private static readonly TimeSpan SweepInterval = TimeSpan.FromHours(24);
 
     private const int BulkFetchSize = 100;
 
@@ -90,7 +99,10 @@ public sealed partial class JiraProjectConnector(
         // trusted, so every listed issue is fetched again. The store is replaced only once the
         // cycle has completed, as in Confluence, so jobs already queued still find their records.
         bool everything = cursor is null || previous!.WatermarkMs is null;
-        long startedMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
+        DateTimeOffset now = _clock.GetUtcNow();
+        bool sweep = everything
+            || (SweepEnabled && (previous!.LastCommentSweepAt is not { } swept || now - swept >= SweepInterval));
+        long startedMs = now.ToUnixTimeMilliseconds();
         var state = cursor is null ? new JiraSyncState() : _store.LoadState();
         HashSet<string> listed;
         Dictionary<string, JiraStoredIssue> fetched;
@@ -101,8 +113,9 @@ public sealed partial class JiraProjectConnector(
             await ReadFieldsAsync(state, ct);
 
             listed = await ListIdsAsync(ct);
+            // A sweep fetches every listed issue again, and with it every comment.
             var changed = new HashSet<string>(
-                everything ? listed : listed.Where(id => _store.Load(id) is null), StringComparer.Ordinal);
+                sweep ? listed : listed.Where(id => _store.Load(id) is null), StringComparer.Ordinal);
             if (!everything)
             {
                 foreach (var (id, updated) in await ChangedSinceAsync(previous!.WatermarkMs!.Value, ct))
@@ -136,9 +149,8 @@ public sealed partial class JiraProjectConnector(
             _store.Delete(id);
         _store.SaveState(state);
 
-        // The daily comment sweep arrives with restricted comments; until then the cursor carries it forward.
         return new SyncDelta(
-            Listing(null), [], new JiraCursor(startedMs, previous?.LastCommentSweepAt).Serialize(),
+            Listing(null), [], new JiraCursor(startedMs, sweep ? now : previous?.LastCommentSweepAt).Serialize(),
             RequiresFullResync: false, IsFullListing: true);
     }
 
@@ -151,6 +163,9 @@ public sealed partial class JiraProjectConnector(
     /// </summary>
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {
+        if (FindComment(path) is { } separate)
+            return await ReadCommentAsync(separate.Issue, separate.Comment, ct);
+
         var stored = Find(path)
             ?? throw new FileNotFoundException(
                 $"'{LogSanitizer.Sanitize(path)}' is not a synced issue of Jira project {LogSanitizer.Sanitize(config.ProjectKey)}.");
@@ -181,8 +196,10 @@ public sealed partial class JiraProjectConnector(
         var comments = new List<JiraComment>();
         await foreach (var comment in CommentsAsync(stored.Id, ct))
         {
-            if (comment.Visibility is null && comment.JsdPublic != false)
-                comments.Add(new JiraComment(comment.Author?.DisplayName ?? "Unknown user", comment.Created ?? DateTimeOffset.MinValue, comment.Body));
+            // Routed from what Jira says now, not the stored record: a comment restricted since the
+            // listing must not reach the issue document.
+            if (!Route(ToStored(comment), config.ProjectId).Separate)
+                comments.Add(ToRendered(comment));
         }
 
         string projectName = string.IsNullOrWhiteSpace(state.ProjectName) ? config.ProjectKey : state.ProjectName;
@@ -190,8 +207,36 @@ public sealed partial class JiraProjectConnector(
         return new MemoryStream(Encoding.UTF8.GetBytes(markdown));
     }
 
+    /// <summary>
+    /// A restricted comment or internal note. Its document is queued under the URI the listing
+    /// gave it, so a comment whose routing has changed since is not read: made public it belongs
+    /// inline, and restricted differently it would be indexed under the old restriction. The next
+    /// listing carries the new routing.
+    /// </summary>
+    private async Task<Stream> ReadCommentAsync(JiraStoredIssue issue, JiraStoredComment stored, CancellationToken ct)
+    {
+        CommentResponse comment;
+        try
+        {
+            comment = await api.GetJsonAsync<CommentResponse>($"rest/api/3/issue/{issue.Id}/comment/{stored.Id}", ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            throw new FileNotFoundException($"Jira comment {stored.Id} on issue {issue.Id} no longer exists.", ex);
+        }
+
+        var live = Route(ToStored(comment), config.ProjectId);
+        if (!live.Separate || live != Route(stored, config.ProjectId))
+            throw new FileNotFoundException($"Jira comment {stored.Id} on issue {issue.Id} has changed visibility since it was listed.");
+
+        var state = _store.LoadState();
+        string projectName = string.IsNullOrWhiteSpace(state.ProjectName) ? config.ProjectKey : state.ProjectName;
+        string markdown = JiraRecordRenderer.RenderComment(projectName, issue.Key, issue.Summary, ToRendered(comment));
+        return new MemoryStream(Encoding.UTF8.GetBytes(markdown));
+    }
+
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default) =>
-        Task.FromResult(Find(path) is not null);
+        Task.FromResult(Find(path) is not null || FindComment(path) is not null);
 
     /// <summary>Returned unchanged: a document's path is already the id-based form this connector reads.</summary>
     public string ResolveJobPath(string relativePath) => relativePath;
@@ -345,16 +390,7 @@ public sealed partial class JiraProjectConnector(
                         {
                             if (!JiraIssueStateStore.IsId(comment.Id))
                                 continue;
-                            issue.Comments.Add(new JiraStoredComment
-                            {
-                                Id = comment.Id!,
-                                Updated = comment.Updated ?? comment.Created ?? DateTimeOffset.MinValue,
-                                VisibilityType = comment.Visibility is null ? null : comment.Visibility.Type ?? "unknown",
-                                VisibilityIdentifier = comment.Visibility?.Type == "group"
-                                    ? comment.Visibility.Identifier
-                                    : comment.Visibility?.Value ?? comment.Visibility?.Identifier,
-                                Internal = comment.JsdPublic == false,
-                            });
+                            issue.Comments.Add(ToStored(comment));
                         }
                     }
                     catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
@@ -370,6 +406,24 @@ public sealed partial class JiraProjectConnector(
 
         return fetched;
     }
+
+    /// <summary>
+    /// What is kept of a comment. A group is identified by its id only, never its mutable name; a
+    /// role by its name. A visibility without a type is kept as one no route recognises.
+    /// </summary>
+    private static JiraStoredComment ToStored(CommentResponse comment) => new()
+    {
+        Id = comment.Id ?? "",
+        Updated = comment.Updated ?? comment.Created ?? DateTimeOffset.MinValue,
+        VisibilityType = comment.Visibility is null ? null : comment.Visibility.Type ?? "unknown",
+        VisibilityIdentifier = comment.Visibility?.Type == "group"
+            ? comment.Visibility.Identifier
+            : comment.Visibility?.Value ?? comment.Visibility?.Identifier,
+        Internal = comment.JsdPublic == false,
+    };
+
+    private static JiraComment ToRendered(CommentResponse comment) =>
+        new(comment.Author?.DisplayName ?? "Unknown user", comment.Created ?? DateTimeOffset.MinValue, comment.Body);
 
     private IAsyncEnumerable<CommentResponse> CommentsAsync(string issueId, CancellationToken ct) =>
         api.PageByOffsetAsync(
@@ -388,7 +442,10 @@ public sealed partial class JiraProjectConnector(
             .. _store.Ids()
                 .Select(_store.Load)
                 .OfType<JiraStoredIssue>()
-                .Select(issue => ToConnectorFile(issue, state))
+                .SelectMany(issue => issue.Comments
+                    .Where(c => JiraIssueStateStore.IsId(c.Id) && Route(c, config.ProjectId).Separate)
+                    .Select(c => ToCommentFile(issue, c, state))
+                    .Prepend(ToConnectorFile(issue, state)))
                 .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal))
                 .OrderBy(f => f.Path, StringComparer.Ordinal),
         ];
@@ -417,6 +474,47 @@ public sealed partial class JiraProjectConnector(
     }
 
     /// <summary>
+    /// A restricted comment's or internal note's own document. Its URI carries the restriction;
+    /// one Connapse cannot interpret becomes <see cref="JiraRestriction.DenyAll"/>, so nobody sees it.
+    /// </summary>
+    private ConnectorFile ToCommentFile(JiraStoredIssue issue, JiraStoredComment comment, JiraSyncState state)
+    {
+        string projectName = string.IsNullOrWhiteSpace(state.ProjectName) ? config.ProjectKey : state.ProjectName;
+        var route = Route(comment, config.ProjectId);
+
+        return new ConnectorFile(
+            Path: CommentPathFor(issue.Id, comment.Id),
+            SizeBytes: comment.Updated.ToUnixTimeMilliseconds(),
+            LastModified: comment.Updated.UtcDateTime,
+            ContentType: "text/markdown",
+            ResourceUri: AtlassianUri.ForJiraComment(
+                config.Site.CloudId, issue.Id, comment.Id, route.Internal, route.DenyAll ? JiraRestriction.DenyAll : route.Restriction),
+            Metadata: new Dictionary<string, string>
+            {
+                ["jira:issueKey"] = issue.Key,
+                ["jira:breadcrumb"] = JiraRecordRenderer.Breadcrumb(projectName, issue.Key, issue.Summary) + " > Comment",
+                ["jira:visibility"] = Describe(route),
+                ["jira:url"] = $"{config.Site.SiteUrl}/browse/{Uri.EscapeDataString(issue.Key)}?focusedCommentId={comment.Id}",
+            },
+            Strategy: null);
+    }
+
+    /// <summary>For display only: <c>group</c>, <c>role:{name}</c>, <c>restricted</c> (deny-all), <c>internal</c>, comma-joined.</summary>
+    private static string Describe((bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll) route)
+    {
+        var parts = new List<string>();
+        if (route.Internal)
+            parts.Add("internal");
+        if (route.DenyAll)
+            parts.Add("restricted");
+        else if (route.Restriction is { Type: JiraRestrictionType.Group })
+            parts.Add("group");
+        else if (route.Restriction is { } role)
+            parts.Add($"role:{role.Value}");
+        return string.Join(',', parts);
+    }
+
+    /// <summary>
     /// The issue's updated time in epoch milliseconds shifted into the high bits, with 21 bits of a
     /// SHA-256 of its key, the project name and its inline comments (ids and updated times) below.
     /// 42 bits of milliseconds last until 2109, so the value stays positive. The hash catches what
@@ -434,10 +532,37 @@ public sealed partial class JiraProjectConnector(
         return (ms << 21) | (BinaryPrimitives.ReadUInt32BigEndian(hash) & 0x1F_FFFF);
     }
 
+    /// <summary>
+    /// Where a comment goes: inline in the issue document only when it has no visibility and is not
+    /// an internal note. A visibility whose target Connapse cannot read (no identifier, a group
+    /// that is not a group id, a type it does not know) is a separate document nobody can see.
+    /// </summary>
+    internal static (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll) Route(
+        JiraStoredComment c, string projectId)
+    {
+        bool isInternal = c.Internal;
+        if (c.VisibilityType is null)
+            return (isInternal, isInternal, null, false);
+        if (string.IsNullOrWhiteSpace(c.VisibilityIdentifier))
+            return (true, isInternal, null, true);
+        return c.VisibilityType switch
+        {
+            "group" when Guid.TryParse(c.VisibilityIdentifier, out _) =>
+                (true, isInternal, new JiraRestriction(JiraRestrictionType.Group, c.VisibilityIdentifier.ToLowerInvariant()), false),
+            "role" => (true, isInternal, new JiraRestriction(JiraRestrictionType.Role, c.VisibilityIdentifier, projectId), false),
+            _ => (true, isInternal, null, true),
+        };
+    }
+
     internal static string PathFor(string issueId) => $"/issues/{issueId}.md";
+
+    internal static string CommentPathFor(string issueId, string commentId) => $"/issues/{issueId}/comments/{commentId}.md";
 
     [GeneratedRegex(@"^/issues/(?<id>[0-9]{1,19})\.md\z", RegexOptions.CultureInvariant)]
     private static partial Regex PathPattern();
+
+    [GeneratedRegex(@"^/issues/(?<id>[0-9]{1,19})/comments/(?<comment>[0-9]{1,19})\.md\z", RegexOptions.CultureInvariant)]
+    private static partial Regex CommentPathPattern();
 
     [GeneratedRegex(@"^customfield_[0-9]{1,19}\z", RegexOptions.CultureInvariant)]
     private static partial Regex FieldIdPattern();
@@ -450,6 +575,18 @@ public sealed partial class JiraProjectConnector(
     {
         var match = PathPattern().Match(path ?? "");
         return match.Success ? _store.Load(match.Groups["id"].Value) : null;
+    }
+
+    /// <summary>The stored issue and comment a comment path names, when that comment is a separate document.</summary>
+    private (JiraStoredIssue Issue, JiraStoredComment Comment)? FindComment(string path)
+    {
+        var match = CommentPathPattern().Match(path ?? "");
+        if (!match.Success || _store.Load(match.Groups["id"].Value) is not { } issue)
+            return null;
+
+        string commentId = match.Groups["comment"].Value;
+        var comment = issue.Comments.FirstOrDefault(c => c.Id == commentId);
+        return comment is not null && Route(comment, config.ProjectId).Separate ? (issue, comment) : null;
     }
 
     // ── Wire shapes ────────────────────────────────────────────────────────
