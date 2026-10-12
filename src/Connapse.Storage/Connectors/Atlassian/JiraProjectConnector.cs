@@ -477,14 +477,15 @@ public sealed partial class JiraProjectConnector(
     /// attachment ties it; a later one with another restriction, a comment Connapse cannot
     /// interpret, or one whose restriction changed since the page read makes it deny-all.
     /// A comment that shows a file Connapse cannot name by id (a media-service reference, or an
-    /// attachment address of an unknown form) may show any of the issue's attachments, so every
-    /// attachment not tied to a comment with that same restriction becomes deny-all.
+    /// attachment address of an unknown form) may show any of the issue's attachments. So when
+    /// any comment does, an attachment keeps its tie only if every such comment has the tie's
+    /// restriction; every other attachment becomes deny-all.
     /// </summary>
     private async Task TieAttachmentsAsync(JiraStoredIssue issue, CancellationToken ct)
     {
         var attachments = issue.Attachments.ToDictionary(a => a.Id, StringComparer.Ordinal);
         var routes = new Dictionary<string, (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll)>(StringComparer.Ordinal);
-        string? untieableCommentId = null;
+        var untieableCommentIds = new List<string>();
 
         foreach (var comment in issue.Comments)
         {
@@ -524,23 +525,23 @@ public sealed partial class JiraProjectConnector(
                     attachment.DenyAll = true;
             }
 
-            if (untieableCommentId is null && HasUntieableReference(html))
-                untieableCommentId = comment.Id;
+            if (HasUntieableReference(html))
+                untieableCommentIds.Add(comment.Id);
         }
 
-        if (untieableCommentId is null)
+        if (untieableCommentIds.Count == 0)
             return;
 
-        var untieable = routes[untieableCommentId];
+        // An internal note among them comes first, so untied attachments keep the internal mark.
+        string untiedOwner = untieableCommentIds.FirstOrDefault(id => routes[id].Internal) ?? untieableCommentIds[0];
         foreach (var attachment in issue.Attachments)
         {
             if (attachment.RestrictingCommentId is null)
             {
-                // Tied to that comment so an internal note's attachments keep the internal mark.
-                attachment.RestrictingCommentId = untieableCommentId;
+                attachment.RestrictingCommentId = untiedOwner;
                 attachment.DenyAll = true;
             }
-            else if (routes[attachment.RestrictingCommentId] != untieable)
+            else if (untieableCommentIds.Any(id => routes[id] != routes[attachment.RestrictingCommentId]))
             {
                 attachment.DenyAll = true;
             }
@@ -556,7 +557,7 @@ public sealed partial class JiraProjectConnector(
 
     /// <summary>
     /// Whether the HTML shows a file Connapse cannot name by attachment id: any <c>data-media-*</c>
-    /// attribute, or a <c>src</c> or <c>href</c> that points at a media service, a blob, or an
+    /// or <c>data-attachment-*</c> attribute, or a <c>src</c> or <c>href</c> that points at a media service, a blob, or an
     /// attachment or thumbnail address none of the id patterns reads.
     /// </summary>
     internal static bool HasUntieableReference(string html)
@@ -818,7 +819,7 @@ public sealed partial class JiraProjectConnector(
     [GeneratedRegex(@"/secure/(?:attachment|thumbnail)/([0-9]{1,19})/", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex SecureLinkPattern();
 
-    [GeneratedRegex(@"\sdata-media-[a-z0-9-]*\s*=", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\sdata-(?:media|attachment)-[a-z0-9-]*\s*=", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex MediaAttributePattern();
 
     [GeneratedRegex(@"\s(?:src|href)\s*=\s*(?:""(?<url>[^""]*)""|'(?<url>[^']*)'|(?<url>[^\s>]+))", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]

@@ -872,6 +872,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
     [InlineData("<a href=\"/media/9f1c2d3e-aaaa-bbbb-cccc-111122223333\">f</a>")]
     [InlineData("<img src='blob:https://acme.atlassian.net/9f1c'>")]
     [InlineData("<img src=\"/rest/api/3/attachment/preview/9f1c\">")]
+    [InlineData("<span data-attachment-name=\"notes.txt\" data-attachment-type=\"file\"></span>")]
     public async Task Sync_UntieableMediaReference_UntiedAttachmentsDenyAll(string html)
     {
         var issue = Issue("20001", "ENG-1", "Login fails");
@@ -911,6 +912,42 @@ public sealed class JiraProjectConnectorTests : IDisposable
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
         Doc(delta, AttachmentPath("20001", "30002", "same.txt"))!.ResourceUri.Should().Be(
             AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+    }
+
+    [Fact]
+    public async Task Sync_TwoUntieableCommentsDifferentGroups_TiedAttachmentDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "tied.txt"));
+        // A (group X) ties 30001 by id and also shows an unnamed file; B (group Y) shows an unnamed
+        // file too, which may be 30001 shown only to group Y.
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA),
+            RenderedBody: LinkTo("30001") + "<img data-media-services-id=\"aaaa\">"));
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "B", T0, Visibility: GroupVisibility(GroupB),
+            RenderedBody: "<img data-media-services-id=\"bbbb\">"));
+        _jira.ServeComments(issue);
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        Doc(delta, AttachmentPath("20001", "30001", "tied.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Sync_LaterUntieableCommentIsInternal_UntiedAttachmentInternal()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "untied.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA),
+            RenderedBody: "<img data-media-services-id=\"aaaa\">"));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Internal", T0, JsdPublic: false,
+            RenderedBody: "<img data-media-services-id=\"bbbb\">"));
+        _jira.ServeComments(issue);
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        Doc(delta, AttachmentPath("20001", "30001", "untied.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", true, JiraRestriction.DenyAll));
     }
 
     [Fact]
