@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace Connapse.Web.Services;
 
@@ -58,6 +59,20 @@ public sealed class ConnectionAdminService(IConnectionStore connections, ISource
         return updated;
     }
 
+    /// <summary>What the page and the API say when another connection already has the name.</summary>
+    public static string NameTakenMessage(string name) => $"A connection named '{name.Trim()}' already exists. Choose another name.";
+
+    /// <summary>What the page says when the name is blank or too long.</summary>
+    public static readonly string InvalidNameMessage = $"Enter a name of 1 to {MaxNameLength} characters.";
+
+    /// <summary>Whether a connection other than <paramref name="exceptId"/> already has the name.</summary>
+    public async Task<bool> NameTakenAsync(Guid? exceptId, string name, CancellationToken ct = default)
+    {
+        string trimmed = name.Trim();
+        var all = await connections.ListAsync(0, int.MaxValue, ct);
+        return all.Any(c => c.Id != exceptId && c.Name == trimmed);
+    }
+
     /// <summary>Renames a connection, refusing a blank or over-long name and one another connection has.</summary>
     public async Task<ConnectionRenameResult> RenameAsync(Guid id, string? name, CancellationToken ct = default)
     {
@@ -71,11 +86,39 @@ public sealed class ConnectionAdminService(IConnectionStore connections, ISource
         if (current.Name == trimmed)
             return new ConnectionRenameResult(ConnectionRenameOutcome.Renamed, current);
 
-        var all = await connections.ListAsync(0, int.MaxValue, ct);
-        if (all.Any(c => c.Id != id && c.Name == trimmed))
+        return await SaveAsync(id, new UpdateConnectionRequest(Name: trimmed), ct);
+    }
+
+    /// <summary>
+    /// Saves an edit to a connection, its name checked as <see cref="RenameAsync"/> checks it, so a
+    /// taken or invalid name comes back as an outcome rather than as the database's exception. The
+    /// Connections page saves every provider's edits through this.
+    /// </summary>
+    public async Task<ConnectionRenameResult> SaveAsync(Guid id, UpdateConnectionRequest request, CancellationToken ct = default)
+    {
+        string trimmed = request.Name?.Trim() ?? "";
+        if (trimmed.Length is 0 or > MaxNameLength)
+            return new ConnectionRenameResult(ConnectionRenameOutcome.InvalidName);
+
+        Connection? current = await connections.GetAsync(id, ct);
+        if (current is null)
+            return new ConnectionRenameResult(ConnectionRenameOutcome.NotFound);
+        if (current.Name != trimmed && await NameTakenAsync(id, trimmed, ct))
             return new ConnectionRenameResult(ConnectionRenameOutcome.NameTaken);
 
-        Connection? updated = await UpdateAsync(id, new UpdateConnectionRequest(Name: trimmed), ct);
+        Connection? updated;
+        try
+        {
+            updated = await UpdateAsync(id, request with { Name = trimmed }, ct);
+        }
+        // Another session took the name between the check and the save; the unique index refused it.
+        catch (DbUpdateException)
+        {
+            if (await NameTakenAsync(id, trimmed, CancellationToken.None))
+                return new ConnectionRenameResult(ConnectionRenameOutcome.NameTaken);
+            throw;
+        }
+
         return updated is null
             ? new ConnectionRenameResult(ConnectionRenameOutcome.NotFound)
             : new ConnectionRenameResult(ConnectionRenameOutcome.Renamed, updated);

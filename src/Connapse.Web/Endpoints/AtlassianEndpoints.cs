@@ -340,7 +340,7 @@ public static class AtlassianEndpoints
                 }),
                 ConnectionRenameOutcome.NameTaken => Results.Conflict(new
                 {
-                    error = $"A connection named '{request.Name!.Trim()}' already exists.", field = "name",
+                    error = ConnectionAdminService.NameTakenMessage(request.Name!), field = "name",
                 }),
                 ConnectionRenameOutcome.NotFound => Results.NotFound(new { error = "No such Atlassian site." }),
                 _ => Results.Ok(SiteView(renamed.Connection!, await admin.IsPausedAsync(connectionId, ct))),

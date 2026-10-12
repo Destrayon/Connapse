@@ -590,6 +590,23 @@ public class AtlassianConnectionFormTests : IDisposable
             .And.Contain("await FocusAfterSwapAsync();");
     }
 
+    /// <summary>
+    /// Every provider's edit on the Connections page is saved as the REST API renames a site, so a
+    /// taken name is refused in plain words under the Name field and no exception text is shown.
+    /// </summary>
+    [Fact]
+    public void ConnectionsPage_SavesEditsAsTheApiRenames_AndShowsNoRawExceptionText()
+    {
+        string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
+
+        page.Should().Contain("await Admin.SaveAsync(editing!.Id,").And.NotContain("Admin.UpdateAsync(");
+        page.Should().Contain("ConnectionRenameOutcome.NameTaken")
+            .And.Contain("await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));")
+            .And.Contain("<div id=\"connection-name-error\" class=\"invalid-feedback d-block\" role=\"alert\">");
+        page.Should().NotContain("Fail(ex.Message)", "the exception goes to the log and the page says what happened");
+    }
+
     [Fact]
     public void CopyRequiredScopes_LeavesOutTheAttachmentPermission_WhichHasItsOwnCopy()
     {
