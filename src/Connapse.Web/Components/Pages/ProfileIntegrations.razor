@@ -37,6 +37,10 @@
     {
         <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="@(statusSuccess ? "status" : "alert")">
             <span class="@(statusSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>@statusMessage
+            @if (statusHelp is { } help && help.Message == statusMessage)
+            {
+                <a id="integrations-status-help" class="alert-link ms-1" href="@help.Url" target="_blank" rel="noopener">What this means<span class="visually-hidden"> (opens in a new tab)</span></a>
+            }
             <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => statusMessage = null"></button>
         </div>
     }
@@ -495,7 +499,21 @@
             _ => "Atlassian did not complete the sign-in, so no account was linked. Try again; if it keeps failing, tell an administrator.",
         };
         statusSuccess = false;
+
+        // The guide's entry for the message, for whoever reads it: it says what happened and who fixes it.
+        statusHelp = (statusMessage, AtlassianHelpFor(error));
     }
+
+    /// <summary>The setup guide entry that explains an Atlassian sign-in error code.</summary>
+    public static string AtlassianHelpFor(string error) =>
+        error == "atlassian_app_rejected" ? AtlassianLinkAppRejectedHelp : AtlassianSignInFailedHelp;
+
+    public const string AtlassianLinkAppRejectedHelp = Connapse.Web.Components.Providers.AtlassianLinkAppFieldSpecs.TroubleshootingRejected;
+
+    public const string AtlassianSignInFailedHelp = Connapse.Web.Components.Providers.AtlassianLinkAppFieldSpecs.Guide + "#sign-in-failed";
+
+    /// <summary>A guide link for the status message it was set with; another message shows none.</summary>
+    private (string? Message, string Url)? statusHelp;
 
     private void ConnectAtlassian() =>
         Navigation.NavigateTo("/api/v1/auth/cloud/atlassian/connect", forceLoad: true);

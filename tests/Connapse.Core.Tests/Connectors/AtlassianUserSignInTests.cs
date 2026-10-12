@@ -156,6 +156,74 @@ public class AtlassianUserSignInTests
         await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task CheckAppWithDetailAsync_Rejected_KeepsAtlassiansErrorCode()
+    {
+        var token = new TokenEndpoint(HttpStatusCode.Forbidden, """{"error":"access_denied","error_description":"Unauthorized"}""");
+
+        var result = await SignIn(token).CheckAppWithDetailAsync("client-9", "wrong", Redirect);
+
+        result.Result.Should().Be(AtlassianLinkAppCheck.Rejected);
+        result.Detail.Should().Be("HTTP 403, access_denied: Unauthorized");
+        result.Detail.Should().NotContain("wrong", "the secret is never echoed");
+    }
+
+    [Fact]
+    public async Task CheckAppWithDetailAsync_Accepted_HasNoDetail()
+    {
+        var token = new TokenEndpoint(HttpStatusCode.BadRequest, """{"error":"invalid_grant"}""");
+
+        (await SignIn(token).CheckAppWithDetailAsync("client-9", "secret-9", Redirect))
+            .Should().Be(new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Accepted));
+    }
+
+    [Fact]
+    public async Task CheckAppWithDetailAsync_Unreachable_SaysWhatFailed()
+    {
+        var result = await SignIn(new TokenEndpoint(throws: true)).CheckAppWithDetailAsync("client-9", "secret-9", Redirect);
+
+        result.Result.Should().Be(AtlassianLinkAppCheck.Unknown);
+        result.Detail.Should().Be("No answer from auth.atlassian.com: No route to host");
+    }
+
+    [Fact]
+    public async Task CheckStoredAppWithDetailAsync_RecordsTheAnswerAndKeepsTheCode()
+    {
+        var credentials = Credentials();
+
+        var result = await SignIn(new TokenEndpoint(HttpStatusCode.Unauthorized, """{"error":"invalid_client"}"""), credentials)
+            .CheckStoredAppWithDetailAsync(Redirect);
+
+        result!.Detail.Should().Be("HTTP 401, invalid_client");
+        await credentials.Received(1).RecordAtlassianLinkAppCheckAsync("client-1", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveAsync_Completed_RemembersTheCallbackUrlForTheDailyCheck()
+    {
+        using var api = new FakeAtlassianApi();
+        api.AcceptAuthorizationCode("code-1");
+        api.MapJson("/me", new { account_id = "acc-1" });
+        var credentials = Credentials();
+
+        await SignIn(api, credentials).ResolveAsync("code-1", "verifier-1", Redirect);
+
+        await credentials.Received(1).RememberAtlassianCallbackUrlAsync("client-1", Redirect, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveAsync_RememberingTheCallbackFails_StillLinks()
+    {
+        using var api = new FakeAtlassianApi();
+        api.AcceptAuthorizationCode("code-1");
+        api.MapJson("/me", new { account_id = "acc-1" });
+        var credentials = Credentials();
+        credentials.RememberAtlassianCallbackUrlAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<bool>(_ => throw new InvalidOperationException("db down"));
+
+        (await SignIn(api, credentials).ResolveAsync("code-1", "verifier-1", Redirect)).AccountId.Should().Be("acc-1");
+    }
+
     private static IProviderCredentialStore Credentials(AtlassianLinkAppRegistration? app = null)
     {
         var credentials = Substitute.For<IProviderCredentialStore>();
@@ -171,7 +239,8 @@ public class AtlassianUserSignInTests
         return new AtlassianUserSignIn(http, credentials ?? Credentials());
     }
 
-    private static AtlassianUserSignIn SignIn(FakeAtlassianApi api) => SignIn((HttpMessageHandler)api);
+    private static AtlassianUserSignIn SignIn(FakeAtlassianApi api, IProviderCredentialStore? credentials = null) =>
+        SignIn((HttpMessageHandler)api, credentials);
 
     /// <summary>Atlassian's token endpoint answering every request the same way, or unreachable.</summary>
     private sealed class TokenEndpoint(HttpStatusCode status = HttpStatusCode.OK, string? json = null, bool throws = false) : HttpMessageHandler

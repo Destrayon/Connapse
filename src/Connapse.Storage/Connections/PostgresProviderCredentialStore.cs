@@ -268,7 +268,8 @@ public class PostgresProviderCredentialStore(
     public const string AtlassianProvider = "atlassian";
 
     private sealed record AtlassianLinkAppConfig(
-        string? ClientId, bool SignInOff = false, DateTime? CheckedAt = null, bool? CheckAccepted = null);
+        string? ClientId, bool SignInOff = false, DateTime? CheckedAt = null, bool? CheckAccepted = null,
+        string? CallbackUrl = null);
 
     public async Task<AtlassianLinkAppRegistration?> GetAtlassianLinkAppAsync(CancellationToken ct = default)
     {
@@ -286,7 +287,7 @@ public class PostgresProviderCredentialStore(
         return string.IsNullOrWhiteSpace(config?.ClientId)
             ? null
             : new AtlassianLinkAppRegistration(
-                config.ClientId, row.VerifiedAt, config.CheckedAt, config.CheckAccepted, !config.SignInOff);
+                config.ClientId, row.VerifiedAt, config.CheckedAt, config.CheckAccepted, !config.SignInOff, config.CallbackUrl);
     }
 
     public async Task<string?> GetAtlassianLinkAppSecretAsync(CancellationToken ct = default)
@@ -361,6 +362,15 @@ public class PostgresProviderCredentialStore(
         UpdateAtlassianLinkAppConfigAsync(
             config => string.Equals(config.ClientId, clientId?.Trim(), StringComparison.Ordinal)
                 ? config with { CheckedAt = when, CheckAccepted = accepted }
+                : null,
+            ct);
+
+    public Task<bool> RememberAtlassianCallbackUrlAsync(string clientId, string callbackUrl, CancellationToken ct = default) =>
+        UpdateAtlassianLinkAppConfigAsync(
+            config => string.Equals(config.ClientId, clientId?.Trim(), StringComparison.Ordinal)
+                      && !string.IsNullOrWhiteSpace(callbackUrl)
+                      && !string.Equals(config.CallbackUrl, callbackUrl, StringComparison.Ordinal)
+                ? config with { CallbackUrl = callbackUrl }
                 : null,
             ct);
 

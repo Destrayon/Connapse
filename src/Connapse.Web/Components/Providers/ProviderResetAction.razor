@@ -5,15 +5,24 @@
         {
             <label class="form-label small mb-1" for="@InputId">Type <strong>@ConfirmText</strong> to confirm</label>
             <input @ref="confirmInput" id="@InputId" class="form-control form-control-sm mb-2" style="max-width:20rem" autocomplete="off"
-                   aria-describedby="@(string.IsNullOrWhiteSpace(HelpText) ? null : HelpId)"
+                   aria-describedby="@(string.IsNullOrWhiteSpace(HelpText) ? null : HelpId)" disabled="@resetting"
                    @bind="typed" @bind:event="oninput" />
         }
-        <button @ref="confirmButton" type="button" class="btn btn-sm btn-danger" disabled="@(!Confirmed)" @onclick="ConfirmResetAsync">@ConfirmLabel</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary ms-1" @onclick="CancelReset">Cancel</button>
+        <button @ref="confirmButton" type="button" class="btn btn-sm btn-danger" disabled="@(!Confirmed || resetting || Disabled)" @onclick="ConfirmResetAsync">
+            @if (resetting)
+            {
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>@(BusyLabel ?? ConfirmLabel)</span>
+            }
+            else
+            {
+                @ConfirmLabel
+            }
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ms-1" disabled="@resetting" @onclick="CancelReset">Cancel</button>
     }
     else
     {
-        <button @ref="trigger" type="button" class="btn btn-sm btn-outline-danger" @onclick="RequestReset">@Label</button>
+        <button @ref="trigger" type="button" class="btn btn-sm btn-outline-danger" disabled="@Disabled" @onclick="RequestReset">@Label</button>
     }
     @if (confirming && !string.IsNullOrWhiteSpace(HelpText))
     {
@@ -30,11 +39,18 @@
     /// <summary>When set, the reset stays disabled until this exact text is typed.</summary>
     [Parameter] public string? ConfirmText { get; set; }
 
+    /// <summary>What the confirm button says while the reset runs, beside a spinner.</summary>
+    [Parameter] public string? BusyLabel { get; set; }
+
+    /// <summary>Another action on the page is running, so this one waits.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
     private readonly string _id = Guid.NewGuid().ToString("N")[..8];
     private string InputId => $"reset-confirm-{_id}";
     private string HelpId => $"reset-help-{_id}";
 
     private bool confirming;
+    private bool resetting;
     private string? typed;
     private ElementReference trigger;
     private ElementReference confirmInput;
@@ -59,8 +75,16 @@
     private void CancelReset() => (confirming, typed, focusConfirmation) = (false, null, false);
     private async Task ConfirmResetAsync()
     {
-        if (!Confirmed) return;
-        await OnReset.InvokeAsync();
+        if (!Confirmed || resetting) return;
+        resetting = true;
+        try
+        {
+            await OnReset.InvokeAsync();
+        }
+        finally
+        {
+            resetting = false;
+        }
         (confirming, typed) = (false, null);
     }
 }

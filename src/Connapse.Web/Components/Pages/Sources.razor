@@ -8,6 +8,7 @@
 
 @using Connapse.Web.Services
 @using Connapse.Web.Components.Sources
+@using Connapse.Storage.Connectors.Atlassian
 @inject ISourceStore SourceStore
 @inject Connapse.Web.Services.AtlassianSiteService AtlassianSites
 @inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
@@ -211,27 +212,55 @@
                         {
                             <tr class="@(source.Enabled ? "" : "opacity-50")">
                                 <td colspan="7" class="pt-0 border-top-0">
-                                    <div class="alert alert-secondary py-2 mb-0 small" role="status">
-                                        <span class="bi-hourglass-split me-1" aria-hidden="true"></span>
-                                        @source.LastSyncError
-                                    </div>
+                                    @if (SourceSyncNotice.KindOf(source.LastSyncError) == SyncNoticeKind.Waiting)
+                                    {
+                                        <div class="alert alert-secondary py-2 mb-0 small sync-notice-waiting" role="status">
+                                            <span class="bi-hourglass-split me-1" aria-hidden="true"></span>
+                                            @source.LastSyncError
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        @* Synced, but something was left out that an administrator can fix:
+                                           a warning, not an error and not a wait. *@
+                                        <div class="alert alert-warning py-2 mb-0 small sync-notice-warning" role="status">
+                                            <span class="bi-exclamation-triangle-fill me-1" aria-hidden="true"></span>
+                                            <strong>Warning:</strong> @source.LastSyncError
+                                            @if (IsAtlassian(source))
+                                            {
+                                                <a class="alert-link ms-1" target="_blank" rel="noopener" href="@AtlassianSyncErrors.TroubleshootingUrl(source.LastSyncError)">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                                            }
+                                        </div>
+                                    }
                                 </td>
                             </tr>
                         }
 
                         @if (source.LastSyncStatus == SyncStatus.Failed && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
+                            var (failure, failureDetail) = SyncErrorText.Split(source.LastSyncError);
                             <tr class="@(source.Enabled ? "" : "opacity-50")">
                                 @* Administrators only: a provider's failure text routinely quotes the
                                    resource that failed, which is the same infrastructure detail the
                                    API withholds from non-admin readers. *@
                                 <td colspan="7" class="pt-0 border-top-0">
-                                    <div class="alert alert-danger py-2 mb-0 small">
+                                    <div class="alert alert-danger py-2 mb-0 small sync-error">
                                         <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
-                                        @source.LastSyncError
+                                        @failure
                                         @if (IsGitHub(source))
                                         {
                                             <a class="alert-link ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
+                                        }
+                                        else if (IsAtlassian(source))
+                                        {
+                                            <a class="alert-link ms-1" target="_blank" rel="noopener" href="@AtlassianSyncErrors.TroubleshootingUrl(source.LastSyncError)">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                                        }
+                                        @if (failureDetail is not null)
+                                        {
+                                            <details class="mt-1">
+                                                <summary>Details</summary>
+                                                <code class="text-break">@failureDetail</code>
+                                            </details>
                                         }
                                     </div>
                                 </td>
@@ -776,6 +805,9 @@
     private bool IsGitHub(Source source) =>
         source.ConnectionId is Guid id && connections.FirstOrDefault(c => c.Id == id)?.Provider == ConnectionProvider.GitHub;
 
+    private bool IsAtlassian(Source source) =>
+        source.ConnectionId is Guid id && connections.FirstOrDefault(c => c.Id == id)?.Provider == ConnectionProvider.Atlassian;
+
     private static string ProviderName(ConnectionProvider provider) => provider switch
     {
         ConnectionProvider.GitHub => "GitHub",
@@ -911,19 +943,28 @@
 
     private static RenderFragment StatusBadge(Source source) => builder =>
     {
-        (string css, string text) = source switch
+        (string css, string? icon, string text) = source switch
         {
-            { Enabled: false } => ("text-bg-secondary", "Disabled"),
-            { LastSyncStatus: SyncStatus.Succeeded, LastSyncError.Length: > 0 } => ("text-bg-warning", "Waiting"),
-            { LastSyncStatus: SyncStatus.Succeeded } => ("text-bg-success", "Synced"),
-            { LastSyncStatus: SyncStatus.Failed } => ("text-bg-danger", "Failed"),
-            { LastSyncStatus: SyncStatus.Running } => ("text-bg-info", "Syncing"),
-            _ => ("text-bg-light", "Never synced"),
+            { Enabled: false } => ("text-bg-secondary", null, "Disabled"),
+            { LastSyncStatus: SyncStatus.Succeeded, LastSyncError: { Length: > 0 } notice }
+                when SourceSyncNotice.KindOf(notice) == SyncNoticeKind.Waiting => ("text-bg-light border", "bi-hourglass-split", "Waiting"),
+            { LastSyncStatus: SyncStatus.Succeeded, LastSyncError.Length: > 0 } => ("text-bg-warning", "bi-exclamation-triangle-fill", "Warning"),
+            { LastSyncStatus: SyncStatus.Succeeded } => ("text-bg-success", null, "Synced"),
+            { LastSyncStatus: SyncStatus.Failed } => ("text-bg-danger", null, "Failed"),
+            { LastSyncStatus: SyncStatus.Running } => ("text-bg-info", null, "Syncing"),
+            _ => ("text-bg-light", null, "Never synced"),
         };
 
         builder.OpenElement(0, "span");
         builder.AddAttribute(1, "class", $"badge {css}");
-        builder.AddContent(2, text);
+        if (icon is not null)
+        {
+            builder.OpenElement(2, "span");
+            builder.AddAttribute(3, "class", $"{icon} me-1");
+            builder.AddAttribute(4, "aria-hidden", "true");
+            builder.CloseElement();
+        }
+        builder.AddContent(5, text);
         builder.CloseElement();
     };
 

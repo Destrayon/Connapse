@@ -184,7 +184,9 @@ https://your-site.atlassian.net.*
 ### Client ID or secret rejected
 
 **Symptom:** *Atlassian rejected the client ID or secret.* while **Signing in as the service account**,
-or a site marked **Needs new credentials** on the Connections page after its credential stopped working.
+a site marked **Needs new credentials** on the Connections page after its credential stopped working,
+or a Confluence source on the Sources page that failed with *Atlassian refused this site's service
+account credential, so Connapse can't read the site.*
 **Likely cause:** the values were swapped or partly copied, they come from the linking app instead of
 the service account, or the credential was deleted or revoked.
 **Fix:** in Atlassian Administration, open the service account, create a new OAuth 2.0 credential (step
@@ -192,7 +194,8 @@ the service account, or the credential was deleted or revoked.
 
 ### Can't read Confluence
 
-**Symptom:** *The credential can't read Confluence on this site.*
+**Symptom:** *The credential can't read Confluence on this site.*, or a Confluence source that failed
+with *Atlassian refused the service account's requests even with a new token.*
 **Likely cause:** the service account has no Confluence role on this site, or the credential was created
 without the Confluence scopes.
 **Fix:** set Confluence to its admin role on the service account (step 2.2). If it already has it,
@@ -277,6 +280,37 @@ secret from the app's **Settings** again. Compare the callback URL on the card w
 
 If a linked person still sees no Confluence results, check in Confluence that they can open the page,
 that the page's space has a source, and that the source has synced.
+
+### Space can no longer be read
+
+**Symptom:** a Confluence source on the Sources page failed with *Confluence space … can no longer be
+read: the service account lost access to it.* or *… it was deleted, or the service account can no longer
+see it.* **Details** shows HTTP 403 or 404.
+**Likely cause:** someone removed the service account's **Viewer** role from the space, changed the
+space's permissions, or deleted or archived the space. The source's documents are hidden from search,
+not deleted, until the space can be read again.
+**Fix:** in the space, open **Space settings** → **Users** and give the service account the **Viewer**
+role again (step 2.3), then choose **Sync** on the source. If the space was deleted, delete the source.
+
+### Attachments skipped
+
+**Symptom:** a Confluence source shows **Warning** on the Sources page with *… attachments were skipped:
+larger than 25 MB, or a file type Connapse can't read.*
+**Likely cause:** the attachments are larger than the source's **Max attachment size (MB)**, or they
+are images or other files no parser can read. Pages and comments still synced.
+**Fix:** to include larger files, choose **Edit** on the source and raise **Max attachment size (MB)**
+(up to 100). Files of an unreadable type stay skipped.
+
+### Couldn't reach Atlassian
+
+**Symptom:** **Check and save** or **Recheck** on the **Linking app** card answers *Couldn't reach
+Atlassian…*, or a Confluence source failed with *Confluence on this site didn't answer properly, so
+nothing changed this cycle.* or *Atlassian's sign-in service answered with a redirect…*
+**Likely cause:** this server can't reach Atlassian over HTTPS (a firewall, a proxy, or DNS), or
+Atlassian had a temporary outage. **Details** on the Sources page shows what came back.
+**Fix:** check that the server can open `https://auth.atlassian.com` and `https://api.atlassian.com`,
+and that no proxy rewrites or redirects those requests. Then try again; a source also retries on its
+next sync.
 
 ## Removing Atlassian
 

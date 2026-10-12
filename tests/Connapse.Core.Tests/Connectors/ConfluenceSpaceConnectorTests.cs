@@ -584,7 +584,9 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         var delta = await _connector.GetChangesAsync(null);
 
         delta.Upserted.Select(f => f.Path).Should().Equal("/pages/1.md");
-        delta.Notice.Should().Be("2 attachments skipped: over 25 MB or unsupported type");
+        delta.Notice.Should().Be(
+            "2 attachments were skipped: larger than 25 MB, or a file type Connapse can't read. "
+            + "To include larger files, raise Max attachment size on the source.");
         (await _connector.ExistsAsync("/attachments/501/unsized.txt")).Should().BeFalse();
     }
 

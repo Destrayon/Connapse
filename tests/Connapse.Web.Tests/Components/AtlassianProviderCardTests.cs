@@ -332,12 +332,165 @@ public class AtlassianProviderCardTests : IDisposable
         cut.Find("#atlassian-app-status").TextContent.Should().Contain("nobody can link an account until a new app is added");
     }
 
+    [Fact]
+    public void Save_Rejected_KeepsAtlassiansErrorCodeUnderDetails()
+    {
+        token.Answer(HttpStatusCode.Forbidden, AccessDenied);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-secret-detail").TextContent.Should().Contain("HTTP 403").And.Contain("access_denied"));
+        cut.Find("#atlassian-app-secret-detail summary").TextContent.Should().Be("Details");
+        cut.Find("#atlassian-app-client-secret-error").TextContent.Should().StartWith("Atlassian rejected this client ID and secret",
+            "the plain message comes first; the code is there on demand");
+    }
+
+    [Fact]
+    public void Save_Unreachable_LinksTheTroubleshootingEntryAndShowsWhatFailed()
+    {
+        token.Unreachable();
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-error a").GetAttribute("href").Should().EndWith("atlassian-setup.md#couldnt-reach-atlassian"));
+        cut.Find("#atlassian-app-error-detail").TextContent.Should().Contain("No route to host");
+    }
+
+    [Fact]
+    public void Recheck_Rejected_ShowsAtlassiansAnswerUnderDetails()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
+        credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
+        token.Answer(HttpStatusCode.Forbidden, AccessDenied);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-recheck").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-alert-detail").TextContent.Should().Contain("HTTP 403, access_denied"));
+        cut.Find("#atlassian-app-alert a").GetAttribute("href").Should().EndWith("#linking-app-rejected");
+    }
+
+    [Fact]
+    public void Recheck_Unreachable_LinksTheTroubleshootingEntry()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
+        credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
+        token.Unreachable();
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-recheck").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-alert").TextContent.Should().Contain("Couldn't reach Atlassian"));
+        cut.Find("#atlassian-app-alert a").GetAttribute("href").Should().EndWith("#couldnt-reach-atlassian");
+    }
+
+    [Fact]
+    public void Save_RemembersTheCallbackUrlForTheDailyCheck()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(null, new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => credentials.Received(1).RememberAtlassianCallbackUrlAsync(
+            "link-client", "http://localhost/api/v1/auth/cloud/atlassian/callback", Arg.Any<CancellationToken>()));
+    }
+
+    [Theory]
+    [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", true, "Checked automatically every day.")]
+    [InlineData(null, true, "once Recheck has run here")]
+    [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", false, "Not checked automatically while sign-in is off.")]
+    public void LastChecked_SaysWhenTheAppIsCheckedAgain(string? callbackUrl, bool signInEnabled, string expected)
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration(
+            "link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true, SignInEnabled: signInEnabled, CallbackUrl: callbackUrl));
+
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-check-schedule").TextContent.Should().Contain(expected);
+    }
+
+    [Fact]
+    public void TurnOffSignIn_IsBusyUntilDone_ThenAnnouncesTheResult()
+    {
+        var pending = new TaskCompletionSource<bool>();
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
+            new AtlassianLinkAppRegistration("link-client"),
+            new AtlassianLinkAppRegistration("link-client", SignInEnabled: false));
+        credentials.SetAtlassianSignInEnabledAsync(false, Arg.Any<CancellationToken>()).Returns(pending.Task);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-sign-in-toggle").Click();
+
+        var toggle = cut.Find("#atlassian-sign-in-toggle");
+        toggle.HasAttribute("disabled").Should().BeTrue("a second click must not send a second change");
+        toggle.TextContent.Should().Contain("Turning off");
+        toggle.QuerySelector(".spinner-border").Should().NotBeNull();
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse"))
+            .HasAttribute("disabled").Should().BeTrue("removing while sign-in is changing would race it");
+
+        pending.SetResult(true);
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian sign-in is off"));
+        cut.Find("#atlassian-sign-in-toggle").HasAttribute("disabled").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Remove_IsBusyUntilDone_ThenAnnouncesTheResult()
+    {
+        var pending = new TaskCompletionSource<bool>();
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
+            new AtlassianLinkAppRegistration("link-client"), new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
+        credentials.DeleteAsync("atlassian", Arg.Any<CancellationToken>()).Returns(pending.Task);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse")).Click();
+        cut.Find("input[id^='reset-confirm-']").Input("link-client");
+        cut.FindAll("button").Single(b => b.TextContent == "Remove the linking app").Click();
+
+        var busy = cut.FindAll("button").Single(b => b.TextContent.Contains("Removing"));
+        busy.HasAttribute("disabled").Should().BeTrue();
+        busy.QuerySelector(".spinner-border").Should().NotBeNull();
+        cut.Find("#atlassian-sign-in-toggle").HasAttribute("disabled").Should().BeTrue();
+
+        pending.SetResult(true);
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("The linking app was removed"));
+    }
+
+    [Fact]
+    public void Save_DisablesBothFieldsWhileAtlassianIsAsked()
+    {
+        token.Hold();
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-client-secret").HasAttribute("disabled").Should().BeTrue());
+        cut.Find("#atlassian-app-client-id").HasAttribute("disabled").Should().BeTrue();
+
+        token.Release();
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-client-secret").HasAttribute("disabled").Should().BeFalse());
+    }
+
     /// <summary>Atlassian's token endpoint, answering every request one way, or unreachable.</summary>
     private sealed class TokenEndpoint : HttpMessageHandler
     {
         private HttpStatusCode status;
         private string json = "";
         private bool unreachable;
+        private TaskCompletionSource? held;
 
         public string? Body { get; private set; }
         public int Calls { get; private set; }
@@ -346,9 +499,16 @@ public class AtlassianProviderCardTests : IDisposable
 
         public void Unreachable() => unreachable = true;
 
+        /// <summary>Requests wait until <see cref="Release"/>, so a test can see what the page does meanwhile.</summary>
+        public void Hold() => held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Release() => held?.SetResult();
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Calls++;
+            if (held is not null)
+                await held.Task;
             if (unreachable)
                 throw new HttpRequestException("No route to host");
             Body = await request.Content!.ReadAsStringAsync(ct);
