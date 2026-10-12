@@ -1,0 +1,18 @@
+@*
+    The setup-guide pointer every Atlassian surface opens with, in the words the AWS, Azure and
+    GitHub provider pages use in their intros, so the link is always the first line under a title.
+*@
+
+<p class="small text-muted mb-2" id="@Id">
+    <span class="bi-book me-1" aria-hidden="true"></span>
+    Every field, where to find its value, and what each error means are in the
+    <a href="@Href" target="_blank" rel="noopener">@Name<span class="visually-hidden"> (opens in a new tab)</span></a>.
+</p>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Href { get; set; } = "";
+
+    [Parameter] public string Name { get; set; } = "Atlassian setup guide";
+}

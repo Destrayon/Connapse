@@ -19,7 +19,8 @@ public class AtlassianLinkAppFieldSpecDocsTests
     {
         // The guide must name each of these labels; the checks below read it once it exists.
         AtlassianLinkAppFieldSpecs.All.Select(f => f.Label).Should().Equal("Client ID", "Client secret");
-        AtlassianLinkAppFieldSpecs.All.Select(f => f.Group).Distinct().Should().Equal("App credentials");
+        // Hand-entered provider values sit under the same heading on every provider page.
+        AtlassianLinkAppFieldSpecs.All.Select(f => f.Group).Distinct().Should().Equal([GitHubFieldSpecs.AppId.Group]);
     }
 
     [Fact]

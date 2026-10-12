@@ -3,6 +3,8 @@
 
 @* The Confluence part of the New source dialog: the site's spaces to tick, and what to read from each. *@
 
+<SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+
 <fieldset class="mb-3" id="confluence-spaces" aria-describedby="@SpacesDescribedBy">
     <legend class="form-label fs-6 mb-1">@ConfluenceSpaceSelection.SpacesLabel</legend>
     <div class="form-check mb-2">
@@ -59,9 +61,7 @@
         </div>
     }
     <div id="confluence-spaces-help" class="form-text">
-        One source is created per space, named after the site and the space. Only spaces the site's service account
-        can view are listed. If one is missing, give the service account the Viewer role in that space:
-        <a href="@ConfluenceSpaceSelection.GuideUrl" target="_blank" rel="noopener">see Confluence sources in the setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
+        @ConfluenceSpaceSelection.SpacesHelp
     </div>
 </fieldset>
 

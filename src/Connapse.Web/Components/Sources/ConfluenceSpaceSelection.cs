@@ -31,8 +31,13 @@ public sealed class ConfluenceSpaceSelection
 
     public const string NoSpaceChosen = "Choose at least one space.";
 
-    public const string IncludeAttachmentsHelp =
-        "Index files attached to pages, such as PDFs and Word documents. Comments and blog posts are always included.";
+    /// <summary>Under the Spaces list: what ticking one does, and the usual reason one is missing.</summary>
+    public const string SpacesHelp =
+        "Each space you tick becomes its own source. If a space is missing, give the service account the Viewer role in it.";
+
+    public const string IncludeAttachmentsShortHelp = "Index files attached to pages, such as PDFs and Word documents.";
+
+    public const string IncludeAttachmentsHelp = IncludeAttachmentsShortHelp + " Comments and blog posts are always included.";
 
     public static string MaxAttachmentMbHelp => $"{MinAttachmentMb} to {MaxAttachmentMbLimit} MB. Larger attachments are skipped.";
 

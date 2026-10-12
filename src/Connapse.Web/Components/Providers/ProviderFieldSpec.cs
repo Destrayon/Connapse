@@ -87,17 +87,19 @@ public static class AtlassianLinkAppFieldSpecs
     public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md";
     public const string GuideSection = Guide + "#1-linking-app";
     public const string TroubleshootingRejected = Guide + "#linking-app-rejected";
-    private const string AppCredentials = "App credentials";
+    // The same heading GitHub's hand-entered values sit under.
+    private const string ManualValues = "Manual values";
 
+    // Atlassian publishes no fixed format or length for these, so the shape is described loosely.
     public static readonly ProviderFieldSpec ClientId = new(
         "atlassian-app-client-id", "Client ID", ProviderFieldKind.Text, Required: true,
-        "Shown under Settings on the app in the Atlassian developer console.",
-        AppCredentials, GuideSection, "Where to find this", MaxWidth: "28rem");
+        "Under Settings on the app in the Atlassian developer console: one string of letters and digits, with no spaces.",
+        ManualValues, GuideSection, "Where to find this", MaxWidth: "28rem");
 
     public static readonly ProviderFieldSpec ClientSecret = new(
         "atlassian-app-client-secret", "Client secret",ProviderFieldKind.Secret, Required: true,
-        "Shown under Settings on the app, below the client ID. Stored encrypted and never shown again.",
-        AppCredentials, GuideSection, "Where to find this", MaxWidth: "28rem");
+        "Labelled Secret, below the client ID: one long string of characters. Stored encrypted and never shown again.",
+        ManualValues, GuideSection, "Where to find this", MaxWidth: "28rem");
 
     /// <summary>Every field, in the order they are rendered, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } = [ClientId, ClientSecret];

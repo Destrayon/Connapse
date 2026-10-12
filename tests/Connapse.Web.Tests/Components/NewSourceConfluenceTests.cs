@@ -193,6 +193,20 @@ public class NewSourceConfluenceTests : IDisposable
     }
 
     [Fact]
+    public void Dialog_OpensTheConfluencePartWithTheSetupGuideLink_AsEveryAtlassianSurfaceDoes()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+
+        var guide = cut.Find("#confluence-setup-guide");
+        guide.TextContent.Should().Contain("Every field, where to find its value, and what each error means are in the");
+        guide.QuerySelector("a")!.GetAttribute("href").Should().Be(
+            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
+        cut.Markup.IndexOf("id=\"confluence-setup-guide\"", StringComparison.Ordinal)
+            .Should().BeLessThan(cut.Markup.IndexOf("id=\"confluence-spaces\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Dialog_GroupsAreFieldsetsWithLegendsAndHelpIsLinkedToItsControl()
     {
         var cut = OpenDialog();
@@ -201,8 +215,9 @@ public class NewSourceConfluenceTests : IDisposable
         var spaces = cut.Find("fieldset#confluence-spaces");
         spaces.QuerySelector("legend")!.TextContent.Trim().Should().Be("Spaces");
         spaces.GetAttribute("aria-describedby").Should().Be("confluence-spaces-help");
-        cut.Find("#confluence-spaces-help a").GetAttribute("href").Should().Be(
-            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
+        cut.Find("#confluence-spaces-help").TextContent.Trim().Should().Be(
+            "Each space you tick becomes its own source. If a space is missing, give the service account the Viewer role in it.");
+        cut.FindAll("#confluence-spaces-help a").Should().BeEmpty("the guide link sits at the top of the Confluence part");
 
         cut.Find("fieldset#confluence-attachments-group legend").TextContent.Trim().Should().Be("Attachments");
         cut.Find("#confluence-personal").GetAttribute("aria-describedby").Should().Be("confluence-personal-help");

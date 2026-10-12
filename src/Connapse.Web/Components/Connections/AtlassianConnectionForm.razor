@@ -26,11 +26,7 @@
 *@
 
 <div class="col-12" style="max-width:40rem">
-    <p class="small mb-2" id="atlassian-setup-guide">
-        <span class="bi-book me-1" aria-hidden="true"></span>
-        Every field, where to find it, and what each error means are in the
-        <a href="@AtlassianSiteFieldSpecs.SiteConnectionSection" target="_blank" rel="noopener">Atlassian setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
-    </p>
+    <SetupGuideLink Id="atlassian-setup-guide" Href="@AtlassianSiteFieldSpecs.SiteConnectionSection" />
 
     @if (PlainHttp)
     {
@@ -91,6 +87,12 @@
             The client secret is stored encrypted and never shown. Rename the site with the Name field above; replace its credential here
             without removing any source.
         </p>
+        <p class="small text-muted mb-2" id="atlassian-revoke-help">
+            To revoke the credential itself, open
+            <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian Administration<span class="visually-hidden"> (opens in a new tab)</span></a>
+            → <strong>Directory</strong> → <strong>Service accounts</strong>, choose the service account, and delete its OAuth 2.0 credential.
+            <a href="@AtlassianSiteFieldSpecs.SiteConnectionSection" target="_blank" rel="noopener">See the setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
+        </p>
 
         <details class="mb-2 small" id="atlassian-site-scopes">
             <summary>Permissions Connapse needs (@ConfirmedCount(site) of @AtlassianSiteScopes.All.Count confirmed by the last test)</summary>
@@ -118,7 +120,7 @@
         </details>
 
         <div class="d-flex flex-wrap gap-2">
-            <button type="button" id="atlassian-retest" class="btn btn-sm btn-outline-primary" disabled="@(retesting || replaceBusy)" @onclick="RetestAsync">
+            <button type="button" id="atlassian-retest" class="btn btn-sm btn-info" disabled="@(retesting || replaceBusy)" @onclick="RetestAsync">
                 @if (retesting)
                 {
                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Testing…</span>
