@@ -3,6 +3,8 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Connapse.Storage.Connections;
 
@@ -260,6 +262,189 @@ public class PostgresProviderCredentialStore(
         await db.SaveChangesAsync(ct);
 
         return new ProviderCredentialInfo(GitHubProvider, existing.PrincipalName, now);
+    }
+
+    /// <summary>The provider key the Atlassian link app is stored under.</summary>
+    public const string AtlassianProvider = "atlassian";
+
+    private sealed record AtlassianLinkAppConfig(
+        string? ClientId, bool SignInOff = false, DateTime? CheckedAt = null, bool? CheckAccepted = null,
+        string? CallbackUrl = null);
+
+    public async Task<AtlassianLinkAppRegistration?> GetAtlassianLinkAppAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var row = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == AtlassianProvider)
+            .Select(c => new { c.ConfigJson, c.VerifiedAt })
+            .FirstOrDefaultAsync(ct);
+
+        if (row is null || string.IsNullOrWhiteSpace(row.ConfigJson)) return null;
+
+        var config = System.Text.Json.JsonSerializer.Deserialize<AtlassianLinkAppConfig>(row.ConfigJson, AppJson);
+        return string.IsNullOrWhiteSpace(config?.ClientId)
+            ? null
+            : new AtlassianLinkAppRegistration(
+                config.ClientId, row.VerifiedAt, config.CheckedAt, config.CheckAccepted, !config.SignInOff, config.CallbackUrl);
+    }
+
+    public async Task<string?> GetAtlassianLinkAppSecretAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        string? protectedSecret = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == AtlassianProvider)
+            .Select(c => c.SecretProtected)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrEmpty(protectedSecret)) return null;
+
+        try
+        {
+            return Protector.Unprotect(protectedSecret);
+        }
+        catch (Exception ex)
+        {
+            throw new ProviderCredentialUnavailableException(AtlassianProvider, ex);
+        }
+    }
+
+    public async Task<ProviderCredentialInfo> SaveAtlassianLinkAppAsync(
+        string clientId, string clientSecret, Guid? createdByUserId, DateTime? checkedAt = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientSecret);
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        DateTime now = DateTime.UtcNow;
+        string trimmedId = clientId.Trim();
+
+        // One statement that replaces every credential column together. A read-then-modify through
+        // EF writes only the columns that changed, so two overlapping saves could leave one call's
+        // client id beside the other's secret -- a pair that matches no app and fails every link.
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO provider_credentials
+                (provider, config_json, secret_protected, principal_name, created_at, created_by_user_id, verified_at)
+            VALUES (@provider, @config, @secret, @principal, @createdAt, @createdBy, NULL)
+            ON CONFLICT (provider) DO UPDATE SET
+                config_json = EXCLUDED.config_json,
+                secret_protected = EXCLUDED.secret_protected,
+                principal_name = EXCLUDED.principal_name,
+                created_at = EXCLUDED.created_at,
+                created_by_user_id = EXCLUDED.created_by_user_id,
+                verified_at = NULL
+            """,
+            [
+                new NpgsqlParameter("provider", AtlassianProvider),
+                new NpgsqlParameter("config", System.Text.Json.JsonSerializer.Serialize(
+                    new AtlassianLinkAppConfig(trimmedId, CheckedAt: checkedAt, CheckAccepted: checkedAt is null ? null : true), AppJson)),
+                new NpgsqlParameter("secret", Protector.Protect(clientSecret)),
+                new NpgsqlParameter("principal", trimmedId),
+                new NpgsqlParameter("createdAt", now),
+                new NpgsqlParameter("createdBy", (object?)createdByUserId ?? DBNull.Value) { NpgsqlDbType = NpgsqlDbType.Uuid },
+            ],
+            ct);
+
+        return new ProviderCredentialInfo(AtlassianProvider, trimmedId, now);
+    }
+
+    public async Task<bool> MarkAtlassianLinkAppVerifiedAsync(DateTime when, CancellationToken ct = default) =>
+        await MarkVerifiedAsync(AtlassianProvider, when, ct);
+
+    public Task<bool> RecordAtlassianLinkAppCheckAsync(
+        string clientId, string checkedSecret, bool accepted, DateTime when, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(checkedSecret);
+        return UpdateAtlassianLinkAppConfigAsync(
+            config => string.Equals(config.ClientId, clientId?.Trim(), StringComparison.Ordinal)
+                ? config with { CheckedAt = when, CheckAccepted = accepted }
+                : null,
+            ct,
+            requireSecret: checkedSecret);
+    }
+
+    public Task<bool> RememberAtlassianCallbackUrlAsync(string clientId, string callbackUrl, CancellationToken ct = default) =>
+        UpdateAtlassianLinkAppConfigAsync(
+            config => string.Equals(config.ClientId, clientId?.Trim(), StringComparison.Ordinal)
+                      && !string.IsNullOrWhiteSpace(callbackUrl)
+                      && !string.Equals(config.CallbackUrl, callbackUrl, StringComparison.Ordinal)
+                ? config with { CallbackUrl = callbackUrl }
+                : null,
+            ct);
+
+    public Task<bool> SetAtlassianSignInEnabledAsync(bool enabled, CancellationToken ct = default) =>
+        UpdateAtlassianLinkAppConfigAsync(config => config with { SignInOff = !enabled }, ct);
+
+    /// <summary>
+    /// Changes the stored app's non-secret settings. Written only if the row still holds what was
+    /// read, so a save replacing the app in between is never overwritten with the old app's settings.
+    /// The secret is part of what was read: a save that rotates only the secret also makes the write retry.
+    /// </summary>
+    /// <param name="requireSecret">
+    /// When set, written only while the stored secret is this one; a different or unreadable secret writes nothing.
+    /// </param>
+    private async Task<bool> UpdateAtlassianLinkAppConfigAsync(
+        Func<AtlassianLinkAppConfig, AtlassianLinkAppConfig?> change, CancellationToken ct, string? requireSecret = null)
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            await using var db = await factory.CreateDbContextAsync(ct);
+
+            var row = await db.ProviderCredentials
+                .AsNoTracking()
+                .Where(c => c.Provider == AtlassianProvider)
+                .Select(c => new { c.ConfigJson, c.SecretProtected })
+                .FirstOrDefaultAsync(ct);
+            string? current = row?.ConfigJson;
+            if (string.IsNullOrWhiteSpace(current)) return false;
+
+            if (requireSecret is not null && !StoredSecretIs(row!.SecretProtected, requireSecret)) return false;
+
+            var config = System.Text.Json.JsonSerializer.Deserialize<AtlassianLinkAppConfig>(current, AppJson);
+            if (string.IsNullOrWhiteSpace(config?.ClientId) || change(config) is not { } next) return false;
+
+            int updated = await db.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE provider_credentials SET config_json = @next
+                WHERE provider = @provider AND config_json = @current
+                  AND secret_protected IS NOT DISTINCT FROM @currentSecret
+                """,
+                [
+                    new NpgsqlParameter("next", System.Text.Json.JsonSerializer.Serialize(next, AppJson)),
+                    new NpgsqlParameter("provider", AtlassianProvider),
+                    new NpgsqlParameter("current", current),
+                    new NpgsqlParameter("currentSecret", (object?)row!.SecretProtected ?? DBNull.Value) { NpgsqlDbType = NpgsqlDbType.Text },
+                ],
+                ct);
+            if (updated > 0) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether the protected secret decrypts to <paramref name="expected"/>, compared in constant time.</summary>
+    private bool StoredSecretIs(string? protectedSecret, string expected)
+    {
+        if (string.IsNullOrEmpty(protectedSecret)) return false;
+
+        string stored;
+        try
+        {
+            stored = Protector.Unprotect(protectedSecret);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(stored), System.Text.Encoding.UTF8.GetBytes(expected));
     }
 
     private static GitHubAppRegistration? ReadApp(string? json)

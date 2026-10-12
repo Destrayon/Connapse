@@ -27,6 +27,8 @@
 @inject IProviderCredentialStore CredentialStore
 @inject NavigationManager Navigation
 @inject IAuditLogger AuditLogger
+@inject ConnectionAdminService Admin
+@inject ILogger<Connections> Logger
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -40,6 +42,11 @@
     creates or edits one. The authority a connection confers is the same class of thing as a
     cloud credential, which this project does not accept over an API. See
     docs/research/programmatic-source-configuration-safety-2026-08-17.md.
+
+    The one exception is an Atlassian site, whose service-account credential is a secret Connapse
+    must hold. /api/v1/atlassian/sites (admin only) adds a site, re-tests it and replaces its
+    credential through AtlassianSiteService, the same service this page uses, so the REST routes
+    run exactly the tests this page runs before anything is saved, and never return the secret.
 
     RequireAdmin matches that: a connection names a filesystem root or a cloud identity, and
     every source built on it inherits that reach.
@@ -60,6 +67,7 @@
             GitHub use the identity set up on their provider pages
             (<a href="/admin/providers/aws">AWS</a>, <a href="/admin/providers/azure">Azure</a>,
             <a href="/admin/providers/github">GitHub</a>).
+            An Atlassian site is the exception: it is added here with the service account Connapse reads it as.
         </div>
     </div>
 
@@ -204,7 +212,7 @@
                     <h6 class="card-title">2 · Paste back what it printed</h6>
                     <textarea class="form-control font-monospace" rows="5" @bind="pastedResult"
                               @bind:event="oninput"
-                              placeholder="@SftpHostSetup.BeginMarker&#10;user=…&#10;home=…&#10;fingerprint=…&#10;@SftpHostSetup.EndMarker"></textarea>
+                              placeholder="@($"{SftpHostSetup.BeginMarker}\nuser=…\nhome=…\nfingerprint=…\n{SftpHostSetup.EndMarker}")"></textarea>
                     <div class="form-text">
                         The whole terminal output is fine — Connapse finds the block. This carries your
                         username, your folder path, and the server's key fingerprint, so nothing has to
@@ -347,7 +355,7 @@
                 @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
                 <span>Create connection</span>
             </button>
-            <button class="btn btn-info me-2" @onclick="TestLocalSetup" disabled="@(testing || !LocalSetupReady())">
+            <button class="btn btn-outline-secondary me-2" @onclick="TestLocalSetup" disabled="@(testing || !LocalSetupReady())">
                 @if (testing) { <span class="spinner-border spinner-border-sm me-1"></span> }
                 <span>Test first</span>
             </button>
@@ -380,7 +388,7 @@
                 <button class="btn btn-outline-primary btn-sm me-2" @onclick="() => StartGuidedSetup(SftpSetupTarget.ThisComputer)">
                     <span class="bi-laptop me-1"></span> Connect this computer
                 </button>
-                <button class="btn btn-primary btn-sm" @onclick="StartCreate">
+                <button @ref="addConnectionButton" class="btn btn-primary btn-sm" @onclick="StartCreate">
                     <span class="bi-plus-lg me-1"></span> Add connection
                 </button>
             </div>
@@ -446,6 +454,22 @@
                                                 </span>
                                             }
                                         }
+                                        else if (c.Provider == ConnectionProvider.Atlassian)
+                                        {
+                                            var siteStatus = AtlassianSiteStatus.Of(c);
+                                            <div class="text-muted">Service account (OAuth client credentials)</div>
+                                            <div class="@siteStatus.CssClass" data-site-status="@c.Id">
+                                                <span class="@siteStatus.Icon me-1" aria-hidden="true"></span>@siteStatus.Text
+                                                @if (c.Health?.LastSucceededAt is { } lastOk)
+                                                {
+                                                    <span class="text-muted">(last successful check @AtlassianSiteStatus.When(lastOk))</span>
+                                                }
+                                            </div>
+                                            @if (siteStatus.NeedsNewCredentials)
+                                            {
+                                                <button type="button" class="btn btn-sm btn-link p-0" @onclick="() => StartEdit(c)">Replace credentials</button>
+                                            }
+                                        }
                                         else if (c.HasSecret)
                                         {
                                             @* Only reachable for a connection created before this tab
@@ -475,7 +499,7 @@
                                         }
                                     </td>
                                     <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
+                                        <button @ref="editButtons[c.Id]" class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
                                         @if (c.SourceCount > 0)
                                         {
                                             bool paused = pausedConnections.Contains(c.Id);
@@ -490,7 +514,9 @@
                                                 @(paused ? "Resume syncing" : "Pause syncing")
                                             </button>
                                         }
-                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
+                                        <span class="border-start ms-2 ps-2">
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
+                                        </span>
                                     </td>
                                 </tr>
                             }
@@ -503,16 +529,42 @@
     else
     {
         @* ── Create / edit ─────────────────────────────────────────── *@
+        @* The setup guide sits in the title row, as on every provider surface, so it is in the same
+           place whichever provider is chosen below. *@
         <div class="col-12">
-            <h5>@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
+            <div class="d-flex flex-wrap align-items-baseline gap-2" style="max-width:40rem">
+                <h5 @ref="formHeading" id="connection-form-title" tabindex="-1">@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
+                @if (form.Provider == ConnectionProvider.Atlassian)
+                {
+                    <SetupGuideLink Id="atlassian-setup-guide" Href="@AtlassianSiteFieldSpecs.SiteConnectionSection" />
+                }
+            </div>
         </div>
 
+        @* A new Atlassian site is named after its host by the service that saves it, so its Name
+           field stays in place, disabled, saying so. *@
         <div class="col-12" style="max-width:32rem">
             <label class="form-label" for="connection-name">Name</label>
-            <input id="connection-name" class="form-control" @bind="form.Name" placeholder="prod-docs-bucket"
-                   aria-describedby="connection-name-help" />
+            <input @ref="nameInput" id="connection-name" class="form-control @(nameError is null ? null : "is-invalid")" @bind="form.Name"
+                   @bind:after="() => nameError = null"
+                   placeholder="@(NewAtlassianSite ? "your-site.atlassian.net" : "prod-docs-bucket")"
+                   disabled="@NewAtlassianSite" aria-invalid="@(nameError is null ? "false" : "true")"
+                   aria-describedby="@(nameError is null ? "connection-name-help" : "connection-name-error connection-name-help")" />
+            @if (nameError is not null)
+            {
+                <div id="connection-name-error" class="invalid-feedback d-block" role="alert">
+                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@nameError
+                </div>
+            }
             <div id="connection-name-help" class="form-text">
-                How this connection is referred to when creating a source.
+                @if (NewAtlassianSite)
+                {
+                    <text>Atlassian sites are named after their host (for example acme.atlassian.net) when they are saved. You can rename it after saving.</text>
+                }
+                else
+                {
+                    <text>How this connection is referred to when creating a source. </text>
+                }
                 @if (form.Provider == ConnectionProvider.S3)
                 {
                     <text>Filled in from the first bucket you choose if left blank.</text>
@@ -538,6 +590,7 @@
                 <option value="@ConnectionProvider.GitHub" disabled="@(gitHubAppConfigured == false && isNew)">
                     GitHub App installation@(gitHubAppConfigured == false ? " (set up the GitHub provider first)" : "")
                 </option>
+                <option value="@ConnectionProvider.Atlassian">Atlassian site</option>
             </select>
             @if (!isNew)
             {
@@ -786,8 +839,8 @@
                         <span class="text-muted">(optional — leave blank to keep the stored key)</span>
                     }
                 </label>
-                <SecretTextArea Id="sftp-key" Rows="5" DescribedBy="sftp-key-help"
-                                Placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…"
+                <SecretTextArea Id="sftp-key" Label="Private key" Rows="5" DescribedBy="sftp-key-help"
+                                Placeholder="@("-----BEGIN OPENSSH PRIVATE KEY-----\n…")"
                                 @bind-Value="form.PrivateKey" />
                 <div id="sftp-key-help" class="form-text">
                     Encrypted at rest and never shown again. This is an SSH key for a server you run —
@@ -805,7 +858,7 @@
 
             <div class="col-md-6">
                 <label class="form-label" for="sftp-passphrase">Key passphrase <span class="text-muted">(optional)</span></label>
-                <SecretTextArea Id="sftp-passphrase" Multiline="false" @bind-Value="form.Passphrase"
+                <SecretTextArea Id="sftp-passphrase" Label="Key passphrase" Multiline="false" @bind-Value="form.Passphrase"
                                 Placeholder="Only if the key is encrypted" />
             </div>
 
@@ -923,6 +976,16 @@
                 }
             </div>
         }
+        else if (form.Provider == ConnectionProvider.Atlassian)
+        {
+            @* Added and re-tested through AtlassianSiteService, so a site that fails a probe is never
+               saved. The people who may read it are linked on the Atlassian provider page. *@
+            <div class="w-100" aria-hidden="true"></div> @* the form's width cap would otherwise let it sit beside Provider *@
+            <AtlassianConnectionForm Existing="@(isNew ? null : editing)" OnCreated="AtlassianSiteCreatedAsync"
+                                     OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit"
+                                     ReplacingChanged="@((bool open) => atlassianReplacing = open)"
+                                     StartReplacing="@atlassianStartReplacing" />
+        }
         else
         {
             <div class="col-12">
@@ -966,7 +1029,7 @@
                 </label>
                 <textarea id="allowed-locations" class="form-control font-monospace" rows="3" @bind="form.AllowedLocations"
                           aria-describedby="allowed-locations-help"
-                          placeholder="docs-bucket&#10;shared-bucket/team/"></textarea>
+                          placeholder="@("docs-bucket\nshared-bucket/team/")"></textarea>
                 <div id="allowed-locations-help" class="form-text">
                     The buckets or containers a source on this connection may name; a bucket alone
                     permits every prefix in it. Leave empty to allow anything the credential can
@@ -1219,18 +1282,21 @@
             </div>
         }
 
+        @if (!NewAtlassianSite)
+        {
         <div class="col-12 mt-3">
-            <button class="btn btn-primary me-2" @onclick="Save" disabled="@saving">
+            @* One primary action at a time: while a site's credential is being replaced, that is it. *@
+            <button id="connection-save" class="btn @(atlassianReplacing ? "btn-outline-secondary" : "btn-primary") me-2" @onclick="Save" disabled="@saving">
                 @if (saving)
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                 }
-                <span>@(isNew ? "Create connection" : "Save changes")</span>
+                <span>@(isNew ? "Create connection" : form.Provider == ConnectionProvider.Atlassian ? "Save name" : "Save changes")</span>
             </button>
             <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
             @if (form.IsCloudProvider || form.Provider is ConnectionProvider.Sftp or ConnectionProvider.GitHub)
             {
-                <button class="btn btn-info" @onclick="Test" disabled="@testing">
+                <button id="connection-test" class="btn btn-outline-secondary" @onclick="Test" disabled="@testing">
                     @if (testing)
                     {
                         <span class="spinner-border spinner-border-sm me-1"></span>
@@ -1244,6 +1310,7 @@
                 </button>
             }
         </div>
+        }
 
         @if (testMessage is not null)
         {
@@ -1273,7 +1340,7 @@
                     @if (!testSuccess && testDetail is { Length: > 0 })
                     {
                         <details class="mt-1">
-                            <summary class="small">Raw error</summary>
+                            <summary class="small">Details</summary>
                             <pre class="small mb-0 mt-1" style="white-space:pre-wrap">@testDetail</pre>
                         </details>
                     }
@@ -1332,14 +1399,47 @@
                 </div>
                 <div class="modal-body">
                     <p>Delete <strong>@pendingDelete.Name</strong>?</p>
-                    <p class="text-muted small mb-0">
+                    <p class="text-muted small" id="delete-connection-consequence">
                         No source uses it, so nothing stops syncing. What it points at is untouched;
-                        only Connapse's record of how to reach it is removed. This cannot be undone.
+                        only Connapse's record of how to reach it is removed@(pendingDelete.HasSecret ? ", including its stored credential" : "").
+                        This cannot be undone.
+                        @if (pendingDelete.Provider == ConnectionProvider.Atlassian)
+                        {
+                            <text>The service account and its credential stay in Atlassian: delete them in Atlassian Administration if nothing else uses them.</text>
+                        }
                     </p>
+                    <label class="form-label small" for="delete-connection-confirm">
+                        Type <strong>@pendingDelete.Name</strong> to confirm
+                    </label>
+                    <input id="delete-connection-confirm" class="form-control form-control-sm" autocomplete="off"
+                           aria-describedby="delete-connection-consequence"
+                           @bind="deleteConfirmText" @bind:event="oninput" />
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingDelete = null">Cancel</button>
-                    <button class="btn btn-danger" @onclick="DeleteConfirmed">Delete connection</button>
+                    <button id="delete-connection-submit" class="btn btn-danger" disabled="@(deleteConfirmText?.Trim() != pendingDelete.Name)"
+                            @onclick="DeleteConfirmed">Delete connection</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (blockedDelete is { } blocked)
+{
+    <div id="delete-blocked-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="delete-blocked-title" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="delete-blocked-title">Can't delete @blocked.Connection.Name yet</h5>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => blockedDelete = null"></button>
+                </div>
+                <div class="modal-body">
+                    <ConnectionInUseList Id="delete-blocked-sources" ConnectionName="@blocked.Connection.Name" Sources="blocked.Sources" />
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="() => blockedDelete = null">Close</button>
                 </div>
             </div>
         </div>
@@ -1383,6 +1483,9 @@
 
     /// <summary>The connection whose sources are being paused or resumed.</summary>
     private Guid? pausing;
+
+    /// <summary>Whether an Atlassian site's Replace credentials section is open, which then holds the primary action.</summary>
+    private bool atlassianReplacing;
     private string? statusMessage;
     private bool statusSuccess;
     private string? testMessage;
@@ -1393,6 +1496,12 @@
 
     /// <summary>The connection whose deletion is awaiting confirmation.</summary>
     private Connection? pendingDelete;
+    private string? deleteConfirmText;
+
+    /// <summary>A connection that can't be deleted yet, with the sources that use it.</summary>
+    private BlockedDelete? blockedDelete;
+
+    private sealed record BlockedDelete(Connection Connection, IReadOnlyList<Source> Sources);
 
     protected override async Task OnInitializedAsync()
     {
@@ -1531,6 +1640,63 @@
             GitHubPool.ForgetInstallations();
     }
 
+    /// <summary>A new Atlassian site: its own form saves it, so the generic name and buttons step aside.</summary>
+    private bool NewAtlassianSite => isNew && editing is not null && form.Provider == ConnectionProvider.Atlassian;
+
+    /// <summary>Arriving from the Atlassian provider page (<c>?new=atlassian</c>): opens a new site.</summary>
+    private async Task OpenAtlassianFromQueryAsync()
+    {
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (editing is not null || !(query.TryGetValue("new", out var kind) && kind.ToString() == "atlassian"))
+            return;
+
+        await StartCreate();
+        form.Provider = ConnectionProvider.Atlassian;
+    }
+
+    /// <summary>Opened from a source that needs a permission the site's credential lacks.</summary>
+    private bool atlassianStartReplacing;
+
+    /// <summary>
+    /// <c>?edit=&lt;id&gt;</c> opens that connection for editing; <c>&amp;replace=1</c> on an Atlassian
+    /// site also expands Replace credentials, the route a Confluence source offers when its site's
+    /// credential lacks the attachment permission.
+    /// </summary>
+    private async Task OpenEditFromQueryAsync()
+    {
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (editing is not null || !query.TryGetValue("edit", out var edit) || !Guid.TryParse(edit.ToString(), out Guid id))
+            return;
+        if (connections.FirstOrDefault(c => c.Id == id) is not { } connection)
+            return;
+
+        await StartEdit(connection);
+        if (connection.Provider == ConnectionProvider.Atlassian && query.TryGetValue("replace", out var replace) && replace.ToString() == "1")
+        {
+            atlassianStartReplacing = true;
+            focusAfterSwap = null; // the form puts focus in Replace credentials' first field
+        }
+    }
+
+    private async Task AtlassianSiteCreatedAsync(Connection created)
+    {
+        string unconfirmed = created.Health is { Warning: true }
+            ? " Administrator access isn't confirmed yet: test the site again once it has a page and another user."
+            : "";
+        Succeed($"Atlassian site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
+        statusLink = ("Add a source", $"/sources?new={created.Id}");
+        ReturnFocusToList(created.Id);
+        editing = null;
+        await LoadAsync();
+    }
+
+    private async Task AtlassianSiteUpdatedAsync(Connection updated)
+    {
+        Succeed($"Credentials for '{updated.Name}' replaced. Its sources sync with the new credential.");
+        editing = updated;
+        await LoadAsync();
+    }
+
     /// <summary>The installation an edited GitHub connection had when the form opened, and its account.</summary>
     private long? editingGitHubInstallationId;
     private string? editingGitHubAccount;
@@ -1580,10 +1746,12 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await FocusBucketSearchIfOpened();
+        await FocusAfterSwapAsync();
 
         // The dialogs are plain markup, so focus is moved into one and kept there by script.
         await HoldDialogFocusAsync("delete-connection-dialog", pendingDelete is not null);
         await HoldDialogFocusAsync("resume-connection-dialog", pendingResume is not null);
+        await HoldDialogFocusAsync("delete-blocked-dialog", blockedDelete is not null);
 
         if (!firstRender) return;
 
@@ -1605,6 +1773,8 @@
 
         await LoadGitHubInstallationsAsync();
         await OpenGitHubFromQueryAsync();
+        await OpenAtlassianFromQueryAsync();
+        await OpenEditFromQueryAsync();
 
         StateHasChanged();
     }
@@ -1633,13 +1803,7 @@
     {
         loading = true;
         connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
-        var sources = await SourceStore.ListAsync(take: int.MaxValue);
-        pausedConnections = sources
-            .Where(s => s.ConnectionId is not null)
-            .GroupBy(s => s.ConnectionId!.Value)
-            .Where(g => g.All(s => !s.Enabled))
-            .Select(g => g.Key)
-            .ToHashSet();
+        pausedConnections = await Admin.PausedConnectionIdsAsync();
         loading = false;
     }
 
@@ -1687,16 +1851,10 @@
         pausing = connection.Id;
         try
         {
-            var sources = (await SourceStore.ListByConnectionAsync(connection.Id))
-                .Where(s => only is null || only.Contains(s.Id)).ToList();
-            foreach (var source in sources.Where(s => s.Enabled != enabled))
-                await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(Enabled: enabled));
-
-            await AuditLogger.LogAsync(enabled ? "connection.resumed" : "connection.paused", "connection", connection.Id.ToString(),
-                new { connection.Name, Sources = sources.Count });
+            int count = await Admin.SetSyncingAsync(connection, enabled, only);
             Succeed(enabled
-                ? $"Syncing resumed for {sources.Count} source(s) on '{connection.Name}'."
-                : $"Syncing paused for {sources.Count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
+                ? $"Syncing resumed for {count} source(s) on '{connection.Name}'."
+                : $"Syncing paused for {count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
             await LoadAsync();
         }
         catch (Exception ex)
@@ -1743,6 +1901,33 @@
     private string? bucketFilter;
 
     private ElementReference bucketSearchBox;
+
+    // The list and the form replace each other, taking the pressed button with them, so focus
+    // follows: to the form's heading on the way in, and back to the connection's Edit button
+    // (or Add connection) on the way out.
+    private ElementReference formHeading;
+    private ElementReference addConnectionButton;
+    private readonly Dictionary<Guid, ElementReference> editButtons = new();
+    private Func<ValueTask>? focusAfterSwap;
+
+    private void ReturnFocusToList(Guid? connectionId) => focusAfterSwap = () =>
+        connectionId is { } id && editButtons.TryGetValue(id, out ElementReference edit)
+            ? edit.FocusAsync()
+            : addConnectionButton.FocusAsync();
+
+    private async Task FocusAfterSwapAsync()
+    {
+        if (focusAfterSwap is not { } focus) return;
+        focusAfterSwap = null;
+        try
+        {
+            await focus();
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException)
+        {
+            // The target left the page before this render reached it; focus stays where it was.
+        }
+    }
 
     /// <summary>Set while the search box still needs focus, cleared once it has had it.</summary>
     private bool focusBucketSearch;
@@ -2260,6 +2445,11 @@
         try
         {
             var form = BuildLocalForm(result);
+            if (await Admin.NameTakenAsync(null, form.Name))
+            {
+                Fail(ConnectionAdminService.NameTakenMessage(form.Name));
+                return;
+            }
 
             await ConnectionStore.CreateAsync(
                 new CreateConnectionRequest(
@@ -2272,7 +2462,8 @@
         }
         catch (Exception ex)
         {
-            Fail(ex.Message);
+            Logger.LogWarning(ex, "Could not save a local folder connection");
+            Fail(SaveFailedMessage);
         }
         finally
         {
@@ -2293,7 +2484,9 @@
     {
         editing = new Connection(Guid.Empty, "", ConnectionProvider.S3, null, null, DateTime.UtcNow, DateTime.UtcNow);
         isNew = true;
+        focusAfterSwap = () => formHeading.FocusAsync();
         form = new ConnectionForm();
+        nameError = null;
         probeTarget = null;
         testMessage = null;
     }
@@ -2302,7 +2495,11 @@
     {
         editing = connection;
         isNew = false;
+        atlassianStartReplacing = false;
+        focusAfterSwap = () => formHeading.FocusAsync();
+        atlassianReplacing = false;
         form = ConnectionForm.FromConnection(connection);
+        nameError = null;
         editingGitHubInstallationId = form.GitHubInstallationId;
         editingGitHubAccount = form.GitHubAccount;
         // Offered as the probe default: an allowed location is, by definition, somewhere this
@@ -2313,7 +2510,9 @@
 
     private void CancelEdit()
     {
+        ReturnFocusToList(isNew ? null : editing?.Id);
         editing = null;
+        atlassianReplacing = false;
         testMessage = null;
     }
 
@@ -2321,13 +2520,37 @@
         form.FirstAllowedLocation()
         ?? (form.Provider == ConnectionProvider.S3 ? "my-bucket" : "my-container");
 
+    // A name the save refused, shown under the Name field in plain words.
+    private string? nameError;
+    private ElementReference nameInput;
+
+    /// <summary>Shows a refused name under the Name field and moves focus there.</summary>
+    private async Task RefuseNameAsync(string message)
+    {
+        nameError = message;
+        StateHasChanged();
+        try { await nameInput.FocusAsync(); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException) { } // prerender or a closed circuit
+    }
+
+    /// <summary>What the page says when a save fails for a reason it can't name; the exception goes to the log.</summary>
+    private const string SaveFailedMessage = "The connection could not be saved. Nothing was changed; try again.";
+
     private async Task Save()
     {
         statusMessage = null;
+        nameError = null;
 
         if (form.Validate(isNew) is { } problem)
         {
             Fail(problem);
+            return;
+        }
+
+        // Only AtlassianSiteService may create a site: it saves one only after every probe passes.
+        if (isNew && form.Provider == ConnectionProvider.Atlassian)
+        {
+            Fail("Use Check and save to add an Atlassian site.");
             return;
         }
 
@@ -2386,10 +2609,17 @@
 
             if (isNew)
             {
+                if (await Admin.NameTakenAsync(null, form.Name))
+                {
+                    await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));
+                    return;
+                }
+
                 var created = await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
                 ForgetGitHubInstallations(form.Provider);
+                ReturnFocusToList(created.Id);
                 await AuditLogger.LogAsync("connection.created", "connection", created.Id.ToString(),
                     new { created.Name, Provider = created.Provider.ToString() });
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
@@ -2399,10 +2629,24 @@
             {
                 // Null result means the row is gone — deleted from another session between this
                 // form opening and saving. Reporting "saved" there would be a lie.
-                var updated = await ConnectionStore.UpdateAsync(editing!.Id,
-                    new UpdateConnectionRequest(form.Name.Trim(), config, secret));
+                // A null config leaves the stored one alone. An Atlassian site's config belongs to
+                // AtlassianSiteService, so a rename here must not rewrite it.
+                // Saved as the REST API renames, so a taken name is refused in plain words.
+                var saved = await Admin.SaveAsync(editing!.Id,
+                    new UpdateConnectionRequest(form.Name.Trim(), form.OwnsConfig ? config : null, secret));
                 ForgetGitHubInstallations(form.Provider);
 
+                if (saved.Outcome == ConnectionRenameOutcome.NameTaken)
+                {
+                    await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));
+                    return;
+                }
+                if (saved.Outcome == ConnectionRenameOutcome.InvalidName)
+                {
+                    await RefuseNameAsync(ConnectionAdminService.InvalidNameMessage);
+                    return;
+                }
+                var updated = saved.Connection;
                 if (updated is null)
                 {
                     Fail($"Connection '{editing.Name}' no longer exists — it was deleted elsewhere.");
@@ -2412,14 +2656,17 @@
                 }
 
                 Succeed($"Connection '{form.Name.Trim()}' saved.{HostRewriteSuffix()}");
+                ReturnFocusToList(updated.Id);
             }
 
             editing = null;
+            atlassianReplacing = false;
             await LoadAsync();
         }
         catch (Exception ex)
         {
-            Fail(ex.Message);
+            Logger.LogWarning(ex, "Could not save a connection");
+            Fail(SaveFailedMessage);
         }
         finally
         {
@@ -2428,40 +2675,58 @@
     }
 
     /// <summary>Refuses while sources depend on the connection; otherwise asks before deleting.</summary>
-    private void ConfirmDelete(Connection connection)
+    private async Task ConfirmDelete(Connection connection)
     {
         statusMessage = null;
 
-        // Said plainly rather than letting the store's exception surface. The count is already on
-        // the model, so the operator can be told what to remove first.
+        // Said plainly rather than letting the store's exception surface, naming each source so
+        // the operator can go straight to the ones to remove.
         if (connection.SourceCount > 0)
         {
-            Fail($"'{connection.Name}' still has {connection.SourceCount} source(s) using it. Remove or repoint them first.");
-            return;
+            try
+            {
+                var blocking = await SourceStore.ListByConnectionAsync(connection.Id);
+                if (blocking.Count > 0)
+                {
+                    blockedDelete = new BlockedDelete(connection, blocking);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Fail($"Could not list the sources on '{connection.Name}': {ex.Message}");
+                return;
+            }
         }
 
+        deleteConfirmText = null;
         pendingDelete = connection;
     }
 
     private async Task DeleteConfirmed()
     {
-        if (pendingDelete is not { } connection) return;
+        if (pendingDelete is not { } connection || deleteConfirmText?.Trim() != connection.Name) return;
         pendingDelete = null;
+        deleteConfirmText = null;
 
         try
         {
             // SourceCount above is a snapshot from the last load, so a source added since then
             // still reaches the store's own refusal — caught below rather than assumed away.
-            bool deleted = await ConnectionStore.DeleteAsync(connection.Id);
+            var deleted = await Admin.DeleteAsync(connection.Id, connection.Name);
             ForgetGitHubInstallations(connection.Provider);
-            if (deleted)
+            switch (deleted.Outcome)
             {
-                await AuditLogger.LogAsync("connection.deleted", "connection", connection.Id.ToString(),
-                    new { connection.Name, Provider = connection.Provider.ToString() });
-                Succeed($"Connection '{connection.Name}' deleted.");
+                case ConnectionDeleteOutcome.Deleted:
+                    Succeed($"Connection '{connection.Name}' deleted.");
+                    break;
+                case ConnectionDeleteOutcome.HasSources:
+                    blockedDelete = new BlockedDelete(connection, deleted.Sources!);
+                    break;
+                default:
+                    Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
+                    break;
             }
-            else
-                Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
 
             await LoadAsync();
         }
@@ -2469,7 +2734,8 @@
         {
             // Broad on purpose: an exception escaping a Blazor event handler tears down the
             // circuit and the operator sees the page die rather than a message.
-            Fail(ex.Message);
+            Logger.LogWarning(ex, "Could not delete connection {ConnectionId}", connection.Id);
+            Fail($"Connection '{connection.Name}' could not be deleted. Nothing was changed; try again.");
         }
     }
 
@@ -2671,6 +2937,7 @@
             ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
             ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",
             ConnectionProvider.GitHub => form.GitHubAccount ?? $"installation {form.GitHubInstallationId}",
+            ConnectionProvider.Atlassian => form.AtlassianSiteHost ?? "—",
             _ => "—"
         };
     }

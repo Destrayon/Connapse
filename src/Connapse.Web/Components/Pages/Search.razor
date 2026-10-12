@@ -63,6 +63,11 @@
                             }
                         </optgroup>
                     }
+                    @if (linkedScopeId is { } linked)
+                    {
+                        @* Named by the link, not by the list: a hidden source's name is not shown. *@
+                        <option value="@linked">Source from link</option>
+                    }
                 </select>
             </div>
             <div class="col-md-3">
@@ -208,6 +213,24 @@
     private List<Container> containers = new();
     private List<Source> sources = new();
     private string? crossModelInfo;
+    private Guid? linkedScopeId;
+
+    /// <summary>A scope to preselect, by id; see <see cref="LoadContainers"/>.</summary>
+    [SupplyParameterFromQuery(Name = "scope")]
+    public string? Scope { get; set; }
+
+    private bool IsListed(string id) =>
+        containers.Any(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase))
+        || sources.Any(s => string.Equals(s.Id.ToString(), id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Whether a scope that is not in this caller's lists may be searched: only a source hidden for
+    /// its name alone (a Confluence space), whose every hit the search still checks per user.
+    /// </summary>
+    private async Task<bool> IsSearchableUnlistedAsync(string id) =>
+        Guid.TryParse(id, out var sourceId)
+        && await SourceStore.GetAsync(sourceId) is { } source
+        && PrivateSourceVisibility.IsSearchableWhenHidden(source);
 
     protected override async Task OnInitializedAsync()
     {
@@ -231,6 +254,16 @@
                 selectedContainerId = containers[0].Id;
             else if (containers.Count == 0 && sources.Count == 1)
                 selectedContainerId = sources[0].Id.ToString();
+
+            // A Confluence space is listed to administrators only, but anyone may search one they
+            // were given the id of: /search?scope=<id>. Offered for any id, whether or not it
+            // exists, so the page cannot be used to probe for hidden sources.
+            if (Guid.TryParse(Scope, out var named))
+            {
+                if (!IsListed(named.ToString()))
+                    linkedScopeId = named;
+                selectedContainerId = named.ToString();
+            }
         }
         catch { /* Silently ignore - user can still type */ }
     }
@@ -329,7 +362,10 @@
                 Filters: filters.Count > 0 ? filters : null,
                 UserId: await CurrentUserIdAsync());
 
-            searchResult = await SearchService.SearchAsync(query, options);
+            // Anything else not in the lists searches nothing, and says so as an empty search would.
+            searchResult = IsListed(selectedContainerId) || await IsSearchableUnlistedAsync(selectedContainerId)
+                ? await SearchService.SearchAsync(query, options)
+                : new SearchResult([], 0, TimeSpan.Zero);
         }
         catch (Exception ex)
         {

@@ -1,0 +1,20 @@
+@*
+    The setup-guide link every provider surface carries in one place: right-aligned in the row of
+    the surface's title (a provider page's heading, the connection form's heading, the New source
+    dialog's header, the edit-source heading), so the help is found where it was found last time.
+*@
+
+<a id="@Id" class="setup-guide-link small text-nowrap @CssClass" href="@Href" target="_blank" rel="noopener">
+    <span class="bi-book me-1" aria-hidden="true"></span>@Name<span class="visually-hidden"> (opens in a new tab)</span>
+</a>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Href { get; set; } = "";
+
+    [Parameter] public string Name { get; set; } = "Atlassian setup guide";
+
+    /// <summary>Placement within the title row; right-aligned by default.</summary>
+    [Parameter] public string CssClass { get; set; } = "ms-auto";
+}

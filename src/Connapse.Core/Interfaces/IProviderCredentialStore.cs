@@ -53,6 +53,27 @@ public record GitHubAppRegistration(long AppId, string Slug, string? ClientId, s
 public record GitHubAppCredentialMaterial(GitHubAppRegistration App, string PrivateKeyPem, string? ClientSecret);
 
 /// <summary>
+/// The Atlassian OAuth app users sign in through to link their Atlassian account (non-secret). The
+/// client secret is fetched separately via <see cref="IProviderCredentialStore.GetAtlassianLinkAppSecretAsync"/>.
+/// </summary>
+/// <param name="ClientId">The OAuth 2.0 (3LO) app's client id.</param>
+/// <param name="VerifiedAt">When a user last completed the sign-in with it, or null if none has yet.</param>
+/// <param name="CheckedAt">When Atlassian was last asked whether it accepts the client ID and secret, or null if never.</param>
+/// <param name="CheckAccepted">What Atlassian answered then; null when it has never been checked.</param>
+/// <param name="SignInEnabled">False when an administrator turned sign-in off: no new links, existing ones kept.</param>
+/// <param name="CallbackUrl">
+/// The sign-in callback last used with this app (a save, a check, or a completed sign-in), so the
+/// scheduled check can ask Atlassian with the same redirect URI. Null until one of those happens.
+/// </param>
+public record AtlassianLinkAppRegistration(
+    string ClientId,
+    DateTime? VerifiedAt = null,
+    DateTime? CheckedAt = null,
+    bool? CheckAccepted = null,
+    bool SignInEnabled = true,
+    string? CallbackUrl = null);
+
+/// <summary>
 /// Existence and timing of a stored credential, independent of its shape.
 /// </summary>
 /// <remarks>
@@ -121,6 +142,42 @@ public interface IProviderCredentialStore
     Task<ProviderCredentialInfo> SaveGitHubAppAsync(
         GitHubAppRegistration app, string privateKeyPem, string? clientSecret, Guid? createdByUserId,
         CancellationToken ct = default);
+
+    /// <summary>The stored Atlassian link app, or null when none is.</summary>
+    Task<AtlassianLinkAppRegistration?> GetAtlassianLinkAppAsync(CancellationToken ct = default);
+
+    /// <summary>The Atlassian link app's decrypted client secret, or null when none is stored.</summary>
+    /// <exception cref="ProviderCredentialUnavailableException">Stored but the secret cannot be decrypted.</exception>
+    Task<string?> GetAtlassianLinkAppSecretAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Stores or replaces the Atlassian link app, clearing its verified state and turning sign-in on.
+    /// <paramref name="checkedAt"/> records that Atlassian accepted the pair just before saving.
+    /// </summary>
+    Task<ProviderCredentialInfo> SaveAtlassianLinkAppAsync(
+        string clientId, string clientSecret, Guid? createdByUserId, DateTime? checkedAt = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Records what Atlassian answered when the stored app was checked with <paramref name="checkedSecret"/>.
+    /// Written only while that secret is still the stored one, so a check that was overtaken by a
+    /// new secret for the same client ID never lands on it.
+    /// </summary>
+    /// <returns>False when nothing was written: no app is stored, or a different client ID or secret is now.</returns>
+    Task<bool> RecordAtlassianLinkAppCheckAsync(
+        string clientId, string checkedSecret, bool accepted, DateTime when, CancellationToken ct = default);
+
+    /// <summary>Records the sign-in callback URL used with the stored app.</summary>
+    /// <returns>False when nothing was written: no app is stored, a different client ID is now, or it is unchanged.</returns>
+    Task<bool> RememberAtlassianCallbackUrlAsync(string clientId, string callbackUrl, CancellationToken ct = default);
+
+    /// <summary>Turns Atlassian sign-in on or off without touching the stored app.</summary>
+    /// <returns>False when no app is stored.</returns>
+    Task<bool> SetAtlassianSignInEnabledAsync(bool enabled, CancellationToken ct = default);
+
+    /// <summary>Records that a user completed the sign-in with the stored app.</summary>
+    /// <returns>False when nothing was written: no app is stored, or one was marked recently.</returns>
+    Task<bool> MarkAtlassianLinkAppVerifiedAsync(DateTime when, CancellationToken ct = default);
 }
 
 /// <summary>

@@ -1,0 +1,1032 @@
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Core.Tests.Connectors;
+using Connapse.Storage.CloudScope;
+using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Storage.Data;
+using Connapse.Web.Services;
+using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Xunit;
+
+namespace Connapse.Integration.Tests;
+
+/// <summary>
+/// A Confluence space source synced end to end through <see cref="SourceSyncService"/> against
+/// real PostgreSQL, with Confluence itself the in-memory <see cref="FakeAtlassianApi"/>.
+/// </summary>
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
+public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) : IDisposable
+{
+    private const string SpaceId = "4001";
+    private const string OtherSpaceId = "4002";
+
+    // Upper case on purpose: every address must still come out in the lower-case form search matches.
+    private readonly string _cloudId = Guid.NewGuid().ToString("D").ToUpperInvariant();
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "confluence-sync-" + Guid.NewGuid().ToString("N"));
+    private readonly FakeAtlassianApi _api = new();
+    private readonly ManualClock _clock = new();
+
+    private sealed class ManualClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan by) => _now += by;
+    }
+
+    public void Dispose()
+    {
+        _api.Dispose();
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
+    }
+
+    private sealed class FakeHttpClients(FakeAtlassianApi api) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => api.CreateClient();
+    }
+
+    /// <summary>Builds the real connector over the fake, the way the factory branch will.</summary>
+    /// <summary>What the source's scope would say about attachments; tests flip it between cycles.</summary>
+    private sealed class AttachmentOptions
+    {
+        public bool Include { get; set; } = true;
+        public int MaxMb { get; set; } = 25;
+    }
+
+    private readonly AttachmentOptions _attachments = new();
+
+    private sealed class FakeApiConnectorFactory(
+        FakeAtlassianApi api, string root, TimeProvider clock, AttachmentOptions options, IFileTypeValidator fileTypes)
+        : IConnectorFactory
+    {
+        private readonly AtlassianTokenSource _tokens = new(new FakeHttpClients(api), TimeProvider.System);
+
+        public IConnector Create(Source source, Connection connection, string? secret = null)
+        {
+            var site = AtlassianSite.FromConfigJson(connection.ConfigJson)!;
+            return new ConfluenceSpaceConnector(
+                new ConfluenceSpaceConfig(
+                    site, SpaceId, "ENG", Path.Combine(root, source.Id.ToString("N")), options.Include, options.MaxMb),
+                new AtlassianApiClient(api.CreateClient(), _tokens, site, secret!),
+                clock: clock,
+                fileTypes: fileTypes);
+        }
+
+        public IConnector Create(Source source) => throw new InvalidOperationException("Confluence sources have a connection");
+    }
+
+    private (SourceSyncService Service, RecordingIngestionQueue Queue) BuildService(IServiceProvider sp)
+    {
+        var queue = new RecordingIngestionQueue();
+        var service = new SourceSyncService(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            new FakeApiConnectorFactory(_api, _root, _clock, _attachments, sp.GetRequiredService<IFileTypeValidator>()),
+            queue,
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
+        return (service, queue);
+    }
+
+    private async Task<(Source Source, Connection Connection)> SeedAsync(IServiceProvider sp)
+    {
+        var connection = await sp.GetRequiredService<IConnectionStore>().CreateAsync(new CreateConnectionRequest(
+            $"atl-{Guid.NewGuid():N}"[..20], ConnectionProvider.Atlassian,
+            $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-1"}""",
+            "service-secret"), null);
+
+        var source = await sp.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"cf-{Guid.NewGuid():N}"[..20], connection.Id,
+            $$"""{"kind":"confluence-space","spaceId":"{{SpaceId}}","spaceKey":"ENG"}"""));
+
+        return (source, connection);
+    }
+
+    private void SeedSpace(int pages = 2)
+    {
+        _api.Confluence.AddSpace(SpaceId, "ENG", "Engineering");
+        _api.Confluence.AddSpace(OtherSpaceId, "OPS", "Operations");
+        for (int i = 1; i <= pages; i++)
+            _api.Confluence.Upsert(new FakeConfluencePage((100 + i).ToString(), SpaceId, $"Page {i}"));
+        _api.Confluence.Upsert(new FakeConfluencePage("201", SpaceId, "News", Kind: "blogpost"));
+    }
+
+    /// <summary>
+    /// Stands in for the ingestion worker, which does not run here: marks each queued document
+    /// ingested with the signature its job carried, which is what the next cycle compares against.
+    /// </summary>
+    private static async Task SettleAsync(IServiceProvider sp, RecordingIngestionQueue queue)
+    {
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        foreach (var job in queue.Jobs)
+        {
+            var document = await db.Documents.SingleAsync(d => d.Id == Guid.Parse(job.DocumentId));
+            document.IngestionStatus = DocumentStatus.Ready;
+            document.Metadata = new Dictionary<string, string>
+            {
+                [SourceSyncService.RemoteLastModifiedKey] = job.Options.Metadata![SourceSyncService.RemoteLastModifiedKey],
+                [SourceSyncService.RemoteSizeKey] = job.Options.Metadata[SourceSyncService.RemoteSizeKey],
+            };
+        }
+
+        await db.SaveChangesAsync();
+        queue.Jobs.Clear();
+    }
+
+    private static async Task<List<string>> IndexedPathsAsync(IServiceProvider sp, Guid sourceId)
+    {
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        return await db.Documents.Where(d => d.SourceId == sourceId).Select(d => d.Path).ToListAsync();
+    }
+
+    /// <summary>Syncs once and settles, then hands back the source as stored, cursor and all.</summary>
+    private async Task<Source> SyncAndSettleAsync(
+        IServiceProvider sp, SourceSyncService service, RecordingIngestionQueue queue, Source source, Connection connection)
+    {
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        result.Error.Should().BeNull();
+        await SettleAsync(sp, queue);
+        return (await sp.GetRequiredService<ISourceStore>().GetAsync(source.Id))!;
+    }
+
+    [Fact]
+    public async Task CredentialRefused_MarksTheConnectionAsNeedingNewCredentials_UntilASyncReadsAgain()
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
+        try
+        {
+            var failed = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+            // Plain words first, Atlassian's own answer after the marker for the Details disclosure.
+            failed.Error.Should().StartWith(AtlassianSyncErrors.CredentialRefused)
+                .And.Contain(SyncErrorText.DetailMarker + "HTTP 401");
+            (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(source.Id))!.LastSyncError
+                .Should().Be(failed.Error);
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        var refused = await connections.GetAsync(connection.Id);
+        refused!.Health.Should().NotBeNull();
+        refused.Health!.CredentialRejected.Should().BeTrue();
+        refused.Health.Origin.Should().Be("sync");
+        refused.Health.Message.Should().NotContain("service-secret");
+
+        var restored = await service.SyncSourceAsync((await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(source.Id))!,
+            refused, CancellationToken.None);
+
+        restored.Error.Should().BeNull();
+        (await connections.GetAsync(connection.Id))!.Health!.CredentialRejected.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RateLimitedAtTheTokenExchange_LeavesARefusedCredentialRefused_UntilASyncReallyReads()
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
+        try
+        {
+            (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Error.Should().NotBeNull();
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        var refused = (await connections.GetAsync(connection.Id))!;
+        refused.Health!.CredentialRejected.Should().BeTrue();
+
+        // A 429 from the token endpoint: the connector waits with a notice, and no token was obtained.
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+        SourceSyncResult limited;
+        try
+        {
+            limited = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, refused, CancellationToken.None);
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        var stillRefused = (await connections.GetAsync(connection.Id))!;
+        stillRefused.Health!.CredentialRejected.Should().BeTrue("a rate-limited cycle never proved the credential works");
+        stillRefused.Health.Succeeded.Should().BeFalse();
+        limited.Error.Should().BeNull();
+        limited.Notice.Should().StartWith(AtlassianRateLimitedException.MessagePrefix);
+        limited.Deferred.Should().BeTrue();
+
+        var read = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, stillRefused, CancellationToken.None);
+
+        read.Error.Should().BeNull();
+        read.Deferred.Should().BeFalse();
+        var cleared = (await connections.GetAsync(connection.Id))!.Health!;
+        cleared.CredentialRejected.Should().BeFalse();
+        cleared.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RateLimitedAfterTheSpaceWasRefused_KeepsItHiddenFromSearch()
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        _api.FailWith(System.Net.HttpStatusCode.Forbidden);
+        try
+        {
+            await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        }
+        finally
+        {
+            _api.FailWith(null);
+        }
+        (await sources.GetAsync(source.Id))!.AccessRevokedAt.Should().NotBeNull();
+
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+        _api.RevokeTokens(); // the token cached from the refused cycle would otherwise skip the token endpoint
+        SourceSyncResult limited;
+        try
+        {
+            limited = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        (await sources.GetAsync(source.Id))!.AccessRevokedAt.Should().NotBeNull("nothing was read, so access is not proven");
+        limited.Deferred.Should().BeTrue();
+    }
+
+    public enum SignInProblem { ProxyRedirect, TokenWithoutToken, RefusedWithAFreshToken }
+
+    /// <summary>
+    /// Sign-in problems other than a refused client ID or secret fail the source with their own
+    /// message and troubleshooting entry, and record a failed check on the site, but never mark it
+    /// Needs new credentials: its secret may be fine. The next good sync clears the failure.
+    /// </summary>
+    [Theory]
+    [InlineData(SignInProblem.ProxyRedirect)]
+    [InlineData(SignInProblem.TokenWithoutToken)]
+    [InlineData(SignInProblem.RefusedWithAFreshToken)]
+    public async Task OtherSignInProblems_FailTheSourceWithTheirOwnError_AndNeverAskForNewCredentials(SignInProblem problem)
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        (string message, string anchor, string step) = problem switch
+        {
+            SignInProblem.ProxyRedirect => (AtlassianSyncErrors.TokenRedirected, "#couldnt-reach-atlassian", "token"),
+            SignInProblem.TokenWithoutToken => (AtlassianSyncErrors.NoAccessToken, "#couldnt-reach-atlassian", "token"),
+            _ => (AtlassianSyncErrors.FreshTokenRefused, "#cant-read-confluence", "identity"),
+        };
+        switch (problem)
+        {
+            case SignInProblem.ProxyRedirect: _api.FailTokenWith(System.Net.HttpStatusCode.Redirect); break;
+            case SignInProblem.TokenWithoutToken: _api.AnswerTokenWith("{}"); break;
+            default: _api.FailWith(System.Net.HttpStatusCode.Unauthorized); break;
+        }
+
+        try
+        {
+            var failed = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+            failed.Error.Should().StartWith(message);
+            AtlassianSyncErrors.TroubleshootingUrl(failed.Error!).Should().EndWith(anchor);
+            (await sources.GetAsync(source.Id))!.LastSyncStatus.Should().Be(SyncStatus.Failed);
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+            _api.AnswerTokenWith(null);
+            _api.FailWith(null);
+        }
+
+        var site = (await connections.GetAsync(connection.Id))!;
+        site.Health.Should().NotBeNull();
+        site.Health!.CredentialRejected.Should().BeFalse("only a refused client ID or secret needs new credentials");
+        site.Health.Succeeded.Should().BeFalse();
+        site.Health.Origin.Should().Be("sync");
+        site.Health.Step.Should().Be(step);
+        site.Health.Message.Should().Contain(message);
+
+        var recovered = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, site, CancellationToken.None);
+
+        recovered.Error.Should().BeNull();
+        var healthy = (await connections.GetAsync(connection.Id))!.Health!;
+        healthy.Succeeded.Should().BeTrue("a sync that reads again clears the failed sign-in");
+        healthy.CredentialRejected.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task FirstSync_EnqueuesEveryPageAndBlogpost()
+    {
+        SeedSpace(pages: 3);
+        _api.Confluence.MaxPageSize = 2; // the listing has to follow next links to see them all
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Error.Should().BeNull();
+        result.UsedDeltaPath.Should().BeTrue();
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo(
+            "/pages/101.md", "/pages/102.md", "/pages/103.md", "/blogposts/201.md");
+
+        var metadata = queue.Jobs.Single(j => j.Options.Path == "/pages/102.md").Options.Metadata!;
+        metadata["confluence:spaceKey"].Should().Be("ENG");
+        metadata["confluence:title"].Should().Be("Page 2");
+        metadata["confluence:url"].Should().Be("https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=102");
+    }
+
+    [Fact]
+    public async Task SecondSync_Unchanged_EnqueuesNothing()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Upserted.Should().Be(0);
+        queue.Jobs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PageEdited_VersionBump_ReEnqueuesOnlyThatPage()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _api.Confluence.Edit("102");
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+    }
+
+    [Fact]
+    public async Task PageDeleted_RemovedFromIndex()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _api.Confluence.Remove("102");
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(1);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/101.md", "/blogposts/201.md");
+    }
+
+    [Fact]
+    public async Task PageMovedToOtherSpace_RemovedFromThisSource()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _api.Confluence.Move("101", OtherSpaceId);
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(1);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/102.md", "/blogposts/201.md");
+    }
+
+    [Fact]
+    public async Task MassDisappearance_DeletionGuardWithholds()
+    {
+        SeedSpace(pages: 30);
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        for (int i = 1; i <= 20; i++)
+            _api.Confluence.Remove((100 + i).ToString());
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.WithheldDeletions.Should().Be(20);
+        second.Deleted.Should().Be(0);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(31);
+    }
+
+    [Fact]
+    public async Task SpaceGone_MarksSourceAccessRevoked()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _api.Confluence.RemoveSpace(SpaceId);
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().Contain("can no longer be read").And.Contain("Viewer role")
+            .And.EndWith(SyncErrorText.DetailMarker + "HTTP 404");
+        var after = (await sources.GetAsync(source.Id))!;
+        after.AccessRevokedAt.Should().NotBeNull();
+        after.SyncCursor.Should().Be(synced.SyncCursor);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(3, "a refusal hides, it does not delete");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MalformedListing_FailsCycle_KeepsStoreCursorAndDocuments(bool laterPage)
+    {
+        SeedSpace(pages: 3);
+        _api.Confluence.MaxPageSize = 1; // every listing follows next links
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        string statePath = Path.Combine(_root, source.Id.ToString("N"));
+        var storeBefore = Directory.EnumerateFiles(statePath, "*", SearchOption.AllDirectories)
+            .ToDictionary(f => f, File.ReadAllText);
+
+        _api.Intercept = uri =>
+            uri.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal)
+            && uri.Query.Contains("cursor=") == laterPage
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"results":[null],"_links":{}}""", System.Text.Encoding.UTF8, "application/json"),
+                }
+                : null;
+
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().NotBeNull();
+        second.Deleted.Should().Be(0);
+        var after = (await sources.GetAsync(source.Id))!;
+        after.SyncCursor.Should().Be(synced.SyncCursor);
+        after.LastSyncStatus.Should().Be(SyncStatus.Failed);
+        Directory.EnumerateFiles(statePath, "*", SearchOption.AllDirectories)
+            .ToDictionary(f => f, File.ReadAllText).Should().BeEquivalentTo(storeBefore);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().BeEquivalentTo(
+            "/pages/101.md", "/pages/102.md", "/pages/103.md", "/blogposts/201.md");
+    }
+
+    /// <summary>
+    /// Space Engineering: Root (101) > Child (102); Guides folder (900) > Guide (103); Other (104)
+    /// at the top; and a blog post. Every page's breadcrumb depends on something above it.
+    /// </summary>
+    private void SeedTree()
+    {
+        _api.Confluence.AddSpace(SpaceId, "ENG", "Engineering");
+        _api.Confluence.Upsert(new FakeConfluencePage("101", SpaceId, "Root"));
+        _api.Confluence.Upsert(new FakeConfluencePage("102", SpaceId, "Child", ParentId: "101", ParentType: "page"));
+        _api.Confluence.AddFolder("900", "Guides");
+        _api.Confluence.Upsert(new FakeConfluencePage("103", SpaceId, "Guide", ParentId: "900", ParentType: "folder"));
+        _api.Confluence.Upsert(new FakeConfluencePage("104", SpaceId, "Other"));
+        _api.Confluence.Upsert(new FakeConfluencePage("201", SpaceId, "News", Kind: "blogpost"));
+    }
+
+    private async Task<(SourceSyncService Service, RecordingIngestionQueue Queue, Source Synced, Connection Connection)>
+        SyncTreeAsync(IServiceProvider sp)
+    {
+        SeedTree();
+        var (source, connection) = await SeedAsync(sp);
+        var (service, queue) = BuildService(sp);
+        var synced = await SyncAndSettleAsync(sp, service, queue, source, connection);
+        return (service, queue, synced, connection);
+    }
+
+    [Fact]
+    public async Task SecondSync_UnchangedTreeAfterFolderRefresh_EnqueuesNothing()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (service, queue, synced, connection) = await SyncTreeAsync(scope.ServiceProvider);
+
+        _clock.Advance(ConfluenceSpaceConnector.FolderRefreshInterval + TimeSpan.FromMinutes(1));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        queue.Jobs.Should().BeEmpty("re-reading an unchanged folder must not move any signature");
+    }
+
+    [Fact]
+    public async Task ParentPageRenamed_ReEnqueuesItsChildButNotAnUnrelatedPage()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (service, queue, synced, connection) = await SyncTreeAsync(scope.ServiceProvider);
+
+        _api.Confluence.Rename("101", "Start Here");
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo("/pages/101.md", "/pages/102.md");
+    }
+
+    [Fact]
+    public async Task FolderRenamed_ReEnqueuesPagesUnderItOnceTheFolderIsReadAgain()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (service, queue, synced, connection) = await SyncTreeAsync(scope.ServiceProvider);
+
+        _api.Confluence.RenameFolder("900", "Handbooks");
+        _clock.Advance(ConfluenceSpaceConnector.FolderRefreshInterval + TimeSpan.FromMinutes(1));
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/103.md");
+    }
+
+    [Fact]
+    public async Task SpaceRenamed_ReEnqueuesEveryPage()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (service, queue, synced, connection) = await SyncTreeAsync(scope.ServiceProvider);
+
+        _api.Confluence.RenameSpace(SpaceId, "Platform Engineering");
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo(
+            "/pages/101.md", "/pages/102.md", "/pages/103.md", "/pages/104.md", "/blogposts/201.md");
+    }
+
+    [Fact]
+    public async Task PageMovedUnderAnotherParent_ReEnqueuedWithoutAVersionBump()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (service, queue, synced, connection) = await SyncTreeAsync(scope.ServiceProvider);
+
+        _api.Confluence.Reparent("104", "101", "page");
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/104.md");
+    }
+
+    [Fact]
+    public async Task RateLimitedPartwayThroughListing_DeletesNothingAndKeepsTheCursor()
+    {
+        SeedSpace(pages: 3);
+        _api.Confluence.MaxPageSize = 1;
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        // Page 101 is gone, but the listing stops after its first page of results: what it saw
+        // would read as 102 and 103 having vanished too.
+        _api.Confluence.Remove("101");
+        _api.Confluence.RateLimitNextContinuation = true;
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(0);
+        second.WithheldDeletions.Should().Be(0);
+        second.Notice.Should().Contain("rate limiting");
+        queue.Jobs.Should().BeEmpty();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be(synced.SyncCursor);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(4);
+    }
+
+    [Fact]
+    public async Task SpaceForbidden_MarksSourceAccessRevoked()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _api.Confluence.ForbidSpace(SpaceId);
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().Contain("HTTP 403");
+        (await sources.GetAsync(source.Id))!.AccessRevokedAt.Should().NotBeNull();
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task NewComment_ReEnqueuesItsPage()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddComment("102", "acc-1", "<p>Looks good.</p>", _clock.GetUtcNow().AddMinutes(-1));
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+    }
+
+    [Fact]
+    public async Task RepeatedOverlapHits_DoNotReEnqueue()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddComment("102", "acc-1", "<p>Looks good.</p>", _clock.GetUtcNow().AddMinutes(-1));
+        synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, synced, connection);
+
+        // The comment is still inside the next query's one-day overlap, so CQL reports it again.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var third = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        third.Error.Should().BeNull();
+        _api.Confluence.SearchQueries.Should().HaveCount(2);
+        queue.Jobs.Should().BeEmpty();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().NotBe(synced.SyncCursor, "the watermark still moves on");
+    }
+
+    [Fact]
+    public async Task RateLimitedDuringChangeQuery_DeletesNothingAndKeepsTheCursor()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _api.Confluence.Remove("101");
+        _api.Confluence.AddComment("102", "acc-1", "<p>Missed this cycle.</p>", _clock.GetUtcNow());
+        _api.Confluence.RateLimitNextSearch = true;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(0);
+        second.Notice.Should().Contain("rate limiting");
+        queue.Jobs.Should().BeEmpty();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be(synced.SyncCursor);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(3);
+
+        // The next cycle counts back from the old watermark, so the comment is still caught.
+        var third = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        third.Deleted.Should().Be(1);
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+    }
+
+    private FakeConfluenceAttachment AttachmentOn(string pageId, string id, string name, long? size = null) =>
+        new(id, pageId, name, "attached runbook text"u8.ToArray(), _clock.GetUtcNow().AddMinutes(-1), DeclaredSize: size);
+
+    /// <summary>
+    /// The registration the app really uses: downloads get a client that leaves redirects to
+    /// AtlassianApiClient, so every hop is checked against Atlassian's hosts.
+    /// </summary>
+    [Fact]
+    public void DownloadHttpClient_DoesNotFollowRedirectsItself()
+    {
+        var handler = fixture.Factory.Services.GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(AtlassianApiClient.DownloadHttpClientName);
+        while (handler is DelegatingHandler delegating)
+            handler = delegating.InnerHandler!;
+
+        handler.Should().BeOfType<SocketsHttpHandler>().Which.AllowAutoRedirect.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task NewAttachment_Ingested()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        var job = queue.Jobs.Should().ContainSingle().Subject;
+        job.Options.Path.Should().Be("/attachments/601/runbook.txt");
+        job.Options.Metadata!["confluence:breadcrumb"].Should().Be("Engineering > Page 2 > runbook.txt");
+        job.Options.Metadata[SourceSyncService.RemoteSizeKey].Should().Be("21", "an attachment's signature is its real size");
+    }
+
+    [Fact]
+    public async Task AttachmentDeleted_RemovedAfterDailySweep()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().Contain("/attachments/601/runbook.txt");
+
+        // A deletion is invisible to the change query, so it waits for the sweep.
+        _api.Confluence.RemoveAttachment("601");
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, synced, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().Contain("/attachments/601/runbook.txt");
+
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var swept = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        swept.Deleted.Should().Be(1);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().NotContain("/attachments/601/runbook.txt");
+    }
+
+    [Fact]
+    public async Task AttachmentMovedToAPageTheUserCannotRead_StaysOnTheNewPageAndIsDenied()
+    {
+        const string allowedOnOldPage = "557058:old-page-only";
+        string checkRoot = $"/ex/confluence/{_cloudId.ToLowerInvariant()}/wiki/rest/api/content/";
+        fixture.Atlassian.Map(checkRoot + "101/permission/check", request =>
+        {
+            using var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+            string? who = body.RootElement.GetProperty("subject").GetProperty("identifier").GetString();
+            return FakeAtlassianApi.Json(new { hasPermission = who == allowedOnOldPage });
+        });
+        fixture.Atlassian.MapJson(checkRoot + "102/permission/check", new { hasPermission = false });
+
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("101", "601", "runbook.txt"));
+        const string path = "/attachments/601/runbook.txt";
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (source, connection) = await SeedAsync(sp);
+        var (service, queue) = BuildService(sp);
+        var synced = await SyncAndSettleAsync(sp, service, queue, source, connection);
+        (await ResourceUriAsync(sp, source.Id, path)).Should().Be(AtlassianUri.ForAttachment(_cloudId, "101", "601"));
+
+        // Moved to page 102. Page 101's own list is not read again for a day.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt") with { ModifiedAt = _clock.GetUtcNow() });
+
+        for (int cycle = 0; cycle < 3; cycle++)
+        {
+            synced = await SyncAndSettleAsync(sp, service, queue, synced, connection);
+            (await ResourceUriAsync(sp, source.Id, path)).Should().Be(
+                AtlassianUri.ForAttachment(_cloudId, "102", "601"), "cycle {0} must not hand it back to page 101", cycle);
+            _clock.Advance(TimeSpan.FromMinutes(5));
+        }
+
+        // A user who can read page 101 but not 102 still sees page 101, and not the moved attachment.
+        Guid userId = await LinkedUserAsync(sp, allowedOnOldPage);
+        var verifier = sp.GetServices<IPerSchemeResultVerifier>().OfType<AtlassianSearchResultVerifier>().Single();
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var documents = await db.Documents.Where(d => d.SourceId == source.Id).ToDictionaryAsync(d => d.Path, d => d.Id);
+        SearchHit[] hits =
+        [
+            new("c1", documents["/pages/101.md"].ToString(), "", 1f, []),
+            new("c2", documents[path].ToString(), "", 1f, []),
+        ];
+
+        var visible = await verifier.VerifyAsync(hits, userId, 10);
+
+        visible.Select(h => h.DocumentId).Should().Equal(documents["/pages/101.md"].ToString());
+    }
+
+    private static async Task<string?> ResourceUriAsync(IServiceProvider sp, Guid sourceId, string path)
+    {
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        return await db.Documents.Where(d => d.SourceId == sourceId && d.Path == path).Select(d => d.ResourceUri).SingleAsync();
+    }
+
+    private static async Task<Guid> LinkedUserAsync(IServiceProvider sp, string atlassianAccount)
+    {
+        await using var db = await sp.GetRequiredService<IDbContextFactory<Connapse.Identity.Data.ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        var user = new Connapse.Identity.Data.Entities.ConnapseUser
+        {
+            Id = Guid.NewGuid(),
+            UserName = $"u-{Guid.NewGuid():N}@example.com",
+            Email = $"u-{Guid.NewGuid():N}@example.com",
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        await sp.GetRequiredService<Connapse.Identity.Services.AtlassianIdentityLinkStore>().SaveAsync(user.Id, atlassianAccount);
+        return user.Id;
+    }
+
+    [Fact]
+    public async Task OversizeAttachment_SkippedAndCounted()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "huge.txt", size: 30L * 1024 * 1024));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "602", "small.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Notice.Should().StartWith("1 attachment was skipped: larger than 25 MB, or a file type Connapse can't read.");
+        queue.Jobs.Select(j => j.Options.Path).Should().Contain("/attachments/602/small.txt")
+            .And.NotContain(p => p.StartsWith("/attachments/601/", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.Unauthorized)]
+    [InlineData(System.Net.HttpStatusCode.Forbidden)]
+    public async Task AttachmentsRefused_PagesSyncAndTheSourceWarnsWithoutFlaggingTheSite(System.Net.HttpStatusCode refusal)
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+        _api.Confluence.RefuseAttachmentsWith = refusal;
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Error.Should().BeNull();
+        result.Notice.Should().Be(ConfluenceSpaceConnector.AttachmentScopeNotice);
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+
+        var stored = (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(source.Id))!;
+        stored.LastSyncStatus.Should().Be(SyncStatus.Succeeded);
+        stored.LastSyncError.Should().Be(ConfluenceSpaceConnector.AttachmentScopeNotice);
+        var site = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetAsync(connection.Id);
+        (site!.Health?.CredentialRejected ?? false).Should().BeFalse("one source's attachment setting is not the site's credential failing");
+    }
+
+    [Fact]
+    public async Task UnsupportedAttachment_SkippedAndCounted()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("101", "601", "setup.exe"));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "602", "archive.bin"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Notice.Should().StartWith("2 attachments were skipped: larger than 25 MB, or a file type Connapse can't read.");
+        queue.Jobs.Should().NotContain(j => j.Options.Path.StartsWith("/attachments/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task IncludeAttachmentsOff_RemovesExisting()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _attachments.Include = false;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Deleted.Should().Be(1);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+    }
+
+    [Fact]
+    public async Task AttachmentResourceUri_PointsAtPage()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        await using var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        string? uri = await db.Documents
+            .Where(d => d.SourceId == source.Id && d.Path == "/attachments/601/runbook.txt")
+            .Select(d => d.ResourceUri).SingleAsync();
+
+        uri.Should().Be(AtlassianUri.ForAttachment(_cloudId.ToLowerInvariant(), "102", "601"));
+        AtlassianUri.TryParse(uri, out string cloudId, out string contentId).Should().BeTrue();
+        contentId.Should().Be("102", "a hit on the attachment is checked against its page");
+        cloudId.Should().Be(_cloudId.ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// The whole path with nothing faked but Confluence: the app's own connector factory and DI
+    /// build the connector from the stored connection and secret, the sync enqueues the page, and
+    /// the real ingestion pipeline chunks what the connector renders.
+    /// </summary>
+    [Fact]
+    public async Task EndToEnd_IngestedPage_EveryChunkStartsWithBreadcrumb()
+    {
+        var confluence = fixture.Atlassian.Confluence;
+        string spaceId = Random.Shared.NextInt64(1_000_000_000, 9_999_999_999).ToString();
+        string parentId = Random.Shared.NextInt64(1_000_000_000, 9_999_999_999).ToString();
+        string pageId = (long.Parse(parentId) + 1).ToString();
+        confluence.AddSpace(spaceId, "ENG", "Engineering");
+        confluence.Upsert(new FakeConfluencePage(parentId, spaceId, "Parent"));
+        confluence.Upsert(new FakeConfluencePage(pageId, spaceId, "Title", ParentId: parentId, ParentType: "page",
+            Body: "<h1>Install</h1><p>" + string.Join(" ", Enumerable.Repeat("Run the installer and follow each prompt.", 20))
+                + "</p><h1>Upgrade</h1><p>Stop the service, then upgrade it in place.</p>"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var connections = sp.GetRequiredService<IConnectionStore>();
+        var connection = await connections.CreateAsync(new CreateConnectionRequest(
+            $"atl-{Guid.NewGuid():N}"[..20], ConnectionProvider.Atlassian,
+            $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-{{_cloudId}}"}""",
+            "service-secret"), null);
+        var source = await sp.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"cf-{Guid.NewGuid():N}"[..20], connection.Id,
+            $$"""{"kind":"confluence-space","spaceId":"{{spaceId}}","spaceKey":"ENG"}"""));
+
+        var factory = sp.GetRequiredService<IConnectorFactory>();
+        var queue = new RecordingIngestionQueue();
+        var service = new SourceSyncService(
+            sp.GetRequiredService<IServiceScopeFactory>(), factory, queue,
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
+
+        (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Error.Should().BeNull();
+        var job = queue.Jobs.Single(j => j.Options.Path == $"/pages/{pageId}.md");
+
+        string? secret = await connections.GetSecretAsync(connection.Id);
+        var connector = factory.Create(source, connection, secret);
+        await using (var content = await connector.ReadFileAsync(job.Options.Path))
+            await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(content, job.Options, CancellationToken.None);
+
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var chunks = await db.Chunks.Where(c => c.DocumentId == Guid.Parse(job.DocumentId)).Select(c => c.Content).ToListAsync();
+        chunks.Should().HaveCountGreaterThan(1);
+        chunks.Should().OnlyContain(c => c.StartsWith("Engineering > Parent > Title", StringComparison.Ordinal));
+        confluence.BodyFormats.Should().OnlyContain(f => f == "storage");
+    }
+
+    [Fact]
+    public async Task EveryDocument_HasAtlassianResourceUri()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        await using var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var documents = await db.Documents.Where(d => d.SourceId == source.Id).ToListAsync();
+        documents.Should().HaveCount(3);
+        string cloudId = _cloudId.ToLowerInvariant();
+        documents.Should().OnlyContain(d =>
+            d.ResourceUri == AtlassianUri.ForPage(cloudId, Path.GetFileNameWithoutExtension(d.Path))
+            && d.ResourceUri!.StartsWith($"atlassian://{cloudId}/", StringComparison.Ordinal));
+    }
+}

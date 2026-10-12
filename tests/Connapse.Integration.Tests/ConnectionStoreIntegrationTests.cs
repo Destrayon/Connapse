@@ -14,6 +14,37 @@ public class ConnectionStoreIntegrationTests(SharedWebAppFixture fixture)
         new($"conn-{Guid.NewGuid():N}"[..24], ConnectionProvider.S3, """{"region":"us-east-1"}""", secret);
 
     [Fact]
+    public async Task RecordHealthAsync_AFailureKeepsTheLastSuccessAndItsScopes()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        var created = await store.CreateAsync(NewRequest(), createdByUserId: null);
+        var passedAt = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        await store.RecordHealthAsync(created.Id, new ConnectionHealth(passedAt, Succeeded: true, Step: null, Message: "ok",
+            Origin: "test", ConfirmedScopes: ["read:space:confluence"]));
+        var failed = await store.RecordHealthAsync(created.Id, new ConnectionHealth(passedAt.AddHours(1), Succeeded: false,
+            Step: "token", Message: "refused", Origin: "sync", CredentialRejected: true));
+
+        failed!.LastSucceededAt.Should().Be(passedAt);
+        failed.ConfirmedScopes.Should().Equal("read:space:confluence");
+        var read = await store.GetAsync(created.Id);
+        read!.Health.Should().BeEquivalentTo(failed);
+        read.UpdatedAt.Should().BeCloseTo(created.UpdatedAt, TimeSpan.FromMilliseconds(1), "a check changes nothing an admin configured");
+        (await store.ListAsync(0, 1000)).Single(c => c.Id == created.Id).Health!.CredentialRejected.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RecordHealthAsync_UnknownConnection_ReturnsNull()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        (await store.RecordHealthAsync(Guid.NewGuid(), new ConnectionHealth(DateTime.UtcNow, true, null, null, "test")))
+            .Should().BeNull();
+    }
+
+    [Fact]
     public async Task CreateAsync_WithSecret_DoesNotExposeSecretOnReadModel()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

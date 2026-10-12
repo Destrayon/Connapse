@@ -25,7 +25,7 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class AzureVerifyEnforcementTests(SharedWebAppFixture fixture)
 {
-    private static readonly Guid TestUser = Guid.NewGuid();
+    internal static readonly Guid TestUser = Guid.NewGuid();
     private static readonly AzureIdentityRef Link = new("user-oid", "tid");
 
     private static SearchHit Hit(Guid docId, double score) =>
@@ -77,7 +77,7 @@ public class AzureVerifyEnforcementTests(SharedWebAppFixture fixture)
     /// <summary>Builds the verifier against the real <paramref name="documents"/> store with every
     /// Azure identity/RBAC/ACL seam faked — live calls to Entra/ARM/ADLS/Blob can't run in CI, only
     /// the resource_uri lookup needs to be real.</summary>
-    private static AzureSearchResultVerifier BuildVerifier(
+    internal static AzureSearchResultVerifier BuildVerifier(
         IDocumentStore documents, bool azureEnforcing, IReadOnlyList<AzureScope> readablePrefixes)
     {
         var links = Substitute.For<IAzureIdentityLinkReader>();

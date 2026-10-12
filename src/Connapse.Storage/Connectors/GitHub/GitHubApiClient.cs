@@ -6,12 +6,18 @@ using System.Text.Json.Serialization;
 
 namespace Connapse.Storage.Connectors.GitHub;
 
+/// <summary>How a GitHub rate-limit notice starts, so a stored notice can be told apart as a wait.</summary>
+public static class GitHubRateLimit
+{
+    public const string NoticePrefix = "GitHub's hourly request limit is used up";
+}
+
 /// <summary>
 /// The installation's REST request budget ran out mid-cycle. Not a failure: whatever was merged
 /// before it is kept, and the next cycle resumes from there.
 /// </summary>
 internal sealed class GitHubRateLimitedException(DateTimeOffset? resetAt)
-    : Exception($"GitHub's hourly request limit is used up until {(resetAt is { } at ? at.ToUniversalTime().ToString("HH:mm") + " UTC" : "later")}. Syncing resumes after that.")
+    : Exception($"{GitHubRateLimit.NoticePrefix} until {(resetAt is { } at ? at.ToUniversalTime().ToString("HH:mm") + " UTC" : "later")}. Syncing resumes after that.")
 {
     public DateTimeOffset? ResetAt { get; } = resetAt;
 }

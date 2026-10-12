@@ -15,6 +15,18 @@ namespace Connapse.Core.Tests.Web;
 [Trait("Category", "Unit")]
 public class SourceScopeSummaryTests
 {
+    [Theory]
+    [InlineData("""{"kind":"confluence-space","spaceId":"100","spaceKey":"ENG","spaceName":"Engineering","includeAttachments":true,"maxAttachmentMb":40}""",
+        "acme.atlassian.net", "acme.atlassian.net / Engineering (ENG) · attachments up to 40 MB")]
+    [InlineData("""{"kind":"confluence-space","spaceId":"100","spaceKey":"ENG","spaceName":"Engineering","includeAttachments":false,"maxAttachmentMb":40}""",
+        "acme.atlassian.net", "acme.atlassian.net / Engineering (ENG) · attachments off")]
+    [InlineData("""{"kind":"confluence-space","spaceId":"100","spaceKey":"ENG"}""",
+        null, "ENG · attachments up to 25 MB")]
+    public void Describe_ConfluenceScope_ShowsSiteSpaceAndAttachmentSettings(string scope, string? host, string expected)
+    {
+        SourceScopeSummary.Describe(scope, host).Should().Be(expected);
+    }
+
     [Fact]
     public void Describe_S3Scope_ShowsBucketAndPrefix()
     {

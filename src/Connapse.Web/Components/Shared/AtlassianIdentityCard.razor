@@ -1,0 +1,145 @@
+@*
+    The Atlassian row on the integrations page. Presentational: the page loads the link and does the
+    connecting and disconnecting, so this card can be rendered on its own in tests. Disconnecting never
+    depends on SignInAvailable, or a linked row would become unremovable once an administrator
+    removed the link app.
+*@
+
+<div class="col-md-6">
+    <div @ref="card" tabindex="-1" class="card h-100 provider-card @(Link is not null ? "provider-connected" : "")" id="atlassian-identity-card"
+         style="--provider-color: #2684ff;">
+        <div class="card-body p-4">
+            <div class="d-flex align-items-center mb-3">
+                <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
+                     style="width: 40px; height: 40px; background: rgba(38, 132, 255, 0.1); border: 1px solid rgba(38, 132, 255, 0.25);">
+                    <span class="bi-diagram-3" style="font-size: 1.1rem; color: #2684ff;" aria-hidden="true"></span>
+                </div>
+                <div class="ms-3 flex-grow-1">
+                    <strong>Atlassian</strong>
+                </div>
+                @if (Link is not null)
+                {
+                    <span class="badge rounded-pill text-bg-success">
+                        <span class="bi-check-circle-fill me-1" aria-hidden="true"></span>Connected
+                    </span>
+                }
+            </div>
+
+            @if (Link is not null)
+            {
+                @* Only the account id is stored, so there is no name to show (#695). *@
+                <div class="mb-3" id="atlassian-linked">
+                    <small class="text-muted d-block">Linked to your Atlassian account</small>
+                    <small>Since @Link.ConnectedAt.ToString("MMM dd, yyyy")</small>
+                </div>
+            }
+            else if (!SignInAvailable)
+            {
+                <div class="rounded-3 p-3" style="background: rgba(38, 132, 255, 0.08); border: 1px solid rgba(38, 132, 255, 0.2);">
+                    <small class="d-flex align-items-start text-muted">
+                        <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0" aria-hidden="true"></span>
+                        <span>Atlassian sign-in is not available. An administrator sets up the linking app, or turns sign-in back on, under Providers → Atlassian.</span>
+                    </small>
+                </div>
+            }
+            else
+            {
+                <p class="text-muted small mb-0" id="atlassian-consent-help">
+                    <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>
+                    You sign in at <strong>Atlassian</strong>, which asks you to let Connapse see your account.
+                    Connapse reads only your Atlassian account ID, to check what Confluence pages you can see.
+                    It keeps no token and never changes anything in Atlassian.
+                </p>
+            }
+        </div>
+        @if (Link is not null)
+        {
+            <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                @if (confirmDisconnect)
+                {
+                    <p id="atlassian-disconnect-help" class="small text-muted mb-2">
+                        You will stop seeing Confluence content that needs your account. Your Atlassian account is not changed.
+                    </p>
+                    <div class="d-flex gap-2">
+                        <button @ref="confirmButton" id="atlassian-disconnect-confirm" class="btn btn-sm btn-danger" @onclick="DisconnectAsync"
+                                disabled="@Busy" aria-describedby="atlassian-disconnect-help">
+                            Disconnect Atlassian
+                        </button>
+                        <button id="atlassian-disconnect-cancel" class="btn btn-sm btn-outline-secondary" @onclick="CancelDisconnect">
+                            Cancel
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <button @ref="disconnectButton" id="atlassian-disconnect" class="btn btn-sm btn-outline-danger" @onclick="AskDisconnect" disabled="@Busy">
+                        <span class="bi-x-circle me-1" aria-hidden="true"></span>Disconnect
+                    </button>
+                }
+            </div>
+        }
+        else if (SignInAvailable)
+        {
+            <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                <button @ref="connectButton" id="atlassian-connect" class="btn btn-sm btn-primary" @onclick="OnConnect" disabled="@Busy"
+                        aria-describedby="atlassian-consent-help">
+                    <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>Continue to Atlassian sign-in
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The user's link, or null when they have none.</summary>
+    [Parameter] public Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity? Link { get; set; }
+
+    /// <summary>Whether a link app is stored, so a sign-in can start.</summary>
+    [Parameter] public bool SignInAvailable { get; set; }
+
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnConnect { get; set; }
+    [Parameter] public EventCallback OnDisconnect { get; set; }
+
+    private bool confirmDisconnect;
+
+    // The buttons replace each other, so focus follows: into the confirmation, back to Disconnect
+    // on Cancel, and after disconnecting to the sign-in button (or the card when sign-in is off).
+    private ElementReference card;
+    private ElementReference disconnectButton;
+    private ElementReference confirmButton;
+    private ElementReference connectButton;
+    private enum FocusTarget { None, Confirm, Disconnect, AfterDisconnect }
+    private FocusTarget focusAfterRender;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        FocusTarget target = focusAfterRender;
+        if (target == FocusTarget.None) return;
+        // After disconnecting, wait while the page is still busy; if the link survived, it failed
+        // and Disconnect is back on screen.
+        if (target == FocusTarget.AfterDisconnect && Link is not null)
+        {
+            if (Busy) return;
+            target = FocusTarget.Disconnect;
+        }
+        focusAfterRender = FocusTarget.None;
+        await (target switch
+        {
+            FocusTarget.Confirm => confirmButton,
+            FocusTarget.Disconnect => disconnectButton,
+            _ => SignInAvailable ? connectButton : card,
+        }).FocusAsync();
+    }
+
+    private void AskDisconnect() => (confirmDisconnect, focusAfterRender) = (true, FocusTarget.Confirm);
+
+    private void CancelDisconnect() => (confirmDisconnect, focusAfterRender) = (false, FocusTarget.Disconnect);
+
+    private async Task DisconnectAsync()
+    {
+        confirmDisconnect = false;
+        focusAfterRender = FocusTarget.AfterDisconnect;
+        await OnDisconnect.InvokeAsync();
+    }
+}

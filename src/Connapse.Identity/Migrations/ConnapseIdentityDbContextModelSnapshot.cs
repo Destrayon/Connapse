@@ -595,6 +595,56 @@ namespace Connapse.Identity.Migrations
                     b.ToTable("refresh_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("AccountId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("account_id");
+
+                    b.Property<DateTime>("ConnectedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("connected_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_atlassian_identity_links_user_id");
+
+                    b.ToTable("user_atlassian_identity_links", (string)null);
+                });
+
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAtlassianLinkRevocationEntity", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<long>("Generation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("generation");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("user_atlassian_link_revocations", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAwsIdentityLinkEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -973,6 +1023,28 @@ namespace Connapse.Identity.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity", b =>
+                {
+                    b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "User")
+                        .WithMany("AtlassianIdentityLinks")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAtlassianLinkRevocationEntity", b =>
+                {
+                    b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAwsIdentityLinkEntity", b =>
                 {
                     b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "User")
@@ -1082,6 +1154,8 @@ namespace Connapse.Identity.Migrations
 
             modelBuilder.Entity("Connapse.Identity.Data.Entities.ConnapseUser", b =>
                 {
+                    b.Navigation("AtlassianIdentityLinks");
+
                     b.Navigation("AuditLogs");
 
                     b.Navigation("AzureIdentityLinks");

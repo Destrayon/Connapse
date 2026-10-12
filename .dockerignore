@@ -27,3 +27,8 @@ coverage/
 .gitattributes
 .dockerignore
 docker-compose.yml
+
+# Eval harness datasets and runs (tens of GB); the image builds src/ only.
+eval/
+.superpowers/
+.playwright-mcp/

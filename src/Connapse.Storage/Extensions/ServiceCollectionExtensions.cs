@@ -189,8 +189,31 @@ public static class ServiceCollectionExtensions
         services.Configure<GitHubSourceSettings>(
             configuration.GetSection(GitHubSourceSettings.SectionName));
 
+        // Where Confluence sources keep their page state. Configuration-only, for the same reason.
+        services.Configure<AtlassianSourceSettings>(
+            configuration.GetSection(AtlassianSourceSettings.SectionName));
+
         // GitHub issues sources read the REST API anonymously; headers are set per request.
         services.AddHttpClient(Connectors.ConnectorFactory.GitHubHttpClientName);
+
+        // Atlassian Cloud: one named client for the API and the token endpoint, and a singleton
+        // token cache so service-account tokens are shared across every source on a site.
+        // Redirects are never followed: the handler would replay the token request's form body
+        // (client_secret included) to wherever a 307/308 points, and an API redirect would skip
+        // the client's host pinning. A 3xx comes back to the caller as a plain response.
+        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+
+        // Downloads only, with redirects not followed automatically: an attachment download
+        // redirects to Atlassian's media host, and AtlassianApiClient checks each hop first.
+        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.DownloadHttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        // tenant_info is asked of an address an administrator typed; never let a redirect take it elsewhere.
+        services.AddHttpClient(Connectors.Atlassian.AtlassianSiteResolver.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(Connectors.Atlassian.AtlassianSiteResolver.CreateHandler);
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<Connectors.Atlassian.AtlassianTokenSource>();
+        services.AddScoped<Connectors.Atlassian.AtlassianUserSignIn>();
 
         // The GitHub App Connapse acts as. Singleton so installation tokens are reused across a sync
         // rather than minted per request; it reaches the scoped credential store through a scope.
@@ -216,6 +239,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
+        services.AddScoped<AtlassianConnectionTester>();
 
         // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
         // credential itself, so a new instance per scope would discard that cache each time.
@@ -280,8 +304,15 @@ public static class ServiceCollectionExtensions
         // everything through) when Azure AD isn't configured, so AWS-only/non-cloud deployments
         // pay nothing extra.
         services.AddSingleton<IBlobTagReader, BlobTagReader>();
-        services.AddScoped<ISearchResultVerifier, AzureSearchResultVerifier>();
+        services.AddScoped<IPerSchemeResultVerifier, AzureSearchResultVerifier>();
+        // Confluence hits: checked live against the site, one call per uncached (account, page).
+        services.AddSingleton<ConfluencePermissionChecker>();
+        services.AddSingleton(_ => new AtlassianConnectionPresence(TimeProvider.System));
+        services.AddScoped<IPerSchemeResultVerifier, AtlassianSearchResultVerifier>();
+        services.AddScoped<ISearchResultVerifier>(sp => new CompositeSearchResultVerifier(
+            sp.GetServices<IPerSchemeResultVerifier>()));
         services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
+        services.Configure<AtlassianVerifierSettings>(configuration.GetSection(AtlassianVerifierSettings.SectionName));
 
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IAzureBlobDiscovery, CloudScope.AzureBlobDiscovery>();
@@ -299,18 +330,22 @@ public static class ServiceCollectionExtensions
         // CloudEnforcementLatch; nothing else resolves this today.
         services.TryAddSingleton(new EnforcementMigration());
 
-        // The composite is THE resolver; it unions the AWS and Azure resolvers per cloud/scheme.
-        // AWS keeps its exact behavior as one inner resolver. Wired via an explicit factory that
-        // passes the two concrete resolvers, so the composite's ISearchScopeResolver parameters do
-        // not resolve back to the composite itself (no self-reference).
+        // The composite is THE resolver; it unions the AWS, Azure, GitHub and Atlassian resolvers
+        // per scheme. AWS keeps its exact behavior as one inner resolver. Wired via an explicit
+        // factory that passes the concrete resolvers, so the composite's ISearchScopeResolver
+        // parameters do not resolve back to the composite itself (no self-reference).
         services.AddScoped<CloudScope.AwsSearchScopeResolver>();
         services.AddScoped<CloudScope.AzureSearchScopeResolver>();
         services.AddScoped<CloudScope.GitHubSearchScopeResolver>();
+        services.AddScoped<CloudScope.AtlassianSearchScopeResolver>();
         services.AddSingleton<CloudScope.GitHubRepositoryAccess>();
         services.AddScoped<ISearchScopeResolver>(sp => new CloudScope.CompositeSearchScopeResolver(
-            sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(),
-            sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(),
-            sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>()));
+        [
+            new(sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(), "s3://", CloudScope.ScopeKind.Cloud),
+            new(sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(), "azblob://", CloudScope.ScopeKind.Cloud),
+            new(sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>(), CloudScope.GitHubSearchScopeResolver.Scheme, CloudScope.ScopeKind.GrantOnly),
+            new(sp.GetRequiredService<CloudScope.AtlassianSearchScopeResolver>(), CloudScope.AtlassianUri.Scheme, CloudScope.ScopeKind.GrantOnly),
+        ]));
 
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();

@@ -96,4 +96,91 @@ public class SourceEditFormTests
 
         form.Validate().Should().Be(expected);
     }
+
+    [Fact]
+    public void Validate_BothFieldsWrong_GivesEachFieldItsOwnError()
+    {
+        var form = SourceEditForm.From(MakeSource(IssuesScope), ConnectionProvider.GitHub);
+        form.Name = " ";
+        form.SyncIntervalSeconds = 10;
+
+        form.Validate().Should().Be(SourceEditForm.NameRequired);
+        form.NameError.Should().Be(SourceEditForm.NameRequired);
+        form.SyncIntervalError.Should().Be(SourceEditForm.IntervalTooShort, "the page shows both at once, beside their fields");
+
+        form.Name = "fixed";
+        form.ValidateName().Should().BeTrue();
+        form.NameError.Should().BeNull();
+        form.SyncIntervalError.Should().NotBeNull("checking one field leaves the other's error alone");
+    }
+
+    private const string ConfluenceScope =
+        """{"kind":"confluence-space","spaceId":"100","spaceKey":"ENG","spaceName":"Engineering","includeAttachments":true,"maxAttachmentMb":25}""";
+
+    [Fact]
+    public void From_ConfluenceSource_ReadsItsAttachmentSettings()
+    {
+        var source = MakeSource("""{"kind":"confluence-space","spaceId":"100","spaceKey":"ENG","includeAttachments":false,"maxAttachmentMb":40}""");
+
+        var form = SourceEditForm.From(source, ConnectionProvider.Atlassian);
+
+        form.Confluence.Should().NotBeNull();
+        form.Confluence!.IncludeAttachments.Should().BeFalse();
+        form.Confluence.MaxAttachmentMb.Should().Be(40);
+        form.GitHubKind.Should().BeNull();
+    }
+
+    [Fact]
+    public void From_ConfluenceSourceWithoutAttachmentKeys_ShowsTheConnectorsDefaultsAndChangesNothing()
+    {
+        var source = MakeSource("""{"kind":"confluence-space","spaceId":"100","spaceKey":"ENG"}""");
+
+        var form = SourceEditForm.From(source, ConnectionProvider.Atlassian);
+
+        form.Confluence!.IncludeAttachments.Should().BeTrue();
+        form.Confluence.MaxAttachmentMb.Should().Be(25);
+        form.ToRequest(source).Should().BeNull("showing the defaults must not rewrite the scope and force a re-read");
+    }
+
+    [Fact]
+    public void ToRequest_ConfluenceAttachmentsChanged_KeepsTheSpaceAndWritesTheNewSettings()
+    {
+        var source = MakeSource(ConfluenceScope);
+        var form = SourceEditForm.From(source, ConnectionProvider.Atlassian);
+        form.Confluence!.MaxAttachmentMb = 60;
+
+        var scope = JsonNode.Parse(form.ToRequest(source)!.ScopeJson!)!.AsObject();
+
+        scope["spaceId"]!.GetValue<string>().Should().Be("100");
+        scope["spaceKey"]!.GetValue<string>().Should().Be("ENG");
+        scope["includeAttachments"]!.GetValue<bool>().Should().BeTrue();
+        scope["maxAttachmentMb"]!.GetValue<int>().Should().Be(60);
+    }
+
+    [Fact]
+    public void ToRequest_ConfluenceAttachmentsTurnedOffWithABadSize_StoresOffAndKeepsTheStoredSize()
+    {
+        var source = MakeSource(ConfluenceScope);
+        var form = SourceEditForm.From(source, ConnectionProvider.Atlassian);
+        form.Confluence!.MaxAttachmentMb = 0;
+        form.Confluence.IncludeAttachments = false;
+
+        form.Validate().Should().BeNull("the size is not checked with attachments off, as on the New source dialog");
+        var scope = JsonNode.Parse(form.ToRequest(source)!.ScopeJson!)!.AsObject();
+
+        scope["includeAttachments"]!.GetValue<bool>().Should().BeFalse();
+        scope["maxAttachmentMb"]!.GetValue<int>().Should().Be(25);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    public void Validate_ConfluenceSizeOutOfRange_GivesTheDialogsError(int size)
+    {
+        var form = SourceEditForm.From(MakeSource(ConfluenceScope), ConnectionProvider.Atlassian);
+        form.Confluence!.MaxAttachmentMb = size;
+
+        form.Validate().Should().Be(Connapse.Web.Components.Sources.ConfluenceSpaceSelection.AttachmentRangeError);
+        form.Confluence.MaxAttachmentMbError.Should().NotBeNull();
+    }
 }

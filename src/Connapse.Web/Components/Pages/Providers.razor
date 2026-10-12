@@ -149,23 +149,27 @@
             </ol>
         </nav>
 
-        <h1 class="mb-3"><span class="bi-cloud-fill me-2"></span>@Current.DisplayName</h1>
+        @* The setup guide sits in the title row on every provider page, as on every other provider surface. *@
+        <div class="d-flex flex-wrap align-items-baseline gap-2 mb-3">
+            <h1 class="mb-0"><span class="bi-cloud-fill me-2"></span>@Current.DisplayName</h1>
+            @if (SetupGuide(Key) is { } guide)
+            {
+                <SetupGuideLink Id="@($"{Key}-setup-guide")" Href="@guide.Href" Name="@guide.Name" />
+            }
+        </div>
 
         @if (Key == "aws")
         {
             <p class="text-muted">
                 Three steps: the identity Connapse reads S3 with, the directory people are looked up
-                in, and the application they sign into. Every field, where to find its value, and
-                what each error means are in the
-                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md"
-                   target="_blank" rel="noopener">AWS setup guide</a>.
+                in, and the application they sign into.
             </p>
         }
 
         @* AWS renders status and setup together below. Repeating these cards above those sections
            made the page read like two separate checklists for the same work. Azure does the same
            (its setup cards below), so it is excluded here too. *@
-        @if (Key != "aws" && Key != "azure" && Key != "github")
+        @if (Key != "aws" && Key != "azure" && Key != "github" && Key != "atlassian")
         {
         @* Requirements first: someone arriving here is asking what is left to do, and answering
            that before showing forms is the reason this page exists. *@
@@ -220,14 +224,7 @@
             </div>
         }
 
-        @if (!string.IsNullOrEmpty(saveMessage))
-        {
-            <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
-                <span class="@(saveSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
-                @saveMessage
-                <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => saveMessage = null"></button>
-            </div>
-        }
+        <ProviderPageAlert Message="PageMessage" OnDismiss="() => saveMessage = null" />
 
         @if (Key == "aws")
         {
@@ -365,7 +362,7 @@
                                             <span class="text-muted">(optional — leave blank to keep the current key)</span>
                                         }
                                     </label>
-                                    <SecretTextArea Id="ra-key" Rows="3" CssClass="form-control-sm"
+                                    <SecretTextArea Id="ra-key" Label="Private key" Rows="3" CssClass="form-control-sm"
                                                     Placeholder="@(hasStoredRaCredential ? "Kept unless you paste a new key" : "-----BEGIN PRIVATE KEY-----")"
                                                     DescribedBy="ra-key-help" @bind-Value="manualPrivateKeyPem" />
                                     <div id="ra-key-help" class="form-text">
@@ -497,7 +494,7 @@
 
                                 <label class="form-label small mb-1" for="ra-paste">Paste what it printed</label>
                                 <textarea id="ra-paste" class="form-control font-monospace" rows="4" @bind="raPasted" @bind:event="oninput"
-                                          placeholder="@AwsRolesAnywhereSetup.BeginMarker&#10;trustAnchorArn=…&#10;@AwsRolesAnywhereSetup.EndMarker"></textarea>
+                                          placeholder="@($"{AwsRolesAnywhereSetup.BeginMarker}\ntrustAnchorArn=…\n{AwsRolesAnywhereSetup.EndMarker}")"></textarea>
 
                                 @if (!string.IsNullOrWhiteSpace(raPasted))
                                 {
@@ -679,7 +676,7 @@
                     <label class="form-label small mb-1" for="idc-paste">Paste what it printed</label>
                     <textarea id="idc-paste" class="form-control font-monospace" rows="4" @bind="pastedIdentityCenter"
                               @bind:event="oninput"
-                              placeholder="@IdentityCenterSetup.BeginMarker&#10;region=…&#10;@IdentityCenterSetup.EndMarker"></textarea>
+                              placeholder="@($"{IdentityCenterSetup.BeginMarker}\nregion=…\n{IdentityCenterSetup.EndMarker}")"></textarea>
 
                     @if (!string.IsNullOrWhiteSpace(pastedIdentityCenter))
                     {
@@ -1088,10 +1085,7 @@
                 Two steps: the Azure app identity Connapse reads Blob storage and permissions with, and
                 the Entra application people sign in through. No client secrets — Connapse authenticates
                 with certificates it generates on this host (the private keys never leave it) or a
-                managed identity. Every field, where to find its value, and what each error means are in
-                the
-                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md"
-                   target="_blank" rel="noopener">Azure setup guide</a>.
+                managed identity.
             </p>
 
             <ProviderStepCard Id="azure-access" Title="Access"
@@ -1213,7 +1207,7 @@
                             <label class="form-label small mb-1" for="az-mi-paste">Paste what it printed</label>
                             <textarea id="az-mi-paste" class="form-control font-monospace" rows="4"
                                       @bind="azureManagedIdentityPasted" @bind:event="oninput" disabled="@azureBusy"
-                                      placeholder="@AzureCloudShellSetup.ManagedIdentityBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.ManagedIdentityEndMarker"></textarea>
+                                      placeholder="@($"{AzureCloudShellSetup.ManagedIdentityBeginMarker}\ntenantId=…\n{AzureCloudShellSetup.ManagedIdentityEndMarker}")"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azureManagedIdentityPasted))
                             {
@@ -1316,7 +1310,7 @@
                             <label class="form-label small mb-1" for="az-access-paste">Paste what it printed</label>
                             <textarea id="az-access-paste" class="form-control font-monospace" rows="4"
                                       @bind="azureAccessPasted" @bind:event="oninput" disabled="@azureBusy"
-                                      placeholder="@AzureCloudShellSetup.AccessBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.AccessEndMarker"></textarea>
+                                      placeholder="@($"{AzureCloudShellSetup.AccessBeginMarker}\ntenantId=…\n{AzureCloudShellSetup.AccessEndMarker}")"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azureAccessPasted))
                             {
@@ -1599,7 +1593,7 @@
                             <label class="form-label small mb-1" for="az-perm-paste">Paste what it printed</label>
                             <textarea id="az-perm-paste" class="form-control font-monospace" rows="4"
                                       @bind="azurePermissionsPasted" @bind:event="oninput" disabled="@azureBusy"
-                                      placeholder="@AzureCloudShellSetup.PermissionsBeginMarker&#10;signInAppClientId=…&#10;@AzureCloudShellSetup.PermissionsEndMarker"></textarea>
+                                      placeholder="@($"{AzureCloudShellSetup.PermissionsBeginMarker}\nsignInAppClientId=…\n{AzureCloudShellSetup.PermissionsEndMarker}")"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azurePermissionsPasted))
                             {
@@ -1652,9 +1646,7 @@
         {
             <p class="text-muted">
                 Connapse reads GitHub through one GitHub App that you create here. Each organisation
-                or account you install it on becomes a connection. Every field, where to find its
-                value, and what each error means are in the
-                <a href="@GitHubMessages.GuideUrl" target="_blank" rel="noopener">GitHub setup guide</a>.
+                or account you install it on becomes a connection.
             </p>
             <p class="text-muted small">
                 The App asks for read-only access: Contents to read markdown docs, Issues and Pull
@@ -1738,7 +1730,7 @@
                         {
                             <ProviderField @key="spec.Id" Spec="spec" Small="true"
                                            Error="@(spec == GitHubFieldSpecs.AppId ? gitHubAppIdError : null)"
-                                           HasStoredValue="@GitHubValueStored(spec)"
+                                           HasStoredValue="@GitHubValueStored(spec)" Disabled="@gitHubBusy"
                                            Value="@gitHubManual.GetValueOrDefault(spec.Id)"
                                            ValueChanged="@((string? value) => gitHubManual[spec.Id] = value)" />
                         }
@@ -1760,7 +1752,7 @@
                                 @if (gitHubManualDetail is { Length: > 0 })
                                 {
                                     <details class="mt-1">
-                                        <summary>Raw error</summary>
+                                        <summary>Details</summary>
                                         <pre class="small mb-0 mt-1" style="white-space:pre-wrap">@gitHubManualDetail</pre>
                                     </details>
                                 }
@@ -1865,6 +1857,20 @@
                 </Actions>
             </ProviderStepCard>
         }
+        else if (Key == "atlassian")
+        {
+            <p class="text-muted" id="atlassian-intro">
+                Two parts: the linking app people sign in through, set up here, and one connection per
+                Atlassian site with the service account Connapse reads it as, added on the Connections page.
+            </p>
+            <p class="text-muted small">
+                The linking app asks Atlassian for one permission, <code>read:me</code>, which lets Connapse read
+                only each person's Atlassian account ID. Confluence content appears in search only for people who
+                link their Atlassian account under Profile → Integrations, and only the pages they can read in Confluence.
+            </p>
+
+            <AtlassianProviderCard OnMessage="ShowCardMessage" />
+        }
 
     }
 </div>
@@ -1874,8 +1880,33 @@
     [Parameter]
     public string? Key { get; set; }
 
+    /// <summary>The provider's setup guide, linked in the page's title row; null for a provider without one.</summary>
+    public static (string Href, string Name)? SetupGuide(string? key) => key switch
+    {
+        "aws" => ("https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md", "AWS setup guide"),
+        "azure" => ("https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md", "Azure setup guide"),
+        "github" => (GitHubMessages.GuideUrl, "GitHub setup guide"),
+        "atlassian" => (AtlassianLinkAppFieldSpecs.GuideSection, "Atlassian setup guide"),
+        _ => null,
+    };
+
     private string? saveMessage;
     private bool saveSuccess;
+    // Links or details a card sent with its message; shown only beside the message they came with.
+    private RenderFragment? saveExtra;
+    private string? saveExtraFor;
+
+    private ProviderPageMessage? PageMessage => string.IsNullOrEmpty(saveMessage)
+        ? null
+        : new ProviderPageMessage(saveMessage, saveSuccess, saveExtraFor == saveMessage ? saveExtra : null);
+
+    /// <summary>A card's outcome, shown in the page-top alert every provider uses.</summary>
+    private void ShowCardMessage(ProviderPageMessage? message)
+    {
+        saveMessage = message?.Text;
+        saveSuccess = message?.Success ?? false;
+        (saveExtra, saveExtraFor) = (message?.Extra, message?.Text);
+    }
 
     private SamlSignInSettings samlSettings = new();
     private bool showSamlManual;
@@ -2956,6 +2987,7 @@
         "aws" => "Read files from S3.",
         "azure" => "Read files from Azure Blob Storage.",
         "github" => "Index repositories' docs, issues, and pull requests.",
+        "atlassian" => "Index Confluence spaces and pages.",
         _ => $"Set up {provider.DisplayName}."
     };
 

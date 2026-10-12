@@ -793,6 +793,107 @@ public class ProviderSetupReaderTests
         setups.Single(p => p.Key == "aws").InUse.Should().BeTrue();
     }
 
+    // ── Atlassian ─────────────────────────────────────────────────────
+
+    private static async Task<ProviderSetup> AtlassianAsync(AtlassianLinkAppRegistration? linkApp, bool withSite = true)
+    {
+        var credentials = Substitute.For<IProviderCredentialStore>();
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(linkApp);
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            credentials: credentials,
+            connections: withSite ? ConnectionsWith(ConnectionProvider.Atlassian) : ConnectionsWith());
+        return (await reader.ReadAsync()).Single(p => p.Key == "atlassian");
+    }
+
+    [Fact]
+    public async Task Atlassian_RequiresOnlyTheLinkingApp()
+    {
+        // Sites are connections, added on the Connections page; the provider is identity only.
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", Created));
+
+        atlassian.Requirements.Select(r => r.Name).Should().Equal("Linking app");
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppVerified_WithoutASite_IsReadyAndPointsAtConnections()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", Created), withSite: false);
+
+        var app = atlassian.Requirements.Single();
+        app.Status.Should().Be(RequirementStatus.Satisfied);
+        app.ActionHref.Should().Be("/connections?new=atlassian");
+        atlassian.Overall.Should().Be(RequirementStatus.Satisfied);
+        atlassian.InUse.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Atlassian_NoLinkingAppAndNoSite_IsNotInUse()
+    {
+        var atlassian = await AtlassianAsync(linkApp: null, withSite: false);
+
+        atlassian.InUse.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Atlassian_SiteButNoLinkingApp_IsNotFullySetUp()
+    {
+        // Without the app nobody can link an account, so every Confluence hit is hidden from
+        // everyone; a saved site alone must not read as Ready.
+        var atlassian = await AtlassianAsync(linkApp: null);
+
+        atlassian.Requirements.Single(r => r.Name == "Linking app").Status.Should().Be(RequirementStatus.NotConfigured);
+        atlassian.Overall.Should().NotBe(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppSavedButNeverUsed_IsReady()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1"));
+
+        var app = atlassian.Requirements.Single(r => r.Name == "Linking app");
+        app.Status.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppVerified_AndSite_IsReady()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", Created));
+
+        atlassian.Requirements.Single(r => r.Name == "Linking app").Status.Should().Be(RequirementStatus.Satisfied);
+        atlassian.Overall.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Atlassian_NoLinkingApp_SaysResultsAreHiddenFromEveryone()
+    {
+        var atlassian = await AtlassianAsync(linkApp: null);
+
+        atlassian.Requirements.Single().Detail.Should().Be(ProviderSetupReader.AtlassianNoLinkAppDetail)
+            .And.Contain("hidden from everyone");
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppRejectedWhenChecked_Fails()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", CheckedAt: Created, CheckAccepted: false));
+
+        var app = atlassian.Requirements.Single();
+        app.Status.Should().Be(RequirementStatus.Failed);
+        app.Detail.Should().Be(ProviderSetupReader.AtlassianLinkAppRejectedDetail);
+        atlassian.Overall.Should().Be(RequirementStatus.Failed);
+    }
+
+    [Fact]
+    public async Task Atlassian_SignInTurnedOff_IsAWarningThatKeepsLinks()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", SignInEnabled: false));
+
+        var app = atlassian.Requirements.Single();
+        app.Status.Should().Be(RequirementStatus.Warning);
+        app.Detail.Should().Contain("turned off").And.Contain("keep their links");
+        atlassian.InUse.Should().BeTrue();
+    }
+
     [Fact]
     public async Task Azure_WithSignInConfiguredButNoConnection_IsInUse()
     {

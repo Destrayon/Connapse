@@ -7,11 +7,15 @@
 @using System.Text.Json
 
 @using Connapse.Web.Services
+@using Connapse.Web.Components.Sources
+@using Connapse.Storage.Connectors.Atlassian
 @inject ISourceStore SourceStore
+@inject Connapse.Web.Services.AtlassianSiteService AtlassianSites
 @inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
 @inject IConnectionStore ConnectionStore
 @inject SourceSyncService SyncService
 @inject IAuditLogger AuditLogger
+@inject ILogger<Sources> Logger
 @inject AuthenticationStateProvider AuthStateProvider
 @inject SourceScopePreflight Preflight
 @inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
@@ -136,7 +140,7 @@
                 <tbody>
                     @foreach (var source in sources)
                     {
-                        <tr class="@(source.Enabled ? "" : "opacity-50")">
+                        <tr class="@(source.Enabled ? "" : "source-paused")">
                             <td>
                                 <div class="fw-medium">@source.Name</div>
                                 @if (!string.IsNullOrWhiteSpace(source.Description))
@@ -195,40 +199,71 @@
                                         </button>
                                     }
                                     <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => ToggleEnabled(source)">
-                                        @(source.Enabled ? "Disable" : "Enable")
+                                        @(source.Enabled ? "Pause syncing" : "Resume syncing")
                                     </button>
-                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(source)">
-                                        Delete
-                                    </button>
+                                    @* Set apart from the other actions, as on the Connections list. *@
+                                    <span class="border-start ms-2 ps-2">
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(source)">
+                                            Delete
+                                        </button>
+                                    </span>
                                 </td>
                             }
                         </tr>
 
                         @if (source.LastSyncStatus == SyncStatus.Succeeded && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 <td colspan="7" class="pt-0 border-top-0">
-                                    <div class="alert alert-secondary py-2 mb-0 small" role="status">
-                                        <span class="bi-hourglass-split me-1" aria-hidden="true"></span>
-                                        @source.LastSyncError
-                                    </div>
+                                    @if (SourceSyncNotice.KindOf(source.LastSyncError) == SyncNoticeKind.Waiting)
+                                    {
+                                        <div class="alert alert-secondary py-2 mb-0 small sync-notice-waiting" role="status">
+                                            <span class="bi-hourglass-split me-1" aria-hidden="true"></span>
+                                            @source.LastSyncError
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        @* Synced, but something was left out that an administrator can fix:
+                                           a warning, not an error and not a wait. *@
+                                        <div class="alert alert-warning py-2 mb-0 small sync-notice-warning" role="status">
+                                            <span class="bi-exclamation-triangle-fill me-1" aria-hidden="true"></span>
+                                            <strong>Warning:</strong> @source.LastSyncError
+                                            @if (IsAtlassian(source))
+                                            {
+                                                <a class="alert-link ms-1" target="_blank" rel="noopener" href="@AtlassianSyncErrors.TroubleshootingUrl(source.LastSyncError)">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                                            }
+                                        </div>
+                                    }
                                 </td>
                             </tr>
                         }
 
                         @if (source.LastSyncStatus == SyncStatus.Failed && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            var (failure, failureDetail) = SyncErrorText.Split(source.LastSyncError);
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 @* Administrators only: a provider's failure text routinely quotes the
                                    resource that failed, which is the same infrastructure detail the
                                    API withholds from non-admin readers. *@
                                 <td colspan="7" class="pt-0 border-top-0">
-                                    <div class="alert alert-danger py-2 mb-0 small">
+                                    <div class="alert alert-danger py-2 mb-0 small sync-error">
                                         <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
-                                        @source.LastSyncError
+                                        @failure
                                         @if (IsGitHub(source))
                                         {
                                             <a class="alert-link ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
+                                        }
+                                        else if (IsAtlassian(source))
+                                        {
+                                            <a class="alert-link ms-1" target="_blank" rel="noopener" href="@AtlassianSyncErrors.TroubleshootingUrl(source.LastSyncError)">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                                        }
+                                        @if (failureDetail is not null)
+                                        {
+                                            <details class="mt-1">
+                                                <summary>Details</summary>
+                                                <code class="text-break">@failureDetail</code>
+                                            </details>
                                         }
                                     </div>
                                 </td>
@@ -237,7 +272,7 @@
 
                         @if (isAdmin && _unlocated.TryGetValue(source.Id, out int unlocatedCount))
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 <td colspan="7" class="pt-0 border-top-0">
                                     <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small" role="status">
                                         <strong>@unlocatedCount</strong> document@(unlocatedCount == 1 ? "" : "s")
@@ -255,7 +290,7 @@
 
                         @if (source.WithheldDeletions is { } withheld && isAdmin)
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 @* Administrators only, matching the sync-error row: the count
                                    is harmless, but the action it offers is destructive. *@
                                 <td colspan="7" class="pt-0 border-top-0">
@@ -289,7 +324,12 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="new-source-title">New source</h5>
-                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
+                    @* In the title row, as on every provider surface; the close button keeps the far corner. *@
+                    @if (selectedProvider is ConnectionProvider.Atlassian)
+                    {
+                        <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+                    }
+                    <button type="button" class="btn-close @(selectedProvider is ConnectionProvider.Atlassian ? "ms-3" : "")" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
                 </div>
                 <div class="modal-body">
                     @if (createError is not null)
@@ -381,6 +421,13 @@
                             </div>
                             <div class="form-text ms-4">Comments from bots are left out. After adding, choose exceptions on the source's edit page.</div>
                         </fieldset>
+                    }
+                    else if (selectedProvider is ConnectionProvider.Atlassian && confluenceForm is not null)
+                    {
+                        @* An Atlassian connection is one site. Each space ticked becomes its own
+                           source, named after the site and the space, so there is no name field. *@
+                        <ConfluenceSpaceForm ConnectionId="@form.ConnectionId" Selection="confluenceForm" SiteName="@SelectedConnection?.Name"
+                                             ExistingSpaceIds="confluenceExisting" />
                     }
                     else
                     {
@@ -512,7 +559,7 @@
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Include patterns (optional)</label>
                                 <textarea class="form-control font-monospace" rows="3"
-                                          @bind="form.IncludePatterns" placeholder="*.pdf&#10;*.md"></textarea>
+                                          @bind="form.IncludePatterns" placeholder="@("*.pdf\n*.md")"></textarea>
                                 <div class="form-text">One per line.</div>
                             </div>
                             <div class="col-md-6 mb-3">
@@ -560,16 +607,23 @@
                 <div class="modal-body">
                     <p>
                         Delete <strong>@pendingDelete.Name</strong> and its
-                        @pendingDelete.DocumentCount indexed document(s)?
+                        <strong id="delete-source-count">@SourceDeletion.Documents(pendingDelete.DocumentCount)</strong>?
                     </p>
-                    <p class="text-muted small mb-0">
-                        The data in the external system is untouched — only what Connapse indexed
-                        from it is removed. Re-creating the source will sync it again.
+                    <p class="text-muted small" id="delete-source-consequence">
+                        The documents are removed from search and this cannot be undone. The data in the
+                        external system is untouched; re-creating the source syncs it again.
                     </p>
+                    <label class="form-label small" for="delete-source-confirm">
+                        Type <strong>@pendingDelete.Name</strong> to confirm
+                    </label>
+                    <input id="delete-source-confirm" class="form-control form-control-sm" autocomplete="off"
+                           aria-describedby="delete-source-consequence"
+                           @bind="deleteConfirmText" @bind:event="oninput" />
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingDelete = null">Cancel</button>
-                    <button class="btn btn-danger" @onclick="Delete">Delete source</button>
+                    <button id="delete-source-submit" class="btn btn-danger" disabled="@(!SourceDeletion.Confirmed(pendingDelete, deleteConfirmText))"
+                            @onclick="Delete">Delete source</button>
                 </div>
             </div>
         </div>
@@ -627,6 +681,10 @@
 
     private SourceForm? form;
     private GitHubRepositoryForm? githubForm;
+    private ConfluenceSpaceSelection? confluenceForm;
+
+    /// <summary>Space ids the chosen Atlassian connection already has a source for.</summary>
+    private IReadOnlySet<string> confluenceExisting = new HashSet<string>();
     private bool creating;
     private string? createError;
     private string? createWarning;
@@ -762,6 +820,9 @@
     private bool IsGitHub(Source source) =>
         source.ConnectionId is Guid id && connections.FirstOrDefault(c => c.Id == id)?.Provider == ConnectionProvider.GitHub;
 
+    private bool IsAtlassian(Source source) =>
+        source.ConnectionId is Guid id && connections.FirstOrDefault(c => c.Id == id)?.Provider == ConnectionProvider.Atlassian;
+
     private static string ProviderName(ConnectionProvider provider) => provider switch
     {
         ConnectionProvider.GitHub => "GitHub",
@@ -881,8 +942,7 @@
     private string ConnectionName(Guid? connectionId) =>
         connectionId is Guid id && connectionNames.TryGetValue(id, out var name)
             ? name
-            // Null here is a connection-less (Provider-based) source; connector UI for those
-            // is later work in epic #508. A non-null id missing from the dictionary means the
+            // Null here is a connection-less (Provider-based) source. A non-null id missing from the dictionary means the
             // FK target vanished — the sync service skips it silently, so it's worth naming
             // rather than rendering a blank cell.
             : connectionId is null ? "(no connection)" : "(missing connection)";
@@ -897,19 +957,28 @@
 
     private static RenderFragment StatusBadge(Source source) => builder =>
     {
-        (string css, string text) = source switch
+        (string css, string? icon, string text) = source switch
         {
-            { Enabled: false } => ("text-bg-secondary", "Disabled"),
-            { LastSyncStatus: SyncStatus.Succeeded, LastSyncError.Length: > 0 } => ("text-bg-warning", "Waiting"),
-            { LastSyncStatus: SyncStatus.Succeeded } => ("text-bg-success", "Synced"),
-            { LastSyncStatus: SyncStatus.Failed } => ("text-bg-danger", "Failed"),
-            { LastSyncStatus: SyncStatus.Running } => ("text-bg-info", "Syncing"),
-            _ => ("text-bg-light", "Never synced"),
+            { Enabled: false } => ("text-bg-secondary", "bi-pause-circle", "Paused"),
+            { LastSyncStatus: SyncStatus.Succeeded, LastSyncError: { Length: > 0 } notice }
+                when SourceSyncNotice.KindOf(notice) == SyncNoticeKind.Waiting => ("text-bg-light border", "bi-hourglass-split", "Waiting"),
+            { LastSyncStatus: SyncStatus.Succeeded, LastSyncError.Length: > 0 } => ("text-bg-warning", "bi-exclamation-triangle-fill", "Warning"),
+            { LastSyncStatus: SyncStatus.Succeeded } => ("text-bg-success", null, "Synced"),
+            { LastSyncStatus: SyncStatus.Failed } => ("text-bg-danger", null, "Failed"),
+            { LastSyncStatus: SyncStatus.Running } => ("text-bg-info", null, "Syncing"),
+            _ => ("text-bg-light", null, "Never synced"),
         };
 
         builder.OpenElement(0, "span");
         builder.AddAttribute(1, "class", $"badge {css}");
-        builder.AddContent(2, text);
+        if (icon is not null)
+        {
+            builder.OpenElement(2, "span");
+            builder.AddAttribute(3, "class", $"{icon} me-1");
+            builder.AddAttribute(4, "aria-hidden", "true");
+            builder.CloseElement();
+        }
+        builder.AddContent(5, text);
         builder.CloseElement();
     };
 
@@ -1012,7 +1081,9 @@
                 await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(),
                     new { source.Name, updated.Enabled });
 
-                Succeed($"'{source.Name}' {(updated.Enabled ? "enabled" : "disabled")}.");
+                Succeed(updated.Enabled
+                    ? $"Syncing resumed for '{source.Name}'."
+                    : $"Syncing paused for '{source.Name}'. Nothing is deleted, and its documents stay searchable.");
             }
 
             await LoadAsync();
@@ -1035,6 +1106,7 @@
         form = new SourceForm { ConnectionId = connectionId };
         githubForm = new GitHubRepositoryForm();
         await LoadGitHubSuggestionsAsync();
+        await ResetConfluenceAsync();
     }
 
     private void CancelCreate()
@@ -1066,6 +1138,147 @@
         createWarning = null;
         ClearRepoError();
         await LoadGitHubSuggestionsAsync();
+        await ResetConfluenceAsync();
+    }
+
+    /// <summary>A fresh space selection, and which spaces the chosen Atlassian connection already has sources for.</summary>
+    private async Task ResetConfluenceAsync()
+    {
+        confluenceForm = ConfluenceSpaceSelection.ForSite(SelectedConnection);
+        confluenceExisting = new HashSet<string>();
+        if (SelectedConnection is not { Provider: ConnectionProvider.Atlassian } connection)
+            return;
+
+        var opened = confluenceForm;
+        await RecordSetupAsync(() => ConfluenceSourceSetupEvents.StartedAsync(AuditLogger, opened, connection.Id));
+        try
+        {
+            confluenceExisting = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
+        }
+        catch (Exception)
+        {
+            // Offering every space is safe: a duplicate is skipped again when the sources are created.
+        }
+    }
+
+    /// <summary>
+    /// Creates one source per ticked space on an Atlassian site connection. Each is created on its
+    /// own, so a name clash on one still creates the others and says so. A space that already has
+    /// a source on the connection is skipped, matched on its id.
+    /// </summary>
+    /// <summary>Writes a Confluence setup event; a failure to record it never reaches the dialog.</summary>
+    private async Task RecordSetupAsync(Func<Task> write)
+    {
+        try
+        {
+            await write();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not record a Confluence source setup event");
+        }
+    }
+
+    private async Task CreateConfluenceSpacesAsync(Connection connection)
+    {
+        if (confluenceForm is null) return;
+        var selection = confluenceForm;
+        Task CreateFailed(string reason) => RecordSetupAsync(() => ConfluenceSourceSetupEvents.StepFailedAsync(
+            AuditLogger, selection, connection.Id, ConfluenceSourceSetupEvents.CreateStep, reason));
+
+        // Every problem here is shown beside the field it is about, not at the top of the dialog.
+        if (confluenceForm.Validate() is not null)
+        {
+            await CreateFailed("invalid");
+            return;
+        }
+
+        var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
+        if (site is null)
+        {
+            confluenceForm.SpacesError = $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.";
+            await CreateFailed("incomplete_site");
+            return;
+        }
+
+        creating = true;
+        var created = new List<string>();
+        var failed = new List<string>();
+
+        try
+        {
+            // Read again rather than trusting what the dialog loaded: another admin may have added one since.
+            var existing = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
+            // The dialog's list may be for another site or out of date: only spaces this connection has now are created.
+            var onSite = await AtlassianSites.ListSpacesAsync(connection.Id, includePersonal: true);
+            if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
+            {
+                confluenceForm.SpacesError = onSite.Error ?? "Could not check the chosen spaces against this site. Try again.";
+                await CreateFailed("unavailable");
+                return;
+            }
+
+            var verified = confluenceForm.VerifiedAgainst(onSite.Spaces!, out var refused);
+            var requests = verified.ToRequests(connection.Id, new Uri(site.SiteUrl).Host, existing, out var skipped);
+            if (refused.Count > 0 && requests.Count == 0 && skipped.Count == 0)
+            {
+                confluenceForm.SpacesError = $"Nothing added. Not spaces on this site: {string.Join(", ", refused)}.";
+                await CreateFailed("not_on_site");
+                return;
+            }
+
+            foreach (var request in requests)
+            {
+                try
+                {
+                    var source = await SourceStore.CreateAsync(request);
+                    created.Add(source.Name);
+                    await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
+                        new { source.Name, source.ConnectionId });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // A duplicate name: this space already has a source of that name.
+                    Logger.LogInformation(ex, "Could not add Confluence source {Name}", LogSanitizer.Sanitize(request.Name));
+                    failed.Add($"{request.Name}: a source with this name already exists");
+                }
+            }
+
+            if (created.Count == 0)
+            {
+                confluenceForm.SpacesError = ("Nothing added. "
+                    + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
+                    + (refused.Count > 0 ? $"Not spaces on this site: {string.Join(", ", refused)}. " : "")
+                    + string.Join(" ", failed)).TrimEnd();
+                await CreateFailed("nothing_added");
+                return;
+            }
+
+            await RecordSetupAsync(() => ConfluenceSourceSetupEvents.CompletedAsync(
+                AuditLogger, selection, connection.Id, created.Count, skipped.Count, refused.Count + failed.Count));
+            form = null;
+            confluenceForm = null;
+            Succeed($"Added {created.Count} {(created.Count == 1 ? "source" : "sources")}: {string.Join(", ", created)}. They sync on the next cycle, or press Sync."
+                + (skipped.Count > 0 ? $" Skipped, already a source: {string.Join(", ", skipped)}." : "")
+                + (refused.Count > 0 ? $" Not added, not spaces on this site: {string.Join(", ", refused)}." : "")
+                + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit. Its text is for
+            // the log: it can name internals that mean nothing to the person adding a source.
+            Logger.LogError(ex, "Adding Confluence spaces on connection {ConnectionId} ({Name}) failed after {Created} were created",
+                connection.Id, Connapse.Core.Utilities.LogSanitizer.Sanitize(connection.Name), created.Count);
+            if (confluenceForm is not null)
+                confluenceForm.SpacesError = ConfluenceSpaceSelection.AddFailedMessage(created);
+            await CreateFailed("error");
+        }
+        finally
+        {
+            creating = false;
+        }
     }
 
     /// <summary>
@@ -1175,6 +1388,12 @@
             return;
         }
 
+        if (connection.Provider == ConnectionProvider.Atlassian)
+        {
+            await CreateConfluenceSpacesAsync(connection);
+            return;
+        }
+
         if (form.Validate(connection.Provider) is { } invalid)
         {
             createError = invalid;
@@ -1261,14 +1480,22 @@
         }
     }
 
-    private void ConfirmDelete(Source source) => pendingDelete = source;
+    // What the operator typed to confirm deleting pendingDelete: its name.
+    private string? deleteConfirmText;
+
+    private void ConfirmDelete(Source source)
+    {
+        pendingDelete = source;
+        deleteConfirmText = null;
+    }
 
     private async Task Delete()
     {
-        if (pendingDelete is null) return;
+        if (pendingDelete is null || !SourceDeletion.Confirmed(pendingDelete, deleteConfirmText)) return;
 
         var source = pendingDelete;
         pendingDelete = null;
+        deleteConfirmText = null;
         message = null;
 
         try

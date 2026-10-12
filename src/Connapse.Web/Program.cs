@@ -155,8 +155,13 @@ builder.Services.AddMemoryCache();
 // after a source already exists.
 builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
+builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
+builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
+builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
+builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
 builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
+builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
 builder.Services.AddScoped<Connapse.Web.Services.GitHubAppUsage>();
 
 // So an MCP tool can name its caller. Tools receive an IServiceProvider and nothing else, so
@@ -361,6 +366,13 @@ using (var scope = app.Services.CreateScope())
         methodCall: j => j.RequeueStuckDocumentsAsync(default),
         cronExpression: "*/10 * * * *");
 
+    // Daily: ask Atlassian whether it still accepts the stored linking app, so a revoked secret
+    // shows on the Providers page before someone's sign-in fails.
+    recurringJobManager.AddOrUpdate<Connapse.Web.Services.AtlassianLinkAppCheckJob>(
+        recurringJobId: Connapse.Web.Services.AtlassianLinkAppCheckJob.RecurringJobId,
+        methodCall: j => j.RunAsync(default),
+        cronExpression: Cron.Daily());
+
     // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
     // in the database independently of the code that registered them. Left in place, the old
     // entry would fire every half hour into a job type that no longer exists.
@@ -402,6 +414,8 @@ api.MapSearchEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
 api.MapGitHubAppEndpoints();
+api.MapAtlassianEndpoints();
+api.MapAtlassianLinkAppEndpoints();
 
 // Map OAuth 2.1 endpoints (discovery, token, registration)
 app.MapOAuthEndpoints();

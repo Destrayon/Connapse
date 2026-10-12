@@ -21,4 +21,11 @@ public interface IConnectionStore
     /// ciphertext cannot be unprotected, which happens after DataProtection key loss.
     /// </summary>
     Task<string?> GetSecretAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records the outcome of a check of the connection's credential. A failure keeps the last
+    /// success time, and the confirmed permissions, of the check before it. Returns what was stored,
+    /// or null when the connection is gone.
+    /// </summary>
+    Task<ConnectionHealth?> RecordHealthAsync(Guid id, ConnectionHealth health, CancellationToken ct = default);
 }

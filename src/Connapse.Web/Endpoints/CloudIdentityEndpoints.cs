@@ -4,6 +4,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
+using Connapse.Storage.Connectors.Atlassian;
 using ITfoxtec.Identity.Saml2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -39,6 +40,12 @@ public static class CloudIdentityEndpoints
     private const string GitHubConfirmCookiePath = "/api/v1/auth/cloud/github";
 
     private const string AzureConfirmCookiePath = "/api/v1/auth/cloud/azure";
+
+    private const string AtlassianConfirmCookieName = "__connapse_atlassian_link";
+    private const string AtlassianConfirmCookiePath = "/api/v1/auth/cloud/atlassian";
+
+    /// <summary>Where Atlassian returns a user sign-in, relative to the site root; the link app registers it.</summary>
+    public const string AtlassianCallbackPath = "api/v1/auth/cloud/atlassian/callback";
 
     public static IEndpointRouteBuilder MapCloudIdentityEndpoints(this IEndpointRouteBuilder app)
     {
@@ -515,6 +522,178 @@ public static class CloudIdentityEndpoints
             return Results.Redirect("/profile/integrations?linked=github");
         }).RequireAuthorization();
 
+        // ── Atlassian ──────────────────────────────────────────────────────
+        //
+        // The GitHub steps again (see AtlassianLinkFlow), signing in through the link app an
+        // administrator stored. Only read:me is asked for; the access token reads the account once
+        // and is dropped. Nothing Atlassian issues is stored.
+
+        // GET /api/v1/auth/cloud/atlassian/connect — send the browser to Atlassian's consent page.
+        group.MapGet("/atlassian/connect", async (
+            HttpContext http,
+            [FromServices] AtlassianUserSignIn signIn,
+            [FromServices] AtlassianLinkFlow flow,
+            [FromServices] AtlassianIdentityLinkStore links,
+            [FromServices] IConfiguration configuration,
+            [FromServices] IAuditLogger audit,
+            CancellationToken ct) =>
+        {
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
+            // Read before anything else, so an unlink at any later point changes it and the link is refused.
+            long revocationGeneration = await links.GetRevocationGenerationAsync(userId.Value, ct);
+
+            // PKCE stays on unless an operator turns it off; with it off, state plus the confirm
+            // step still bind the link to the user who started it.
+            string? verifier = null, challenge = null;
+            if (configuration.GetValue("Atlassian:UsePkce", true))
+                (verifier, challenge) = OidcPkce.Create();
+
+            // Every event of this sign-in carries the attempt, so time-to-linked and where people
+            // drop off can be measured. The user id and Atlassian account id only.
+            Guid attempt = Guid.NewGuid();
+            DateTime startedAt = DateTime.UtcNow;
+            await audit.LogAsync(AtlassianLinkStartedEvent, "user", userId.Value.ToString(), new { Attempt = attempt }, ct);
+
+            string state = GenerateRandomToken();
+            string? url;
+            try
+            {
+                url = await signIn.SignInUrlAsync(AtlassianCallbackUrl(http), state, challenge, ct);
+            }
+            catch (AtlassianSignInOffException)
+            {
+                await AtlassianLinkFailedAsync(audit, userId.Value, attempt, startedAt, "atlassian_sign_in_off", ct);
+                return Results.Redirect("/profile/integrations?error=atlassian_sign_in_off");
+            }
+            if (url is null)
+            {
+                await AtlassianLinkFailedAsync(audit, userId.Value, attempt, startedAt, "atlassian_not_configured", ct);
+                return Results.Redirect("/profile/integrations?error=atlassian_not_configured");
+            }
+
+            flow.AddSignIn(new AtlassianPendingSignIn(state, verifier, userId.Value,
+                startedAt.Add(AtlassianLinkFlow.SignInLifetime), startedAt, revocationGeneration, attempt));
+            return Results.Redirect(url);
+        }).RequireAuthorization();
+
+        // GET /api/v1/auth/cloud/atlassian/callback — Atlassian's redirect with the sign-in code. Saves nothing.
+        group.MapGet("/atlassian/callback", async (
+            HttpContext http,
+            string? code,
+            string? state,
+            string? error,
+            [FromServices] AtlassianLinkFlow flow,
+            [FromServices] AtlassianUserSignIn signIn,
+            [FromServices] ILoggerFactory loggerFactory,
+            [FromServices] IAuditLogger audit,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Atlassian");
+            AtlassianPendingSignIn? pending = null;
+
+            // A failed sign-in closes its attempt, so drop-off is measurable. Unknown sign-ins have no attempt to close.
+            async Task<IResult> FailAsync(string reason)
+            {
+                if (pending is not null)
+                    await AtlassianLinkFailedAsync(audit, pending.UserId, pending.Attempt, pending.StartedAtUtc, reason, ct);
+                return Results.Redirect($"/profile/integrations?error={reason}");
+            }
+
+            try
+            {
+                pending = flow.TakeSignIn(state);
+                if (pending is null)
+                {
+                    logger.LogWarning("An Atlassian sign-in callback arrived for a sign-in this deployment did not start or that already expired");
+                    return Results.Redirect("/profile/integrations?error=atlassian_link_expired");
+                }
+
+                // Atlassian sends error=access_denied when the person cancels on its consent page.
+                if (string.Equals(error, "access_denied", StringComparison.Ordinal))
+                    return await FailAsync("atlassian_link_declined");
+
+                if (string.IsNullOrEmpty(code))
+                    return await FailAsync("atlassian_link_failed");
+
+                var account = await signIn.ResolveAsync(code, pending.CodeVerifier, AtlassianCallbackUrl(http), ct);
+                string confirmCode = flow.Park(new PendingAtlassianLink(
+                    pending.UserId, account.AccountId, pending.StartedAtUtc, pending.RevocationGeneration, pending.Attempt));
+
+                http.Response.Cookies.Append(AtlassianConfirmCookieName, confirmCode, new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = http.Request.IsHttps,
+                    SameSite = SameSiteMode.Lax,
+                    MaxAge = AtlassianLinkFlow.ConfirmLifetime,
+                    Path = AtlassianConfirmCookiePath,
+                });
+                return Results.Redirect("/api/v1/auth/cloud/atlassian/confirm");
+            }
+            catch (AtlassianSignInOffException)
+            {
+                return await FailAsync("atlassian_sign_in_off");
+            }
+            catch (AtlassianLinkAppRejectedException)
+            {
+                logger.LogWarning("Atlassian rejected the linking app's client ID or secret during a sign-in");
+                return await FailAsync("atlassian_app_rejected");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Logged, never echoed: the redirect is not a place for exception text, and the code
+                // is a credential until spent.
+                logger.LogWarning(ex, "Atlassian sign-in callback failed");
+                return await FailAsync("atlassian_link_failed");
+            }
+        }).AllowAnonymous();
+
+        // GET /api/v1/auth/cloud/atlassian/confirm — where the link is saved, for the user who started it only.
+        group.MapGet("/atlassian/confirm", async (
+            HttpContext http,
+            [FromServices] AtlassianLinkFlow flow,
+            [FromServices] AtlassianIdentityLinkStore links,
+            [FromServices] IProviderCredentialStore credentials,
+            [FromServices] IAuditLogger audit,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Atlassian");
+            string? code = http.Request.Cookies[AtlassianConfirmCookieName];
+            http.Response.Cookies.Delete(AtlassianConfirmCookieName, new CookieOptions { Path = AtlassianConfirmCookiePath });
+
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
+            var link = flow.Claim(code);
+            if (link is null)
+            {
+                logger.LogWarning("An Atlassian link confirmation arrived without a claim this deployment issued");
+                return Results.Redirect("/profile/integrations?error=atlassian_link_expired");
+            }
+
+            if (link.StartedByUserId != userId.Value)
+            {
+                logger.LogWarning("An Atlassian sign-in was completed by a different user than the one who started it; refusing to link");
+                await AtlassianLinkFailedAsync(audit, link.StartedByUserId, link.Attempt, link.SignInStartedAtUtc, "atlassian_link_wrong_user", ct);
+                return Results.Redirect("/profile/integrations?error=atlassian_link_wrong_user");
+            }
+
+            // An unlink after the sign-in began must win, including one that lands after the claim
+            // above: the save is refused in the same transaction that checks the user's unlink count,
+            // so nothing has to be deleted afterwards and the link is never visible after the unlink.
+            if (!await links.TrySaveAsync(userId.Value, link.RevocationGeneration, link.AccountId, ct))
+            {
+                logger.LogInformation("An Atlassian link confirmed while the user was unlinking was discarded");
+                await AtlassianLinkFailedAsync(audit, userId.Value, link.Attempt, link.SignInStartedAtUtc, "atlassian_link_unlinked", ct);
+                return Results.Redirect("/profile/integrations?error=atlassian_link_unlinked");
+            }
+
+            await RecordAtlassianLinkAsync(audit, credentials, logger, userId.Value, link, ct);
+            return Results.Redirect("/profile/integrations?linked=atlassian");
+        }).RequireAuthorization();
+
         group.MapDelete("/{provider}", async (
             string provider,
             HttpContext httpContext,
@@ -522,6 +701,8 @@ public static class CloudIdentityEndpoints
             [FromServices] IAzureIdentityLinkService azureLinks,
             [FromServices] GitHubIdentityLinkStore gitHubLinks,
             [FromServices] GitHubLinkFlow gitHubFlow,
+            [FromServices] AtlassianIdentityLinkStore atlassianLinks,
+            [FromServices] AtlassianLinkFlow atlassianFlow,
             [FromServices] IAuditLogger audit,
             [FromServices] IConnectorScopeCache scopeCache,
             [FromServices] ISourceStore sourceStore,
@@ -532,13 +713,23 @@ public static class CloudIdentityEndpoints
             if (userId is null) return Results.Unauthorized();
 
             if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider)
-                || cloudProvider is not (CloudProvider.AWS or CloudProvider.Azure or CloudProvider.GitHub))
+                || cloudProvider is not (CloudProvider.AWS or CloudProvider.Azure or CloudProvider.GitHub or CloudProvider.Atlassian))
             {
                 return Results.BadRequest(new
                 {
                     error = "invalid_provider",
-                    message = $"Unknown provider: {provider}. Valid values: AWS, Azure, GitHub."
+                    message = $"Unknown provider: {provider}. Valid values: AWS, Azure, GitHub, Atlassian."
                 });
+            }
+
+            if (cloudProvider == CloudProvider.Atlassian)
+            {
+                // Refused first, so a sign-in racing the delete cannot put the link back.
+                atlassianFlow.RevokeFor(userId.Value);
+                bool atlassianDeleted = await atlassianLinks.DeleteAsync(userId.Value, ct);
+                if (atlassianDeleted)
+                    await audit.LogAsync("identity.atlassian.unlinked", "user", userId.Value.ToString(), null, ct);
+                return atlassianDeleted ? Results.NoContent() : Results.NotFound();
             }
 
             if (cloudProvider == CloudProvider.GitHub)
@@ -605,6 +796,42 @@ public static class CloudIdentityEndpoints
         return app;
     }
 
+    /// <summary>Opens an Atlassian sign-in's attempt; <c>identity.atlassian.linked</c> or <see cref="AtlassianLinkFailedEvent"/> closes it.</summary>
+    public const string AtlassianLinkStartedEvent = "identity.atlassian.link_started";
+
+    /// <summary>An Atlassian sign-in that ended without a link, with the error code the profile page shows.</summary>
+    public const string AtlassianLinkFailedEvent = "identity.atlassian.link_failed";
+
+    private static long ElapsedMs(DateTime startedAtUtc) =>
+        Math.Max(0, (long)(DateTime.UtcNow - startedAtUtc).TotalMilliseconds);
+
+    private static Task AtlassianLinkFailedAsync(
+        IAuditLogger audit, Guid userId, Guid attempt, DateTime startedAtUtc, string reason, CancellationToken ct) =>
+        audit.LogAsync(AtlassianLinkFailedEvent, "user", userId.ToString(),
+            new { Attempt = attempt, Reason = reason, TotalMs = ElapsedMs(startedAtUtc) }, ct);
+
+    /// <summary>Records a saved Atlassian link: the audit event, and that the link app works.</summary>
+    internal static async Task RecordAtlassianLinkAsync(
+        IAuditLogger audit, IProviderCredentialStore credentials, ILogger logger,
+        Guid userId, PendingAtlassianLink link, CancellationToken ct)
+    {
+        // First, because the link is already saved: nothing after this may cost it its record.
+        await audit.LogAsync("identity.atlassian.linked", "user", userId.ToString(),
+            new { link.AccountId, link.Attempt, TotalMs = ElapsedMs(link.SignInStartedAtUtc) }, ct);
+
+        try
+        {
+            // The link app is proven to work. False here means it was marked recently, not that
+            // it is missing, so the result is not checked.
+            await credentials.MarkAtlassianLinkAppVerifiedAsync(DateTime.UtcNow, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Only a status label on the Providers page depends on this; the link stands.
+            logger.LogWarning(ex, "Could not record that the Atlassian linking app was verified");
+        }
+    }
+
     private static Guid? GetUserId(HttpContext httpContext)
     {
         var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -622,6 +849,9 @@ public static class CloudIdentityEndpoints
     /// </summary>
     private static string GitHubCallbackUrl(HttpContext http) =>
         $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{Connapse.Web.Services.GitHubAppManifest.UserCallbackPath}";
+
+    internal static string AtlassianCallbackUrl(HttpContext http) =>
+        $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{AtlassianCallbackPath}";
 
     private static string GenerateRandomToken() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))

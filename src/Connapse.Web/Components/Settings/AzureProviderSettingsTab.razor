@@ -95,7 +95,7 @@
             <label class="form-label" for="az-cert-pw">
                 Certificate password <span class="text-muted">(optional — PFX only)</span>
             </label>
-            <SecretTextArea Id="az-cert-pw" Multiline="false" @bind-Value="certPassword"
+            <SecretTextArea Id="az-cert-pw" Label="Certificate password" Multiline="false" @bind-Value="certPassword"
                             Placeholder="@(Settings.ClientCertificatePassword is { Length: > 0 } ? "Leave blank to keep the stored password" : "Leave blank for a PEM certificate")"
                             DescribedBy="az-cert-pw-help" />
             <div id="az-cert-pw-help" class="form-text">

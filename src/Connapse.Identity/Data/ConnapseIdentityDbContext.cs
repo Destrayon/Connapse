@@ -22,6 +22,8 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<UserAwsIdentityLinkEntity> UserAwsIdentityLinks => Set<UserAwsIdentityLinkEntity>();
     public DbSet<UserAzureIdentityLinkEntity> UserAzureIdentityLinks => Set<UserAzureIdentityLinkEntity>();
     public DbSet<UserGitHubIdentityLinkEntity> UserGitHubIdentityLinks => Set<UserGitHubIdentityLinkEntity>();
+    public DbSet<UserAtlassianIdentityLinkEntity> UserAtlassianIdentityLinks => Set<UserAtlassianIdentityLinkEntity>();
+    public DbSet<UserAtlassianLinkRevocationEntity> UserAtlassianLinkRevocations => Set<UserAtlassianLinkRevocationEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +41,8 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureUserAwsIdentityLinks(modelBuilder);
         ConfigureUserAzureIdentityLinks(modelBuilder);
         ConfigureUserGitHubIdentityLinks(modelBuilder);
+        ConfigureUserAtlassianIdentityLinks(modelBuilder);
+        ConfigureUserAtlassianLinkRevocations(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -718,6 +722,50 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.HasOne(e => e.User)
                 .WithMany(u => u.GitHubIdentityLinks)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserAtlassianIdentityLinks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserAtlassianIdentityLinkEntity>(entity =>
+        {
+            entity.ToTable("user_atlassian_identity_links");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
+
+            // Atlassian's account id: permanent across renames, so it is what a link means.
+            entity.Property(e => e.AccountId).HasColumnName("account_id").HasMaxLength(128).IsRequired();
+            entity.Property(e => e.ConnectedAt).HasColumnName("connected_at").HasDefaultValueSql("now()");
+
+            // One link per user: linking again replaces it.
+            entity.HasIndex(e => e.UserId)
+                .HasDatabaseName("ix_user_atlassian_identity_links_user_id")
+                .IsUnique();
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.AtlassianIdentityLinks)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserAtlassianLinkRevocations(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserAtlassianLinkRevocationEntity>(entity =>
+        {
+            // AtlassianIdentityLinkStore writes this table with raw SQL that names it and its columns.
+            entity.ToTable("user_atlassian_link_revocations");
+            entity.HasKey(e => e.UserId);
+
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Generation).HasColumnName("generation").HasDefaultValue(0L);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

@@ -1200,7 +1200,7 @@ Base path: `/api/sources`
 
 A **source** is an external system Connapse mirrors read-only — an S3 bucket, an SFTP directory, or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
 
-**Connections have no REST surface.** They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
+**Connections have no REST surface**, apart from [Atlassian sites](#atlassian-sites), which are saved only after every check passes, and the [Atlassian linking app](#atlassian-linking-app), which is saved only after Atlassian accepts it. They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
 
 | Method | Route | Role |
 |--------|-------|------|
@@ -1208,7 +1208,7 @@ A **source** is an external system Connapse mirrors read-only — an S3 bucket, 
 | GET | `/api/sources/{id}` | Viewer |
 | POST | `/api/sources` | **Admin** |
 | PATCH | `/api/sources/{id}` | **Admin** |
-| DELETE | `/api/sources/{id}` | **Admin** |
+| DELETE | `/api/sources/{id}?confirmName=<name>` | **Admin** |
 | POST | `/api/sources/{id}/sync` | **Admin** |
 | POST | `/api/sources/{id}/retry-failed` | **Admin** |
 
@@ -1233,8 +1233,66 @@ Scope keys by provider:
 | S3 | `bucketName`, `prefix` |
 | SFTP | `subPath`, `includePatterns`, `excludePatterns` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
+| GitHub | `owner`, `repo`, `kind`, `includePatterns`, `includeComments` |
+| Atlassian | `spaceId`, `includeAttachments`, `maxAttachmentMb` |
 
 The scope must fall inside the `allowedLocations` or `allowedRoot` its connection declares, or creation fails.
+
+For an **Atlassian** connection, the request runs the checks the New source dialog runs: `spaceId` must be a space the site's service account can view now, the space must not already have a source on the connection, and `maxAttachmentMb` must be 1 to 100 while attachments are on. `kind`, `spaceKey` and `spaceName` are written from Atlassian's answer, over anything sent. `name` may be left out; it then defaults to `<site host> / <space name>`, as in the dialog.
+
+```json
+{
+  "connectionId": "8a1b...",
+  "scopeJson": "{\"spaceId\":\"98306\",\"includeAttachments\":true,\"maxAttachmentMb\":25}"
+}
+```
+
+| Field | Type | Default | Rule |
+|-------|------|---------|------|
+| `spaceId` | string of digits (a number is accepted) | required | A space the site's service account can view now, with no source on this connection yet |
+| `includeAttachments` | boolean | `true` if the site's last connection test confirmed the `read:attachment:confluence` scope, otherwise `false` | Attachments need that scope on the site's credential |
+| `maxAttachmentMb` | whole number | `25` | 1 to 100 while `includeAttachments` is `true`. With attachments off it is not checked, and an out-of-range value is stored as `25` |
+
+A failed check is a `400` naming the field, for example `{ "error": "...", "field": "spaceId" }`. A space that already has a source on the connection is a `409`, and if Atlassian can't be reached the response is `502`.
+
+If a source includes attachments but the site's credential lacks `read:attachment:confluence`, syncing still succeeds for pages and comments. The source's `lastSyncStatus` stays `"Succeeded"` and `lastSyncError` carries the notice *Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* The site is not marked as needing new credentials.
+
+### Update a Confluence Source
+
+**Endpoint**: `PATCH /api/sources/{id}`
+
+`name`, `description`, `syncIntervalSeconds` and `enabled` work as for any source; `enabled: false` is what **Pause syncing** on the Sources page sends. In `scopeJson`, send only the attachment fields to change; fields left out keep their stored values. A changed scope makes the next sync re-read the space.
+
+```json
+{
+  "scopeJson": "{\"includeAttachments\":false}"
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `includeAttachments` | `true` or `false` |
+| `maxAttachmentMb` | A whole number from 1 to 100 while attachments are on. With attachments off it is not checked, and an out-of-range value keeps the stored size |
+| `spaceId` | May be sent only if it is the source's current space. A source covers one space; add another space as a new source |
+
+**Errors** (`400`, naming the field; a `scopeJson` that is not valid JSON at all is a `400` with no `field`):
+
+| `field` | When |
+|---------|------|
+| `scopeJson` | The scope is JSON but not an object |
+| `spaceId` | It names a different space, or is not a string of digits |
+| `includeAttachments` | It is not `true` or `false` |
+| `maxAttachmentMb` | It is not a whole number, or is outside 1 to 100 while attachments are on |
+
+The Sources page's **Edit** view changes the same two settings under the same rules.
+
+### Delete Source
+
+**Endpoint**: `DELETE /api/sources/{id}?confirmName=<name>`
+
+Deletes the source and every document Connapse indexed from it; the data in the external system is untouched. `confirmName` must equal the source's name, the value the Sources page asks you to type, or the answer is `400` with `field: "confirmName"` and an `error` saying how many indexed documents the delete would remove. `204` when deleted, `404` if there is no such source.
+
+> **Changed:** `confirmName` is required. A client that sends `DELETE /api/sources/{id}` without it now gets `400` and nothing is deleted.
 
 ### Source Response
 
@@ -1253,13 +1311,31 @@ The scope must fall inside the `allowedLocations` or `allowedRoot` its connectio
   "processingDocumentCount": 0,
   "summary": null,
   "lastSyncError": null,
+  "lastSyncTroubleshootingUrl": null,
+  "confluence": null,
   "createdAt": "2026-02-26T10:00:00Z",
   "updatedAt": "2026-02-26T10:05:00Z",
   "kind": "source"
 }
 ```
 
-**Two fields are withheld deliberately.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token — returning either would turn a read route into reconnaissance. `lastSyncError` is populated **for administrators only**, because a provider's failure text routinely echoes what failed (`Access Denied for bucket payroll-data`). With `lastSyncStatus: "Succeeded"` it is a notice, not a failure: the cycle was cut short on purpose, for example because GitHub's hourly request limit was used up, and the next cycle continues. The Sources page shows this as **Waiting**.
+For an administrator reading a Confluence source, `confluence` holds the settings the Sources page and its **Edit** view show, under the same names `scopeJson` takes on create and `PATCH`:
+
+```json
+"confluence": {
+  "spaceId": "98306",
+  "spaceKey": "ENG",
+  "spaceName": "Engineering",
+  "includeAttachments": true,
+  "maxAttachmentMb": 25
+}
+```
+
+`spaceKey` and `spaceName` are what the space was called when the source was added. A source created before a key was stored reads the connector's default for it (`includeAttachments: true`, `maxAttachmentMb: 25`). `confluence` is `null` for every other source, and for readers who aren't administrators.
+
+`lastSyncTroubleshootingUrl` is, for administrators, the setup guide entry the Sources page links beside `lastSyncError` (Confluence and GitHub sources), or `null`.
+
+**Two fields are withheld deliberately.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token — returning either would turn a read route into reconnaissance. The one exception is `confluence` above, a Confluence source's settings, returned to administrators only. `lastSyncError` is populated **for administrators only**, because a provider's failure text routinely echoes what failed (`Access Denied for bucket payroll-data`). With `lastSyncStatus: "Succeeded"` it is a notice, not a failure: the cycle was cut short on purpose, for example because GitHub's hourly request limit was used up, and the next cycle continues. The Sources page shows this as **Waiting**.
 
 `kind` is always `"source"`, so a client consuming both these and the container routes can tell them apart on one field. It matches the MCP contract.
 
@@ -1282,6 +1358,63 @@ Queues every document of the source whose ingestion failed again, with a fresh a
 **Endpoint**: `DELETE /api/sources/{id}`
 
 Removes the source and its indexed documents. **The external data is untouched.**
+
+### Atlassian Sites
+
+Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connections page can do to a site is here, with the same field names, the same checks and the same audit events. Setup steps and every field are in the [Atlassian setup guide](atlassian-setup.md). The client secret is accepted on the way in and never returned.
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/` | Every saved site, as [site objects](#atlassian-site-object) without `scopes` |
+| POST | `/resolve` | `{ "siteUrl" }` → `{ siteUrl, cloudId }`. `400` if the address is not `https://<name>.atlassian.net`, `404` if no site is there |
+| POST | `/` | `{ "siteUrl", "clientId", "clientSecret", "saveAnyway"? }`. Runs every site check and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId, test }`, where `test` is a [test report](#atlassian-test-report). The site is named after its host. A failed check is `422` with the test report. `saveAnyway: true` saves a site whose only problem is a warning (`warning: true`: no page or no other user yet to check administrator access against); any other failure is never saved. `409` if a connection for the site already exists |
+| GET | `/{connectionId}` | One [site object](#atlassian-site-object), with `scopes`. `404` if it isn't an Atlassian site |
+| PATCH | `/{connectionId}` | `{ "name" }` renames the site, as the Name field does. `200` with the site object. `400` if the name is blank or over 128 characters, `409` if another connection has it. Audited as `connection.updated` |
+| POST | `/{connectionId}/test` | Runs every check again with the stored secret and records the result as the site's health: `200` with a [test report](#atlassian-test-report), passed or not. `404` if the site is gone or its stored secret can't be read |
+| PUT | `/{connectionId}/credentials` | `{ "clientId", "clientSecret", "saveAnyway"? }`. Tests the new credential and replaces the stored one only if it passes, keeping the connection's id so its sources keep syncing: `200` with `{ id, name, clientId, test }`. `422` with the test report if it fails (nothing changes), `409` if the site now has a different Cloud ID (it is a different site; add it as a new connection). Audited as `connection.credentials_replaced` |
+| POST | `/{connectionId}/pause` | Pause syncing: disables every source on the site. Nothing is deleted and documents stay searchable. `200` with `{ syncPaused: true, sources }`; `409` if the site has no sources. Audited as `connection.paused` |
+| POST | `/{connectionId}/resume` | Resume syncing. Optional body `{ "sourceIds": [...] }` turns back on only those sources (as the page's Resume dialog lets you untick some); without it, every source. `200` with `{ syncPaused, sources }`. `400` if a `sourceIds` entry isn't on this site. Audited as `connection.resumed` |
+| DELETE | `/{connectionId}?confirmName=<name>` | Deletes the site. `confirmName` must equal the site's name, the value the page asks you to type, or the answer is `400`. `409` while any source uses the site, with `{ error, sources: [{ id, name, url }] }`: `error` names each source, as the page's refusal does, and `url` is the source's page. Delete those sources first. `204` when deleted. Audited as `connection.deleted` |
+| GET | `/{connectionId}/spaces?includePersonal=false` | The spaces the site's service account can view: `[{ id, key, name, type }]`. `502` if Atlassian can't be reached |
+
+#### Atlassian site object
+
+| Field | Meaning |
+|-------|---------|
+| `id`, `name` | The connection's id and name |
+| `siteUrl`, `cloudId` | The site's address and Atlassian's own ID for it |
+| `clientId` | The service account credential's client ID. The secret is never returned; `hasSecret` says one is stored |
+| `sourceCount` | How many sources use the site |
+| `syncPaused` | `true` when the site has sources and every one is disabled |
+| `health` | The last check, or `null` before one: `{ checkedAt, succeeded, warning, step, stepLabel, message, origin, credentialRejected, lastSucceededAt, confirmedScopes }`. `origin` is `test` or `sync`; `credentialRejected: true` is what the page shows as **Needs new credentials** |
+| `scopes` | Single site only: `[{ name, reason, optional }]`, every scope the credential needs and why |
+
+#### Atlassian test report
+
+Returned by `/test`, inside `test` on a create or replace, and as the `422` body of a failed one.
+
+| Field | Meaning |
+|-------|---------|
+| `success` | `true` when every check passed |
+| `warning` | `true` when the only problem is a site with no page or no other user yet; `saveAnyway` can save past it |
+| `message` | What happened and what to do, as the page shows it |
+| `step` | The check that failed: `site`, `token`, `identity`, `spaces`, `content` (a scope a sync needs for comments, folders or changes is missing) or `admin`; `null` on success |
+| `stepLabel` | That check in the page's words, for example "Signing in as the service account" |
+| `troubleshootingUrl` | The setup guide entry for the failure. A timeout, a rate limit or an answer Atlassian didn't finish links the guide's general Troubleshooting section, not a credential entry |
+| `detail` | Atlassian's own answer when it gave one, such as `HTTP 401 (Unauthorized)`; never a secret or token |
+| `scopes` | On success, the scopes the test confirmed the credential carries: every required one, plus `read:attachment:confluence` when its probe passed |
+
+### Atlassian Linking App
+
+Base path: `/api/v1/atlassian/linking-app`. Administrator only. The app people sign in through to link their Atlassian accounts, at parity with the Linking app card on the Providers page: the same check with Atlassian before saving, the same typed confirmation to remove it, and the same audit events. The client secret is accepted on the way in and never returned.
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/` | `{ clientId, permission, signInEnabled, lastCheckedAt, lastCheckAccepted, lastUsedForSignInAt, peopleLinked }`. `lastCheckAccepted` is `null` before a check; `peopleLinked` is `null` if it can't be counted. `404` when no app is stored |
+| PUT | `/` | `{ "clientId", "clientSecret", "replaceExisting"? }`. Asks Atlassian whether it accepts the pair and stores it only if it does. Saving turns sign-in on. When an app is already stored, `replaceExisting: true` is required, as the page asks you to choose **Check and replace**: every new sign-in then goes through the new app, and people who linked keep their links. Without it the answer is `409` with `{ error, field: "replaceExisting" }`, before Atlassian is asked and with nothing changed. `200` with the app as `GET` returns it. `400` if a field is missing, `422` with `{ error, troubleshootingUrl, detail }` if Atlassian rejects the pair, `502` with `{ error, troubleshootingUrl, detail }` if Atlassian can't be reached or gives no clear answer. `detail` is Atlassian's own answer, as the card's **Details** shows it: the status and Atlassian's error code (such as `HTTP 401, access_denied`), or why there was none; never the secret. Nothing is stored on a failure. Audited as `provider.credential.check_started` and `provider.credential.checked` (sharing an attempt id, with the time the check took), then `provider.credential.saved` |
+| POST | `/check` | Checks the stored pair with Atlassian again, as **Recheck** on the card does, and records the answer as the last check: `200` with `{ result, message, troubleshootingUrl, detail }`, where `result` is `accepted`, `rejected` or `unknown` (couldn't reach Atlassian; nothing recorded), `troubleshootingUrl` is the guide entry (`null` when accepted) and `detail` is Atlassian's own answer as on the card (`null` when accepted). `404` when no app is stored. Audited as `provider.credential.check_started` and `provider.credential.checked` |
+| PUT | `/sign-in` | `{ "signInEnabled": false }` turns Atlassian sign-in off: nobody new can link, and people who linked keep their links. `true` turns it back on. `200` with the app. `400` without `signInEnabled`, `404` when no app is stored. Audited as `provider.sign_in.disabled` or `provider.sign_in.enabled` |
+| DELETE | `/?confirmClientId=<client ID>` | Removes the app. `confirmClientId` must equal the stored client ID, the value the page asks you to type, or the answer is `400`. People who linked keep their links, but nobody can link until an app is added again. `204` when removed, `404` when none is stored. Audited as `provider.credential.deleted` |
 
 ---
 

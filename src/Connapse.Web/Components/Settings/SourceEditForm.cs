@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 using Connapse.Core;
 using Connapse.Storage.Connectors;
+using Connapse.Web.Components.Sources;
+using Connapse.Web.Services;
 
 namespace Connapse.Web.Components.Settings;
 
@@ -10,7 +12,7 @@ namespace Connapse.Web.Components.Settings;
 /// directory, or repository — is not editable: pointing a source somewhere else is a new source.
 /// <para>
 /// A class rather than page logic, like <see cref="SourceForm"/>: the scope keys written here must
-/// match what <c>ConnectorFactory</c> reads, and the page has no test harness.
+/// match what <c>ConnectorFactory</c> reads.
 /// </para>
 /// </summary>
 public sealed class SourceEditForm
@@ -36,6 +38,12 @@ public sealed class SourceEditForm
     /// <summary>Newline-separated file-name globs for a docs source. Blank means the markdown defaults.</summary>
     public string? DocPatterns { get; set; }
 
+    /// <summary>
+    /// A Confluence source's attachment settings, checked by the same rules as the New source
+    /// dialog and the REST API; null for any other source. Its space is not editable.
+    /// </summary>
+    public ConfluenceSpaceSelection? Confluence { get; private init; }
+
     public static SourceEditForm From(Source source, ConnectionProvider? provider)
     {
         var scope = Parse(source.ScopeJson);
@@ -45,6 +53,13 @@ public sealed class SourceEditForm
             kind = Enum.TryParse(Str(scope, "kind"), ignoreCase: true, out GitHubContentKind k) && Enum.IsDefined(k)
                 ? k
                 : GitHubContentKind.Docs;
+        }
+
+        ConfluenceSpaceSelection? confluence = null;
+        if ((provider ?? source.Provider) == ConnectionProvider.Atlassian)
+        {
+            var (include, maxMb) = Attachments(scope);
+            confluence = new ConfluenceSpaceSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
         }
 
         return new SourceEditForm
@@ -57,17 +72,51 @@ public sealed class SourceEditForm
             IncludedBots = Strings(scope, IncludeAuthorsKey),
             ExcludedPeople = Strings(scope, ExcludeAuthorsKey),
             DocPatterns = string.Join('\n', Strings(scope, "includePatterns")),
+            Confluence = confluence,
         };
     }
 
+    /// <summary>A Confluence scope's attachment settings, with the connector's defaults for a missing key.</summary>
+    private static (bool Include, int MaxMb) Attachments(JsonObject scope) =>
+        (scope["includeAttachments"]?.GetValueKind() != System.Text.Json.JsonValueKind.False,
+         scope["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int mb) ? mb : ConfluenceSpaceSelection.DefaultMaxAttachmentMb);
+
+    public const string NameRequired = "A source name is required.";
+    public const string IntervalTooShort = "Sync interval must be at least 60 seconds.";
+
+    /// <summary>The Name field's error from the last check, shown beside the field.</summary>
+    public string? NameError { get; private set; }
+
+    /// <summary>The Sync interval field's error from the last check, shown beside the field.</summary>
+    public string? SyncIntervalError { get; private set; }
+
+    /// <summary>Checks the name, as on leaving the field; true when it is valid.</summary>
+    public bool ValidateName()
+    {
+        NameError = string.IsNullOrWhiteSpace(Name) ? NameRequired : null;
+        return NameError is null;
+    }
+
+    /// <summary>Checks the sync interval, as on leaving the field; true when it is valid.</summary>
+    public bool ValidateSyncInterval()
+    {
+        SyncIntervalError = SyncIntervalSeconds is { } interval && interval < 60 ? IntervalTooShort : null;
+        return SyncIntervalError is null;
+    }
+
+    /// <summary>
+    /// Checks every field, setting each one's own error, and returns the first problem, or null
+    /// when the form can be saved.
+    /// </summary>
     public string? Validate()
     {
-        if (string.IsNullOrWhiteSpace(Name))
-            return "A source name is required.";
+        bool nameOk = ValidateName();
+        bool intervalOk = ValidateSyncInterval();
+        bool sizeOk = Confluence is not { } confluence || confluence.ValidateMaxAttachmentMb();
 
-        if (SyncIntervalSeconds is { } interval && interval < 60)
-            return "Sync interval must be at least 60 seconds.";
-
+        if (!nameOk) return NameError;
+        if (!intervalOk) return SyncIntervalError;
+        if (!sizeOk) return Confluence!.MaxAttachmentMbError;
         return null;
     }
 
@@ -109,6 +158,21 @@ public sealed class SourceEditForm
         else if (GitHubKind == GitHubContentKind.Docs)
         {
             Set(scope, "includePatterns", SourceForm.ParsePatterns(DocPatterns));
+        }
+        else if (Confluence is { } confluence)
+        {
+            // Only what changed is sent, through the rules the PATCH API applies, so an
+            // untouched source keeps its scope byte for byte and is not re-read.
+            var (include, maxMb) = Attachments(scope);
+            var changes = new JsonObject();
+            if (confluence.IncludeAttachments != include)
+                changes["includeAttachments"] = confluence.IncludeAttachments;
+            if (confluence.IncludeAttachments && confluence.MaxAttachmentMb != maxMb)
+                changes["maxAttachmentMb"] = confluence.MaxAttachmentMb;
+
+            if (changes.Count > 0
+                && ConfluenceSourceScope.Update(scope.ToJsonString(), changes.ToJsonString()) is { Outcome: ConfluenceSourceScope.Outcome.Valid, ScopeJson: { } updated })
+                return updated;
         }
 
         return scope.ToJsonString();

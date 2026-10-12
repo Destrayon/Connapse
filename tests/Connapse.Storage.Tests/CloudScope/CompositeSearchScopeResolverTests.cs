@@ -26,6 +26,27 @@ public class CompositeSearchScopeResolverTests
         return await Task.FromResult(c.Combine(aws, azure));
     }
 
+    // ── No resolvers is not a permit ──
+
+    [Fact]
+    public void Combine_EmptyList_FailsClosed()
+    {
+        // All() over nothing is true, which read an empty composite as globally unrestricted.
+        var r = new CompositeSearchScopeResolver.Combiner().Combine([]);
+
+        r.IsUnrestricted.Should().BeFalse();
+        r.Outcome.Should().Be(SearchScopes.Failed.Outcome);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_NoResolvers_FailsClosed()
+    {
+        var r = await new CompositeSearchScopeResolver([]).ResolveAsync(Guid.NewGuid());
+
+        r.IsUnrestricted.Should().BeFalse();
+        r.Outcome.Should().Be(SearchScopes.Failed.Outcome);
+    }
+
     // ── With GitHub: private repository documents are filtered whatever the clouds say ──
 
     [Fact]
@@ -94,6 +115,24 @@ public class CompositeSearchScopeResolverTests
         var r = await composite.ResolveAsync(Guid.NewGuid());
 
         r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://", "azblob://");
+    }
+
+    [Fact]
+    public async Task Combine_FourthGrantOnlyScheme_ContributesOnlyItsOwnGrantedMatches()
+    {
+        var composite = new CompositeSearchScopeResolver(
+        [
+            new(new FakeResolver(SearchScopes.Unrestricted), "s3://", ScopeKind.Cloud),
+            new(new FakeResolver(SearchScopes.Unrestricted), "azblob://", ScopeKind.Cloud),
+            new(new FakeResolver(SearchScopes.OfPrefixes(["github://42/", "github://7/"])), "github://", ScopeKind.GrantOnly),
+            new(new FakeResolver(SearchScopes.OfPrefixes(["confluence://site/space/ENG", "s3://stray/"])), "confluence://", ScopeKind.GrantOnly),
+        ]);
+
+        SearchScopes r = await composite.ResolveAsync(Guid.NewGuid());
+
+        r.IsUnrestricted.Should().BeFalse();
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo(
+            "s3://", "azblob://", "github://42/", "github://7/", "confluence://site/space/ENG");
     }
 
     [Fact]
