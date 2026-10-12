@@ -224,14 +224,7 @@
             </div>
         }
 
-        @if (!string.IsNullOrEmpty(saveMessage))
-        {
-            <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
-                <span class="@(saveSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
-                @saveMessage
-                <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => saveMessage = null"></button>
-            </div>
-        }
+        <ProviderPageAlert Message="PageMessage" OnDismiss="() => saveMessage = null" />
 
         @if (Key == "aws")
         {
@@ -1876,7 +1869,7 @@
                 link their Atlassian account under Profile → Integrations, and only the pages they can read in Confluence.
             </p>
 
-            <AtlassianProviderCard />
+            <AtlassianProviderCard OnMessage="ShowCardMessage" />
         }
 
     }
@@ -1899,6 +1892,21 @@
 
     private string? saveMessage;
     private bool saveSuccess;
+    // Links or details a card sent with its message; shown only beside the message they came with.
+    private RenderFragment? saveExtra;
+    private string? saveExtraFor;
+
+    private ProviderPageMessage? PageMessage => string.IsNullOrEmpty(saveMessage)
+        ? null
+        : new ProviderPageMessage(saveMessage, saveSuccess, saveExtraFor == saveMessage ? saveExtra : null);
+
+    /// <summary>A card's outcome, shown in the page-top alert every provider uses.</summary>
+    private void ShowCardMessage(ProviderPageMessage? message)
+    {
+        saveMessage = message?.Text;
+        saveSuccess = message?.Success ?? false;
+        (saveExtra, saveExtraFor) = (message?.Extra, message?.Text);
+    }
 
     private SamlSignInSettings samlSettings = new();
     private bool showSamlManual;

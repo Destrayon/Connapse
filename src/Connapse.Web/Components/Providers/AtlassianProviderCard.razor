@@ -143,31 +143,6 @@
     </ManualContent>
 </ProviderStepCard>
 
-<div id="atlassian-app-status" class="text-success small mt-2" role="status">
-    @if (statusMessage is not null)
-    {
-        <span class="bi-check-circle me-1" aria-hidden="true"></span>@statusMessage
-        @if (showNextSteps)
-        {
-            <span class="ms-1">
-                <a href="/profile/integrations">Link your own account</a> to try it, then
-                <a href="/connections?new=atlassian">add an Atlassian site</a>.
-            </span>
-        }
-    }
-</div>
-<div id="atlassian-app-alert" class="text-danger small" role="alert">
-    @if (alertMessage is not null)
-    {
-        <span class="bi-x-circle me-1" aria-hidden="true"></span>@alertMessage
-        @if (alertTroubleshootingUrl is not null)
-        {
-            <a class="ms-1" href="@alertTroubleshootingUrl" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
-        }
-        @AtlassianAnswer(alertDetail, "atlassian-app-alert-detail")
-    }
-</div>
-
 <p class="small text-muted mt-3" id="atlassian-sites-elsewhere">
     <span class="bi-info-circle me-1" aria-hidden="true"></span>
     Atlassian sites are added on the <a href="/connections?new=atlassian">Connections page</a>,
@@ -206,11 +181,39 @@
 
     private const string UnreachableHelp = AtlassianLinkAppFieldSpecs.Guide + "#couldnt-reach-atlassian";
 
+    /// <summary>
+    /// Where the outcome of an action goes: the alert at the top of the Providers page, as for every
+    /// other provider. Errors about a field stay beside the field.
+    /// </summary>
+    [Parameter] public EventCallback<ProviderPageMessage?> OnMessage { get; set; }
+
+    private ProviderPageMessage? CurrentMessage =>
+        statusMessage is not null ? new ProviderPageMessage(statusMessage, true, showNextSteps ? NextSteps : null)
+        : alertMessage is not null ? new ProviderPageMessage(alertMessage, false, AlertExtra(alertTroubleshootingUrl, alertDetail))
+        : null;
+
+    private Task PublishMessageAsync() => OnMessage.InvokeAsync(CurrentMessage);
+
+    private static readonly RenderFragment NextSteps =
+        @<span class="ms-1" id="atlassian-app-next-steps">
+            <a href="/profile/integrations">Link your own account</a> to try it, then
+            <a href="/connections?new=atlassian">add an Atlassian site</a>.
+        </span>;
+
+    private static RenderFragment AlertExtra(string? troubleshootingUrl, string? detail) =>
+        @<text>
+            @if (troubleshootingUrl is not null)
+            {
+                <a class="ms-1" href="@troubleshootingUrl" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+            }
+            @AtlassianAnswer(detail, "atlassian-app-alert-detail")
+        </text>;
+
     /// <summary>When the stored app is checked next, so an administrator can tell its status is current.</summary>
     private static string CheckSchedule(AtlassianLinkAppRegistration app) => app switch
     {
         { SignInEnabled: false } => "Not checked automatically while sign-in is off.",
-        { CallbackUrl: null or "" } => "Checked automatically every day once Test connection has run here.",
+        { CallbackUrl: null or "" } => "Checked automatically every day once Recheck has run here.",
         _ => "Checked automatically every day.",
     };
 
@@ -284,7 +287,7 @@
                       }
                       else
                       {
-                          <text>Not yet. Choose Test connection.</text>
+                          <text>Not yet. Choose Recheck.</text>
                       }
                       <span class="d-block text-muted" id="atlassian-app-check-schedule">@CheckSchedule(app)</span>
                   </dd>
@@ -308,11 +311,11 @@
         <button type="button" id="atlassian-app-recheck" class="btn btn-sm btn-outline-secondary" disabled="@checkBusy" @onclick="RecheckAsync">
             @if (checkBusy)
             {
-                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Testing…</span>
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Rechecking…</span>
             }
             else
             {
-                <span class="bi-plug me-1" aria-hidden="true"></span><span>Test connection</span>
+                <span>Recheck</span>
             }
         </button>
         <div>
@@ -334,10 +337,8 @@
                     : "Lets people link their Atlassian accounts again.")
             </div>
         </div>
-        @* Removing is destructive, so it sits in its own section below every other action. *@
-        <section id="atlassian-app-danger-zone" class="w-100 border-top border-danger-subtle pt-2 mt-2"
-                 aria-labelledby="atlassian-app-danger-heading">
-            <h3 id="atlassian-app-danger-heading" class="h6 text-danger mb-2">Remove the linking app</h3>
+        @* Placed as GitHub's: at the right of the row, set apart from the other actions by a divider. *@
+        <div class="ms-auto" id="atlassian-app-remove">
             <ProviderResetAction OnReset="RemoveAppAsync"
                                  Label="Remove the linking app from Connapse"
                                  ConfirmLabel="Remove the linking app"
@@ -345,7 +346,7 @@
                                  BusyLabel="Removing…"
                                  Disabled="@toggleBusy"
                                  HelpText="@RemoveHelp" />
-        </section>
+        </div>
     </text>;
 
     protected override async Task OnInitializedAsync()
@@ -428,6 +429,7 @@
     private async Task SaveAppAsync()
     {
         ClearMessages();
+        await PublishMessageAsync();
         if (string.IsNullOrWhiteSpace(appClientId))
             clientIdError = "Enter the client ID. It is under Settings on the app in the developer console.";
         if (string.IsNullOrWhiteSpace(appClientSecret))
@@ -491,12 +493,14 @@
             appBusy = false;
             // The confirmation, or on success the whole setup, is gone from under the button pressed.
             focusAfterRender = FocusAfterConfirmation;
+            await PublishMessageAsync();
         }
     }
 
     private async Task RecheckAsync()
     {
         ClearMessages();
+        await PublishMessageAsync();
         checkBusy = true;
         try
         {
@@ -530,6 +534,7 @@
         finally
         {
             checkBusy = false;
+            await PublishMessageAsync();
         }
     }
 
@@ -537,6 +542,7 @@
     {
         if (linkApp is null || toggleBusy) return;
         ClearMessages();
+        await PublishMessageAsync();
         bool enable = !linkApp.SignInEnabled;
         toggleBusy = true;
         try
@@ -559,12 +565,14 @@
         finally
         {
             toggleBusy = false;
+            await PublishMessageAsync();
         }
     }
 
     private async Task RemoveAppAsync()
     {
         ClearMessages();
+        await PublishMessageAsync();
         removeBusy = true;
         try
         {
@@ -588,6 +596,7 @@
         finally
         {
             removeBusy = false;
+            await PublishMessageAsync();
         }
     }
 

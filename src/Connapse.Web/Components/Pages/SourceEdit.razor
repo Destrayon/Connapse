@@ -67,7 +67,7 @@
                     <input id="source-description" class="form-control" @bind="form.Description" />
                 </div>
                 <div>
-                    <label class="form-label" for="source-interval">Sync interval, seconds <span class="text-muted">(optional)</span></label>
+                    <label class="form-label" for="source-interval">Sync interval in seconds <span class="text-muted">(optional)</span></label>
                     <input id="source-interval" @ref="intervalInput" type="number" min="60" class="form-control @(form.SyncIntervalError is null ? "" : "is-invalid")" style="max-width:12rem"
                            aria-invalid="@(form.SyncIntervalError is null ? null : "true")"
                            aria-describedby="@(form.SyncIntervalError is null ? "source-interval-help" : "source-interval-error source-interval-help")"

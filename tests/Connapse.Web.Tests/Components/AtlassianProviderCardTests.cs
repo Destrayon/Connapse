@@ -49,7 +49,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void Render_ShowsOnlyTheLinkingApp_AndSendsSitesToTheConnectionsPage()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.FindAll("section.provider-step h2").Select(h => h.TextContent)
             .Should().Equal("Linking app");
@@ -61,7 +61,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void LinkingApp_NotSetUp_ShowsTheConsoleLinkCallbackUrlAndScope()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         var step = cut.Find("#atlassian-app");
         step.TextContent.Should().Contain("Not set up")
@@ -75,7 +75,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void LinkingApp_NotSetUp_SaysWhatIsMissingAndTheHttpsRule()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-requirement").TextContent.Should().Be(ProviderSetupReader.AtlassianNoLinkAppDetail);
         cut.Find("#atlassian-app-prerequisites").TextContent.Should().Contain("HTTPS").And.Contain("localhost");
@@ -85,7 +85,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void LinkingApp_GuideRendersAboveTheFieldsItExplains_UnderAHeadingItNames()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         string html = cut.Find("#atlassian-app").InnerHtml;
         html.IndexOf("developer.atlassian.com/console", StringComparison.Ordinal)
@@ -103,7 +103,7 @@ public class AtlassianProviderCardTests : IDisposable
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(new AtlassianLinkAppRegistration("stored-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
 
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         var add = cut.Find("#atlassian-app-summary #atlassian-add-site");
         add.GetAttribute("href").Should().Be("/connections?new=atlassian");
@@ -114,7 +114,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void LinkingApp_NotStored_SummaryHasNoAddASiteButton()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.FindAll("#atlassian-add-site").Should().BeEmpty();
     }
@@ -122,7 +122,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void CheckAndSave_UsesGitHubsOutlineStyle()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-save").ClassList.Should().Contain("btn-outline-primary").And.NotContain("btn-primary");
     }
@@ -130,7 +130,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void Fields_SayWhatTheValuesLookLike_BeforeAnythingIsSubmitted()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app").TextContent.Should().Contain("one string of letters and digits, with no spaces")
             .And.Contain("Labelled Secret, below the client ID: one long string of characters.");
@@ -139,7 +139,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void CopyButton_HasANameAndATargetOfAtLeast24Pixels()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         var copy = cut.Find("#atlassian-copy-callback");
         copy.GetAttribute("aria-label").Should().Be("Copy the callback URL");
@@ -149,7 +149,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void Save_EmptyFields_MarksEachFieldInvalidWithItsOwnError()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-save").Click();
 
@@ -167,7 +167,7 @@ public class AtlassianProviderCardTests : IDisposable
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(null, new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -177,8 +177,8 @@ public class AtlassianProviderCardTests : IDisposable
         token.Body.Should().Contain("\"client_id\":\"link-client\"").And.Contain(AtlassianUserSignIn.CheckCode);
         credentials.Received(1).SaveAtlassianLinkAppAsync("link-client", Secret, Arg.Any<Guid?>(), Arg.Any<DateTime?>(), Arg.Any<CancellationToken>());
         cut.Find("#atlassian-app-summary").TextContent.Should().Contain("link-client").And.Contain("accepted by Atlassian");
-        cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian accepted");
-        cut.Find("#atlassian-app-status a[href='/profile/integrations']").Should().NotBeNull();
+        cut.Find("#provider-page-status").TextContent.Should().Contain("Atlassian accepted");
+        cut.Find("#provider-page-status a[href='/profile/integrations']").Should().NotBeNull();
         cut.Markup.Should().NotContain(Secret);
     }
 
@@ -186,7 +186,7 @@ public class AtlassianProviderCardTests : IDisposable
     public void LinkingApp_Save_Rejected_SavesNothingAndKeepsTheSecretToCorrect()
     {
         token.Answer(HttpStatusCode.Forbidden, AccessDenied);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -203,7 +203,7 @@ public class AtlassianProviderCardTests : IDisposable
     public void LinkingApp_Save_AtlassianUnreachable_SavesNothingAndSaysSo()
     {
         token.Unreachable();
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -221,7 +221,7 @@ public class AtlassianProviderCardTests : IDisposable
             .Returns(new AtlassianLinkAppRegistration("stored-client"));
         links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns(3);
 
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app").TextContent.Should().Contain("Ready");
         var summary = cut.Find("#atlassian-app-summary").TextContent;
@@ -238,7 +238,7 @@ public class AtlassianProviderCardTests : IDisposable
         object? details = null;
         audit.When(a => a.LogAsync("provider.credential.saved", "provider", "atlassian", Arg.Any<object?>(), Arg.Any<CancellationToken>()))
             .Do(call => details = call.ArgAt<object?>(3));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -256,7 +256,7 @@ public class AtlassianProviderCardTests : IDisposable
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(new AtlassianLinkAppRegistration("link-client", DateTime.UtcNow));
 
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app").ClassList.Should().Contain("provider-step--satisfied");
         cut.Find("#atlassian-app").TextContent.Should().Contain("Ready");
@@ -267,7 +267,7 @@ public class AtlassianProviderCardTests : IDisposable
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
         links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns(2);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("button[aria-controls='atlassian-app-setup']").Click();
         cut.Find("#atlassian-app-client-id").Input("new-client");
@@ -286,7 +286,7 @@ public class AtlassianProviderCardTests : IDisposable
     public void Cancel_RestoresTheStoredClientIdAndClearsTheSecret()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("button[aria-controls='atlassian-app-setup']").Click();
         cut.Find("#atlassian-app-client-id").Input("typo");
@@ -301,18 +301,18 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void TestConnection_Rejected_ShowsFailedAndAnnouncesIt()
+    public void Recheck_Rejected_ShowsFailedAndAnnouncesIt()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
             new AtlassianLinkAppRegistration("link-client"),
             new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: false));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
         token.Answer(HttpStatusCode.Forbidden, AccessDenied);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-recheck").Click();
 
-        cut.WaitForAssertion(() => cut.Find("#atlassian-app-alert").TextContent.Should().Contain("Atlassian rejected the stored client ID or secret"));
+        cut.WaitForAssertion(() => cut.Find("#provider-page-alert").TextContent.Should().Contain("Atlassian rejected the stored client ID or secret"));
         credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
         cut.Find("#atlassian-app").ClassList.Should().Contain("provider-step--failed");
         cut.Find("#atlassian-app-checked").TextContent.Should().Contain("rejected by Atlassian");
@@ -320,16 +320,16 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void TestConnection_Accepted_AnnouncesItInAStatusRegion()
+    public void Recheck_Accepted_AnnouncesItInAStatusRegion()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-recheck").Click();
 
-        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian accepted"));
-        cut.Find("#atlassian-app-status").GetAttribute("role").Should().Be("status");
+        cut.WaitForAssertion(() => cut.Find("#provider-page-status").TextContent.Should().Contain("Atlassian accepted"));
+        cut.Find("#provider-page-status").GetAttribute("role").Should().Be("status");
         credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", true, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
@@ -340,11 +340,11 @@ public class AtlassianProviderCardTests : IDisposable
             new AtlassianLinkAppRegistration("link-client"),
             new AtlassianLinkAppRegistration("link-client", SignInEnabled: false));
         credentials.SetAtlassianSignInEnabledAsync(false, Arg.Any<CancellationToken>()).Returns(true);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-sign-in-toggle").Click();
 
-        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian sign-in is off"));
+        cut.WaitForAssertion(() => cut.Find("#provider-page-status").TextContent.Should().Contain("Atlassian sign-in is off"));
         credentials.Received(1).SetAtlassianSignInEnabledAsync(false, Arg.Any<CancellationToken>());
         credentials.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default);
         audit.Received(1).LogAsync("provider.sign_in.disabled", "provider", "atlassian", Arg.Any<object?>(), Arg.Any<CancellationToken>());
@@ -358,7 +358,7 @@ public class AtlassianProviderCardTests : IDisposable
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
             new AtlassianLinkAppRegistration("link-client"), new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
         links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns(4);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse")).Click();
         cut.Markup.Should().Contain("4 people linked an Atlassian account. They keep their links, but nobody can link a new account");
@@ -369,14 +369,14 @@ public class AtlassianProviderCardTests : IDisposable
 
         cut.WaitForAssertion(() => credentials.Received(1).DeleteAsync("atlassian", Arg.Any<CancellationToken>()));
         audit.Received(1).LogAsync("provider.credential.deleted", "provider", "atlassian", Arg.Any<object?>(), Arg.Any<CancellationToken>());
-        cut.Find("#atlassian-app-status").TextContent.Should().Contain("nobody can link an account until a new app is added");
+        cut.Find("#provider-page-status").TextContent.Should().Contain("nobody can link an account until a new app is added");
     }
 
     [Fact]
     public void Save_Rejected_KeepsAtlassiansErrorCodeUnderDetails()
     {
         token.Answer(HttpStatusCode.Forbidden, AccessDenied);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -392,7 +392,7 @@ public class AtlassianProviderCardTests : IDisposable
     public void Save_Unreachable_LinksTheTroubleshootingEntryAndShowsWhatFailed()
     {
         token.Unreachable();
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -403,31 +403,31 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void TestConnection_Rejected_ShowsAtlassiansAnswerUnderDetails()
+    public void Recheck_Rejected_ShowsAtlassiansAnswerUnderDetails()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
         token.Answer(HttpStatusCode.Forbidden, AccessDenied);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-recheck").Click();
 
         cut.WaitForAssertion(() => cut.Find("#atlassian-app-alert-detail").TextContent.Should().Contain("HTTP 403, access_denied"));
-        cut.Find("#atlassian-app-alert a").GetAttribute("href").Should().EndWith("#linking-app-rejected");
+        cut.Find("#provider-page-alert a").GetAttribute("href").Should().EndWith("#linking-app-rejected");
     }
 
     [Fact]
-    public void TestConnection_Unreachable_LinksTheTroubleshootingEntry()
+    public void Recheck_Unreachable_LinksTheTroubleshootingEntry()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
         token.Unreachable();
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-recheck").Click();
 
-        cut.WaitForAssertion(() => cut.Find("#atlassian-app-alert").TextContent.Should().Contain("Couldn't reach Atlassian"));
-        cut.Find("#atlassian-app-alert a").GetAttribute("href").Should().EndWith("#couldnt-reach-atlassian");
+        cut.WaitForAssertion(() => cut.Find("#provider-page-alert").TextContent.Should().Contain("Couldn't reach Atlassian"));
+        cut.Find("#provider-page-alert a").GetAttribute("href").Should().EndWith("#couldnt-reach-atlassian");
     }
 
     [Fact]
@@ -435,7 +435,7 @@ public class AtlassianProviderCardTests : IDisposable
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(null, new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -447,14 +447,14 @@ public class AtlassianProviderCardTests : IDisposable
 
     [Theory]
     [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", true, "Checked automatically every day.")]
-    [InlineData(null, true, "once Test connection has run here")]
+    [InlineData(null, true, "once Recheck has run here")]
     [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", false, "Not checked automatically while sign-in is off.")]
     public void LastChecked_SaysWhenTheAppIsCheckedAgain(string? callbackUrl, bool signInEnabled, string expected)
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration(
             "link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true, SignInEnabled: signInEnabled, CallbackUrl: callbackUrl));
 
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-check-schedule").TextContent.Should().Contain(expected);
     }
@@ -467,7 +467,7 @@ public class AtlassianProviderCardTests : IDisposable
             new AtlassianLinkAppRegistration("link-client"),
             new AtlassianLinkAppRegistration("link-client", SignInEnabled: false));
         credentials.SetAtlassianSignInEnabledAsync(false, Arg.Any<CancellationToken>()).Returns(pending.Task);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-sign-in-toggle").Click();
 
@@ -480,7 +480,7 @@ public class AtlassianProviderCardTests : IDisposable
 
         pending.SetResult(true);
 
-        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("Atlassian sign-in is off"));
+        cut.WaitForAssertion(() => cut.Find("#provider-page-status").TextContent.Should().Contain("Atlassian sign-in is off"));
         cut.Find("#atlassian-sign-in-toggle").HasAttribute("disabled").Should().BeFalse();
     }
 
@@ -491,7 +491,7 @@ public class AtlassianProviderCardTests : IDisposable
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
             new AtlassianLinkAppRegistration("link-client"), new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
         credentials.DeleteAsync("atlassian", Arg.Any<CancellationToken>()).Returns(pending.Task);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse")).Click();
         cut.Find("input[id^='reset-confirm-']").Input("link-client");
@@ -504,14 +504,14 @@ public class AtlassianProviderCardTests : IDisposable
 
         pending.SetResult(true);
 
-        cut.WaitForAssertion(() => cut.Find("#atlassian-app-status").TextContent.Should().Contain("The linking app was removed"));
+        cut.WaitForAssertion(() => cut.Find("#provider-page-status").TextContent.Should().Contain("The linking app was removed"));
     }
 
     [Fact]
     public void Save_DisablesBothFieldsWhileAtlassianIsAsked()
     {
         token.Hold();
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("#atlassian-app-client-id").Input("link-client");
         cut.Find("#atlassian-app-client-secret").Change(Secret);
@@ -528,7 +528,7 @@ public class AtlassianProviderCardTests : IDisposable
     public void KeepTheCurrentApp_ReturnsFocusToCheckAndSave()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("button[aria-controls='atlassian-app-setup']").Click();
         cut.Find("#atlassian-app-client-id").Input("new-client");
@@ -546,7 +546,7 @@ public class AtlassianProviderCardTests : IDisposable
     public void Cancel_ReturnsFocusToTheToggleThatReopensTheSetup()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("button[aria-controls='atlassian-app-setup']").Click();
         cut.Find("#atlassian-app-cancel").Click();
@@ -559,7 +559,7 @@ public class AtlassianProviderCardTests : IDisposable
     public void CheckAndReplace_WhenSaved_MovesFocusToTheToggle_AsTheSetupCloses()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("button[aria-controls='atlassian-app-setup']").Click();
         cut.Find("#atlassian-app-client-id").Input("new-client");
@@ -572,7 +572,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     /// <summary>The step card's "Change the linking app" toggle (CSS-isolated, so matched by its reference field).</summary>
-    private static string? EditToggleRef(IRenderedComponent<AtlassianProviderCard> cut) =>
+    private static string? EditToggleRef(IRenderedComponent<AtlassianProviderCardHost> cut) =>
         FocusAssertions.RefField(cut.FindComponent<Connapse.Web.Components.Providers.ProviderStepCard>().Instance, "editToggle");
 
     [Fact]
@@ -580,7 +580,7 @@ public class AtlassianProviderCardTests : IDisposable
     {
         token.Answer(HttpStatusCode.Forbidden, AccessDenied);
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.Find("button[aria-controls='atlassian-app-setup']").Click();
         cut.Find("#atlassian-app-client-id").Input("new-client");
@@ -597,7 +597,7 @@ public class AtlassianProviderCardTests : IDisposable
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
             new AtlassianLinkAppRegistration("link-client"), new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse")).Click();
         cut.Find("input[id^='reset-confirm-']").Input("link-client");
@@ -607,20 +607,40 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void RemoveTheLinkingApp_SitsInItsOwnDangerZone_NotBesideTheSignInToggle()
+    public void RemoveTheLinkingApp_SitsAtTheRightOfTheActionsRow_AsGitHubsDoes()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
 
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
-        var zone = cut.Find("#atlassian-app-danger-zone");
-        zone.ClassList.Should().Contain("border-top", "a divider sets the destructive action apart");
-        cut.Find("#atlassian-app-danger-heading").TextContent.Should().Be("Remove the linking app");
-        zone.QuerySelectorAll("button").Should().ContainSingle()
+        var remove = cut.Find("#atlassian-app-remove");
+        remove.ClassList.Should().Contain("ms-auto", "GitHub's remove action sits at the right of the row the same way");
+        remove.ParentElement!.ClassList.Should().Contain("provider-step__actions");
+        remove.QuerySelector(".provider-reset-action").Should().NotBeNull("the shared style draws a divider before it");
+        File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "src", "Connapse.Web", "Components", "Providers", "ProviderStepCard.razor.css"))
+            .Should().Contain(".provider-reset-action { margin-left: auto; padding-left: .75rem; border-left: 1px solid");
+        remove.QuerySelectorAll("button").Should().ContainSingle()
             .Which.TextContent.Should().Contain("Remove the linking app from Connapse");
-        zone.QuerySelector("#atlassian-sign-in-toggle").Should().BeNull();
-        cut.Find("#atlassian-sign-in-toggle").ParentElement!.Contains(zone).Should().BeFalse();
+        cut.FindAll("#atlassian-app h3").Should().BeEmpty();
+        remove.QuerySelector("#atlassian-sign-in-toggle").Should().BeNull();
+    }
+
+    [Fact]
+    public void Outcomes_GoToThePageTopAlert_NotBelowTheCard()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
+        credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
+        token.Answer(HttpStatusCode.Forbidden, AccessDenied);
+        var cut = ctx.Render<AtlassianProviderCardHost>();
+
+        cut.Find("#atlassian-app-recheck").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#provider-page-alert .alert-danger").TextContent.Should().Contain("Atlassian rejected"));
+        cut.Find("#provider-page-alert").GetAttribute("role").Should().Be("alert");
+        cut.Markup.IndexOf("id=\"provider-page-alert\"", StringComparison.Ordinal)
+            .Should().BeLessThan(cut.Markup.IndexOf("id=\"atlassian-app\"", StringComparison.Ordinal), "the alert is at the top, above the card");
+        cut.FindAll("#atlassian-app-status, #atlassian-app-alert").Should().BeEmpty();
     }
 
     [Fact]
@@ -629,7 +649,7 @@ public class AtlassianProviderCardTests : IDisposable
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
 
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         var help = cut.Find("#atlassian-sign-in-toggle-help");
         help.ClassList.Should().NotContain("visually-hidden");
@@ -642,7 +662,7 @@ public class AtlassianProviderCardTests : IDisposable
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
             .Returns(new AtlassianLinkAppRegistration("link-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
 
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
         cut.Find("#atlassian-app-edit-toggle").Click();
 
         cut.FindAll("#atlassian-app .btn-primary, #atlassian-app .btn-outline-primary").Select(b => b.Id)
@@ -653,7 +673,7 @@ public class AtlassianProviderCardTests : IDisposable
     [Fact]
     public void ClientSecret_RevealButton_IsNamedForTheField()
     {
-        var cut = ctx.Render<AtlassianProviderCard>();
+        var cut = ctx.Render<AtlassianProviderCardHost>();
 
         var reveal = cut.Find("#atlassian-app-client-secret-reveal");
         reveal.GetAttribute("aria-label").Should().Be("Show client secret");
