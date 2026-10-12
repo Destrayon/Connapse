@@ -300,9 +300,7 @@ public class SourceSyncService(
     internal static ConnectionHealth AtlassianSignInHealth(
         Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth, string sourceName)
     {
-        bool credentialRefused = auth.TokenRefused
-            && auth.Message == Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.CredentialRefused;
-        if (credentialRefused)
+        if (Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.IsCredentialRefused(auth))
         {
             return new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.TokenStep,
                 Message: $"Atlassian refused the stored credential while syncing source '{sourceName}'.",
