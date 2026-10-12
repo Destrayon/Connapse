@@ -16,6 +16,11 @@ namespace Connapse.Core.Interfaces;
 /// after a lost cursor, or after the source's scope was narrowed, re-adds what exists but never
 /// removes what went away in between.
 /// </para>
+/// <para>
+/// <c>Deferred</c> says the connector stopped before reading the remote, such as when the provider
+/// is rate limiting: the delta is empty and the cursor unchanged. It proves nothing about the
+/// credential or access, so the caller must not clear a failed sign-in or a revoked source on it.
+/// </para>
 /// </summary>
 public record SyncDelta(
     IReadOnlyList<ConnectorFile> Upserted,
@@ -23,7 +28,8 @@ public record SyncDelta(
     string? NextCursor,
     bool RequiresFullResync,
     bool IsFullListing = false,
-    string? Notice = null);
+    string? Notice = null,
+    bool Deferred = false);
 
 /// <summary>
 /// A connector that can report what changed since a durable cursor, rather than requiring

@@ -31,6 +31,10 @@ public record OwnerRef(Guid Id, bool IsSource)
 /// Files the remote reported that no parser can read, such as images. They are skipped rather
 /// than enqueued, so they never become documents.
 /// </param>
+/// <param name="Deferred">
+/// True when the connector stopped before reading the remote (a rate limit's wait), so the cycle
+/// proves nothing about the credential or access. See <c>SyncDelta.Deferred</c>.
+/// </param>
 public record SourceSyncResult(
     int Upserted,
     int Deleted,
@@ -40,7 +44,8 @@ public record SourceSyncResult(
     bool AlreadyRunning = false,
     int WithheldDeletions = 0,
     string? Notice = null,
-    int Unsupported = 0);
+    int Unsupported = 0,
+    bool Deferred = false);
 
 /// <summary>
 /// Thrown when a reindex would move a document between ownership domains — source to

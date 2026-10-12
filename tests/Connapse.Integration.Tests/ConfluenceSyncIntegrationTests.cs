@@ -188,6 +188,93 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         (await connections.GetAsync(connection.Id))!.Health!.CredentialRejected.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task RateLimitedAtTheTokenExchange_LeavesARefusedCredentialRefused_UntilASyncReallyReads()
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
+        try
+        {
+            (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Error.Should().NotBeNull();
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        var refused = (await connections.GetAsync(connection.Id))!;
+        refused.Health!.CredentialRejected.Should().BeTrue();
+
+        // A 429 from the token endpoint: the connector waits with a notice, and no token was obtained.
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+        SourceSyncResult limited;
+        try
+        {
+            limited = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, refused, CancellationToken.None);
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        var stillRefused = (await connections.GetAsync(connection.Id))!;
+        stillRefused.Health!.CredentialRejected.Should().BeTrue("a rate-limited cycle never proved the credential works");
+        stillRefused.Health.Succeeded.Should().BeFalse();
+        limited.Error.Should().BeNull();
+        limited.Notice.Should().StartWith(AtlassianRateLimitedException.MessagePrefix);
+        limited.Deferred.Should().BeTrue();
+
+        var read = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, stillRefused, CancellationToken.None);
+
+        read.Error.Should().BeNull();
+        read.Deferred.Should().BeFalse();
+        var cleared = (await connections.GetAsync(connection.Id))!.Health!;
+        cleared.CredentialRejected.Should().BeFalse();
+        cleared.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RateLimitedAfterTheSpaceWasRefused_KeepsItHiddenFromSearch()
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        _api.FailWith(System.Net.HttpStatusCode.Forbidden);
+        try
+        {
+            await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        }
+        finally
+        {
+            _api.FailWith(null);
+        }
+        (await sources.GetAsync(source.Id))!.AccessRevokedAt.Should().NotBeNull();
+
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+        _api.RevokeTokens(); // the token cached from the refused cycle would otherwise skip the token endpoint
+        SourceSyncResult limited;
+        try
+        {
+            limited = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+        }
+
+        (await sources.GetAsync(source.Id))!.AccessRevokedAt.Should().NotBeNull("nothing was read, so access is not proven");
+        limited.Deferred.Should().BeTrue();
+    }
+
     public enum SignInProblem { ProxyRedirect, TokenWithoutToken, RefusedWithAFreshToken }
 
     /// <summary>
