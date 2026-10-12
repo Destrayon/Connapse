@@ -297,13 +297,6 @@
                       <dt>People linked</dt><dd id="atlassian-app-linked">@count</dd>
                   }
               </dl>
-              @* The next step, as GitHub's summary offers "Add a GitHub connection". *@
-              <div class="mt-2 d-flex gap-2 flex-wrap">
-                  @* While the setup is open, Check and save is the one primary action. *@
-                  <a id="atlassian-add-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=atlassian">
-                      <span class="bi-plug me-1" aria-hidden="true"></span> Add an Atlassian site
-                  </a>
-              </div>
           </div>;
 
     // Null without an app, so the card draws no empty actions row.
@@ -318,25 +311,23 @@
                 <span>Recheck</span>
             }
         </button>
-        <div>
-            <button type="button" id="atlassian-sign-in-toggle" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSignInAsync"
-                    disabled="@(toggleBusy || removeBusy)" aria-describedby="atlassian-sign-in-toggle-help">
-                @if (toggleBusy)
-                {
-                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
-                    <span>@(app.SignInEnabled ? "Turning off…" : "Turning on…")</span>
-                }
-                else
-                {
-                    @(app.SignInEnabled ? "Turn off Atlassian sign-in" : "Turn on Atlassian sign-in")
-                }
-            </button>
-            <div id="atlassian-sign-in-toggle-help" class="form-text mt-1">
-                @(app.SignInEnabled
-                    ? "Stops new links for everyone. People who linked keep their links. You can turn it back on."
-                    : "Lets people link their Atlassian accounts again.")
-            </div>
-        </div>
+        <button type="button" id="atlassian-sign-in-toggle" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSignInAsync"
+                disabled="@(toggleBusy || removeBusy)" aria-describedby="atlassian-sign-in-toggle-help">
+            @if (toggleBusy)
+            {
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                <span>@(app.SignInEnabled ? "Turning off…" : "Turning on…")</span>
+            }
+            else
+            {
+                @(app.SignInEnabled ? "Turn off Atlassian sign-in" : "Turn on Atlassian sign-in")
+            }
+        </button>
+        @* The next step, as GitHub's card offers "Add a GitHub connection". While the setup is
+           open, Check and save is the one primary action. *@
+        <a id="atlassian-add-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=atlassian">
+            <span class="bi-plug me-1" aria-hidden="true"></span> Add an Atlassian site
+        </a>
         @* Placed as GitHub's: at the right of the row, set apart from the other actions by a divider. *@
         <div class="ms-auto" id="atlassian-app-remove">
             <ProviderResetAction OnReset="RemoveAppAsync"
@@ -346,6 +337,12 @@
                                  BusyLabel="Removing…"
                                  Disabled="@toggleBusy"
                                  HelpText="@RemoveHelp" />
+        </div>
+        @* Its own full-width line under the buttons, so it doesn't stretch the row. *@
+        <div id="atlassian-sign-in-toggle-help" class="form-text w-100 mt-0">
+            @(app.SignInEnabled
+                ? "Turning off sign-in stops new links for everyone. People who linked keep their links, and you can turn it back on."
+                : "Turning on sign-in lets people link their Atlassian accounts again.")
         </div>
     </text>;
 

@@ -105,7 +105,7 @@ public class AtlassianProviderCardTests : IDisposable
 
         var cut = ctx.Render<AtlassianProviderCardHost>();
 
-        var add = cut.Find("#atlassian-app-summary #atlassian-add-site");
+        var add = cut.Find("#atlassian-add-site");
         add.GetAttribute("href").Should().Be("/connections?new=atlassian");
         add.ClassList.Should().Contain(["btn", "btn-sm", "btn-outline-primary"]);
         add.TextContent.Trim().Should().Be("Add an Atlassian site");
@@ -653,7 +653,7 @@ public class AtlassianProviderCardTests : IDisposable
 
         var help = cut.Find("#atlassian-sign-in-toggle-help");
         help.ClassList.Should().NotContain("visually-hidden");
-        help.TextContent.Should().Contain("Stops new links for everyone");
+        help.TextContent.Should().Contain("stops new links for everyone");
     }
 
     [Fact]
