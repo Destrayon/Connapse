@@ -60,10 +60,15 @@ Index Jira Cloud projects into Connapse and filter every search hit live against
 - `AtlassianUri` gains a product field and parses both products. A URI that doesn't parse is denied, as today.
 - Every document carries a URI, because a null `ResourceUri` is visible to everyone.
 
-**Restriction metadata.**
-- Comment and attachment documents carry `jira:visibility` = `group:{groupId}` or `role:{roleName}`, and `jira:internal` = `true` when the comment is an internal note.
-- A comment document with neither key, or with an unreadable value, is denied.
-- The verifier reads these from the document row, which it already loads.
+**Restrictions travel in the URI.** A restricted document's URI ends with its restriction:
+- `/internal` for a JSM internal note;
+- `/group/{groupId}` for a group restriction;
+- `/role/{projectId}/{escaped role name}` for a role restriction. The project is the one whose roles the name is resolved in.
+
+For example, an internal note restricted to a group is `atlassian://{cloudId}/jira/issue/10001/comment/20002/internal/group/{groupId}`.
+- The verifier and direct reads already load only URIs. Sync rewrites a document's URI on every listing pass, even when its content isn't re-ingested (`SourceSyncService`), so a changed restriction takes effect at the next sync.
+- A comment URI with no restriction does not parse and is denied, because only restricted comments are separate documents.
+- Comment and attachment documents also carry `jira:visibility` metadata, for display only.
 
 **New components** (in `src/Connapse.Storage/Connectors/Atlassian/` unless noted):
 
