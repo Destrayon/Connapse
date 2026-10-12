@@ -494,7 +494,7 @@
 
                                 <label class="form-label small mb-1" for="ra-paste">Paste what it printed</label>
                                 <textarea id="ra-paste" class="form-control font-monospace" rows="4" @bind="raPasted" @bind:event="oninput"
-                                          placeholder="@AwsRolesAnywhereSetup.BeginMarker&#10;trustAnchorArn=…&#10;@AwsRolesAnywhereSetup.EndMarker"></textarea>
+                                          placeholder="@($"{AwsRolesAnywhereSetup.BeginMarker}\ntrustAnchorArn=…\n{AwsRolesAnywhereSetup.EndMarker}")"></textarea>
 
                                 @if (!string.IsNullOrWhiteSpace(raPasted))
                                 {
@@ -676,7 +676,7 @@
                     <label class="form-label small mb-1" for="idc-paste">Paste what it printed</label>
                     <textarea id="idc-paste" class="form-control font-monospace" rows="4" @bind="pastedIdentityCenter"
                               @bind:event="oninput"
-                              placeholder="@IdentityCenterSetup.BeginMarker&#10;region=…&#10;@IdentityCenterSetup.EndMarker"></textarea>
+                              placeholder="@($"{IdentityCenterSetup.BeginMarker}\nregion=…\n{IdentityCenterSetup.EndMarker}")"></textarea>
 
                     @if (!string.IsNullOrWhiteSpace(pastedIdentityCenter))
                     {
@@ -1207,7 +1207,7 @@
                             <label class="form-label small mb-1" for="az-mi-paste">Paste what it printed</label>
                             <textarea id="az-mi-paste" class="form-control font-monospace" rows="4"
                                       @bind="azureManagedIdentityPasted" @bind:event="oninput" disabled="@azureBusy"
-                                      placeholder="@AzureCloudShellSetup.ManagedIdentityBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.ManagedIdentityEndMarker"></textarea>
+                                      placeholder="@($"{AzureCloudShellSetup.ManagedIdentityBeginMarker}\ntenantId=…\n{AzureCloudShellSetup.ManagedIdentityEndMarker}")"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azureManagedIdentityPasted))
                             {
@@ -1310,7 +1310,7 @@
                             <label class="form-label small mb-1" for="az-access-paste">Paste what it printed</label>
                             <textarea id="az-access-paste" class="form-control font-monospace" rows="4"
                                       @bind="azureAccessPasted" @bind:event="oninput" disabled="@azureBusy"
-                                      placeholder="@AzureCloudShellSetup.AccessBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.AccessEndMarker"></textarea>
+                                      placeholder="@($"{AzureCloudShellSetup.AccessBeginMarker}\ntenantId=…\n{AzureCloudShellSetup.AccessEndMarker}")"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azureAccessPasted))
                             {
@@ -1593,7 +1593,7 @@
                             <label class="form-label small mb-1" for="az-perm-paste">Paste what it printed</label>
                             <textarea id="az-perm-paste" class="form-control font-monospace" rows="4"
                                       @bind="azurePermissionsPasted" @bind:event="oninput" disabled="@azureBusy"
-                                      placeholder="@AzureCloudShellSetup.PermissionsBeginMarker&#10;signInAppClientId=…&#10;@AzureCloudShellSetup.PermissionsEndMarker"></textarea>
+                                      placeholder="@($"{AzureCloudShellSetup.PermissionsBeginMarker}\nsignInAppClientId=…\n{AzureCloudShellSetup.PermissionsEndMarker}")"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azurePermissionsPasted))
                             {

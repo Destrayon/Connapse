@@ -212,7 +212,7 @@
                     <h6 class="card-title">2 · Paste back what it printed</h6>
                     <textarea class="form-control font-monospace" rows="5" @bind="pastedResult"
                               @bind:event="oninput"
-                              placeholder="@SftpHostSetup.BeginMarker&#10;user=…&#10;home=…&#10;fingerprint=…&#10;@SftpHostSetup.EndMarker"></textarea>
+                              placeholder="@($"{SftpHostSetup.BeginMarker}\nuser=…\nhome=…\nfingerprint=…\n{SftpHostSetup.EndMarker}")"></textarea>
                     <div class="form-text">
                         The whole terminal output is fine — Connapse finds the block. This carries your
                         username, your folder path, and the server's key fingerprint, so nothing has to
@@ -531,12 +531,14 @@
         @* ── Create / edit ─────────────────────────────────────────── *@
         @* The setup guide sits in the title row, as on every provider surface, so it is in the same
            place whichever provider is chosen below. *@
-        <div class="col-12 d-flex flex-wrap align-items-baseline gap-2" style="max-width:40rem">
-            <h5 @ref="formHeading" id="connection-form-title" tabindex="-1">@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
-            @if (form.Provider == ConnectionProvider.Atlassian)
-            {
-                <SetupGuideLink Id="atlassian-setup-guide" Href="@AtlassianSiteFieldSpecs.SiteConnectionSection" />
-            }
+        <div class="col-12">
+            <div class="d-flex flex-wrap align-items-baseline gap-2" style="max-width:40rem">
+                <h5 @ref="formHeading" id="connection-form-title" tabindex="-1">@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
+                @if (form.Provider == ConnectionProvider.Atlassian)
+                {
+                    <SetupGuideLink Id="atlassian-setup-guide" Href="@AtlassianSiteFieldSpecs.SiteConnectionSection" />
+                }
+            </div>
         </div>
 
         @* A new Atlassian site is named after its host by the service that saves it, so its Name
@@ -561,7 +563,7 @@
                 }
                 else
                 {
-                    <text>How this connection is referred to when creating a source.</text>
+                    <text>How this connection is referred to when creating a source. </text>
                 }
                 @if (form.Provider == ConnectionProvider.S3)
                 {
@@ -838,7 +840,7 @@
                     }
                 </label>
                 <SecretTextArea Id="sftp-key" Label="Private key" Rows="5" DescribedBy="sftp-key-help"
-                                Placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…"
+                                Placeholder="@("-----BEGIN OPENSSH PRIVATE KEY-----\n…")"
                                 @bind-Value="form.PrivateKey" />
                 <div id="sftp-key-help" class="form-text">
                     Encrypted at rest and never shown again. This is an SSH key for a server you run —
@@ -1027,7 +1029,7 @@
                 </label>
                 <textarea id="allowed-locations" class="form-control font-monospace" rows="3" @bind="form.AllowedLocations"
                           aria-describedby="allowed-locations-help"
-                          placeholder="docs-bucket&#10;shared-bucket/team/"></textarea>
+                          placeholder="@("docs-bucket\nshared-bucket/team/")"></textarea>
                 <div id="allowed-locations-help" class="form-text">
                     The buckets or containers a source on this connection may name; a bucket alone
                     permits every prefix in it. Leave empty to allow anything the credential can
