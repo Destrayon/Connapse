@@ -121,6 +121,10 @@
                                 @ConfluenceSpaceSelection.AttachmentScopeHelp
                                 <a href="@ConfluenceSpaceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">How to add it<span class="visually-hidden"> (opens in a new tab)</span></a>.
                             </div>
+                            @if (confluence.IncludeAttachments && connection is { } site && !ConfluenceSpaceSelection.AttachmentScopeConfirmed(site.Health))
+                            {
+                                <ConfluenceAttachmentScopeRoute Id="confluence-attachments-scope-route" ConnectionId="site.Id" SiteName="@site.Name" />
+                            }
                         </div>
                         <div class="ms-4 mt-2">
                             <label class="form-label small" for="confluence-max-attachment-mb">@ConfluenceSpaceSelection.MaxAttachmentMbLabel</label>

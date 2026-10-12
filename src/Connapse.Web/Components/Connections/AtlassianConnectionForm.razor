@@ -234,16 +234,23 @@
                 </li>
                 <li>
                     Back on the service account, choose <strong>Create credentials</strong> &rarr; <strong>OAuth 2.0</strong>. On
-                    <strong>Select scopes</strong>, choose <strong>Copy all</strong> below and paste it into the search box: the list
-                    narrows to exactly these seven, so tick each one (the attachment scope can be left out if no source will include
-                    attachments). Create it, then copy the client ID and secret: the secret is shown only once.
+                    <strong>Select scopes</strong>, choose <strong>Copy required scopes</strong> below and paste it into the search
+                    box: the list narrows to exactly these @RequiredScopes.Count, so tick each one. Only if a source will include
+                    attachments, choose <strong>Copy with the attachments permission</strong> instead, which adds
+                    <code>@Connapse.Web.Components.Sources.ConfluenceSpaceSelection.AttachmentScope</code>; you can add it later when a source needs it.
+                    Create it, then copy the client ID and secret: the secret is shown only once.
                 </li>
             </ol>
-            <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                 <strong class="small">Scopes</strong>
-                <button type="button" id="atlassian-copy-all" class="btn btn-sm btn-outline-secondary" @onclick="CopyAllScopes">
-                    <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy all
+                <button type="button" id="atlassian-copy-required" class="btn btn-sm btn-outline-secondary" @onclick="CopyRequiredScopes">
+                    <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy required scopes
                 </button>
+                <button type="button" id="atlassian-copy-with-attachments" class="btn btn-sm btn-outline-secondary" @onclick="CopyAllScopes"
+                        aria-describedby="atlassian-copy-with-attachments-help">
+                    <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy with the attachments permission
+                </button>
+                <span id="atlassian-copy-with-attachments-help" class="visually-hidden">Only if a source will include attachments.</span>
                 <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
             </div>
             <div class="small fw-semibold mb-1">Confluence</div>
@@ -435,9 +442,15 @@
     private string? replaceError;
     private ConnectionTestResult? replaceResult;
 
+    /// <summary>
+    /// Opens a saved site with Replace credentials already expanded, as a link from a source that
+    /// needs a permission the credential lacks does (<c>/connections?edit=&lt;id&gt;&amp;replace=1</c>).
+    /// </summary>
+    [Parameter] public bool StartReplacing { get; set; }
+
     // Only another site replaces what is shown: the parent's copy of this one goes stale after a
     // re-test or a replace, which refresh it here.
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
         if (Existing?.Id == current?.Id)
             return;
@@ -445,6 +458,8 @@
         current = Existing;
         replacing = false;
         retest = null;
+        if (StartReplacing && current is not null)
+            await OpenReplace();
     }
 
     /// <summary>Plain HTTP to anything but this machine: a secret entered here crosses the network in the clear.</summary>
@@ -718,6 +733,16 @@
             return "";
         }
     }
+
+    /// <summary>
+    /// The scopes every site needs, space separated: all but the attachment permission, which is
+    /// asked for only when a source turns attachments on.
+    /// </summary>
+    public static string RequiredScopeList => string.Join(' ', RequiredScopes.Select(s => s.Name));
+
+    private static IReadOnlyList<AtlassianScope> RequiredScopes => AtlassianSiteScopes.All.Where(s => !s.Optional).ToList();
+
+    private Task CopyRequiredScopes() => CopyAsync(RequiredScopeList);
 
     private Task CopyAllScopes() => CopyAsync(ConfluenceScopeList);
 

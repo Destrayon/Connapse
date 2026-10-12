@@ -73,18 +73,23 @@
     <legend class="form-label fs-6 mb-1">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
     <div class="form-check">
         <input id="confluence-attachments" type="checkbox" class="form-check-input"
-               aria-describedby="@(Selection.AttachmentScopeUnconfirmed ? "confluence-attachments-help confluence-attachments-scope" : "confluence-attachments-help")"
+               aria-describedby="@AttachmentsDescribedBy"
                @bind="Selection.IncludeAttachments" @bind:after="AttachmentsChanged" />
         <label for="confluence-attachments" class="form-check-label">@ConfluenceSpaceSelection.IncludeAttachmentsLabel</label>
         <div id="confluence-attachments-help" class="form-text mt-0">
             @ConfluenceSpaceSelection.IncludeAttachmentsHelp
         </div>
-        @if (Selection.AttachmentScopeUnconfirmed)
+        @if (Selection.AttachmentScopeUnconfirmed && !Selection.IncludeAttachments)
         {
             <div id="confluence-attachments-scope" class="form-text mt-1">
                 <span class="bi-info-circle me-1" aria-hidden="true"></span>@ConfluenceSpaceSelection.AttachmentScopeUnconfirmedNote
                 <a href="@ConfluenceSpaceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">See Missing scope in the setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
             </div>
+        }
+        else if (Selection.AttachmentScopeUnconfirmed)
+        {
+            @* Turned on anyway: the permission is asked for now, with the way to add it. *@
+            <ConfluenceAttachmentScopeRoute Id="confluence-attachments-scope-route" ConnectionId="ConnectionId" SiteName="@SiteName" />
         }
     </div>
     <div class="ms-4 mb-0">
@@ -153,6 +158,15 @@
         if (Selection.MaxAttachmentMbError is not null || !Selection.IncludeAttachments)
             Selection.ValidateMaxAttachmentMb();
     }
+
+    /// <summary>The site's name, for the route to add a missing permission.</summary>
+    [Parameter] public string? SiteName { get; set; }
+
+    private string AttachmentsDescribedBy => !Selection.AttachmentScopeUnconfirmed
+        ? "confluence-attachments-help"
+        : Selection.IncludeAttachments
+            ? "confluence-attachments-help confluence-attachments-scope-route"
+            : "confluence-attachments-help confluence-attachments-scope";
 
     private string SpacesDescribedBy =>
         Selection.SpacesError is null ? "confluence-spaces-help" : "confluence-spaces-error confluence-spaces-help";

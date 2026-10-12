@@ -70,7 +70,8 @@ public class AtlassianConnectionFormTests : IDisposable
             .Should().Contain("This service account reads your site for Atlassian sources and checks each user's access.");
         cut.FindAll("#atlassian-scopes-confluence code").Select(c => c.TextContent)
             .Should().Equal(AtlassianConnectionForm.ConfluenceScopeList.Split(' '));
-        cut.FindAll("#atlassian-copy-all").Should().ContainSingle();
+        cut.FindAll("#atlassian-copy-required").Should().ContainSingle();
+        cut.FindAll("#atlassian-copy-with-attachments").Should().ContainSingle();
         AtlassianConnectionForm.ConfluenceScopeList.Should().Be(
             "read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence "
             + "read:folder:confluence read:content-details:confluence read:content.permission:confluence");
@@ -550,6 +551,47 @@ public class AtlassianConnectionFormTests : IDisposable
         page.Should().Contain("ReturnFocusToList(isNew ? null : editing?.Id);")
             .And.Contain("ReturnFocusToList(created.Id);")
             .And.Contain("await FocusAfterSwapAsync();");
+    }
+
+    [Fact]
+    public void CopyRequiredScopes_LeavesOutTheAttachmentPermission_WhichHasItsOwnCopy()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+
+        cut.Find("#atlassian-copy-required").Click();
+        cut.Find("#atlassian-copy-with-attachments").Click();
+
+        var copied = ctx.JSInterop.Invocations.Where(i => i.Identifier == "connapse.copyToClipboard")
+            .Select(i => (string)i.Arguments[0]!).ToList();
+        copied.Should().Equal(AtlassianConnectionForm.RequiredScopeList, AtlassianConnectionForm.ConfluenceScopeList);
+        copied[0].Split(' ').Should().HaveCount(6).And.NotContain("read:attachment:confluence");
+        copied[1].Split(' ').Should().HaveCount(7).And.Contain("read:attachment:confluence");
+        cut.Find("#atlassian-service-account-guide").TextContent.Should().Contain("Only if a source will include attachments");
+    }
+
+    [Fact]
+    public void StartReplacing_OpensReplaceCredentialsWithFocusOnItsFirstField()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p
+            .Add(f => f.Existing, AtlassianConnection())
+            .Add(f => f.StartReplacing, true));
+
+        cut.Find("#atlassian-replace").Should().NotBeNull();
+        cut.FindAll("#atlassian-replace-open").Should().BeEmpty();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-replace-client-id");
+    }
+
+    [Fact]
+    public void ConnectionsPage_OpensASiteWithReplaceCredentialsFromTheQuery()
+    {
+        string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
+
+        page.Should().Contain("await OpenEditFromQueryAsync();")
+            .And.Contain("query.TryGetValue(\"replace\", out var replace) && replace.ToString() == \"1\"")
+            .And.Contain("StartReplacing=\"@atlassianStartReplacing\"");
+        Connapse.Web.Components.Sources.ConfluenceSpaceSelection.ReplaceCredentialsUrl(Guid.Empty)
+            .Should().Be($"/connections?edit={Guid.Empty}&replace=1");
     }
 
     [Fact]

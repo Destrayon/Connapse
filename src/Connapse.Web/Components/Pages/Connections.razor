@@ -972,7 +972,8 @@
             <div class="w-100" aria-hidden="true"></div> @* the form's width cap would otherwise let it sit beside Provider *@
             <AtlassianConnectionForm Existing="@(isNew ? null : editing)" OnCreated="AtlassianSiteCreatedAsync"
                                      OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit"
-                                     ReplacingChanged="@((bool open) => atlassianReplacing = open)" />
+                                     ReplacingChanged="@((bool open) => atlassianReplacing = open)"
+                                     StartReplacing="@atlassianStartReplacing" />
         }
         else
         {
@@ -1642,6 +1643,30 @@
         form.Provider = ConnectionProvider.Atlassian;
     }
 
+    /// <summary>Opened from a source that needs a permission the site's credential lacks.</summary>
+    private bool atlassianStartReplacing;
+
+    /// <summary>
+    /// <c>?edit=&lt;id&gt;</c> opens that connection for editing; <c>&amp;replace=1</c> on an Atlassian
+    /// site also expands Replace credentials, the route a Confluence source offers when its site's
+    /// credential lacks the attachment permission.
+    /// </summary>
+    private async Task OpenEditFromQueryAsync()
+    {
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (editing is not null || !query.TryGetValue("edit", out var edit) || !Guid.TryParse(edit.ToString(), out Guid id))
+            return;
+        if (connections.FirstOrDefault(c => c.Id == id) is not { } connection)
+            return;
+
+        await StartEdit(connection);
+        if (connection.Provider == ConnectionProvider.Atlassian && query.TryGetValue("replace", out var replace) && replace.ToString() == "1")
+        {
+            atlassianStartReplacing = true;
+            focusAfterSwap = null; // the form puts focus in Replace credentials' first field
+        }
+    }
+
     private async Task AtlassianSiteCreatedAsync(Connection created)
     {
         string unconfirmed = created.Health is { Warning: true }
@@ -1738,6 +1763,7 @@
         await LoadGitHubInstallationsAsync();
         await OpenGitHubFromQueryAsync();
         await OpenAtlassianFromQueryAsync();
+        await OpenEditFromQueryAsync();
 
         StateHasChanged();
     }
@@ -2451,6 +2477,7 @@
     {
         editing = connection;
         isNew = false;
+        atlassianStartReplacing = false;
         focusAfterSwap = () => formHeading.FocusAsync();
         atlassianReplacing = false;
         form = ConnectionForm.FromConnection(connection);

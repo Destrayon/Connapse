@@ -90,11 +90,16 @@ In [Atlassian Administration](https://admin.atlassian.com):
    **Users**, add the service account, and choose **Viewer**. On older sites without space roles the
    page is **Permissions**, where it needs **View**. Being an admin does not grant this.
 4. Back on the service account, choose **Create credentials** → **OAuth 2.0**. On **Select scopes**,
-   paste this list into the scope search box. The list narrows to exactly these seven; tick each one:
+   paste the required scopes into the scope search box (**Copy required scopes** on the site form copies
+   them). The list narrows to exactly these six; tick each one:
 
    ```
-   read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence read:folder:confluence read:content-details:confluence read:content.permission:confluence
+   read:space:confluence read:page:confluence read:comment:confluence read:folder:confluence read:content-details:confluence read:content.permission:confluence
    ```
+
+   Only if a source will include attachments, also add `read:attachment:confluence` (**Copy with the
+   attachments permission** copies all seven). You can add it later, when a source first needs it: see
+   [Missing scope](#missing-scope).
 
    | Scope | Used for |
    |-------|----------|
@@ -158,7 +163,8 @@ always included.
 
 **Attachments and their scope.** When the site's last **Test connection** did not confirm the
 `read:attachment:confluence` scope, **Include attachments** starts off and the dialog says why. You can
-still turn it on. If Atlassian then refuses to list or download attachments, the source keeps syncing
+still turn it on; the New source dialog and the source's edit page then say what to add and link to
+**Replace credentials** on that site, opened on the Connections page. If Atlassian then refuses to list or download attachments, the source keeps syncing
 its pages and comments, skips attachments for that sync, and shows this warning on the Sources page:
 *Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it
 to the credential, or turn off Include attachments.* The site itself is not marked **Needs new
@@ -235,7 +241,8 @@ read:attachment:confluence permission*.
 **Likely cause:** the credential was created without one of the scopes in step 2.4. For attachments, it
 is the optional `read:attachment:confluence`.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
-search and tick each one (step 2.4), then use **Replace credentials** on the site with the new client ID
+search and tick each one (step 2.4; for attachments, include `read:attachment:confluence`), then use
+**Replace credentials** on the site with the new client ID
 and secret. The replacement is tested before it is used, and its test records which scopes it has, so
 new sources then start with attachments on. If you don't want
 attachments, turn off **Include attachments** on the source instead (see [step 4](#4-confluence-sources)).

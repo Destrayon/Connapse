@@ -423,7 +423,7 @@
                     {
                         @* An Atlassian connection is one site. Each space ticked becomes its own
                            source, named after the site and the space, so there is no name field. *@
-                        <ConfluenceSpaceForm ConnectionId="@form.ConnectionId" Selection="confluenceForm"
+                        <ConfluenceSpaceForm ConnectionId="@form.ConnectionId" Selection="confluenceForm" SiteName="@SelectedConnection?.Name"
                                              ExistingSpaceIds="confluenceExisting" />
                     }
                     else

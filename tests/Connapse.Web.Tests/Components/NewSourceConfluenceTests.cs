@@ -387,6 +387,29 @@ public class NewSourceConfluenceTests : IDisposable
     }
 
     [Fact]
+    public void Dialog_TurningAttachmentsOnWithoutTheScope_ShowsWhatToAddAndWhereToAddIt()
+    {
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>()
+            .NavigateTo($"/sources?new={otherConnection.Id}");
+        var cut = ctx.Render<SourcesPage>();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(1));
+        cut.FindAll("#confluence-attachments-scope-route").Should().BeEmpty("nothing is asked for until attachments are turned on");
+
+        cut.Find("#confluence-attachments").Change(true);
+
+        cut.FindAll("#confluence-attachments-scope").Should().BeEmpty();
+        var route = cut.Find("#confluence-attachments-scope-route");
+        route.TextContent.Should().Contain("read:attachment:confluence").And.Contain("globex.atlassian.net");
+        cut.Find("#confluence-attachments-scope-route-replace").GetAttribute("href")
+            .Should().Be($"/connections?edit={otherConnection.Id}&replace=1");
+        cut.Find("#confluence-attachments-scope-route-replace").TextContent.Should().Contain("Replace credentials on globex.atlassian.net");
+        cut.Find("#confluence-attachments-scope-route-guide").GetAttribute("href")
+            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+        cut.Find("#confluence-attachments").GetAttribute("aria-describedby")
+            .Should().Be("confluence-attachments-help confluence-attachments-scope-route");
+    }
+
+    [Fact]
     public void Create_UnexpectedFailure_ShowsAPlainMessageAndNotTheExceptionText()
     {
         sources.CreateAsync(Arg.Any<CreateSourceRequest>(), Arg.Any<CancellationToken>())

@@ -58,6 +58,9 @@ public sealed class ConfluenceSpaceSelection
     /// <summary>Where the setup guide explains adding a missing scope to a site's credential.</summary>
     public const string MissingScopeGuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope";
 
+    /// <summary>The site on the Connections page with Replace credentials open, where a missing permission is added.</summary>
+    public static string ReplaceCredentialsUrl(Guid connectionId) => $"/connections?edit={connectionId}&replace=1";
+
     public const string AttachmentScopeHelp =
         "Attachments need the " + AttachmentScope + " permission on the site's credential.";
 
