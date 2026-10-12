@@ -46,4 +46,154 @@ public sealed class AtlassianUriTests
     [InlineData("ATLASSIAN://" + Cloud + "/confluence/page/42")]
     public void TryParse_AnythingElse_IsRejected(string? uri) =>
         AtlassianUri.TryParse(uri, out _, out _).Should().BeFalse();
+
+    private const string Group = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+    private static JiraResource Parse(string uri)
+    {
+        AtlassianUri.TryParseJira(uri, out JiraResource resource).Should().BeTrue();
+        return resource;
+    }
+
+    [Fact]
+    public void JiraUri_Issue_RoundTrips()
+    {
+        string uri = AtlassianUri.ForJiraIssue(Cloud, "10001");
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Issue, null, false, null));
+    }
+
+    [Fact]
+    public void JiraUri_CommentGroup_RoundTrips()
+    {
+        var restriction = new JiraRestriction(JiraRestrictionType.Group, Group);
+        string uri = AtlassianUri.ForJiraComment(Cloud, "10001", "55", false, restriction);
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/comment/55/group/{Group}");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Comment, "55", false, restriction));
+    }
+
+    [Fact]
+    public void JiraUri_CommentRole_RoundTrips()
+    {
+        var restriction = new JiraRestriction(JiraRestrictionType.Role, "Administrators", "10200");
+        string uri = AtlassianUri.ForJiraComment(Cloud, "10001", "55", false, restriction);
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/comment/55/role/10200/Administrators");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Comment, "55", false, restriction));
+    }
+
+    [Fact]
+    public void JiraUri_InternalNote_RoundTrips()
+    {
+        string uri = AtlassianUri.ForJiraComment(Cloud, "10001", "55", true, null);
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/comment/55/internal");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Comment, "55", true, null));
+    }
+
+    [Fact]
+    public void JiraUri_InternalNoteWithGroup_RoundTrips()
+    {
+        var restriction = new JiraRestriction(JiraRestrictionType.Group, Group);
+        string uri = AtlassianUri.ForJiraComment(Cloud, "10001", "55", true, restriction);
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/comment/55/internal/group/{Group}");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Comment, "55", true, restriction));
+    }
+
+    [Fact]
+    public void JiraUri_AttachmentWithRole_RoundTrips()
+    {
+        var restriction = new JiraRestriction(JiraRestrictionType.Role, "Developers", "10200");
+        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", false, restriction);
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/attachment/77/role/10200/Developers");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", false, restriction));
+    }
+
+    [Fact]
+    public void JiraUri_AttachmentOfInternalNote_RoundTrips()
+    {
+        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", true, null);
+
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", true, null));
+    }
+
+    [Theory]
+    [InlineData("QA/Ops Team")]
+    [InlineData("Service Desk Team")]
+    [InlineData("Développeurs")]
+    public void JiraUri_RoleNameWithSlashAndSpaces_RoundTrips(string name)
+    {
+        var restriction = new JiraRestriction(JiraRestrictionType.Role, name, "10200");
+        string uri = AtlassianUri.ForJiraComment(Cloud, "10001", "55", false, restriction);
+
+        JiraResource resource = Parse(uri);
+
+        resource.Restriction.Should().Be(restriction);
+        resource.Kind.Should().Be(JiraResourceKind.Comment);
+    }
+
+    [Fact]
+    public void JiraUri_UppercaseGuids_AreNormalizedToLowercase()
+    {
+        string uri = $"atlassian://{Cloud.ToUpperInvariant()}/jira/issue/1/comment/2/group/{Group.ToUpperInvariant()}";
+
+        JiraResource resource = Parse(uri);
+
+        resource.CloudId.Should().Be(Cloud);
+        resource.Restriction!.Value.Should().Be(Group);
+    }
+
+    [Theory]
+    [InlineData("/jira/issue/1/comment/2")]
+    [InlineData("/jira/issue/1/comment/2/")]
+    public void JiraUri_CommentWithoutRestriction_Rejected(string suffix) =>
+        AtlassianUri.TryParseJira("atlassian://" + Cloud + suffix, out _).Should().BeFalse();
+
+    [Theory]
+    [InlineData("/jira/issue/1/internal")]
+    [InlineData("/jira/issue/1/group/" + Group)]
+    [InlineData("/jira/issue/1/role/10200/Developers")]
+    public void JiraUri_IssueWithRestriction_Rejected(string suffix) =>
+        AtlassianUri.TryParseJira("atlassian://" + Cloud + suffix, out _).Should().BeFalse();
+
+    [Theory]
+    [InlineData("/jira/issue/1/comment/2/internal/extra")]
+    [InlineData("/jira/issue/1/comment/2/internal/")]
+    [InlineData("/jira/issue/1/comment/2/group/" + Group + "/x")]
+    [InlineData("/jira/issue/1/extra")]
+    [InlineData("/jira/issue/1\n")]
+    public void JiraUri_TrailingSegment_Rejected(string suffix) =>
+        AtlassianUri.TryParseJira("atlassian://" + Cloud + suffix, out _).Should().BeFalse();
+
+    [Theory]
+    [InlineData("/jira/issue/1/comment/2/group/not-a-guid")]
+    [InlineData("/jira/issue/1/comment/2/group/10002")]
+    public void JiraUri_NonGuidGroup_Rejected(string suffix) =>
+        AtlassianUri.TryParseJira("atlassian://" + Cloud + suffix, out _).Should().BeFalse();
+
+    [Theory]
+    [InlineData("/jira/issue/1/comment/2/role/10200/%20")]
+    [InlineData("/jira/issue/1/comment/2/role/10200/%20%20")]
+    [InlineData("/jira/issue/1/comment/2/role/x/Developers")]
+    public void JiraUri_BlankOrMalformedRole_Rejected(string suffix) =>
+        AtlassianUri.TryParseJira("atlassian://" + Cloud + suffix, out _).Should().BeFalse();
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("s3://bucket/x")]
+    public void JiraUri_NotAtlassian_Rejected(string? uri) =>
+        AtlassianUri.TryParseJira(uri, out _).Should().BeFalse();
+
+    [Fact]
+    public void JiraUri_ConfluenceUri_NotJira() =>
+        AtlassianUri.TryParseJira(AtlassianUri.ForPage(Cloud, "42"), out _).Should().BeFalse();
+
+    [Fact]
+    public void JiraUri_TryParse_RejectsJiraUri() =>
+        AtlassianUri.TryParse(AtlassianUri.ForJiraIssue(Cloud, "42"), out _, out _).Should().BeFalse();
 }

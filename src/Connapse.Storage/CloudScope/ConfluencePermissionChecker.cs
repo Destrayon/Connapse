@@ -49,7 +49,7 @@ public sealed class ConfluencePermissionChecker(
             return false;
         cloudId = site.ToString("D");
 
-        string key = $"atl:{cloudId}:{accountId}:{contentId}";
+        string key = $"atl:confluence:{cloudId}:{accountId}:{contentId}";
         if (cache.TryGetValue(key, out bool cached))
             return cached;
 

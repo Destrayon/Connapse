@@ -74,7 +74,10 @@ public sealed class AtlassianSearchResultVerifier(
                 continue;
             }
             if (AtlassianUri.TryParse(uri, out string cloudId, out string contentId))
-                pending.Add((i, cloudId, contentId)); // an unparseable address stays denied
+                pending.Add((i, cloudId, contentId));
+            else if (AtlassianUri.TryParseJira(uri, out _))
+                continue; // Jira: the Jira checker arrives in Phase 8, so these stay denied until then
+            // an unparseable address stays denied
         }
 
         if (pending.Count == 0)
