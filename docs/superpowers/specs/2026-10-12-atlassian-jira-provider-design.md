@@ -117,7 +117,7 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
 - Content is read with `GET /rest/api/3/attachment/content/{id}`, redirect-checked, through `SizeCappedStream`.
 
 **`JiraRecordRenderer`:**
-- The header is the key and summary, type, status, priority, assignee, reporter, labels, components, fix versions, parent, issue links (type, direction, key and summary), created and updated.
+- The header is the key and summary, type, status, priority, assignee, reporter, labels, components, fix versions, parent (key only), issue links (type, direction and key only, never the linked issue's summary, which may be in a project or security level the reader can't see), created and updated.
 - The description and each rich-text custom field follow, as `## {Field name}` sections. Rich-text custom fields are those whose schema is a textarea custom type, discovered once per cycle through `GET /rest/api/3/field`.
 - Display names come from the issue payload. Mentions use their `attrs.text`.
 
