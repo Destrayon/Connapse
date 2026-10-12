@@ -256,6 +256,7 @@ public static class SourcesEndpoints
         // DELETE /api/sources/{sourceId}
         group.MapDelete("/{sourceId:guid}", async (
             Guid sourceId,
+            [FromQuery] string? confirmName,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
@@ -263,6 +264,10 @@ public static class SourcesEndpoints
             var source = await sourceStore.GetAsync(sourceId, ct);
             if (source is null)
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
+
+            // The name the Sources page asks to be typed, since this removes every indexed document.
+            if (!SourceDeletion.Confirmed(source, confirmName))
+                return Results.BadRequest(new { error = SourceDeletion.ConfirmMismatch(source), field = "confirmName" });
 
             bool deleted = await sourceStore.DeleteAsync(sourceId, ct);
             if (!deleted)
@@ -274,7 +279,7 @@ public static class SourcesEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteSource")
-        .WithDescription("Delete a source and its indexed documents. The external data itself is untouched.")
+        .WithDescription("Delete a source and its indexed documents. confirmName must be the source's name. The external data itself is untouched.")
         .RequireAuthorization("RequireAdmin");
 
         // POST /api/sources/{sourceId}/sync

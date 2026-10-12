@@ -1208,7 +1208,7 @@ A **source** is an external system Connapse mirrors read-only — an S3 bucket, 
 | GET | `/api/sources/{id}` | Viewer |
 | POST | `/api/sources` | **Admin** |
 | PATCH | `/api/sources/{id}` | **Admin** |
-| DELETE | `/api/sources/{id}` | **Admin** |
+| DELETE | `/api/sources/{id}?confirmName=<name>` | **Admin** |
 | POST | `/api/sources/{id}/sync` | **Admin** |
 | POST | `/api/sources/{id}/retry-failed` | **Admin** |
 
@@ -1285,6 +1285,14 @@ If a source includes attachments but the site's credential lacks `read:attachmen
 | `maxAttachmentMb` | It is not a whole number, or is outside 1 to 100 while attachments are on |
 
 The Sources page's **Edit** view changes the same two settings under the same rules.
+
+### Delete Source
+
+**Endpoint**: `DELETE /api/sources/{id}?confirmName=<name>`
+
+Deletes the source and every document Connapse indexed from it; the data in the external system is untouched. `confirmName` must equal the source's name, the value the Sources page asks you to type, or the answer is `400` with `field: "confirmName"` and an `error` saying how many indexed documents the delete would remove. `204` when deleted, `404` if there is no such source.
+
+> **Changed:** `confirmName` is required. A client that sends `DELETE /api/sources/{id}` without it now gets `400` and nothing is deleted.
 
 ### Source Response
 

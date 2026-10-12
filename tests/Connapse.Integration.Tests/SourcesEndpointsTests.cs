@@ -368,12 +368,32 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     public async Task DeleteSource_ThenGet_IsNotFound()
     {
         Guid connectionId = await SeedConnectionAsync();
-        Guid sourceId = await CreateSourceAsync(connectionId);
+        string name = ShortName("src");
+        Guid sourceId = await CreateSourceAsync(connectionId, name);
 
-        (await Admin.DeleteAsync($"/api/sources/{sourceId}")).StatusCode
+        (await Admin.DeleteAsync($"/api/sources/{sourceId}?confirmName={Uri.EscapeDataString(name)}")).StatusCode
             .Should().Be(HttpStatusCode.NoContent);
         (await Admin.GetAsync($"/api/sources/{sourceId}")).StatusCode
             .Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-its-name")]
+    public async Task DeleteSource_WithoutItsNameConfirmed_IsRefusedAndDeletesNothing(string? confirmName)
+    {
+        Guid connectionId = await SeedConnectionAsync();
+        string name = ShortName("src");
+        Guid sourceId = await CreateSourceAsync(connectionId, name);
+        string query = confirmName is null ? "" : $"?confirmName={Uri.EscapeDataString(confirmName)}";
+
+        var response = await Admin.DeleteAsync($"/api/sources/{sourceId}{query}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("field").GetString().Should().Be("confirmName");
+        body.GetProperty("error").GetString().Should().Contain($"'{name}'").And.Contain("0 indexed documents");
+        (await Admin.GetAsync($"/api/sources/{sourceId}")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

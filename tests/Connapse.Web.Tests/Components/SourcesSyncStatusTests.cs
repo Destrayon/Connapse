@@ -105,6 +105,30 @@ public class SourcesSyncStatusTests : IDisposable
     }
 
     [Fact]
+    public void DeleteSource_SaysHowManyDocumentsGo_AndNeedsTheNameTyped()
+    {
+        var source = Confluence(SyncStatus.Succeeded, null) with { DocumentCount = 42 };
+        sources.DeleteAsync(source.Id, Arg.Any<CancellationToken>()).Returns(true);
+        var cut = Render(source);
+
+        cut.FindAll("tbody button").Single(b => b.TextContent.Trim() == "Delete").Click();
+
+        cut.Find("#delete-source-count").TextContent.Should().Be("42 indexed documents");
+        cut.Find("#delete-source-consequence").TextContent.Should().Contain("cannot be undone");
+        cut.Find("#delete-source-submit").HasAttribute("disabled").Should().BeTrue("nothing is typed yet");
+        cut.Find("#delete-source-confirm").Input("acme.atlassian.net");
+        cut.Find("#delete-source-submit").HasAttribute("disabled").Should().BeTrue("only part of the name is typed");
+        cut.Find("#delete-source-submit").Click();
+        sources.DidNotReceiveWithAnyArgs().DeleteAsync(default, default);
+
+        cut.Find("#delete-source-confirm").Input(source.Name);
+        cut.Find("#delete-source-submit").HasAttribute("disabled").Should().BeFalse();
+        cut.Find("#delete-source-submit").Click();
+
+        cut.WaitForAssertion(() => sources.Received(1).DeleteAsync(source.Id, Arg.Any<CancellationToken>()));
+    }
+
+    [Fact]
     public void SpaceUnreadable_ShowsThePlainMessage_LinksItsEntry_AndKeepsTheStatusUnderDetails()
     {
         string error = AtlassianSyncErrors.SpaceUnreadable("ENG", 403) + SyncErrorText.DetailMarker + "HTTP 403";

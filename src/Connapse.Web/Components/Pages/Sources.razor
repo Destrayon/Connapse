@@ -607,16 +607,23 @@
                 <div class="modal-body">
                     <p>
                         Delete <strong>@pendingDelete.Name</strong> and its
-                        @pendingDelete.DocumentCount indexed document(s)?
+                        <strong id="delete-source-count">@SourceDeletion.Documents(pendingDelete.DocumentCount)</strong>?
                     </p>
-                    <p class="text-muted small mb-0">
-                        The data in the external system is untouched — only what Connapse indexed
-                        from it is removed. Re-creating the source will sync it again.
+                    <p class="text-muted small" id="delete-source-consequence">
+                        The documents are removed from search and this cannot be undone. The data in the
+                        external system is untouched; re-creating the source syncs it again.
                     </p>
+                    <label class="form-label small" for="delete-source-confirm">
+                        Type <strong>@pendingDelete.Name</strong> to confirm
+                    </label>
+                    <input id="delete-source-confirm" class="form-control form-control-sm" autocomplete="off"
+                           aria-describedby="delete-source-consequence"
+                           @bind="deleteConfirmText" @bind:event="oninput" />
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingDelete = null">Cancel</button>
-                    <button class="btn btn-danger" @onclick="Delete">Delete source</button>
+                    <button id="delete-source-submit" class="btn btn-danger" disabled="@(!SourceDeletion.Confirmed(pendingDelete, deleteConfirmText))"
+                            @onclick="Delete">Delete source</button>
                 </div>
             </div>
         </div>
@@ -1472,14 +1479,22 @@
         }
     }
 
-    private void ConfirmDelete(Source source) => pendingDelete = source;
+    // What the operator typed to confirm deleting pendingDelete: its name.
+    private string? deleteConfirmText;
+
+    private void ConfirmDelete(Source source)
+    {
+        pendingDelete = source;
+        deleteConfirmText = null;
+    }
 
     private async Task Delete()
     {
-        if (pendingDelete is null) return;
+        if (pendingDelete is null || !SourceDeletion.Confirmed(pendingDelete, deleteConfirmText)) return;
 
         var source = pendingDelete;
         pendingDelete = null;
+        deleteConfirmText = null;
         message = null;
 
         try
