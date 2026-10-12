@@ -287,7 +287,8 @@ public class ConnectorFactory(
         if (string.IsNullOrEmpty(spaceKey))
             throw new InvalidOperationException($"Source '{source.Name}' has no Confluence spaceKey in its scope.");
 
-        var (site, statePath, maxAttachmentMb, api) = AtlassianCommon(source, scope, connection, secret, Atlassian.AtlassianProduct.Confluence);
+        (Atlassian.AtlassianSite site, string statePath, int maxAttachmentMb, Atlassian.AtlassianApiClient api) = AtlassianCommon(
+            source, scope, connection, secret, Atlassian.AtlassianProduct.Confluence, Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling);
 
         return new Atlassian.ConfluenceSpaceConnector(
             new Atlassian.ConfluenceSpaceConfig(
@@ -316,7 +317,8 @@ public class ConnectorFactory(
         if (string.IsNullOrEmpty(projectKey))
             throw new InvalidOperationException($"Source '{source.Name}' has no Jira projectKey in its scope.");
 
-        var (site, statePath, maxAttachmentMb, api) = AtlassianCommon(source, scope, connection, secret, Atlassian.AtlassianProduct.Jira);
+        (Atlassian.AtlassianSite site, string statePath, int maxAttachmentMb, Atlassian.AtlassianApiClient api) = AtlassianCommon(
+            source, scope, connection, secret, Atlassian.AtlassianProduct.Jira, Atlassian.JiraProjectConfig.MaxAttachmentMbCeiling);
 
         return new Atlassian.JiraProjectConnector(
             new Atlassian.JiraProjectConfig(
@@ -341,11 +343,12 @@ public class ConnectorFactory(
 
     /// <summary>
     /// What every Atlassian source needs whatever it reads: the site, checked; the service
-    /// account's secret; the attachment cap; its own state directory; and a client pinned to
-    /// <paramref name="product"/>.
+    /// account's secret; the attachment cap, clamped to <paramref name="maxAttachmentMbCeiling"/>; its
+    /// own state directory; and a client pinned to <paramref name="product"/>.
     /// </summary>
     private (Atlassian.AtlassianSite Site, string StatePath, int MaxAttachmentMb, Atlassian.AtlassianApiClient Api) AtlassianCommon(
-        Source source, JsonDocument scope, Connection connection, string? secret, Atlassian.AtlassianProduct product)
+        Source source, JsonDocument scope, Connection connection, string? secret, Atlassian.AtlassianProduct product,
+        int maxAttachmentMbCeiling)
     {
         var site = Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson)
             ?? throw new InvalidOperationException(
@@ -359,7 +362,7 @@ public class ConnectorFactory(
         if (maxAttachmentMb <= 0)
             throw new InvalidOperationException($"Source '{source.Name}' has a maxAttachmentMb that is not a positive number.");
         // Clamped rather than refused, so a source saved with a larger cap still syncs.
-        maxAttachmentMb = Math.Min(maxAttachmentMb, Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling);
+        maxAttachmentMb = Math.Min(maxAttachmentMb, maxAttachmentMbCeiling);
 
         if (atlassianTokens is null || atlassianSettings is null)
             throw new InvalidOperationException(

@@ -164,6 +164,67 @@ public sealed class JiraProjectConnectorTests : IDisposable
         (await _connector.ListFilesAsync()).Should().HaveCount(1);
     }
 
+    [Fact]
+    public async Task Sync_RateLimitedOnSecondListingPage_DeferredKeepsCursorAndStore()
+    {
+        Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        Issue("20003", "ENG-3", "Third");
+        _jira.SearchPageSize = 2;
+        var first = await _connector.GetChangesAsync(null);
+
+        _jira.RemoveIssue("20003");
+        _jira.SearchPageSize = 1;
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/search/jql", StringComparison.Ordinal)
+            && uri.Query.Contains("nextPageToken", StringComparison.Ordinal) ? RateLimited() : null;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.Deferred.Should().BeTrue();
+        second.NextCursor.Should().Be(first.NextCursor);
+        _jira.Jqls.Should().Contain(j => j == $"project = {ProjectId}", "the listing's first page was read before the limit");
+        (await _connector.ListFilesAsync()).Select(f => f.Path)
+            .Should().BeEquivalentTo("/issues/20001.md", "/issues/20002.md", "/issues/20003.md");
+    }
+
+    [Fact]
+    public async Task Sync_RateLimitedDuringBulkFetchOnFreshStart_DeferredAndStoreUntouched()
+    {
+        var edited = Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        await _connector.GetChangesAsync(null);
+
+        _jira.RemoveIssue("20002");
+        edited.Summary = "First, edited";
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/issue/bulkfetch", StringComparison.Ordinal) ? RateLimited() : null;
+        var second = await _connector.GetChangesAsync(null);
+
+        second.Deferred.Should().BeTrue();
+        second.NextCursor.Should().BeNull("a fresh start's cursor is null, and it is kept");
+        var files = await _connector.ListFilesAsync();
+        files.Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", "/issues/20002.md");
+        files.Single(f => f.Path == "/issues/20001.md").Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 First");
+    }
+
+    [Fact]
+    public async Task Sync_FreshStart_IssueBulkFetchDidNotReturn_HasNoRecord()
+    {
+        Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        await _connector.GetChangesAsync(null);
+
+        // Listed, but bulkfetch reports it in issueErrors: its record from before the resync is not kept.
+        _api.Map(_jira.Root + "/issue/bulkfetch", _ => FakeAtlassianApi.Json(new
+        {
+            issues = new[] { new { id = "20001", key = "ENG-1", fields = new { summary = "First", updated = FakeJira.Time(T0), attachment = Array.Empty<object>(), comment = new { total = 0 } } } },
+            issueErrors = new[] { new { issueIdsOrKeys = new[] { "20002" }, status = 500 } },
+        }));
+        var second = await _connector.GetChangesAsync(null);
+
+        second.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+        (await _connector.ExistsAsync("/issues/20002.md")).Should().BeFalse();
+    }
+
     [Theory]
     [InlineData("not json")]
     [InlineData("[1,2]")]
@@ -212,6 +273,37 @@ public sealed class JiraProjectConnectorTests : IDisposable
         text.Should().Contain("--- Comment by Ed, 2026-10-01 ---\nCustomer reply");
         text.Should().NotContain("Group secret").And.NotContain("Role secret").And.NotContain("Internal note");
         text.Should().NotContain("Bob").And.NotContain("Cy,").And.NotContain("Di,");
+    }
+
+    [Fact]
+    public async Task Read_VisibilityWithoutType_LeftOut()
+    {
+        var issue = Issue("20001", "ENG-1", "Odd");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Shape unknown", T0, Visibility: new { value = "someone" }));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Public remark", T0.AddMinutes(1)));
+        await _connector.GetChangesAsync(null);
+
+        string text = await ReadAsync("/issues/20001.md");
+
+        text.Should().Contain("Public remark").And.NotContain("Shape unknown");
+    }
+
+    [Fact]
+    public async Task Read_LinksAndParent_ShowKeysNeverOtherIssuesSummaries()
+    {
+        var issue = Issue("20001", "ENG-1", "Child");
+        issue.Fields["parent"] = new { id = "30000", key = "ENG-100", fields = new { summary = "Parent secret epic" } };
+        issue.Fields["issuelinks"] = new object[]
+        {
+            new { type = new { inward = "is blocked by", outward = "blocks" }, outwardIssue = new { key = "SEC-9", fields = new { summary = "Secret merger plan" } } },
+            new { type = new { inward = "is blocked by", outward = "blocks" }, inwardIssue = new { key = "OPS-3", fields = new { summary = "Hidden outage" } } },
+        };
+        await _connector.GetChangesAsync(null);
+
+        string text = await ReadAsync("/issues/20001.md");
+
+        text.Should().Contain("Parent: ENG-100").And.Contain("Link: blocks SEC-9").And.Contain("Link: is blocked by OPS-3");
+        text.Should().NotContain("Parent secret epic").And.NotContain("Secret merger plan").And.NotContain("Hidden outage");
     }
 
     [Fact]
@@ -305,6 +397,13 @@ public sealed class JiraProjectConnectorTests : IDisposable
         Action act = () => factory.Create(source, connection, "service-secret");
 
         act.Should().Throw<InvalidOperationException>().WithMessage($"*'{source.Name}'*");
+    }
+
+    private static HttpResponseMessage RateLimited()
+    {
+        var limited = new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests);
+        limited.Headers.TryAddWithoutValidation("Retry-After", "30");
+        return limited;
     }
 
     private static long Size(SyncDelta delta, string path) => delta.Upserted.Single(f => f.Path == path).SizeBytes;

@@ -24,7 +24,11 @@ namespace Connapse.Storage.Connectors.Atlassian;
 /// <param name="MaxAttachmentMb">Attachments larger than this are skipped.</param>
 public sealed record JiraProjectConfig(
     AtlassianSite Site, string ProjectId, string ProjectKey, string StatePath,
-    bool IncludeAttachments = true, int MaxAttachmentMb = 25);
+    bool IncludeAttachments = true, int MaxAttachmentMb = 25)
+{
+    /// <summary>The largest attachment cap a source may ask for; attachments are buffered and parsed in memory.</summary>
+    public const int MaxAttachmentMbCeiling = 100;
+}
 
 /// <summary>
 /// Syncs a Jira project's issues as record documents. Every cycle lists the project's issue ids,
@@ -83,8 +87,8 @@ public sealed partial class JiraProjectConnector(
             return new SyncDelta([], [], NextCursor: null, RequiresFullResync: true);
 
         // A null cursor is a fresh start: what the store holds is from before a resync and is not
-        // trusted, so every listed issue is fetched again. The store is replaced only once a
-        // listing has completed, as in Confluence, so jobs already queued still find their records.
+        // trusted, so every listed issue is fetched again. The store is replaced only once the
+        // cycle has completed, as in Confluence, so jobs already queued still find their records.
         bool everything = cursor is null || previous!.WatermarkMs is null;
         long startedMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
         var state = cursor is null ? new JiraSyncState() : _store.LoadState();
@@ -123,9 +127,12 @@ public sealed partial class JiraProjectConnector(
             throw Unavailable(ex);
         }
 
+        // A fresh start keeps only what this cycle fetched: a record from before the resync is not
+        // trusted, even for an issue that is still listed but that bulkfetch did not return.
+        IReadOnlySet<string> keep = cursor is null ? fetched.Keys.ToHashSet(StringComparer.Ordinal) : listed;
         foreach (var issue in fetched.Values)
             _store.Save(issue);
-        foreach (string id in _store.Ids().Where(id => !listed.Contains(id)).ToList())
+        foreach (string id in _store.Ids().Where(id => !keep.Contains(id)).ToList())
             _store.Delete(id);
         _store.SaveState(state);
 
