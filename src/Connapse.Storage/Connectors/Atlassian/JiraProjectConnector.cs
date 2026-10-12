@@ -476,11 +476,15 @@ public sealed partial class JiraProjectConnector(
     /// HTML, where an attachment appears as a link carrying its id. The first comment to link an
     /// attachment ties it; a later one with another restriction, a comment Connapse cannot
     /// interpret, or one whose restriction changed since the page read makes it deny-all.
+    /// A comment that shows a file Connapse cannot name by id (a media-service reference, or an
+    /// attachment address of an unknown form) may show any of the issue's attachments, so every
+    /// attachment not tied to a comment with that same restriction becomes deny-all.
     /// </summary>
     private async Task TieAttachmentsAsync(JiraStoredIssue issue, CancellationToken ct)
     {
         var attachments = issue.Attachments.ToDictionary(a => a.Id, StringComparer.Ordinal);
-        var routes = new Dictionary<string, (bool, bool, JiraRestriction?, bool)>(StringComparer.Ordinal);
+        var routes = new Dictionary<string, (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll)>(StringComparer.Ordinal);
+        string? untieableCommentId = null;
 
         foreach (var comment in issue.Comments)
         {
@@ -519,15 +523,58 @@ public sealed partial class JiraProjectConnector(
                 if (changed || route.DenyAll)
                     attachment.DenyAll = true;
             }
+
+            if (untieableCommentId is null && HasUntieableReference(html))
+                untieableCommentId = comment.Id;
+        }
+
+        if (untieableCommentId is null)
+            return;
+
+        var untieable = routes[untieableCommentId];
+        foreach (var attachment in issue.Attachments)
+        {
+            if (attachment.RestrictingCommentId is null)
+            {
+                // Tied to that comment so an internal note's attachments keep the internal mark.
+                attachment.RestrictingCommentId = untieableCommentId;
+                attachment.DenyAll = true;
+            }
+            else if (routes[attachment.RestrictingCommentId] != untieable)
+            {
+                attachment.DenyAll = true;
+            }
         }
     }
 
-    /// <summary>The attachment ids a comment's rendered HTML links to, by either of Jira's download addresses.</summary>
+    /// <summary>The attachment ids a comment's rendered HTML links to, by any of Jira's attachment addresses.</summary>
     internal static IEnumerable<string> LinkedAttachmentIds(string html) =>
-        ContentLinkPattern().Matches(html)
+        ApiLinkPattern().Matches(html)
             .Concat(SecureLinkPattern().Matches(html))
             .Select(m => m.Groups[1].Value)
             .Distinct(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether the HTML shows a file Connapse cannot name by attachment id: any <c>data-media-*</c>
+    /// attribute, or a <c>src</c> or <c>href</c> that points at a media service, a blob, or an
+    /// attachment or thumbnail address none of the id patterns reads.
+    /// </summary>
+    internal static bool HasUntieableReference(string html)
+    {
+        if (MediaAttributePattern().IsMatch(html))
+            return true;
+
+        foreach (Match link in LinkAttributePattern().Matches(html))
+        {
+            string url = link.Groups["url"].Value;
+            if (ApiLinkPattern().IsMatch(url) || SecureLinkPattern().IsMatch(url))
+                continue;
+            if (UntieableUrlPattern().IsMatch(url))
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// What is kept of a comment. A group is identified by its id only, never its mutable name; a
@@ -577,9 +624,10 @@ public sealed partial class JiraProjectConnector(
 
             foreach (var attachment in issue.Attachments.Where(a => JiraIssueStateStore.IsId(a.Id)))
             {
+                // An empty file has nothing to index, and is neither too large nor unreadable.
                 if (IsIndexable(attachment))
                     files.Add(ToAttachmentFile(issue, attachment, state));
-                else
+                else if (attachment.Size > 0)
                     skipped++;
             }
         }
@@ -594,7 +642,7 @@ public sealed partial class JiraProjectConnector(
 
     /// <summary>
     /// Within the cap and parseable. A size Jira did not report (or reported as zero or less) is
-    /// not taken as small: the attachment is skipped and counted.
+    /// not taken as small: the attachment is skipped.
     /// </summary>
     private bool IsIndexable(JiraStoredAttachment attachment) =>
         attachment.Size > 0
@@ -764,11 +812,21 @@ public sealed partial class JiraProjectConnector(
     private static partial Regex AttachmentPathPattern();
 
     // ASCII digits only: \d would also match other scripts' digits, which are not ids.
-    [GeneratedRegex(@"/rest/api/3/attachment/content/([0-9]{1,19})", RegexOptions.CultureInvariant)]
-    private static partial Regex ContentLinkPattern();
+    [GeneratedRegex(@"/rest/api/(?:2|3|latest)/attachment/(?:content|thumbnail)/([0-9]{1,19})(?![0-9])", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex ApiLinkPattern();
 
-    [GeneratedRegex(@"/secure/attachment/([0-9]{1,19})/", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/secure/(?:attachment|thumbnail)/([0-9]{1,19})/", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex SecureLinkPattern();
+
+    [GeneratedRegex(@"\sdata-media-[a-z0-9-]*\s*=", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex MediaAttributePattern();
+
+    [GeneratedRegex(@"\s(?:src|href)\s*=\s*(?:""(?<url>[^""]*)""|'(?<url>[^']*)'|(?<url>[^\s>]+))", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex LinkAttributePattern();
+
+    // A media service host or path, a blob, or any attachment or thumbnail address.
+    [GeneratedRegex(@"media\.atlassian\.com|/media/|^\s*blob:|attachment|thumbnail", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex UntieableUrlPattern();
 
     [GeneratedRegex(@"^customfield_[0-9]{1,19}\z", RegexOptions.CultureInvariant)]
     private static partial Regex FieldIdPattern();

@@ -223,18 +223,24 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
         {
             api.Map(Root + $"/issue/{issue.Id}/comment/{commentId}", request =>
             {
-                if (issue.Comments.FirstOrDefault(c => c.Id == commentId) is not { } live)
+                if ((ChangedSincePageRead.GetValueOrDefault(commentId) ?? issue.Comments.FirstOrDefault(c => c.Id == commentId)) is not { } live)
                     return new HttpResponseMessage(HttpStatusCode.NotFound);
                 bool rendered = request.RequestUri!.Query.Contains("expand=renderedBody", StringComparison.Ordinal);
                 if (rendered)
                     RenderedReads.Add(commentId);
-                return FakeAtlassianApi.Json(Comment(live, rendered));
+                return FakeAtlassianApi.Json(Comment(live, rendered && !WithoutRenderedBody.Contains(commentId)));
             });
         }
     }
 
     /// <summary>The comment ids read with <c>expand=renderedBody</c>, in order.</summary>
     public List<string> RenderedReads { get; } = [];
+
+    /// <summary>What a comment's own read answers instead of the page's entry, as a comment changed in between.</summary>
+    public Dictionary<string, FakeJiraComment> ChangedSincePageRead { get; } = [];
+
+    /// <summary>Comments whose own read leaves out <c>renderedBody</c> even when asked for it.</summary>
+    public HashSet<string> WithoutRenderedBody { get; } = [];
 
     // ── Attachments: listed by bulkfetch, downloaded through a redirect to the media host ──────
 
