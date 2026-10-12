@@ -32,6 +32,16 @@ public class NewSourceConfluenceTests : IDisposable
     private readonly ISourceStore sources = Substitute.For<ISourceStore>();
     private readonly IConnectionStore connections = Substitute.For<IConnectionStore>();
     private readonly List<CreateSourceRequest> created = [];
+    private readonly IAuditLogger audit = Substitute.For<IAuditLogger>();
+    private readonly List<(string Action, string? ResourceId, string Details)> events = [];
+
+    /// <summary>The setup events written so far, in order.</summary>
+    private List<(string Action, string? ResourceId, string Details)> SetupEvents()
+    {
+        lock (events) return events.Where(e => e.Action.StartsWith("source.setup_", StringComparison.Ordinal)).ToList();
+    }
+
+    private static JsonElement Detail(string details, string name) => JsonDocument.Parse(details).RootElement.GetProperty(name).Clone();
     private readonly Connection connection = new(
         Guid.NewGuid(), "acme.atlassian.net", ConnectionProvider.Atlassian,
         $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}""",
@@ -82,7 +92,13 @@ public class NewSourceConfluenceTests : IDisposable
         var tokens = new AtlassianTokenSource(http, TimeProvider.System);
         ctx.Services.AddSingleton(sources);
         ctx.Services.AddSingleton(connections);
-        ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
+        audit.LogAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<object?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(c =>
+            {
+                lock (events) events.Add((c.ArgAt<string>(0), c.ArgAt<string?>(2), JsonSerializer.Serialize(c.ArgAt<object?>(3))));
+            });
+        ctx.Services.AddSingleton(audit);
         ctx.Services.AddSingleton(new AtlassianSiteService(
             http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens));
         var authorization = Substitute.For<IAuthorizationService>();
@@ -158,6 +174,49 @@ public class NewSourceConfluenceTests : IDisposable
         doc.RootElement.GetProperty("spaceKey").GetString().Should().Be("ENG");
         doc.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeTrue();
         doc.RootElement.GetProperty("maxAttachmentMb").GetInt32().Should().Be(40);
+    }
+
+    [Fact]
+    public void Funnel_OpenListCreate_IsOneAttemptWithCountsAndDurations()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+
+        cut.Find("#space-100").Change(true);
+        cut.Find("#space-200").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(ConfluenceSourceSetupEvents.Completed));
+
+        var setup = SetupEvents();
+        setup.Select(e => e.Action).Should().StartWith([ConfluenceSourceSetupEvents.Started, ConfluenceSourceSetupEvents.SpacesListed])
+            .And.EndWith(ConfluenceSourceSetupEvents.Completed);
+        setup.Should().OnlyContain(e => e.ResourceId == connection.Id.ToString());
+        setup.Select(e => Detail(e.Details, "Attempt").GetString()).Distinct().Should().ContainSingle(
+            "every event of one dialog shares its attempt, so drop-off can be counted");
+
+        var listed = setup.First(e => e.Action == ConfluenceSourceSetupEvents.SpacesListed).Details;
+        Detail(listed, "Count").GetInt32().Should().Be(2);
+        Detail(listed, "DurationMs").GetInt64().Should().BeGreaterThanOrEqualTo(0);
+        var completed = setup.Last().Details;
+        Detail(completed, "Created").GetInt32().Should().Be(2);
+        Detail(completed, "TotalMs").GetInt64().Should().BeGreaterThanOrEqualTo(0);
+        // Counts and ids only: no space names, keys or secrets.
+        setup.Should().OnlyContain(e => !e.Details.Contains("Engineering") && !e.Details.Contains("ENG") && !e.Details.Contains("the-secret"));
+    }
+
+    [Fact]
+    public void Funnel_CreateWithNothingChosen_RecordsTheFailedStep()
+    {
+        var cut = OpenDialog();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
+
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(ConfluenceSourceSetupEvents.StepFailed));
+        var failed = SetupEvents().Single(e => e.Action == ConfluenceSourceSetupEvents.StepFailed).Details;
+        Detail(failed, "Step").GetString().Should().Be(ConfluenceSourceSetupEvents.CreateStep);
+        Detail(failed, "Reason").GetString().Should().Be("invalid");
+        SetupEvents().Select(e => e.Action).Should().NotContain(ConfluenceSourceSetupEvents.Completed);
     }
 
     [Fact]

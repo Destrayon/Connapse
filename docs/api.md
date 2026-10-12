@@ -1303,13 +1303,31 @@ The Sources page's **Edit** view changes the same two settings under the same ru
   "processingDocumentCount": 0,
   "summary": null,
   "lastSyncError": null,
+  "lastSyncTroubleshootingUrl": null,
+  "confluence": null,
   "createdAt": "2026-02-26T10:00:00Z",
   "updatedAt": "2026-02-26T10:05:00Z",
   "kind": "source"
 }
 ```
 
-**Two fields are withheld deliberately.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token — returning either would turn a read route into reconnaissance. `lastSyncError` is populated **for administrators only**, because a provider's failure text routinely echoes what failed (`Access Denied for bucket payroll-data`). With `lastSyncStatus: "Succeeded"` it is a notice, not a failure: the cycle was cut short on purpose, for example because GitHub's hourly request limit was used up, and the next cycle continues. The Sources page shows this as **Waiting**.
+For an administrator reading a Confluence source, `confluence` holds the settings the Sources page and its **Edit** view show, under the same names `scopeJson` takes on create and `PATCH`:
+
+```json
+"confluence": {
+  "spaceId": "98306",
+  "spaceKey": "ENG",
+  "spaceName": "Engineering",
+  "includeAttachments": true,
+  "maxAttachmentMb": 25
+}
+```
+
+`spaceKey` and `spaceName` are what the space was called when the source was added. A source created before a key was stored reads the connector's default for it (`includeAttachments: true`, `maxAttachmentMb: 25`). `confluence` is `null` for every other source, and for readers who aren't administrators.
+
+`lastSyncTroubleshootingUrl` is, for administrators, the setup guide entry the Sources page links beside `lastSyncError` (Confluence and GitHub sources), or `null`.
+
+**Two fields are withheld deliberately.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token — returning either would turn a read route into reconnaissance. The one exception is `confluence` above, a Confluence source's settings, returned to administrators only. `lastSyncError` is populated **for administrators only**, because a provider's failure text routinely echoes what failed (`Access Denied for bucket payroll-data`). With `lastSyncStatus: "Succeeded"` it is a notice, not a failure: the cycle was cut short on purpose, for example because GitHub's hourly request limit was used up, and the next cycle continues. The Sources page shows this as **Waiting**.
 
 `kind` is always `"source"`, so a client consuming both these and the container routes can tell them apart on one field. It matches the MCP contract.
 
@@ -1372,11 +1390,11 @@ Returned by `/test`, inside `test` on a create or replace, and as the `422` body
 | `success` | `true` when every check passed |
 | `warning` | `true` when the only problem is a site with no page or no other user yet; `saveAnyway` can save past it |
 | `message` | What happened and what to do, as the page shows it |
-| `step` | The check that failed: `site`, `token`, `identity`, `spaces` or `admin`; `null` on success |
+| `step` | The check that failed: `site`, `token`, `identity`, `spaces`, `content` (a scope a sync needs for comments, folders or changes is missing) or `admin`; `null` on success |
 | `stepLabel` | That check in the page's words, for example "Signing in as the service account" |
 | `troubleshootingUrl` | The setup guide entry for the failure. A timeout, a rate limit or an answer Atlassian didn't finish links the guide's general Troubleshooting section, not a credential entry |
 | `detail` | Atlassian's own answer when it gave one, such as `HTTP 401 (Unauthorized)`; never a secret or token |
-| `scopes` | On success, the scopes the test confirmed the credential carries |
+| `scopes` | On success, the scopes the test confirmed the credential carries: every required one, plus `read:attachment:confluence` when its probe passed |
 
 ### Atlassian Linking App
 
@@ -1385,8 +1403,8 @@ Base path: `/api/v1/atlassian/linking-app`. Administrator only. The app people s
 | Method | Route | Purpose |
 |--------|-------|---------|
 | GET | `/` | `{ clientId, permission, signInEnabled, lastCheckedAt, lastCheckAccepted, lastUsedForSignInAt, peopleLinked }`. `lastCheckAccepted` is `null` before a check; `peopleLinked` is `null` if it can't be counted. `404` when no app is stored |
-| PUT | `/` | `{ "clientId", "clientSecret", "replaceExisting"? }`. Asks Atlassian whether it accepts the pair and stores it only if it does. Saving turns sign-in on. When an app is already stored, `replaceExisting: true` is required, as the page asks you to choose **Check and replace**: every new sign-in then goes through the new app, and people who linked keep their links. Without it the answer is `409` with `{ error, field: "replaceExisting" }`, before Atlassian is asked and with nothing changed. `200` with the app as `GET` returns it. `400` if a field is missing, `422` with `{ error, troubleshootingUrl }` if Atlassian rejects the pair, `502` if Atlassian can't be reached or gives no clear answer. Nothing is stored on a failure. Audited as `provider.credential.checked`, then `provider.credential.saved` |
-| POST | `/check` | Checks the stored pair with Atlassian again, as **Test connection** on the card does, and records the answer as the last check: `200` with `{ result, message, troubleshootingUrl? }`, where `result` is `accepted`, `rejected` or `unknown` (couldn't reach Atlassian; nothing recorded). `404` when no app is stored. Audited as `provider.credential.checked` |
+| PUT | `/` | `{ "clientId", "clientSecret", "replaceExisting"? }`. Asks Atlassian whether it accepts the pair and stores it only if it does. Saving turns sign-in on. When an app is already stored, `replaceExisting: true` is required, as the page asks you to choose **Check and replace**: every new sign-in then goes through the new app, and people who linked keep their links. Without it the answer is `409` with `{ error, field: "replaceExisting" }`, before Atlassian is asked and with nothing changed. `200` with the app as `GET` returns it. `400` if a field is missing, `422` with `{ error, troubleshootingUrl, detail }` if Atlassian rejects the pair, `502` with `{ error, troubleshootingUrl, detail }` if Atlassian can't be reached or gives no clear answer. `detail` is Atlassian's own answer, as the card's **Details** shows it: the status and Atlassian's error code (such as `HTTP 401, access_denied`), or why there was none; never the secret. Nothing is stored on a failure. Audited as `provider.credential.check_started` and `provider.credential.checked` (sharing an attempt id, with the time the check took), then `provider.credential.saved` |
+| POST | `/check` | Checks the stored pair with Atlassian again, as **Test connection** on the card does, and records the answer as the last check: `200` with `{ result, message, troubleshootingUrl, detail }`, where `result` is `accepted`, `rejected` or `unknown` (couldn't reach Atlassian; nothing recorded), `troubleshootingUrl` is the guide entry (`null` when accepted) and `detail` is Atlassian's own answer as on the card (`null` when accepted). `404` when no app is stored. Audited as `provider.credential.check_started` and `provider.credential.checked` |
 | PUT | `/sign-in` | `{ "signInEnabled": false }` turns Atlassian sign-in off: nobody new can link, and people who linked keep their links. `true` turns it back on. `200` with the app. `400` without `signInEnabled`, `404` when no app is stored. Audited as `provider.sign_in.disabled` or `provider.sign_in.enabled` |
 | DELETE | `/?confirmClientId=<client ID>` | Removes the app. `confirmClientId` must equal the stored client ID, the value the page asks you to type, or the answer is `400`. People who linked keep their links, but nobody can link until an app is added again. `204` when removed, `404` when none is stored. Audited as `provider.credential.deleted` |
 

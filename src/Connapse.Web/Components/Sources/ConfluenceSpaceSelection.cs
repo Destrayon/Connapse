@@ -87,6 +87,12 @@ public sealed class ConfluenceSpaceSelection
     /// <summary>The site's last test did not confirm the attachment scope; the form says so.</summary>
     public bool AttachmentScopeUnconfirmed { get; init; }
 
+    /// <summary>The id every setup event of this selection carries, from opening the dialog to the sources created.</summary>
+    public Guid Attempt { get; } = Guid.NewGuid();
+
+    /// <summary>When this selection began, as <see cref="System.Diagnostics.Stopwatch.GetTimestamp"/>, for the time to a created source.</summary>
+    public long StartedTimestamp { get; } = System.Diagnostics.Stopwatch.GetTimestamp();
+
     public static string AttachmentRangeError =>
         $"Max attachment size must be between {MinAttachmentMb} and {MaxAttachmentMbLimit} MB.";
 

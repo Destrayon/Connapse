@@ -208,6 +208,64 @@ public sealed class AtlassianLinkAppEndpointTests(SharedWebAppFixture fixture) :
     }
 
     [Fact]
+    public async Task Check_Rejected_ReturnsAtlassiansAnswerAsTheCardShowsIt_NeverTheSecret()
+    {
+        Api.FailTokenWith(HttpStatusCode.BadRequest, InvalidGrant);
+        (await SaveAsync()).StatusCode.Should().Be(HttpStatusCode.OK);
+        Api.FailTokenWith(HttpStatusCode.Unauthorized, """{"error":"access_denied"}""");
+        DateTime since = DateTime.UtcNow;
+
+        var response = await fixture.AdminClient.PostAsync($"{LinkApp}/check", null);
+
+        string raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain(Secret);
+        var body = JsonDocument.Parse(raw).RootElement;
+        body.GetProperty("detail").GetString().Should().Be("HTTP 401, access_denied");
+        body.GetProperty("troubleshootingUrl").GetString().Should().EndWith("#linking-app-rejected");
+
+        // One attempt: started and checked share its id, and the check says how long it took.
+        using var scope = fixture.Factory.Services.CreateScope();
+        await using var db = await scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        var rows = await db.AuditLogs
+            .Where(a => a.ResourceId == "atlassian" && a.CreatedAt >= since && a.Action.StartsWith("provider.credential.check"))
+            .OrderBy(a => a.CreatedAt).ToListAsync();
+        rows.Select(r => r.Action).Should().Equal("provider.credential.check_started", "provider.credential.checked");
+        rows[1].Details!.RootElement.GetProperty("Attempt").GetString()
+            .Should().Be(rows[0].Details!.RootElement.GetProperty("Attempt").GetString());
+        rows[1].Details!.RootElement.GetProperty("TotalMs").GetInt64().Should().BeGreaterThanOrEqualTo(0);
+        rows.Should().OnlyContain(r => !r.Details!.RootElement.GetRawText().Contains(Secret));
+    }
+
+    [Fact]
+    public async Task Check_Accepted_HasNoDetail()
+    {
+        Api.FailTokenWith(HttpStatusCode.BadRequest, InvalidGrant);
+        (await SaveAsync()).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await (await fixture.AdminClient.PostAsync($"{LinkApp}/check", null)).Content.ReadFromJsonAsync<JsonElement>();
+
+        body.GetProperty("result").GetString().Should().Be("accepted");
+        body.GetProperty("detail").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Save_RejectedOrUnclear_ReturnsAtlassiansAnswer()
+    {
+        Api.FailTokenWith(HttpStatusCode.Unauthorized, """{"error":"access_denied"}""");
+        var rejected = await SaveAsync();
+        (await rejected.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("detail").GetString()
+            .Should().Be("HTTP 401, access_denied");
+
+        Api.FailTokenWith(HttpStatusCode.InternalServerError);
+        var unclear = await SaveAsync();
+        unclear.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+        var body = await unclear.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("detail").GetString().Should().StartWith("HTTP 500");
+        body.GetProperty("troubleshootingUrl").GetString().Should().EndWith("#couldnt-reach-atlassian");
+    }
+
+    [Fact]
     public async Task Check_NothingStored_Returns404()
     {
         (await fixture.AdminClient.PostAsync($"{LinkApp}/check", null)).StatusCode.Should().Be(HttpStatusCode.NotFound);

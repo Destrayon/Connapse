@@ -54,7 +54,43 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
 
         outcome.Should().Be(AtlassianLinkAppSaveOutcome.Saved);
         await _credentials.Received(1).SaveAtlassianLinkAppAsync("link-client", Secret, null, Arg.Any<DateTime?>(), Arg.Any<CancellationToken>());
-        _events.Select(e => e.Action).Should().Equal("provider.credential.checked", "provider.credential.saved");
+        _events.Select(e => e.Action).Should().Equal(
+            "provider.credential.check_started", "provider.credential.checked", "provider.credential.saved");
+        _events.Should().OnlyContain(e => !e.Details.Contains(Secret));
+    }
+
+    [Fact]
+    public async Task SaveAsync_CheckIsOneAttempt_StartedAndCheckedWithTheSameIdAndADuration()
+    {
+        _api.FailTokenWith(HttpStatusCode.BadRequest, """{"error":"invalid_grant"}""");
+
+        await _service.SaveAsync("link-client", Secret, Callback, null);
+
+        using var started = JsonDocument.Parse(_events.Single(e => e.Action == "provider.credential.check_started").Details);
+        using var checkedEvent = JsonDocument.Parse(_events.Single(e => e.Action == "provider.credential.checked").Details);
+        string attempt = started.RootElement.GetProperty("Attempt").GetString()!;
+        Guid.Parse(attempt).Should().NotBeEmpty();
+        checkedEvent.RootElement.GetProperty("Attempt").GetString().Should().Be(attempt);
+        checkedEvent.RootElement.GetProperty("Mode").GetString().Should().Be("save");
+        checkedEvent.RootElement.GetProperty("TotalMs").GetInt64().Should().BeGreaterThanOrEqualTo(0);
+        checkedEvent.RootElement.GetProperty("Result").GetString().Should().Be("Accepted");
+    }
+
+    [Fact]
+    public async Task RecheckWithDetailAsync_IsOneAttempt_WithItsModeAndDuration()
+    {
+        StoreApp(new AtlassianLinkAppRegistration("link-client"));
+        _api.FailTokenWith(HttpStatusCode.Unauthorized, """{"error":"invalid_client"}""");
+
+        await _service.RecheckWithDetailAsync(Callback);
+
+        _events.Select(e => e.Action).Should().Equal("provider.credential.check_started", "provider.credential.checked");
+        using var started = JsonDocument.Parse(_events[0].Details);
+        using var checkedEvent = JsonDocument.Parse(_events[1].Details);
+        checkedEvent.RootElement.GetProperty("Attempt").GetString().Should().Be(started.RootElement.GetProperty("Attempt").GetString());
+        checkedEvent.RootElement.GetProperty("Mode").GetString().Should().Be("recheck");
+        checkedEvent.RootElement.GetProperty("Detail").GetString().Should().Be("HTTP 401, invalid_client");
+        checkedEvent.RootElement.TryGetProperty("TotalMs", out _).Should().BeTrue();
         _events.Should().OnlyContain(e => !e.Details.Contains(Secret));
     }
 
@@ -68,7 +104,7 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
         (await _service.SaveAsync("link-client", Secret, Callback, null)).Should().Be(expected);
 
         await _credentials.DidNotReceiveWithAnyArgs().SaveAtlassianLinkAppAsync(default!, default!, default, default, default);
-        _events.Select(e => e.Action).Should().Equal("provider.credential.checked");
+        _events.Select(e => e.Action).Should().Equal("provider.credential.check_started", "provider.credential.checked");
     }
 
     [Fact]
@@ -118,7 +154,9 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
         var result = await _service.CheckAndSaveAsync("link-client", Secret, Callback, null);
 
         result.Should().Be(new AtlassianLinkAppSaveResult(AtlassianLinkAppSaveOutcome.Rejected, "HTTP 401, access_denied"));
-        _events.Should().ContainSingle().Which.Details.Should().Contain("access_denied").And.NotContain(Secret);
+        _events.Should().ContainSingle(e => e.Action == "provider.credential.checked")
+            .Which.Details.Should().Contain("access_denied").And.NotContain(Secret);
+        _events.Should().OnlyContain(e => !e.Details.Contains(Secret));
     }
 
     [Fact]
