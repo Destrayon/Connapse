@@ -320,7 +320,7 @@ public sealed class AtlassianSiteService(
         CredentialRejected: result.Details?.ContainsKey("rejected") ?? false,
         Warning: result.Details?.ContainsKey("warning") ?? false,
         ConfirmedScopes: result.Success ? result.Details?.GetValueOrDefault("scopes") as string[] : null,
-        Products: result.Success && result.Details?.GetValueOrDefault("products") is string products
+        Products: result.Details?.GetValueOrDefault("products") is string products
             ? products.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : null);
 

@@ -76,6 +76,18 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     }
 
     [Fact]
+    public async Task Test_ConfluenceWarns_ProductsIsConfluence()
+    {
+        _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["warning"].Should().Be(true);
+        result.Details["products"].Should().Be("confluence");
+    }
+
+    [Fact]
     public async Task Test_ConfluenceFails_SameStepAndMessageAsBefore()
     {
         _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));

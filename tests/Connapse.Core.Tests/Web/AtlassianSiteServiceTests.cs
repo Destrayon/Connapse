@@ -100,6 +100,18 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Health_SiteSavedPastAWarning_KeepsItsProducts()
+    {
+        _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
+
+        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, saveAnyway: true);
+
+        await _store.Received(1).RecordHealthAsync(added.Connection!.Id,
+            Arg.Is<ConnectionHealth>(h => h.Warning && h.Products != null && h.Products.SequenceEqual(new[] { "confluence" })),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Add_SiteWithNoPages_IsNotSavedUnlessAskedTo()
     {
         _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });

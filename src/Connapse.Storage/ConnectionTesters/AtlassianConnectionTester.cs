@@ -279,7 +279,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
     /// <summary>
     /// The test passes if any product passed, warns if none passed but one warned, and otherwise fails
-    /// with the first product's failure. <c>Details["products"]</c> names the products that passed,
+    /// with the first product's failure. <c>Details["products"]</c> names the products that passed or warned,
     /// <c>Details["scopes"]</c> is the union of their confirmed scopes, and <c>Details["product:{name}"]</c>
     /// holds the message of each product that didn't pass.
     /// </summary>
@@ -298,7 +298,6 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                     ["cloudId"] = cloudId,
                     ["siteUrl"] = siteUrl,
                     ["scopes"] = scopes,
-                    ["products"] = string.Join(",", passed.Select(r => r.Product)),
                 },
                 run.Elapsed);
         }
@@ -307,6 +306,10 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         else
             combined = run.Fail(results[0]);
 
+        // A product that only warned is usable once the admin saves past the warning, so it counts.
+        List<string> usable = results.Where(r => r.Passed || r.Warning).Select(r => r.Product).ToList();
+        if (usable.Count > 0)
+            combined.Details!["products"] = string.Join(",", usable);
         foreach (ProductProbeResult result in results.Where(r => !r.Passed && r.Message is not null))
             combined.Details!["product:" + result.Product] = result.Message!;
         return combined;
