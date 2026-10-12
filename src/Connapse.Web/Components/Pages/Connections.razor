@@ -387,7 +387,7 @@
                 <button class="btn btn-outline-primary btn-sm me-2" @onclick="() => StartGuidedSetup(SftpSetupTarget.ThisComputer)">
                     <span class="bi-laptop me-1"></span> Connect this computer
                 </button>
-                <button class="btn btn-primary btn-sm" @onclick="StartCreate">
+                <button @ref="addConnectionButton" class="btn btn-primary btn-sm" @onclick="StartCreate">
                     <span class="bi-plus-lg me-1"></span> Add connection
                 </button>
             </div>
@@ -498,7 +498,7 @@
                                         }
                                     </td>
                                     <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
+                                        <button @ref="editButtons[c.Id]" class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
                                         @if (c.SourceCount > 0)
                                         {
                                             bool paused = pausedConnections.Contains(c.Id);
@@ -529,7 +529,7 @@
     {
         @* ── Create / edit ─────────────────────────────────────────── *@
         <div class="col-12">
-            <h5>@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
+            <h5 @ref="formHeading" id="connection-form-title" tabindex="-1">@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
         </div>
 
         @* A new Atlassian site is named after its host by the service that saves it, so its Name
@@ -1643,6 +1643,7 @@
             : "";
         Succeed($"Atlassian site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
         statusLink = ("Add a source", $"/sources?new={created.Id}");
+        ReturnFocusToList(created.Id);
         editing = null;
         await LoadAsync();
     }
@@ -1703,6 +1704,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await FocusBucketSearchIfOpened();
+        await FocusAfterSwapAsync();
 
         // The dialogs are plain markup, so focus is moved into one and kept there by script.
         await HoldDialogFocusAsync("delete-connection-dialog", pendingDelete is not null);
@@ -1856,6 +1858,33 @@
     private string? bucketFilter;
 
     private ElementReference bucketSearchBox;
+
+    // The list and the form replace each other, taking the pressed button with them, so focus
+    // follows: to the form's heading on the way in, and back to the connection's Edit button
+    // (or Add connection) on the way out.
+    private ElementReference formHeading;
+    private ElementReference addConnectionButton;
+    private readonly Dictionary<Guid, ElementReference> editButtons = new();
+    private Func<ValueTask>? focusAfterSwap;
+
+    private void ReturnFocusToList(Guid? connectionId) => focusAfterSwap = () =>
+        connectionId is { } id && editButtons.TryGetValue(id, out ElementReference edit)
+            ? edit.FocusAsync()
+            : addConnectionButton.FocusAsync();
+
+    private async Task FocusAfterSwapAsync()
+    {
+        if (focusAfterSwap is not { } focus) return;
+        focusAfterSwap = null;
+        try
+        {
+            await focus();
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException)
+        {
+            // The target left the page before this render reached it; focus stays where it was.
+        }
+    }
 
     /// <summary>Set while the search box still needs focus, cleared once it has had it.</summary>
     private bool focusBucketSearch;
@@ -2406,6 +2435,7 @@
     {
         editing = new Connection(Guid.Empty, "", ConnectionProvider.S3, null, null, DateTime.UtcNow, DateTime.UtcNow);
         isNew = true;
+        focusAfterSwap = () => formHeading.FocusAsync();
         form = new ConnectionForm();
         probeTarget = null;
         testMessage = null;
@@ -2415,6 +2445,7 @@
     {
         editing = connection;
         isNew = false;
+        focusAfterSwap = () => formHeading.FocusAsync();
         atlassianReplacing = false;
         form = ConnectionForm.FromConnection(connection);
         editingGitHubInstallationId = form.GitHubInstallationId;
@@ -2427,6 +2458,7 @@
 
     private void CancelEdit()
     {
+        ReturnFocusToList(isNew ? null : editing?.Id);
         editing = null;
         atlassianReplacing = false;
         testMessage = null;
@@ -2512,6 +2544,7 @@
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
                 ForgetGitHubInstallations(form.Provider);
+                ReturnFocusToList(created.Id);
                 await AuditLogger.LogAsync("connection.created", "connection", created.Id.ToString(),
                     new { created.Name, Provider = created.Provider.ToString() });
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
@@ -2536,6 +2569,7 @@
                 }
 
                 Succeed($"Connection '{form.Name.Trim()}' saved.{HostRewriteSuffix()}");
+                ReturnFocusToList(updated.Id);
             }
 
             editing = null;

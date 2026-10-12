@@ -6,7 +6,7 @@
 *@
 
 <div class="col-md-6">
-    <div class="card h-100 provider-card @(Link is not null ? "provider-connected" : "")" id="atlassian-identity-card"
+    <div @ref="card" tabindex="-1" class="card h-100 provider-card @(Link is not null ? "provider-connected" : "")" id="atlassian-identity-card"
          style="--provider-color: #2684ff;">
         <div class="card-body p-4">
             <div class="d-flex align-items-center mb-3">
@@ -61,18 +61,18 @@
                         You will stop seeing Confluence content that needs your account. Your Atlassian account is not changed.
                     </p>
                     <div class="d-flex gap-2">
-                        <button id="atlassian-disconnect-confirm" class="btn btn-sm btn-danger" @onclick="DisconnectAsync"
+                        <button @ref="confirmButton" id="atlassian-disconnect-confirm" class="btn btn-sm btn-danger" @onclick="DisconnectAsync"
                                 disabled="@Busy" aria-describedby="atlassian-disconnect-help">
                             Disconnect Atlassian
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnect = false">
+                        <button id="atlassian-disconnect-cancel" class="btn btn-sm btn-outline-secondary" @onclick="CancelDisconnect">
                             Cancel
                         </button>
                     </div>
                 }
                 else
                 {
-                    <button id="atlassian-disconnect" class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnect = true" disabled="@Busy">
+                    <button @ref="disconnectButton" id="atlassian-disconnect" class="btn btn-sm btn-outline-danger" @onclick="AskDisconnect" disabled="@Busy">
                         <span class="bi-x-circle me-1" aria-hidden="true"></span>Disconnect
                     </button>
                 }
@@ -81,7 +81,7 @@
         else if (SignInAvailable)
         {
             <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                <button id="atlassian-connect" class="btn btn-sm btn-primary" @onclick="OnConnect" disabled="@Busy"
+                <button @ref="connectButton" id="atlassian-connect" class="btn btn-sm btn-primary" @onclick="OnConnect" disabled="@Busy"
                         aria-describedby="atlassian-consent-help">
                     <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>Continue to Atlassian sign-in
                 </button>
@@ -103,9 +103,43 @@
 
     private bool confirmDisconnect;
 
+    // The buttons replace each other, so focus follows: into the confirmation, back to Disconnect
+    // on Cancel, and after disconnecting to the sign-in button (or the card when sign-in is off).
+    private ElementReference card;
+    private ElementReference disconnectButton;
+    private ElementReference confirmButton;
+    private ElementReference connectButton;
+    private enum FocusTarget { None, Confirm, Disconnect, AfterDisconnect }
+    private FocusTarget focusAfterRender;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        FocusTarget target = focusAfterRender;
+        if (target == FocusTarget.None) return;
+        // After disconnecting, wait while the page is still busy; if the link survived, it failed
+        // and Disconnect is back on screen.
+        if (target == FocusTarget.AfterDisconnect && Link is not null)
+        {
+            if (Busy) return;
+            target = FocusTarget.Disconnect;
+        }
+        focusAfterRender = FocusTarget.None;
+        await (target switch
+        {
+            FocusTarget.Confirm => confirmButton,
+            FocusTarget.Disconnect => disconnectButton,
+            _ => SignInAvailable ? connectButton : card,
+        }).FocusAsync();
+    }
+
+    private void AskDisconnect() => (confirmDisconnect, focusAfterRender) = (true, FocusTarget.Confirm);
+
+    private void CancelDisconnect() => (confirmDisconnect, focusAfterRender) = (false, FocusTarget.Disconnect);
+
     private async Task DisconnectAsync()
     {
         confirmDisconnect = false;
+        focusAfterRender = FocusTarget.AfterDisconnect;
         await OnDisconnect.InvokeAsync();
     }
 }

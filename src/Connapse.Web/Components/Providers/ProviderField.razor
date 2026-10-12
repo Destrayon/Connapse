@@ -21,19 +21,19 @@
     {
         case ProviderFieldKind.Secret:
         case ProviderFieldKind.MultilineSecret:
-            <SecretTextArea Id="@Spec.Id" Multiline="@(Spec.Kind == ProviderFieldKind.MultilineSecret)" Rows="@Spec.Rows"
+            <SecretTextArea @ref="secret" Id="@Spec.Id" Multiline="@(Spec.Kind == ProviderFieldKind.MultilineSecret)" Rows="@Spec.Rows"
                             CssClass="@InputClass" Placeholder="@(HasStoredValue ? Spec.KeptPlaceholder : Spec.Placeholder)"
                             DescribedBy="@DescribedBy" Invalid="@(Error is not null)" Disabled="@Disabled" @bind-Value="CurrentValue" />
             break;
 
         case ProviderFieldKind.Multiline:
-            <textarea id="@Spec.Id" class="form-control font-monospace @InputClass" rows="@Spec.Rows" placeholder="@Spec.Placeholder"
+            <textarea @ref="input" id="@Spec.Id" class="form-control font-monospace @InputClass" rows="@Spec.Rows" placeholder="@Spec.Placeholder"
                       disabled="@Disabled" aria-invalid="@(Error is not null ? "true" : "false")" aria-describedby="@DescribedBy"
                       @bind="CurrentValue"></textarea>
             break;
 
         default:
-            <input id="@Spec.Id" class="form-control @InputClass" placeholder="@Spec.Placeholder" inputmode="@Spec.InputMode"
+            <input @ref="input" id="@Spec.Id" class="form-control @InputClass" placeholder="@Spec.Placeholder" inputmode="@Spec.InputMode"
                    list="@ListId" autocomplete="@(ListId is not null ? "off" : null)" disabled="@Disabled"
                    aria-invalid="@(Error is not null ? "true" : "false")" aria-describedby="@DescribedBy"
                    @bind="CurrentValue" @bind:event="oninput" />
@@ -79,6 +79,12 @@
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public bool Small { get; set; }
     [Parameter] public string CssClass { get; set; } = "mb-3";
+
+    private SecretTextArea? secret;
+    private ElementReference input;
+
+    /// <summary>Moves focus into the field, for a control that removed itself to reveal or clear it.</summary>
+    public ValueTask FocusAsync() => Spec.IsSecret && secret is not null ? secret.FocusAsync() : input.FocusAsync();
 
     private string HelpId => $"{Spec.Id}-help";
     private string ErrorId => $"{Spec.Id}-error";

@@ -524,6 +524,88 @@ public class AtlassianProviderCardTests : IDisposable
         cut.WaitForAssertion(() => cut.Find("#atlassian-app-client-secret").HasAttribute("disabled").Should().BeFalse());
     }
 
+    [Fact]
+    public void KeepTheCurrentApp_ReturnsFocusToCheckAndSave()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("new-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-app-replace-confirm");
+
+        cut.Find("#atlassian-app-replace-keep").Click();
+
+        cut.FindAll("#atlassian-app-replace").Should().BeEmpty();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-app-save");
+    }
+
+    [Fact]
+    public void Cancel_ReturnsFocusToTheToggleThatReopensTheSetup()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-cancel").Click();
+
+        cut.FindAll("#atlassian-app-cancel").Should().BeEmpty();
+        ctx.LastFocusedRef().Should().NotBeNull().And.Be(EditToggleRef(cut));
+    }
+
+    [Fact]
+    public void CheckAndReplace_WhenSaved_MovesFocusToTheToggle_AsTheSetupCloses()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("new-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+        cut.Find("#atlassian-app-replace-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("#atlassian-app-client-id").Should().BeEmpty());
+        cut.WaitForAssertion(() => ctx.LastFocusedRef().Should().NotBeNull().And.Be(EditToggleRef(cut)));
+    }
+
+    /// <summary>The step card's "Change the linking app" toggle (CSS-isolated, so matched by its reference field).</summary>
+    private static string? EditToggleRef(IRenderedComponent<AtlassianProviderCard> cut) =>
+        FocusAssertions.RefField(cut.FindComponent<Connapse.Web.Components.Providers.ProviderStepCard>().Instance, "editToggle");
+
+    [Fact]
+    public void CheckAndReplace_WhenRejected_ReturnsFocusToCheckAndSave()
+    {
+        token.Answer(HttpStatusCode.Forbidden, AccessDenied);
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("new-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+        cut.Find("#atlassian-app-replace-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-client-secret-error"));
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-app-save");
+    }
+
+    [Fact]
+    public void Remove_MovesFocusToTheClientIdOfTheSetupItReopens()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
+            new AtlassianLinkAppRegistration("link-client"), new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse")).Click();
+        cut.Find("input[id^='reset-confirm-']").Input("link-client");
+        cut.FindAll("button").Single(b => b.TextContent == "Remove the linking app").Click();
+
+        cut.WaitForAssertion(() => ctx.LastFocused(cut)?.Id.Should().Be("atlassian-app-client-id"));
+    }
+
     /// <summary>Atlassian's token endpoint, answering every request one way, or unreachable.</summary>
     private sealed class TokenEndpoint : HttpMessageHandler
     {

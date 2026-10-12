@@ -496,6 +496,73 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
+    public void ReplaceCredentials_MovesFocusToItsFirstField_AndCancelReturnsItToTheButton()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, AtlassianConnection()));
+
+        cut.Find("#atlassian-replace-open").Click();
+        cut.FindAll("#atlassian-replace-open").Should().BeEmpty();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-replace-client-id");
+
+        cut.FindAll("#atlassian-replace button").Single(b => b.TextContent.Trim() == "Cancel").Click();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-replace-open");
+    }
+
+    [Fact]
+    public void ClearIt_OnTheKeptReplacementSecret_MovesFocusToTheSecretField()
+    {
+        Connection site = AtlassianConnection();
+        store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
+        cut.Find("#atlassian-replace-open").Click();
+        cut.Find("#atlassian-replace-client-id").Input("client-2");
+        cut.Find("#atlassian-replace-client-secret").Change(NewSecret);
+        cut.Find("#atlassian-replace-save").Click();
+        cut.WaitForAssertion(() => cut.Find("#atlassian-replace-kept"));
+
+        cut.Find("#atlassian-replace-secret-clear").Click();
+
+        cut.FindAll("#atlassian-replace-kept").Should().BeEmpty();
+        ctx.LastFocusedRef().Should().NotBeNull().And.Be(SecretInputRef(cut, "atlassian-replace-client-secret"));
+    }
+
+    /// <summary>A secret field's input (CSS-isolated, so matched by its reference field).</summary>
+    private static string? SecretInputRef(IRenderedComponent<AtlassianConnectionForm> cut, string id) =>
+        FocusAssertions.RefField(cut.FindComponents<Connapse.Web.Components.Shared.SecretTextArea>().Single(s => s.Instance.Id == id).Instance, "input");
+
+    /// <summary>
+    /// The Connections page swaps its list and this form, taking the pressed button with them, so
+    /// focus follows. The page needs too many services to render here, so its source is read, as
+    /// ConnectionInUseListTests does for the dialog focus.
+    /// </summary>
+    [Fact]
+    public void ConnectionsPage_MovesFocusWhenTheListAndTheFormReplaceEachOther()
+    {
+        string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
+
+        page.Should().Contain("<h5 @ref=\"formHeading\" id=\"connection-form-title\" tabindex=\"-1\">");
+        page.Should().Contain("@ref=\"addConnectionButton\"").And.Contain("@ref=\"editButtons[c.Id]\"");
+        System.Text.RegularExpressions.Regex.Matches(page, @"focusAfterSwap = \(\) => formHeading\.FocusAsync\(\);").Count
+            .Should().Be(2, "both Add connection and Edit open the form with focus on its heading");
+        page.Should().Contain("ReturnFocusToList(isNew ? null : editing?.Id);")
+            .And.Contain("ReturnFocusToList(created.Id);")
+            .And.Contain("await FocusAfterSwapAsync();");
+    }
+
+    [Fact]
+    public void ClearIt_OnTheKeptSecret_MovesFocusToTheSecretField()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+        FillAndSave(cut);
+        cut.WaitForAssertion(() => cut.Find("#atlassian-secret-kept"));
+
+        cut.Find("#atlassian-secret-clear").Click();
+
+        ctx.LastFocusedRef().Should().NotBeNull().And.Be(SecretInputRef(cut, "atlassian-client-secret"));
+    }
+
+    [Fact]
     public void ReplaceCredentials_WithEmptyFields_FlagsThemBesideTheFields()
     {
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, AtlassianConnection()));

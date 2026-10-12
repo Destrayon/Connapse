@@ -132,7 +132,7 @@
             </button>
             @if (!replacing)
             {
-                <button type="button" id="atlassian-replace-open" class="btn btn-sm btn-outline-secondary" @onclick="OpenReplace">
+                <button @ref="replaceOpenButton" type="button" id="atlassian-replace-open" class="btn btn-sm btn-outline-secondary" @onclick="OpenReplace">
                     <span class="bi-key me-1" aria-hidden="true"></span>Replace credentials
                 </button>
             }
@@ -158,10 +158,10 @@
                     removed. If the test fails, nothing changes. Afterwards, delete the old credential in Atlassian Administration.
                 </p>
                 <div>
-                    <ProviderField Spec="AtlassianSiteFieldSpecs.ReplaceClientId" Small="true" Value="@replaceClientId"
+                    <ProviderField @ref="replaceClientIdField" Spec="AtlassianSiteFieldSpecs.ReplaceClientId" Small="true" Value="@replaceClientId"
                                    ValueChanged="@((string? v) => { replaceClientId = v; replaceClientIdError = null; })"
                                    Error="@replaceClientIdError" Disabled="@replaceBusy" />
-                    <ProviderField Spec="AtlassianSiteFieldSpecs.ReplaceClientSecret" Small="true" Value="@replaceClientSecret"
+                    <ProviderField @ref="replaceClientSecretField" Spec="AtlassianSiteFieldSpecs.ReplaceClientSecret" Small="true" Value="@replaceClientSecret"
                                    ValueChanged="@((string? v) => { replaceClientSecret = v; replaceClientSecretError = null; })"
                                    Error="@replaceClientSecretError" HasStoredValue="@(replaceKept is not null)" />
                 </div>
@@ -169,7 +169,7 @@
                 {
                     <p class="small mb-2" id="atlassian-replace-kept" role="status">
                         <span class="bi-shield-lock me-1" aria-hidden="true"></span>Secret kept for your next attempt.
-                        <button type="button" class="btn btn-sm btn-link p-0 align-baseline" @onclick="() => replaceKept = null">Clear it</button>
+                        <button type="button" id="atlassian-replace-secret-clear" class="btn btn-sm btn-link p-0 align-baseline" @onclick="ClearReplaceKept">Clear it</button>
                     </p>
                 }
                 <div class="d-flex flex-wrap gap-2">
@@ -307,7 +307,7 @@
             <ProviderField Spec="AtlassianSiteFieldSpecs.ClientId" Small="true" Value="@clientId"
                            ValueChanged="@((string? v) => { clientId = v; clientIdError = null; })"
                            Error="@clientIdError" Disabled="@busy" />
-            <ProviderField Spec="AtlassianSiteFieldSpecs.ClientSecret" Small="true" Value="@clientSecret"
+            <ProviderField @ref="clientSecretField" Spec="AtlassianSiteFieldSpecs.ClientSecret" Small="true" Value="@clientSecret"
                            ValueChanged="@((string? v) => { clientSecret = v; clientSecretError = null; })"
                            Error="@clientSecretError" HasStoredValue="@(kept is not null)" />
         </div>
@@ -315,7 +315,7 @@
         {
             <p class="small mb-2" id="atlassian-secret-kept" role="status">
                 <span class="bi-shield-lock me-1" aria-hidden="true"></span>Secret kept for your next attempt.
-                <button type="button" id="atlassian-secret-clear" class="btn btn-sm btn-link p-0 align-baseline" @onclick="() => kept = null">Clear it</button>
+                <button type="button" id="atlassian-secret-clear" class="btn btn-sm btn-link p-0 align-baseline" @onclick="ClearKept">Clear it</button>
             </p>
         }
 
@@ -396,6 +396,35 @@
 
     private Connection? current;
     private bool retesting;
+
+    // A control that removes itself hands focus on after the render that removes it.
+    private ElementReference replaceOpenButton;
+    private ProviderField? replaceClientIdField;
+    private ProviderField? replaceClientSecretField;
+    private ProviderField? clientSecretField;
+    private Func<ValueTask>? focusAfterRender;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusAfterRender is not { } focus) return;
+        focusAfterRender = null;
+        await focus();
+    }
+
+    private static ValueTask FocusField(ProviderField? field) => field?.FocusAsync() ?? ValueTask.CompletedTask;
+
+    /// <summary>Drops the kept secret; focus goes to the now-empty secret field, where a new one is pasted.</summary>
+    private void ClearKept()
+    {
+        kept = null;
+        focusAfterRender = () => FocusField(clientSecretField);
+    }
+
+    private void ClearReplaceKept()
+    {
+        replaceKept = null;
+        focusAfterRender = () => FocusField(replaceClientSecretField);
+    }
     private ConnectionTestResult? retest;
 
     private bool replacing;
@@ -594,6 +623,8 @@
         replacing = true;
         replaceResult = null;
         replaceError = null;
+        // The button is gone once the section opens, so focus moves to the section's first field.
+        focusAfterRender = () => FocusField(replaceClientIdField);
         await ReplacingChanged.InvokeAsync(true);
     }
 
@@ -607,6 +638,8 @@
         replaceError = null;
         replaceClientIdError = null;
         replaceClientSecretError = null;
+        // Back to the button that reopens the section, which this render shows again.
+        focusAfterRender = () => replaceOpenButton.FocusAsync();
         await ReplacingChanged.InvokeAsync(false);
     }
 

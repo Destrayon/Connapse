@@ -24,7 +24,7 @@
         <div class="provider-step__actions">
             @if (Status == RequirementStatus.Satisfied && HasSetupContent)
             {
-                <button type="button" class="btn btn-sm btn-outline-secondary"
+                <button @ref="editToggle" type="button" class="btn btn-sm btn-outline-secondary" id="@($"{Id}-edit-toggle")"
                         aria-expanded="@IsBodyVisible.ToString().ToLowerInvariant()"
                         aria-controls="@BodyId" @onclick="ToggleExpanded">
                     <span class="bi-pencil me-1" aria-hidden="true"></span>
@@ -65,6 +65,17 @@
     [Parameter] public RenderFragment? ManualContent { get; set; }
     [Parameter] public RenderFragment? EasyContent { get; set; }
     [Parameter] public RenderFragment? Actions { get; set; }
+
+    private ElementReference editToggle;
+
+    /// <summary>Whether the edit toggle is on screen, so it can take focus.</summary>
+    public bool HasEditToggle => HasActions && Status == RequirementStatus.Satisfied && HasSetupContent;
+
+    /// <summary>
+    /// Moves focus to the toggle that reopens the setup, for a control inside the body that just
+    /// closed it. Does nothing when the toggle isn't shown.
+    /// </summary>
+    public ValueTask FocusEditToggleAsync() => HasEditToggle ? editToggle.FocusAsync() : ValueTask.CompletedTask;
 
     private string HeadingId => $"{Id}-heading";
     private string BodyId => $"{Id}-setup";
