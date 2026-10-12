@@ -180,6 +180,7 @@ public class PostgresConnectionStore(
             {
                 LastSucceededAt = health.LastSucceededAt ?? previous?.LastSucceededAt,
                 ConfirmedScopes = health.ConfirmedScopes ?? previous?.ConfirmedScopes,
+                Products = health.Products ?? previous?.Products,
             };
 
         // UpdatedAt is left alone: a check changes nothing an admin configured.

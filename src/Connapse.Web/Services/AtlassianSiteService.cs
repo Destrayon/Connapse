@@ -319,7 +319,10 @@ public sealed class AtlassianSiteService(
         Origin: "test",
         CredentialRejected: result.Details?.ContainsKey("rejected") ?? false,
         Warning: result.Details?.ContainsKey("warning") ?? false,
-        ConfirmedScopes: result.Success ? result.Details?.GetValueOrDefault("scopes") as string[] : null);
+        ConfirmedScopes: result.Success ? result.Details?.GetValueOrDefault("scopes") as string[] : null,
+        Products: result.Success && result.Details?.GetValueOrDefault("products") is string products
+            ? products.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : null);
 
     /// <summary>Runs the tester between the audit events that make setup measurable.</summary>
     private async Task<ConnectionTestResult> TestAsync(

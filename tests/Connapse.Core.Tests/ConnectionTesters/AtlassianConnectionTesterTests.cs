@@ -66,6 +66,32 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     }
 
     [Fact]
+    public async Task Test_ConfluencePasses_ProductsIsConfluence()
+    {
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeTrue();
+        result.Details!["products"].Should().Be("confluence");
+        result.Details.Should().NotContainKey("product:confluence");
+    }
+
+    [Fact]
+    public async Task Test_ConfluenceFails_SameStepAndMessageAsBefore()
+    {
+        _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Be(ConfluenceSiteProbe.NoSpacesMessage);
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NoSpaces);
+        result.Details["detail"].Should().Be("HTTP 403 (Forbidden)");
+        result.Details["product:confluence"].Should().Be(ConfluenceSiteProbe.NoSpacesMessage);
+        result.Details.Should().NotContainKey("products");
+    }
+
+    [Fact]
     public async Task Test_BadSecret_FailsAtTokenStep()
     {
         _api.FailTokenWith(HttpStatusCode.Unauthorized);

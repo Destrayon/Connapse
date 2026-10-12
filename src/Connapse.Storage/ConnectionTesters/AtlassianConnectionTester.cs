@@ -98,6 +98,21 @@ public static class AtlassianSiteTroubleshooting
     public static string UrlOf(string anchor) => $"{GuideUrl}#{anchor}";
 }
 
+/// <summary>One product's probes against a site whose token already works.</summary>
+internal interface IAtlassianProductProbe
+{
+    string Product { get; }                                     // "confluence" | "jira"
+
+    /// <param name="steps">The test's run: the probe enters its steps on it, so a timeout or rate limit names them.</param>
+    Task<ProductProbeResult> RunAsync(
+        AtlassianSite site, string secret, AtlassianTokenSource tokens, AtlassianConnectionTester.Run steps, CancellationToken ct);
+}
+
+/// <summary>How one product's probe ended; <paramref name="StepMs"/> is how long its last step took.</summary>
+internal sealed record ProductProbeResult(
+    string Product, bool Passed, bool Warning, string? Step, string? Message, string? Troubleshoot, string? Detail,
+    IReadOnlyList<string> ConfirmedScopes, long StepMs = 0);
+
 /// <summary>
 /// Validates an Atlassian site's service account before it is saved. Each probe is one thing
 /// Connapse needs later, and the failing one is named in <c>Details["step"]</c>: finding the site,
@@ -153,20 +168,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         $"The credential is missing the {scope} scope, which Connapse needs to {AtlassianSiteScopes.ReasonOf(scope)}. "
         + "Create a new OAuth 2.0 credential on the service account with every scope listed in the setup steps, then enter it here.";
 
-    private enum Probe { Granted, Missing, Unanswered }
-
-    private const string UnverifiedMessage =
-        "Couldn't verify Confluence Administrator access because Atlassian didn't answer the check properly. "
-        + "Wait a minute and test again.";
-
-    private const string AdminMessage =
-        "The service account isn't Confluence Administrator, so Connapse can't check what other people may read. "
-        + "In Atlassian Administration, go to Directory > Service accounts, set its Confluence role to the admin role, then test again.";
-
-    private const string MissingPermissionScopeMessage =
-        "The credential is missing the " + AtlassianSiteScopes.ContentPermission + " scope, so Connapse can't check what "
-        + "other people may read. Create a new OAuth 2.0 credential on the service account with every scope listed in the "
-        + "setup steps, then enter it here.";
+    internal enum Probe { Granted, Missing, Unanswered }
 
     private const string CredentialsRejectedMessage =
         "Atlassian rejected the client ID or secret. Copy both again from the service account's OAuth 2.0 credential in "
@@ -175,19 +177,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     private const string SignInUnansweredMessage =
         "Atlassian's sign-in service didn't answer properly. Wait a minute and test again.";
 
-    private const string CantReadConfluenceMessage =
-        "The credential can't read Confluence on this site. Check that the service account's Confluence role isn't None "
-        + "and that its credential has every scope listed in the setup steps, then test again.";
-
-    private const string NoSpacesMessage =
-        "The service account can't see any Confluence space. Give it the Viewer role in at least one space "
-        + "(Space settings > Users), then test again.";
-
     // The probes read what Atlassian returned; any of these means this probe failed, not that the test crashed.
-    private static bool IsProbeFailure(Exception ex) =>
+    internal static bool IsProbeFailure(Exception ex) =>
         ex is HttpRequestException or AtlassianAuthException or JsonException or InvalidOperationException;
 
-    private static bool IsRefusal(Exception ex) =>
+    internal static bool IsRefusal(Exception ex) =>
         ex is AtlassianAuthException
         || ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized };
 
@@ -250,180 +244,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 return run.Fail(SignInUnansweredMessage, AtlassianSiteTroubleshooting.General, Describe(ex));
             }
 
-            IReadOnlyList<string>? granted = tokens.GrantedScopes(site);
+            var results = new List<ProductProbeResult>();
+            foreach (IAtlassianProductProbe probe in ProductProbes())
+                results.Add(await probe.RunAsync(site, request.ClientSecret, tokens, run, linked));
 
-            using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
-            var api = new AtlassianApiClient(http, tokens, site, request.ClientSecret, time);
-
-            run.Enter(IdentityStep);
-            string? ownAccountId;
-            try
-            {
-                using var current = await api.GetJsonAsync<JsonDocument>("rest/api/user/current", linked);
-                ownAccountId = Text(current.RootElement, "accountId");
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(CantReadConfluenceMessage, detail: Describe(ex));
-            }
-
-            // Without the service account's own id the "other user" below could be the account itself,
-            // and checking yourself needs no admin rights: fail closed.
-            if (string.IsNullOrWhiteSpace(ownAccountId))
-                return run.Fail(CantReadConfluenceMessage, detail: "Atlassian didn't say which account the credential belongs to.");
-
-            run.Enter(SpacesStep);
-            try
-            {
-                using var spaces = await api.GetJsonAsync<JsonDocument>("api/v2/spaces?limit=1", linked);
-                if (FirstId(spaces.RootElement) is null)
-                    return run.Fail(NoSpacesMessage, detail: "Atlassian listed no spaces for this account.");
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(NoSpacesMessage, detail: Describe(ex));
-            }
-
-            string? pageId;
-            string? folderId;
-            try
-            {
-                using var pages = await api.GetJsonAsync<JsonDocument>("api/v2/pages?limit=1", linked);
-                pageId = FirstId(pages.RootElement);
-                folderId = FirstParentFolder(pages.RootElement);
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(
-                    "The service account can't list pages. Check that its credential has the read:page:confluence scope, "
-                    + "then test again.",
-                    AtlassianSiteTroubleshooting.MissingScope, Describe(ex));
-            }
-
-            // One cheap read per scope a sync needs that the steps around this one don't use, each the
-            // kind of call the connector makes, so a credential missing one fails here and not at sync.
-            run.Enter(ContentStep);
-            var probes = new List<(string Scope, string Path)>();
-            if (pageId is not null)
-            {
-                string page = Uri.EscapeDataString(pageId);
-                probes.Add((AtlassianSiteScopes.Comment, $"api/v2/pages/{page}/footer-comments?limit=1"));
-                // A folder the page sits in when there is one. Otherwise the page's own id: Atlassian
-                // checks the scope before it looks the folder up, so "not found" still proves the scope.
-                probes.Add((AtlassianSiteScopes.Folder, $"api/v2/folders/{Uri.EscapeDataString(folderId ?? pageId)}"));
-            }
-            probes.Add((AtlassianSiteScopes.ContentDetails, $"rest/api/user/bulk?accountId={Uri.EscapeDataString(ownAccountId)}"));
-            probes.Add((AtlassianSiteScopes.ContentDetails, $"rest/api/search?cql={Uri.EscapeDataString("type=comment")}&limit=1"));
-
-            foreach (var (scope, path) in probes)
-            {
-                var (outcome, probeDetail) = await ProbeAsync(api, path, linked);
-                if (outcome == Probe.Missing)
-                    return run.Fail(MissingScopeMessage(scope), AtlassianSiteTroubleshooting.MissingScope, probeDetail);
-                if (outcome == Probe.Unanswered)
-                    return run.Fail(
-                        $"Couldn't check the {scope} scope because Atlassian didn't answer properly. Wait a minute and test again.",
-                        AtlassianSiteTroubleshooting.General, probeDetail);
-            }
-
-            // Optional: recorded as confirmed when it passes, never a failure without it.
-            bool attachmentsConfirmed = pageId is not null
-                && (await ProbeAsync(api, $"api/v2/pages/{Uri.EscapeDataString(pageId)}/attachments?limit=1", linked)).Outcome == Probe.Granted;
-
-            run.Enter(AdminStep);
-            if (pageId is null)
-                return run.Warn(
-                    "This site has no pages yet, so Connapse can't confirm the service account is Confluence Administrator. "
-                    + "You can save anyway; the check runs again when you next test. Or create a page and test again.",
-                    siteUrl, cloudId);
-
-            string? otherUser;
-            try
-            {
-                using var users = await api.GetJsonAsync<JsonDocument>("rest/api/search/user?cql=type=user&limit=25", linked);
-                otherUser = FirstOtherAccount(users.RootElement, ownAccountId);
-            }
-            catch (Exception ex) when (IsRefusal(ex))
-            {
-                return run.Fail(AdminMessage, detail: Describe(ex));
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(UnverifiedMessage, detail: Describe(ex));
-            }
-
-            if (otherUser is null)
-                return run.Warn(
-                    "The site has no user other than the service account, so Connapse can't confirm Confluence Administrator "
-                    + "access. You can save anyway; the check runs again when you next test. Or add another user and test again.",
-                    siteUrl, cloudId);
-
-            // A missing scope and a missing role both stop the check; Atlassian names the scope when
-            // it is the cause (and, when it lists the token's scopes, the scope can be seen missing).
-            bool scopeMissing = granted is not null
-                && !granted.Contains(AtlassianSiteScopes.ContentPermission, StringComparer.OrdinalIgnoreCase);
-
-            HttpStatusCode checkStatus;
-            string? checkDetail = null;
-            bool checkAnswered = false;
-            try
-            {
-                using var check = await api.PostAsync(
-                    $"rest/api/content/{Uri.EscapeDataString(pageId)}/permission/check",
-                    new { subject = new { type = "user", identifier = otherUser }, operation = "read" }, linked);
-                checkStatus = check.StatusCode;
-                string body = await check.Content.ReadAsStringAsync(linked);
-
-                // A 200 proves nothing by itself (a login page or proxy error can be a 200): only a
-                // PermissionCheckResponse carrying a boolean hasPermission shows the check ran. Either
-                // value will do, since answering at all for another user needs administrator rights.
-                if (checkStatus == HttpStatusCode.OK)
-                {
-                    using var answer = JsonDocument.Parse(body);
-                    checkAnswered = answer.RootElement.ValueKind == JsonValueKind.Object
-                        && answer.RootElement.TryGetProperty("hasPermission", out var has)
-                        && has.ValueKind is JsonValueKind.True or JsonValueKind.False;
-                }
-                else
-                {
-                    checkDetail = DescribeAnswer(checkStatus, body);
-                    if (body.Contains("scope", StringComparison.OrdinalIgnoreCase))
-                        scopeMissing = true;
-                }
-            }
-            catch (AtlassianAuthException ex)
-            {
-                // Two 401s in a row after the same token read Confluence above: Atlassian refuses a
-                // token on one endpoint like this when its scopes don't cover that endpoint.
-                return run.Fail(MissingPermissionScopeMessage, AtlassianSiteTroubleshooting.MissingScope, ex.Detail ?? ex.Message);
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(UnverifiedMessage, detail: Describe(ex));
-            }
-
-            if (checkStatus is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
-                return scopeMissing
-                    ? run.Fail(MissingPermissionScopeMessage, AtlassianSiteTroubleshooting.MissingScope, checkDetail)
-                    : run.Fail(AdminMessage, detail: checkDetail);
-            if (checkStatus != HttpStatusCode.OK)
-                return run.Fail($"{UnverifiedMessage} Confluence answered HTTP {(int)checkStatus}.", detail: checkDetail);
-            if (!checkAnswered)
-                return run.Fail(UnverifiedMessage, detail: "Confluence answered the check without saying whether the user may read the page.");
-
-            // What the probes proved, and anything else Atlassian says it granted.
-            var proven = new HashSet<string>(AtlassianSiteScopes.ProvenByTest, StringComparer.OrdinalIgnoreCase);
-            if (attachmentsConfirmed)
-                proven.Add(AtlassianSiteScopes.Attachment);
-            IReadOnlyList<string> confirmed = AtlassianSiteScopes.All.Select(s => s.Name)
-                .Where(n => proven.Contains(n) || (granted?.Contains(n, StringComparer.OrdinalIgnoreCase) ?? false))
-                .ToList();
-
-            return ConnectionTestResult.CreateSuccess(
-                $"Connected to {siteUrl}: found the site, signed in as the service account, read Confluence, listed spaces, "
-                + "read comments, folders and changes, and confirmed it can check what other people may read.",
-                new Dictionary<string, object> { ["cloudId"] = cloudId, ["siteUrl"] = siteUrl, ["scopes"] = confirmed.ToArray() },
-                run.Elapsed);
+            return Combine(results, run, siteUrl, cloudId);
         }
         // None of these is about the credential, so none may point at the step's usual entry (at the
         // sign-in step, "Client ID or secret rejected").
@@ -449,8 +274,46 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         }
     }
 
+    /// <summary>The products a site test probes once the token works, in the order they are reported.</summary>
+    private IReadOnlyList<IAtlassianProductProbe> ProductProbes() => [new ConfluenceSiteProbe(httpClients, time)];
+
+    /// <summary>
+    /// The test passes if any product passed, warns if none passed but one warned, and otherwise fails
+    /// with the first product's failure. <c>Details["products"]</c> names the products that passed,
+    /// <c>Details["scopes"]</c> is the union of their confirmed scopes, and <c>Details["product:{name}"]</c>
+    /// holds the message of each product that didn't pass.
+    /// </summary>
+    private static ConnectionTestResult Combine(IReadOnlyList<ProductProbeResult> results, Run run, string siteUrl, string cloudId)
+    {
+        List<ProductProbeResult> passed = results.Where(r => r.Passed).ToList();
+        ConnectionTestResult combined;
+        if (passed.Count > 0)
+        {
+            string[] scopes = passed.SelectMany(r => r.ConfirmedScopes).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            combined = ConnectionTestResult.CreateSuccess(
+                $"Connected to {siteUrl}: found the site, signed in as the service account, "
+                + $"{string.Join("; ", passed.Select(r => r.Message))}.",
+                new Dictionary<string, object>
+                {
+                    ["cloudId"] = cloudId,
+                    ["siteUrl"] = siteUrl,
+                    ["scopes"] = scopes,
+                    ["products"] = string.Join(",", passed.Select(r => r.Product)),
+                },
+                run.Elapsed);
+        }
+        else if (results.FirstOrDefault(r => r.Warning) is { } warned)
+            combined = run.Warn(warned, siteUrl, cloudId);
+        else
+            combined = run.Fail(results[0]);
+
+        foreach (ProductProbeResult result in results.Where(r => !r.Passed && r.Message is not null))
+            combined.Details!["product:" + result.Product] = result.Message!;
+        return combined;
+    }
+
     /// <summary>The step being run, and the clocks for the whole test and that step.</summary>
-    private sealed class Run
+    internal sealed class Run
     {
         private readonly Stopwatch _total = Stopwatch.StartNew();
         private readonly Stopwatch _step = Stopwatch.StartNew();
@@ -459,36 +322,63 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
         public TimeSpan Elapsed => _total.Elapsed;
 
+        public long StepMs => (long)_step.Elapsed.TotalMilliseconds;
+
         public void Enter(string step)
         {
             Step = step;
             _step.Restart();
         }
 
-        public ConnectionTestResult Fail(string message, string? troubleshoot = null, string? detail = null) =>
-            ConnectionTestResult.CreateFailure(message, Details(troubleshoot, detail), _total.Elapsed);
+        /// <summary>The steps of one product's probe, entered on this run so a timeout mid-probe still names them.</summary>
+        public ProductSteps For(string product) => new(this, product);
 
-        public ConnectionTestResult Warn(string message, string siteUrl, string cloudId)
+        public ConnectionTestResult Fail(string message, string? troubleshoot = null, string? detail = null) =>
+            ConnectionTestResult.CreateFailure(message, Details(Step, StepMs, troubleshoot, detail), _total.Elapsed);
+
+        /// <summary>A product's failure, at the step and with the duration that product recorded.</summary>
+        public ConnectionTestResult Fail(ProductProbeResult product) =>
+            ConnectionTestResult.CreateFailure(product.Message ?? "",
+                Details(product.Step ?? Step, product.StepMs, product.Troubleshoot, product.Detail), _total.Elapsed);
+
+        public ConnectionTestResult Warn(ProductProbeResult product, string siteUrl, string cloudId)
         {
-            var details = Details(AtlassianSiteTroubleshooting.NothingToCheckYet, null);
+            var details = Details(product.Step ?? Step, product.StepMs, AtlassianSiteTroubleshooting.NothingToCheckYet, null);
             details["warning"] = true;
             details["siteUrl"] = siteUrl;
             details["cloudId"] = cloudId;
-            return ConnectionTestResult.CreateFailure(message, details, _total.Elapsed);
+            return ConnectionTestResult.CreateFailure(product.Message ?? "", details, _total.Elapsed);
         }
 
-        private Dictionary<string, object> Details(string? troubleshoot, string? detail)
+        private static Dictionary<string, object> Details(string step, long stepMs, string? troubleshoot, string? detail)
         {
             var details = new Dictionary<string, object>
             {
-                ["step"] = Step,
-                ["troubleshoot"] = troubleshoot ?? DefaultTroubleshooting(Step),
-                ["stepMs"] = (long)_step.Elapsed.TotalMilliseconds,
+                ["step"] = step,
+                ["troubleshoot"] = troubleshoot ?? DefaultTroubleshooting(step),
+                ["stepMs"] = stepMs,
             };
             if (!string.IsNullOrWhiteSpace(detail))
                 details["detail"] = detail;
             return details;
         }
+    }
+
+    /// <summary>One product's view of the run: it enters steps and reports how its probe ended.</summary>
+    internal sealed class ProductSteps(Run run, string product)
+    {
+        public void Enter(string step) => run.Enter(step);
+
+        public ProductProbeResult Fail(string message, string? troubleshoot = null, string? detail = null) =>
+            new(product, Passed: false, Warning: false, run.Step, message, troubleshoot ?? DefaultTroubleshooting(run.Step), detail, [],
+                run.StepMs);
+
+        public ProductProbeResult Warn(string message) =>
+            new(product, Passed: false, Warning: true, run.Step, message, AtlassianSiteTroubleshooting.NothingToCheckYet, null, [],
+                run.StepMs);
+
+        public ProductProbeResult Pass(string message, IReadOnlyList<string> confirmedScopes) =>
+            new(product, Passed: true, Warning: false, null, message, null, null, confirmedScopes, run.StepMs);
     }
 
     // What Atlassian answered, for the "Details" disclosure: a status and the exception text
@@ -508,7 +398,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     /// A refused permission check as "HTTP 403: message", from Atlassian's error fields only
     /// (<c>message</c>, <c>code</c>, <c>reason</c>), never the whole body.
     /// </summary>
-    private static string DescribeAnswer(HttpStatusCode status, string body)
+    internal static string DescribeAnswer(HttpStatusCode status, string body)
     {
         string prefix = $"HTTP {(int)status} ({status})";
         try
@@ -535,12 +425,12 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         }
     }
 
-    private static string? Text(JsonElement obj, string name) =>
+    internal static string? Text(JsonElement obj, string name) =>
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()
             : null;
 
-    private static string? FirstId(JsonElement root)
+    internal static string? FirstId(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object
             || !root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
@@ -559,23 +449,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         return null;
     }
 
-    /// <summary>The folder the first listed page sits in, or null when it sits elsewhere.</summary>
-    private static string? FirstParentFolder(JsonElement root)
-    {
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
-            return null;
-
-        foreach (var item in results.EnumerateArray())
-            return string.Equals(Text(item, "parentType"), "folder", StringComparison.Ordinal) ? Text(item, "parentId") : null;
-        return null;
-    }
-
     /// <summary>
     /// One GET read only for its status. Success, or a 404/400 (Atlassian checks a token's scopes
     /// before it looks anything up), shows the scope is granted; a 401 or 403 that it is missing.
     /// </summary>
-    private static async Task<(Probe Outcome, string? Detail)> ProbeAsync(AtlassianApiClient api, string path, CancellationToken ct)
+    internal static async Task<(Probe Outcome, string? Detail)> ProbeAsync(AtlassianApiClient api, string path, CancellationToken ct)
     {
         try
         {
@@ -595,25 +473,5 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         {
             return (Probe.Unanswered, Describe(ex));
         }
-    }
-
-    // search/user results look like { results: [ { user: { accountId } } ] }; a flat shape is accepted too.
-    private static string? FirstOtherAccount(JsonElement root, string? ownAccountId)
-    {
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
-            return null;
-
-        foreach (var item in results.EnumerateArray())
-        {
-            string? accountId = item.ValueKind == JsonValueKind.Object && item.TryGetProperty("user", out var user)
-                ? Text(user, "accountId")
-                : Text(item, "accountId");
-
-            if (!string.IsNullOrWhiteSpace(accountId) && accountId != ownAccountId)
-                return accountId;
-        }
-
-        return null;
     }
 }

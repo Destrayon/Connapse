@@ -90,6 +90,16 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Health_SavesProducts()
+    {
+        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
+
+        await _store.Received(1).RecordHealthAsync(added.Connection!.Id,
+            Arg.Is<ConnectionHealth>(h => h.Products != null && h.Products.SequenceEqual(new[] { "confluence" })),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Add_SiteWithNoPages_IsNotSavedUnlessAskedTo()
     {
         _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
