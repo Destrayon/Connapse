@@ -159,7 +159,7 @@ always included.
 **Attachments and their scope.** When the site's last **Test connection** did not confirm the
 `read:attachment:confluence` scope, **Include attachments** starts off and the dialog says why. You can
 still turn it on. If Atlassian then refuses to list or download attachments, the source keeps syncing
-its pages and comments, skips attachments for that sync, and shows this note on the Sources page:
+its pages and comments, skips attachments for that sync, and shows this warning on the Sources page:
 *Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it
 to the credential, or turn off Include attachments.* The site itself is not marked **Needs new
 credentials**, because its credential still works for everything else. To fix it, see [Missing
