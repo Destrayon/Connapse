@@ -21,6 +21,13 @@ public enum AtlassianLinkAppCheck
     Unknown,
 }
 
+/// <summary>
+/// What Atlassian said about a linking app, with its own answer kept for an administrator who asks:
+/// the status and Atlassian's error code (such as <c>HTTP 401, access_denied</c>), or why there was
+/// no answer. Null when Atlassian accepted the app. Never carries the secret.
+/// </summary>
+public sealed record AtlassianLinkAppCheckResult(AtlassianLinkAppCheck Result, string? Detail = null);
+
 /// <summary>Atlassian refused the stored linking app's client ID or secret during a sign-in.</summary>
 public sealed class AtlassianLinkAppRejectedException()
     : Exception("Atlassian rejected the linking app's client ID or secret.");
@@ -78,6 +85,11 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
     /// <c>unauthorized_client</c> or a 401 means it was not.
     /// </summary>
     public async Task<AtlassianLinkAppCheck> CheckAppAsync(
+        string clientId, string clientSecret, string redirectUri, CancellationToken ct = default) =>
+        (await CheckAppWithDetailAsync(clientId, clientSecret, redirectUri, ct)).Result;
+
+    /// <summary><see cref="CheckAppAsync"/>, keeping Atlassian's answer as the result's detail.</summary>
+    public async Task<AtlassianLinkAppCheckResult> CheckAppWithDetailAsync(
         string clientId, string clientSecret, string redirectUri, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
@@ -97,33 +109,41 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
             using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
             using var response = await http.PostAsJsonAsync(AtlassianTokenSource.TokenEndpoint, body, ct);
             if (response.IsSuccessStatusCode)
-                return AtlassianLinkAppCheck.Accepted;
+                return new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Accepted);
 
-            return Classify(response.StatusCode, (await ErrorAsync(response, ct))?.Error);
+            var error = await ErrorAsync(response, ct);
+            var result = Classify(response.StatusCode, error?.Error);
+            return new AtlassianLinkAppCheckResult(
+                result, result == AtlassianLinkAppCheck.Accepted ? null : $"HTTP {(int)response.StatusCode}{ErrorReason(error)}");
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
-            return AtlassianLinkAppCheck.Unknown;
+            return new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Unknown,
+                $"No answer from {new Uri(AtlassianTokenSource.TokenEndpoint).Host}: {LogSanitizer.Sanitize(ex.Message)}");
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
-            return AtlassianLinkAppCheck.Unknown; // timed out
+            return new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Unknown, "No answer within the time limit.");
         }
     }
 
     /// <summary>Checks the stored app, and records the answer when Atlassian gave one.</summary>
     /// <returns>Null when no app (with its secret) is stored.</returns>
-    public async Task<AtlassianLinkAppCheck?> CheckStoredAppAsync(string redirectUri, CancellationToken ct = default)
+    public async Task<AtlassianLinkAppCheck?> CheckStoredAppAsync(string redirectUri, CancellationToken ct = default) =>
+        (await CheckStoredAppWithDetailAsync(redirectUri, ct))?.Result;
+
+    /// <summary><see cref="CheckStoredAppAsync"/>, keeping Atlassian's answer as the result's detail.</summary>
+    public async Task<AtlassianLinkAppCheckResult?> CheckStoredAppWithDetailAsync(string redirectUri, CancellationToken ct = default)
     {
         var app = await credentials.GetAtlassianLinkAppAsync(ct);
         string? secret = await credentials.GetAtlassianLinkAppSecretAsync(ct);
         if (app is null || string.IsNullOrEmpty(secret))
             return null;
 
-        var result = await CheckAppAsync(app.ClientId, secret, redirectUri, ct);
-        if (result != AtlassianLinkAppCheck.Unknown)
-            await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, result == AtlassianLinkAppCheck.Accepted, DateTime.UtcNow, ct);
-        return result;
+        var checkedApp = await CheckAppWithDetailAsync(app.ClientId, secret, redirectUri, ct);
+        if (checkedApp.Result != AtlassianLinkAppCheck.Unknown)
+            await credentials.RecordAtlassianLinkAppCheckAsync(app.ClientId, checkedApp.Result == AtlassianLinkAppCheck.Accepted, DateTime.UtcNow, ct);
+        return checkedApp;
     }
 
     /// <summary>Reads a token endpoint refusal: <c>invalid_grant</c> is about the code, the rest about the client.</summary>
@@ -190,6 +210,16 @@ public sealed class AtlassianUserSignIn(IHttpClientFactory httpClients, IProvide
         var me = await who.Content.ReadFromJsonAsync<MeResponse>(ct);
         if (string.IsNullOrWhiteSpace(me?.AccountId))
             throw new AtlassianAuthException("Atlassian returned an account without an id.");
+
+        // A sign-in that completed proves the callback URL, so the daily check can use it. Best
+        // effort: the person's link must not fail over this.
+        try
+        {
+            await credentials.RememberAtlassianCallbackUrlAsync(app.ClientId, redirectUri, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+        }
 
         return new AtlassianUserAccount(me.AccountId);
     }

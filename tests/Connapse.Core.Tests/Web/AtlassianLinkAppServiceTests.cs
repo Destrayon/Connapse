@@ -111,6 +111,108 @@ public sealed class AtlassianLinkAppServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckAndSaveAsync_Rejected_KeepsAtlassiansCodeAndAuditsIt()
+    {
+        _api.FailTokenWith(HttpStatusCode.Unauthorized, """{"error":"access_denied"}""");
+
+        var result = await _service.CheckAndSaveAsync("link-client", Secret, Callback, null);
+
+        result.Should().Be(new AtlassianLinkAppSaveResult(AtlassianLinkAppSaveOutcome.Rejected, "HTTP 401, access_denied"));
+        _events.Should().ContainSingle().Which.Details.Should().Contain("access_denied").And.NotContain(Secret);
+    }
+
+    [Fact]
+    public async Task SaveAsync_Accepted_RemembersTheCallbackUrl()
+    {
+        _api.FailTokenWith(HttpStatusCode.BadRequest, """{"error":"invalid_grant"}""");
+
+        await _service.SaveAsync("link-client", Secret, Callback, null);
+
+        await _credentials.Received(1).RememberAtlassianCallbackUrlAsync("link-client", Callback, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecheckWithDetailAsync_Answered_RecordsItAndRemembersTheCallbackUrl()
+    {
+        StoreApp(new AtlassianLinkAppRegistration("link-client"));
+        _api.FailTokenWith(HttpStatusCode.Unauthorized, """{"error":"invalid_client"}""");
+
+        var result = await _service.RecheckWithDetailAsync(Callback);
+
+        result.Should().Be(new AtlassianLinkAppCheckResult(AtlassianLinkAppCheck.Rejected, "HTTP 401, invalid_client"));
+        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _credentials.Received(1).RememberAtlassianCallbackUrlAsync("link-client", Callback, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecheckWithDetailAsync_NoAnswer_RemembersNothing()
+    {
+        StoreApp(new AtlassianLinkAppRegistration("link-client"));
+        _api.FailTokenWith(HttpStatusCode.InternalServerError, null);
+
+        (await _service.RecheckWithDetailAsync(Callback))!.Result.Should().Be(AtlassianLinkAppCheck.Unknown);
+
+        await _credentials.DidNotReceiveWithAnyArgs().RememberAtlassianCallbackUrlAsync(default!, default!, default);
+        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task ScheduledRecheckAsync_ChecksWithTheRememberedCallbackUrl()
+    {
+        StoreApp(new AtlassianLinkAppRegistration("link-client", CallbackUrl: Callback));
+        _api.FailTokenWith(HttpStatusCode.BadRequest, """{"error":"invalid_grant"}""");
+
+        var result = await _service.ScheduledRecheckAsync();
+
+        result!.Result.Should().Be(AtlassianLinkAppCheck.Accepted);
+        _api.TokenRequests.Should().Be(1);
+        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", true, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        _events.Should().ContainSingle(e => e.Action == "provider.credential.checked");
+    }
+
+    [Theory]
+    [InlineData(false, true, "no app stored")]
+    [InlineData(true, false, "sign-in is off")]
+    [InlineData(true, true, "no callback URL known yet")]
+    public async Task ScheduledRecheckAsync_SkipsWhenThereIsNothingToCheck(bool stored, bool signInEnabled, string because)
+    {
+        if (stored)
+            StoreApp(new AtlassianLinkAppRegistration("link-client", SignInEnabled: signInEnabled,
+                CallbackUrl: signInEnabled ? null : Callback));
+
+        (await _service.ScheduledRecheckAsync()).Should().BeNull(because);
+
+        _api.TokenRequests.Should().Be(0);
+        await _credentials.DidNotReceiveWithAnyArgs().RecordAtlassianLinkAppCheckAsync(default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task CheckJob_RunsTheScheduledRecheck()
+    {
+        StoreApp(new AtlassianLinkAppRegistration("link-client", CallbackUrl: Callback));
+        _api.FailTokenWith(HttpStatusCode.Forbidden, """{"error":"access_denied"}""");
+
+        await new AtlassianLinkAppCheckJob(_service, NullLogger<AtlassianLinkAppCheckJob>.Instance).RunAsync(CancellationToken.None);
+
+        await _credentials.Received(1).RecordAtlassianLinkAppCheckAsync("link-client", false, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CheckJob_NothingStored_DoesNothing()
+    {
+        await new AtlassianLinkAppCheckJob(_service, NullLogger<AtlassianLinkAppCheckJob>.Instance).RunAsync(CancellationToken.None);
+
+        _api.TokenRequests.Should().Be(0);
+        _events.Should().BeEmpty();
+    }
+
+    private void StoreApp(AtlassianLinkAppRegistration app)
+    {
+        _credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(app);
+        _credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
+    }
+
+    [Fact]
     public async Task CountLinkedPeopleAsync_WhenCountingFails_IsNull()
     {
         _links.CountLinksAsync(Arg.Any<CancellationToken>()).Returns<int>(_ => throw new InvalidOperationException("db down"));

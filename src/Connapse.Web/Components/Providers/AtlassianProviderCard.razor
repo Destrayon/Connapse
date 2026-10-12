@@ -83,11 +83,12 @@
             <ProviderField Spec="AtlassianLinkAppFieldSpecs.ClientId" Small="true" Value="@appClientId"
                            ValueChanged="@((string? v) => appClientId = v)" Disabled="@appBusy" Error="@clientIdError" />
             <ProviderField Spec="AtlassianLinkAppFieldSpecs.ClientSecret" Small="true" Value="@appClientSecret"
-                           ValueChanged="@((string? v) => appClientSecret = v)" Error="@secretError">
+                           ValueChanged="@((string? v) => appClientSecret = v)" Disabled="@appBusy" Error="@secretError">
                 <ErrorContent>
                     @if (secretRejected)
                     {
                         <a class="ms-1" href="@AtlassianLinkAppFieldSpecs.TroubleshootingRejected" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                        @AtlassianAnswer(secretErrorDetail, "atlassian-app-secret-detail")
                     }
                 </ErrorContent>
             </ProviderField>
@@ -131,6 +132,11 @@
             {
                 <div class="text-danger small mt-2" role="alert" id="atlassian-app-error">
                     <span class="bi-x-circle me-1" aria-hidden="true"></span>@appError
+                    @if (appErrorUnreachable)
+                    {
+                        <a class="ms-1" href="@UnreachableHelp" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                    }
+                    @AtlassianAnswer(appErrorDetail, "atlassian-app-error-detail")
                 </div>
             }
         </section>
@@ -154,10 +160,11 @@
     @if (alertMessage is not null)
     {
         <span class="bi-x-circle me-1" aria-hidden="true"></span>@alertMessage
-        @if (alertTroubleshooting)
+        @if (alertTroubleshootingUrl is not null)
         {
-            <a class="ms-1" href="@AtlassianLinkAppFieldSpecs.TroubleshootingRejected" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+            <a class="ms-1" href="@alertTroubleshootingUrl" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
         }
+        @AtlassianAnswer(alertDetail, "atlassian-app-alert-detail")
     }
 </div>
 
@@ -180,16 +187,37 @@
     private bool copySucceeded;
     private bool secretRejected;
     private bool showNextSteps;
-    private bool alertTroubleshooting;
+    private bool toggleBusy;
+    private bool removeBusy;
+    private bool appErrorUnreachable;
+    private string? alertTroubleshootingUrl;
     private string? appClientId;
     private string? appClientSecret;
     private string? clientIdError;
     private string? secretError;
+    private string? secretErrorDetail;
     private string? appError;
+    private string? appErrorDetail;
     private string? appCopyMessage;
     private string? statusMessage;
     private string? alertMessage;
+    private string? alertDetail;
     private ElementReference replaceConfirmButton;
+
+    private const string UnreachableHelp = AtlassianLinkAppFieldSpecs.Guide + "#couldnt-reach-atlassian";
+
+    /// <summary>When the stored app is checked next, so an administrator can tell its status is current.</summary>
+    private static string CheckSchedule(AtlassianLinkAppRegistration app) => app switch
+    {
+        { SignInEnabled: false } => "Not checked automatically while sign-in is off.",
+        { CallbackUrl: null or "" } => "Checked automatically every day once Recheck has run here.",
+        _ => "Checked automatically every day.",
+    };
+
+    /// <summary>Atlassian's own answer, behind a disclosure: the message above says what it means.</summary>
+    private static RenderFragment AtlassianAnswer(string? detail, string id) => detail is null
+        ? _ => { }
+        : @<details class="mt-1" id="@id"><summary>Details</summary>Atlassian answered: <code class="text-break">@detail</code></details>;
 
     private string CallbackUrl => Navigation.BaseUri + Connapse.Web.Endpoints.CloudIdentityEndpoints.AtlassianCallbackPath;
 
@@ -255,6 +283,7 @@
                       {
                           <text>Not yet. Choose Recheck.</text>
                       }
+                      <span class="d-block text-muted" id="atlassian-app-check-schedule">@CheckSchedule(app)</span>
                   </dd>
                   <dt>Last used for a sign-in</dt><dd>@(app.VerifiedAt is { } used ? used.ToString("u") : "Not yet")</dd>
                   @if (linkedPeople is { } count)
@@ -278,8 +307,16 @@
         </button>
         <div class="ms-auto d-flex gap-2 align-items-start flex-wrap">
             <button type="button" id="atlassian-sign-in-toggle" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSignInAsync"
-                    aria-describedby="atlassian-sign-in-toggle-help">
-                @(app.SignInEnabled ? "Turn off Atlassian sign-in" : "Turn on Atlassian sign-in")
+                    disabled="@(toggleBusy || removeBusy)" aria-describedby="atlassian-sign-in-toggle-help">
+                @if (toggleBusy)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                    <span>@(app.SignInEnabled ? "Turning off…" : "Turning on…")</span>
+                }
+                else
+                {
+                    @(app.SignInEnabled ? "Turn off Atlassian sign-in" : "Turn on Atlassian sign-in")
+                }
             </button>
             <span id="atlassian-sign-in-toggle-help" class="visually-hidden">
                 @(app.SignInEnabled
@@ -290,6 +327,8 @@
                                  Label="Remove the linking app from Connapse"
                                  ConfirmLabel="Remove the linking app"
                                  ConfirmText="@app.ClientId"
+                                 BusyLabel="Removing…"
+                                 Disabled="@toggleBusy"
                                  HelpText="@RemoveHelp" />
         </div>
     </text>;
@@ -324,13 +363,15 @@
         appClientId = linkApp?.ClientId;
         appClientSecret = null;
         (clientIdError, secretError, appError, secretRejected, confirmingReplace) = (null, null, null, false, false);
+        (secretErrorDetail, appErrorDetail, appErrorUnreachable) = (null, null, false);
         showAppSetup = false;
     }
 
     private void ClearMessages()
     {
         (clientIdError, secretError, appError, secretRejected) = (null, null, null, false);
-        (statusMessage, alertMessage, alertTroubleshooting, showNextSteps) = (null, null, false, false);
+        (secretErrorDetail, appErrorDetail, appErrorUnreachable) = (null, null, false);
+        (statusMessage, alertMessage, alertTroubleshootingUrl, alertDetail, showNextSteps) = (null, null, null, null, false);
     }
 
     private async Task SaveAppAsync()
@@ -367,17 +408,18 @@
             var state = await AuthState.GetAuthenticationStateAsync();
             Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
 
-            var outcome = await LinkApp.SaveAsync(clientId, appClientSecret, CallbackUrl, userId);
-            if (outcome == AtlassianLinkAppSaveOutcome.Rejected)
+            var saved = await LinkApp.CheckAndSaveAsync(clientId, appClientSecret, CallbackUrl, userId);
+            if (saved.Outcome == AtlassianLinkAppSaveOutcome.Rejected)
             {
                 // The secret stays in the field, so it can be corrected rather than copied again.
                 secretError = "Atlassian rejected this client ID and secret, so nothing was saved. Copy both again from Settings on the app in the developer console.";
-                secretRejected = true;
+                (secretRejected, secretErrorDetail) = (true, saved.Detail);
                 return;
             }
-            if (outcome == AtlassianLinkAppSaveOutcome.Unreachable)
+            if (saved.Outcome == AtlassianLinkAppSaveOutcome.Unreachable)
             {
                 appError = "Couldn't reach Atlassian to check the app, so nothing was saved. Check that this server can reach auth.atlassian.com over HTTPS, then try again.";
+                (appErrorUnreachable, appErrorDetail) = (true, saved.Detail);
                 return;
             }
             // Never rendered back, and no reason to keep it in the circuit's memory.
@@ -405,20 +447,22 @@
         checkBusy = true;
         try
         {
-            var result = await LinkApp.RecheckAsync(CallbackUrl);
+            var result = await LinkApp.RecheckWithDetailAsync(CallbackUrl);
             await LoadAsync();
 
-            switch (result)
+            alertDetail = result?.Detail;
+            switch (result?.Result)
             {
                 case AtlassianLinkAppCheck.Accepted:
                     statusMessage = "Atlassian accepted the stored client ID and secret.";
                     break;
                 case AtlassianLinkAppCheck.Rejected:
                     alertMessage = "Atlassian rejected the stored client ID or secret, so nobody new can link an account. Choose Change the linking app and paste a new secret.";
-                    alertTroubleshooting = true;
+                    alertTroubleshootingUrl = AtlassianLinkAppFieldSpecs.TroubleshootingRejected;
                     break;
                 case AtlassianLinkAppCheck.Unknown:
-                    alertMessage = "Couldn't reach Atlassian to check the app. Nothing was changed; try again.";
+                    alertMessage = "Couldn't reach Atlassian to check the app. Nothing was changed. Check that this server can reach auth.atlassian.com over HTTPS, then try again.";
+                    alertTroubleshootingUrl = UnreachableHelp;
                     break;
                 default:
                     alertMessage = "No linking app is stored.";
@@ -438,9 +482,10 @@
 
     private async Task ToggleSignInAsync()
     {
-        if (linkApp is null) return;
+        if (linkApp is null || toggleBusy) return;
         ClearMessages();
         bool enable = !linkApp.SignInEnabled;
+        toggleBusy = true;
         try
         {
             if (!await LinkApp.SetSignInEnabledAsync(enable))
@@ -458,11 +503,16 @@
             Logger.LogWarning(ex, "Could not change whether Atlassian sign-in is on");
             alertMessage = "Atlassian sign-in could not be changed. Nothing was changed; try again.";
         }
+        finally
+        {
+            toggleBusy = false;
+        }
     }
 
     private async Task RemoveAppAsync()
     {
         ClearMessages();
+        removeBusy = true;
         try
         {
             // ProviderResetAction enabled the confirm button only once the client ID was typed.
@@ -479,6 +529,10 @@
         {
             Logger.LogWarning(ex, "Could not remove the Atlassian linking app");
             alertMessage = "The linking app could not be removed. Nothing was changed; try again.";
+        }
+        finally
+        {
+            removeBusy = false;
         }
     }
 

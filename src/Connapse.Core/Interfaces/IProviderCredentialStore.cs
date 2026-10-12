@@ -61,12 +61,17 @@ public record GitHubAppCredentialMaterial(GitHubAppRegistration App, string Priv
 /// <param name="CheckedAt">When Atlassian was last asked whether it accepts the client ID and secret, or null if never.</param>
 /// <param name="CheckAccepted">What Atlassian answered then; null when it has never been checked.</param>
 /// <param name="SignInEnabled">False when an administrator turned sign-in off: no new links, existing ones kept.</param>
+/// <param name="CallbackUrl">
+/// The sign-in callback last used with this app (a save, a check, or a completed sign-in), so the
+/// scheduled check can ask Atlassian with the same redirect URI. Null until one of those happens.
+/// </param>
 public record AtlassianLinkAppRegistration(
     string ClientId,
     DateTime? VerifiedAt = null,
     DateTime? CheckedAt = null,
     bool? CheckAccepted = null,
-    bool SignInEnabled = true);
+    bool SignInEnabled = true,
+    string? CallbackUrl = null);
 
 /// <summary>
 /// Existence and timing of a stored credential, independent of its shape.
@@ -157,6 +162,10 @@ public interface IProviderCredentialStore
     /// <returns>False when nothing was written: no app is stored, or a different client ID is now.</returns>
     Task<bool> RecordAtlassianLinkAppCheckAsync(
         string clientId, bool accepted, DateTime when, CancellationToken ct = default);
+
+    /// <summary>Records the sign-in callback URL used with the stored app.</summary>
+    /// <returns>False when nothing was written: no app is stored, a different client ID is now, or it is unchanged.</returns>
+    Task<bool> RememberAtlassianCallbackUrlAsync(string clientId, string callbackUrl, CancellationToken ct = default);
 
     /// <summary>Turns Atlassian sign-in on or off without touching the stored app.</summary>
     /// <returns>False when no app is stored.</returns>

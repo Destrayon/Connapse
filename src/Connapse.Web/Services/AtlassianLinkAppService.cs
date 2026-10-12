@@ -7,6 +7,9 @@ public enum AtlassianLinkAppSaveOutcome { Saved, MissingFields, Rejected, Unreac
 
 public enum AtlassianLinkAppRemoveOutcome { Removed, NotStored, ConfirmMismatch }
 
+/// <param name="Detail">Atlassian's answer when it refused the app or could not be asked; never the secret.</param>
+public sealed record AtlassianLinkAppSaveResult(AtlassianLinkAppSaveOutcome Outcome, string? Detail = null);
+
 /// <summary>
 /// The Atlassian linking app's lifecycle, shared by the Providers page and the REST API so both
 /// check with Atlassian before saving and write the same audit events: <c>provider.credential.checked</c>,
@@ -45,37 +48,71 @@ public sealed class AtlassianLinkAppService(
     /// </summary>
     /// <param name="callbackUrl">This server's sign-in callback, the redirect URI the check sends.</param>
     public async Task<AtlassianLinkAppSaveOutcome> SaveAsync(
+        string? clientId, string? clientSecret, string callbackUrl, Guid? userId, CancellationToken ct = default) =>
+        (await CheckAndSaveAsync(clientId, clientSecret, callbackUrl, userId, ct)).Outcome;
+
+    /// <summary><see cref="SaveAsync"/>, keeping Atlassian's answer for a refusal or a failed check.</summary>
+    public async Task<AtlassianLinkAppSaveResult> CheckAndSaveAsync(
         string? clientId, string? clientSecret, string callbackUrl, Guid? userId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-            return AtlassianLinkAppSaveOutcome.MissingFields;
+            return new(AtlassianLinkAppSaveOutcome.MissingFields);
 
         string trimmedId = clientId.Trim();
-        var result = await signIn.CheckAppAsync(trimmedId, clientSecret, callbackUrl, ct);
+        var check = await signIn.CheckAppWithDetailAsync(trimmedId, clientSecret, callbackUrl, ct);
         await audit.LogAsync("provider.credential.checked", "provider", Provider,
-            new { ClientId = trimmedId, Result = result.ToString() }, ct);
+            new { ClientId = trimmedId, Result = check.Result.ToString(), check.Detail }, ct);
 
-        if (result == AtlassianLinkAppCheck.Rejected)
-            return AtlassianLinkAppSaveOutcome.Rejected;
-        if (result == AtlassianLinkAppCheck.Unknown)
-            return AtlassianLinkAppSaveOutcome.Unreachable;
+        if (check.Result == AtlassianLinkAppCheck.Rejected)
+            return new(AtlassianLinkAppSaveOutcome.Rejected, check.Detail);
+        if (check.Result == AtlassianLinkAppCheck.Unknown)
+            return new(AtlassianLinkAppSaveOutcome.Unreachable, check.Detail);
 
         await credentials.SaveAtlassianLinkAppAsync(trimmedId, clientSecret.Trim(), userId, DateTime.UtcNow, ct);
+        await credentials.RememberAtlassianCallbackUrlAsync(trimmedId, callbackUrl, ct);
         // The same event GitHub's App writes. The client ID only: never the secret.
         await audit.LogAsync("provider.credential.saved", "provider", Provider,
             new { ClientId = trimmedId, Via = "manual" }, ct);
-        return AtlassianLinkAppSaveOutcome.Saved;
+        return new(AtlassianLinkAppSaveOutcome.Saved);
     }
 
     /// <summary>Checks the stored app with Atlassian again and records the answer.</summary>
     /// <returns>Null when no app is stored.</returns>
-    public async Task<AtlassianLinkAppCheck?> RecheckAsync(string callbackUrl, CancellationToken ct = default)
+    public async Task<AtlassianLinkAppCheck?> RecheckAsync(string callbackUrl, CancellationToken ct = default) =>
+        (await RecheckWithDetailAsync(callbackUrl, ct))?.Result;
+
+    /// <summary><see cref="RecheckAsync"/>, keeping Atlassian's answer as the result's detail.</summary>
+    public async Task<AtlassianLinkAppCheckResult?> RecheckWithDetailAsync(string callbackUrl, CancellationToken ct = default)
     {
         var app = await credentials.GetAtlassianLinkAppAsync(ct);
-        var result = await signIn.CheckStoredAppAsync(callbackUrl, ct);
+        var check = await signIn.CheckStoredAppWithDetailAsync(callbackUrl, ct);
         await audit.LogAsync("provider.credential.checked", "provider", Provider,
-            new { app?.ClientId, Result = result?.ToString() ?? "NotStored" }, ct);
-        return result;
+            new { app?.ClientId, Result = check?.Result.ToString() ?? "NotStored", check?.Detail }, ct);
+
+        // An answer from Atlassian proves the callback URL is one it takes, so the daily check reuses it.
+        if (app is not null && check is { Result: not AtlassianLinkAppCheck.Unknown })
+            await credentials.RememberAtlassianCallbackUrlAsync(app.ClientId, callbackUrl, ct);
+        return check;
+    }
+
+    /// <summary>
+    /// The daily check: rechecks the stored app with the callback URL it was last used with, so a
+    /// secret revoked in the developer console shows as rejected before someone's sign-in fails.
+    /// Skipped, returning null, when no app is stored, sign-in is off, or no callback URL is known yet.
+    /// </summary>
+    public async Task<AtlassianLinkAppCheckResult?> ScheduledRecheckAsync(CancellationToken ct = default)
+    {
+        var app = await credentials.GetAtlassianLinkAppAsync(ct);
+        if (app is null || !app.SignInEnabled)
+            return null;
+        if (string.IsNullOrWhiteSpace(app.CallbackUrl))
+        {
+            logger.LogInformation(
+                "Atlassian linking app check skipped: no callback URL recorded yet. Choose Recheck on the Providers page once.");
+            return null;
+        }
+
+        return await RecheckWithDetailAsync(app.CallbackUrl, ct);
     }
 
     /// <summary>Turns Atlassian sign-in on or off without touching the stored app.</summary>

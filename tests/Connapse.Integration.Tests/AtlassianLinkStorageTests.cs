@@ -228,6 +228,67 @@ public class AtlassianLinkStorageTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task RememberAtlassianCallbackUrlAsync_KeepsTheCallbackForTheStoredClientOnly_AndASaveClearsIt()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+        const string callback = "https://connapse.example/api/v1/auth/cloud/atlassian/callback";
+
+        try
+        {
+            (await store.RememberAtlassianCallbackUrlAsync("atl-client-id", callback)).Should().BeFalse("nothing is stored yet");
+
+            await store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-1", createdByUserId: null);
+            (await store.GetAtlassianLinkAppAsync())!.CallbackUrl.Should().BeNull();
+
+            (await store.RememberAtlassianCallbackUrlAsync("another-client", callback)).Should().BeFalse();
+            (await store.RememberAtlassianCallbackUrlAsync("atl-client-id", callback)).Should().BeTrue();
+            (await store.RememberAtlassianCallbackUrlAsync("atl-client-id", callback)).Should().BeFalse("an unchanged URL is not written again");
+
+            var app = (await store.GetAtlassianLinkAppAsync())!;
+            app.CallbackUrl.Should().Be(callback);
+            (await store.SetAtlassianSignInEnabledAsync(false)).Should().BeTrue();
+            (await store.GetAtlassianLinkAppAsync())!.CallbackUrl.Should().Be(callback, "other settings keep it");
+
+            await store.SaveAtlassianLinkAppAsync("new-client", "secret-2", createdByUserId: null);
+            (await store.GetAtlassianLinkAppAsync())!.CallbackUrl.Should().BeNull("a new app has not been checked from anywhere yet");
+        }
+        finally
+        {
+            await store.DeleteAsync("atlassian");
+        }
+    }
+
+    [Fact]
+    public async Task CheckJob_IsRegisteredDaily_AndResolvesAndRuns()
+    {
+        // The recurring job is registered at startup; Hangfire resolves its type from DI when it fires.
+        using (var connection = Hangfire.JobStorage.Current.GetConnection())
+        {
+            var job = Hangfire.Storage.StorageConnectionExtensions.GetRecurringJobs(connection)
+                .SingleOrDefault(j => j.Id == Connapse.Web.Services.AtlassianLinkAppCheckJob.RecurringJobId);
+            job.Should().NotBeNull();
+            job!.Cron.Should().Be(Hangfire.Cron.Daily());
+        }
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+        var checkJob = scope.ServiceProvider.GetRequiredService<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
+
+        try
+        {
+            // Stored, but no callback known yet: skipped, nothing recorded.
+            await store.SaveAtlassianLinkAppAsync("atl-client-id", "secret-1", createdByUserId: null);
+            await checkJob.RunAsync(CancellationToken.None);
+            (await store.GetAtlassianLinkAppAsync())!.CheckedAt.Should().BeNull();
+        }
+        finally
+        {
+            await store.DeleteAsync("atlassian");
+        }
+    }
+
+    [Fact]
     public async Task SetAtlassianSignInEnabledAsync_TurnsSignInOffAndOn_KeepingTheApp_AndSavingTurnsItOn()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

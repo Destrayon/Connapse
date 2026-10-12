@@ -23,7 +23,7 @@
         case ProviderFieldKind.MultilineSecret:
             <SecretTextArea Id="@Spec.Id" Multiline="@(Spec.Kind == ProviderFieldKind.MultilineSecret)" Rows="@Spec.Rows"
                             CssClass="@InputClass" Placeholder="@(HasStoredValue ? Spec.KeptPlaceholder : Spec.Placeholder)"
-                            DescribedBy="@DescribedBy" Invalid="@(Error is not null)" @bind-Value="CurrentValue" />
+                            DescribedBy="@DescribedBy" Invalid="@(Error is not null)" Disabled="@Disabled" @bind-Value="CurrentValue" />
             break;
 
         case ProviderFieldKind.Multiline:
