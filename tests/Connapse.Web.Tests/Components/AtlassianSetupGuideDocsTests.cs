@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Web.Components.Pages;
 using Connapse.Web.Components.Sources;
 using FluentAssertions;
 using Xunit;
@@ -29,6 +31,9 @@ public class AtlassianSetupGuideDocsTests
         "### Site has no pages or no other users yet",
         "### Linking app rejected",
         "### Sign-in failed",
+        "### Space can no longer be read",
+        "### Attachments skipped",
+        "### Couldn't reach Atlassian",
     ];
 
     private static string Guide() =>
@@ -64,6 +69,65 @@ public class AtlassianSetupGuideDocsTests
         anchors.Should().Contain(ConfluenceSpaceSelection.GuideUrl.Split('#')[1]);
         ConfluenceSpaceSelection.MissingScopeGuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
         anchors.Should().Contain(ConfluenceSpaceSelection.MissingScopeGuideUrl.Split('#')[1]);
+    }
+
+    private static HashSet<string> Anchors() => Guide().Split('\n')
+        .Where(line => line.StartsWith('#'))
+        .Select(line => Regex.Replace(line.TrimStart('#').Trim().ToLowerInvariant(), @"[^a-z0-9 -]", "").Replace(' ', '-'))
+        .ToHashSet();
+
+    [Fact]
+    public void EveryLinkOutsideTheSiteTest_PointsAtASectionOfTheGuide()
+    {
+        var anchors = Anchors();
+        var urls = new List<string>
+        {
+            ProfileIntegrations.AtlassianLinkAppRejectedHelp,
+            ProfileIntegrations.AtlassianSignInFailedHelp,
+        };
+        urls.AddRange(Connapse.Storage.ConnectionTesters.AtlassianSiteTroubleshooting.Elsewhere
+            .Select(Connapse.Storage.ConnectionTesters.AtlassianSiteTroubleshooting.UrlOf));
+
+        foreach (string url in urls)
+        {
+            url.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+            anchors.Should().Contain(url.Split('#')[1], "the page links to this section");
+        }
+    }
+
+    [Theory]
+    [InlineData("atlassian_app_rejected", "#linking-app-rejected")]
+    [InlineData("atlassian_not_configured", "#sign-in-failed")]
+    [InlineData("atlassian_link_expired", "#sign-in-failed")]
+    [InlineData("atlassian_sign_in_off", "#sign-in-failed")]
+    [InlineData("atlassian_link_failed", "#sign-in-failed")]
+    public void ProfileSignInError_LinksTheGuideEntryThatExplainsIt(string error, string anchor)
+    {
+        ProfileIntegrations.AtlassianHelpFor(error).Should().EndWith("atlassian-setup.md" + anchor);
+
+        string page = File.ReadAllText(Path.Combine(
+            PageTestPaths.RepositoryRoot(), "src", "Connapse.Web", "Components", "Pages", "ProfileIntegrations.razor"));
+        page.Should().Contain(">What this means<", "the link reads as help to the person who hit the error");
+    }
+
+    [Fact]
+    public void SetupGuide_QuotesEverySyncErrorASourceCanShow()
+    {
+        string guide = Flat(Guide());
+
+        // The guide quotes each message's first sentence, which is what an administrator sees first.
+        foreach (string message in new[]
+                 {
+                     AtlassianSyncErrors.CredentialRefused,
+                     AtlassianSyncErrors.FreshTokenRefused,
+                     AtlassianSyncErrors.Unavailable,
+                     AtlassianSyncErrors.SpaceUnreadable("ENG", 403)["Confluence space ENG ".Length..],
+                     AtlassianSyncErrors.SpaceUnreadable("ENG", 404)["Confluence space ENG can no longer be read: ".Length..],
+                 })
+        {
+            string firstSentence = message[..(message.IndexOf(". ", StringComparison.Ordinal) + 1)];
+            guide.Should().Contain(firstSentence);
+        }
     }
 
     /// <summary>Markdown wraps lines; a message quoted in the guide is compared with whitespace collapsed.</summary>

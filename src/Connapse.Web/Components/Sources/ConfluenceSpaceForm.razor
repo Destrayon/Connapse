@@ -1,4 +1,5 @@
 @using Connapse.Web.Services
+@using Connapse.Storage.ConnectionTesters
 @inject AtlassianSiteService Sites
 
 @* The Confluence part of the New source dialog: the site's spaces to tick, and what to read from each. *@
@@ -22,13 +23,18 @@
     }
     else if (loadError is not null)
     {
-        <div class="alert alert-danger py-2 small mb-0" role="alert">
+        <div class="alert alert-danger py-2 small mb-0" role="alert" id="confluence-spaces-load-error">
             <span class="bi-x-circle me-1" aria-hidden="true"></span>@loadError
+            <a class="alert-link ms-1" href="@(loadErrorUrl ?? AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.General))"
+               target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
         </div>
     }
     else if (Selection.Available.Count == 0)
     {
-        <div class="text-muted small" role="status">This site has no spaces the service account can see.</div>
+        <div class="text-muted small" role="status" id="confluence-spaces-none">
+            This site has no spaces the service account can see.
+            <a href="@AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.NoSpaces)" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </div>
     }
     else
     {
@@ -112,6 +118,7 @@
 
     private bool loading;
     private string? loadError;
+    private string? loadErrorUrl;
     private Guid loadedFor;
     private bool loadedPersonal;
 
@@ -171,7 +178,7 @@
         loadedFor = connectionId;
         loadedPersonal = includePersonal;
         loading = true;
-        loadError = null;
+        (loadError, loadErrorUrl) = (null, null);
         try
         {
             var listed = await Sites.ListSpacesAsync(connectionId, includePersonal);
@@ -185,7 +192,7 @@
                     break;
                 case AtlassianSpacesOutcome.Unavailable:
                     selection.Available = [];
-                    loadError = listed.Error;
+                    (loadError, loadErrorUrl) = (listed.Error, listed.TroubleshootingUrl);
                     break;
                 default:
                     selection.Available = [];

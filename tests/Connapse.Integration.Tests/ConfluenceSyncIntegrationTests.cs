@@ -164,7 +164,11 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         try
         {
             var failed = await service.SyncSourceAsync(source, connection, CancellationToken.None);
-            failed.Error.Should().NotBeNull();
+            // Plain words first, Atlassian's own answer after the marker for the Details disclosure.
+            failed.Error.Should().StartWith(AtlassianSyncErrors.CredentialRefused)
+                .And.Contain(SyncErrorText.DetailMarker + "HTTP 401");
+            (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(source.Id))!.LastSyncError
+                .Should().Be(failed.Error);
         }
         finally
         {
@@ -313,7 +317,8 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         _api.Confluence.RemoveSpace(SpaceId);
         var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
 
-        second.Error.Should().Contain("can no longer be read");
+        second.Error.Should().Contain("can no longer be read").And.Contain("Viewer role")
+            .And.EndWith(SyncErrorText.DetailMarker + "HTTP 404");
         var after = (await sources.GetAsync(source.Id))!;
         after.AccessRevokedAt.Should().NotBeNull();
         after.SyncCursor.Should().Be(synced.SyncCursor);
@@ -715,7 +720,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
 
         var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
 
-        result.Notice.Should().Be("1 attachment skipped: over 25 MB or unsupported type");
+        result.Notice.Should().StartWith("1 attachment was skipped: larger than 25 MB, or a file type Connapse can't read.");
         queue.Jobs.Select(j => j.Options.Path).Should().Contain("/attachments/602/small.txt")
             .And.NotContain(p => p.StartsWith("/attachments/601/", StringComparison.Ordinal));
     }
@@ -759,7 +764,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
 
         var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
 
-        result.Notice.Should().Be("2 attachments skipped: over 25 MB or unsupported type");
+        result.Notice.Should().StartWith("2 attachments were skipped: larger than 25 MB, or a file type Connapse can't read.");
         queue.Jobs.Should().NotContain(j => j.Options.Path.StartsWith("/attachments/", StringComparison.Ordinal));
     }
 

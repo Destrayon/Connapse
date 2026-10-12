@@ -1,3 +1,5 @@
+using Connapse.Core;
+
 namespace Connapse.Storage.Connectors.Atlassian;
 
 /// <summary>
@@ -5,8 +7,11 @@ namespace Connapse.Storage.Connectors.Atlassian;
 /// tries again after <see cref="RetryAfter"/> when the response named one.
 /// </summary>
 public sealed class AtlassianRateLimitedException(TimeSpan? retryAfter)
-    : Exception($"Atlassian is rate limiting this site{(retryAfter is { } wait ? $"; retry after {(int)wait.TotalSeconds} seconds" : "")}.")
+    : Exception($"{MessagePrefix}{(retryAfter is { } wait ? $"; retry after {(int)wait.TotalSeconds} seconds" : "")}.")
 {
+    /// <summary>How every message starts, so a stored sync notice can be told apart as a wait.</summary>
+    public const string MessagePrefix = "Atlassian is rate limiting this site";
+
     public TimeSpan? RetryAfter { get; } = retryAfter;
 }
 
@@ -18,9 +23,23 @@ public sealed class AtlassianRateLimitedException(TimeSpan? retryAfter)
 /// The token endpoint itself refused the credential, so nothing on the site can be read. False for
 /// an API call refused with a fresh token, which can be one endpoint the credential's scopes don't cover.
 /// </param>
-public sealed class AtlassianAuthException(string message, bool tokenRefused = false) : Exception(message)
+/// <param name="detail">Atlassian's answer (status and error code), kept apart from the plain message.</param>
+public sealed class AtlassianAuthException(string message, bool tokenRefused = false, string? detail = null)
+    : Exception(message), IErrorDetail
 {
     public bool TokenRefused { get; } = tokenRefused;
+
+    public string? Detail { get; } = detail;
+}
+
+/// <summary>
+/// A Confluence space answered 403 or 404: the service account lost access to it, or it was
+/// deleted. Its documents leave search until the space is readable again.
+/// </summary>
+public sealed class ConfluenceSpaceUnreadableException(string message, string detail, Exception inner)
+    : SourceAccessRevokedException(message, inner), IErrorDetail
+{
+    public string? Detail { get; } = detail;
 }
 
 /// <summary>
@@ -38,3 +57,13 @@ public sealed class AtlassianMalformedResponseException(string message) : Except
 /// </summary>
 public sealed class AtlassianRedirectRefusedException()
     : InvalidOperationException("Refusing to follow a download redirect outside Atlassian.");
+
+/// <summary>
+/// Confluence could not be read for a reason that says nothing about the credential or the space:
+/// a network failure, an unexpected status, an answer of the wrong shape, or a timeout.
+/// </summary>
+public sealed class AtlassianUnavailableException(string message, string detail, Exception inner)
+    : IOException(message, inner), IErrorDetail
+{
+    public string? Detail { get; } = detail;
+}

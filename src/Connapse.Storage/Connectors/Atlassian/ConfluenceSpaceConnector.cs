@@ -63,6 +63,26 @@ public sealed partial class ConfluenceSpaceConnector(
         "Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. "
         + "Add it to the credential, or turn off Include attachments.";
 
+    /// <summary>The words every skipped-attachments notice carries, so the Sources page can link its guide section.</summary>
+    public const string SkippedAttachmentsPhrase = "skipped: larger than";
+
+    /// <summary>
+    /// A failure that says nothing about the credential or the space: a network error, a status
+    /// other than 403/404, an answer that isn't the expected shape, or a timeout. Recorded as a plain
+    /// message with Atlassian's answer as detail.
+    /// </summary>
+    private static bool IsUnavailable(Exception ex, CancellationToken ct) =>
+        ex is HttpRequestException or AtlassianMalformedResponseException or JsonException
+        || (ex is TaskCanceledException && !ct.IsCancellationRequested);
+
+    private static AtlassianUnavailableException Unavailable(Exception ex) =>
+        new(AtlassianSyncErrors.Unavailable, ex switch
+        {
+            TaskCanceledException => "No answer within the time limit.",
+            AtlassianMalformedResponseException => ex.Message,
+            _ => ConnectionTesters.AtlassianConnectionTester.Describe(ex),
+        }, ex);
+
     /// <summary>
     /// A refusal of an attachment read that is not the credential itself being refused: a 401 with
     /// a freshly issued token or a 403. A token endpoint refusal is the site's problem and propagates.
@@ -126,8 +146,9 @@ public sealed partial class ConfluenceSpaceConnector(
         {
             // Deleted, or the service account lost access. Hidden from search, not deleted: a
             // permission slip should not wipe the index.
-            throw new SourceAccessRevokedException(
-                $"Confluence space {LogSanitizer.Sanitize(config.SpaceKey)} can no longer be read (HTTP {(int)ex.StatusCode!}).", ex);
+            int status = (int)ex.StatusCode!;
+            throw new ConfluenceSpaceUnreadableException(
+                AtlassianSyncErrors.SpaceUnreadable(config.SpaceKey, status), $"HTTP {status}", ex);
         }
         catch (AtlassianRateLimitedException ex)
         {
@@ -137,14 +158,26 @@ public sealed partial class ConfluenceSpaceConnector(
                 LogSanitizer.Sanitize(config.SpaceKey));
             return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message);
         }
+        catch (Exception ex) when (IsUnavailable(ex, ct))
+        {
+            throw Unavailable(ex);
+        }
 
         var stored = Merge(listed, fresh, commented, attached);
 
         // After the listing is settled, and outside its all-or-nothing rule: a page whose list
         // could not be read keeps the attachments it had, so nothing is deleted for it.
-        string? stopped = config.IncludeAttachments
-            ? await RefreshAttachmentsAsync(listed.Values, started, attached, ct)
-            : null;
+        string? stopped;
+        try
+        {
+            stopped = config.IncludeAttachments
+                ? await RefreshAttachmentsAsync(listed.Values, started, attached, ct)
+                : null;
+        }
+        catch (Exception ex) when (IsUnavailable(ex, ct))
+        {
+            throw Unavailable(ex);
+        }
 
         if (config.IncludeAttachments)
             ReconcileAttachmentOwners(listed.Values, started, attachmentOwners);
@@ -155,7 +188,9 @@ public sealed partial class ConfluenceSpaceConnector(
 
         var files = Listing(null, out int skipped);
         string? skippedNote = skipped > 0
-            ? $"{skipped} attachment{(skipped == 1 ? "" : "s")} skipped: over {config.MaxAttachmentMb} MB or unsupported type"
+            ? $"{skipped} attachment{(skipped == 1 ? " was" : "s were")} {SkippedAttachmentsPhrase} "
+              + $"{config.MaxAttachmentMb} MB, or a file type Connapse can't read. To include larger files, raise "
+              + "Max attachment size on the source."
             : null;
         string? notice = string.Join(" ", new[] { skippedNote, stopped }.Where(n => n is not null));
 

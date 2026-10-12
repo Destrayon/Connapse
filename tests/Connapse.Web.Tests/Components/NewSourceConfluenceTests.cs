@@ -400,12 +400,45 @@ public class NewSourceConfluenceTests : IDisposable
         result.Error.Should().NotBeNullOrEmpty().And.NotContain("the-secret");
     }
 
+    [Fact]
+    public void Dialog_CredentialRefused_SaysWhatToDoAndLinksTheMatchingEntry()
+    {
+        stub.RejectToken = true;
+        var cut = OpenDialog();
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces-load-error").TextContent
+            .Should().Contain("Replace credentials"));
+        cut.Find("#confluence-spaces-load-error a").GetAttribute("href")
+            .Should().EndWith("atlassian-setup.md#client-id-or-secret-rejected");
+        cut.Markup.Should().NotContain("the-secret");
+    }
+
+    [Fact]
+    public void Dialog_SpacesUnreadable_LinksTheNoSpacesEntry()
+    {
+        stub.SiteASpaces = null;
+        var cut = OpenDialog();
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces-load-error a").GetAttribute("href")
+            .Should().EndWith("atlassian-setup.md#no-confluence-access-or-no-spaces"));
+    }
+
+    [Fact]
+    public void Dialog_NoSpaces_LinksTheNoSpacesEntry()
+    {
+        stub.SiteASpaces = """{"results":[]}""";
+        var cut = OpenDialog();
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces-none a").GetAttribute("href")
+            .Should().EndWith("atlassian-setup.md#no-confluence-access-or-no-spaces"));
+    }
+
     private sealed class StubSpacesHandler : HttpMessageHandler
     {
         public bool RejectToken { get; set; }
 
         /// <summary>Spaces for the first site; a test can change what the site has between calls.</summary>
-        public string SiteASpaces { get; set; } = """
+        public string? SiteASpaces { get; set; } = """
             {"results":[
               {"id":"100","key":"ENG","name":"Engineering","type":"global"},
               {"id":"200","key":"HB","name":"Handbook","type":"global"},

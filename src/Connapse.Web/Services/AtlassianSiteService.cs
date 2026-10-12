@@ -21,10 +21,12 @@ public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable
 public sealed record ConfluenceSpaceInfo(string Id, string Key, string Name, string Type);
 
 /// <param name="Error">What went wrong, for <see cref="AtlassianSpacesOutcome.Unavailable"/>. Never carries a secret.</param>
+/// <param name="TroubleshootingUrl">The setup guide's entry for <paramref name="Error"/>.</param>
 public sealed record AtlassianSpacesResult(
     AtlassianSpacesOutcome Outcome,
     IReadOnlyList<ConfluenceSpaceInfo>? Spaces = null,
-    string? Error = null);
+    string? Error = null,
+    string? TroubleshootingUrl = null);
 
 /// <param name="Test">The test that ran: the failed probe for <see cref="AtlassianAddOutcome.TestFailed"/>, or a warning saved anyway.</param>
 public sealed record AtlassianAddResult(
@@ -237,16 +239,22 @@ public sealed class AtlassianSiteService(
         }
         catch (AtlassianRateLimitedException ex)
         {
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message);
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message,
+                TroubleshootingUrl: AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.General));
         }
         catch (AtlassianAuthException ex)
         {
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message);
+            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message,
+                TroubleshootingUrl: AtlassianSyncErrors.TroubleshootingUrl(ex.Message));
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException)
         {
+            // A refusal is the service account's access; anything else says nothing about it.
+            bool refused = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound };
             return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
-                Error: "Atlassian could not list this site's spaces. Check the service account's access and try again.");
+                Error: "Atlassian could not list this site's spaces. Check the service account's access and try again.",
+                TroubleshootingUrl: AtlassianSiteTroubleshooting.UrlOf(
+                    refused ? AtlassianSiteTroubleshooting.NoSpaces : AtlassianSiteTroubleshooting.Unreachable));
         }
     }
 

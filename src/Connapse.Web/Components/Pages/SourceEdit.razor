@@ -13,6 +13,7 @@
 @inject IConnectionStore ConnectionStore
 @inject IConnectorFactory ConnectorFactory
 @inject IAuditLogger AuditLogger
+@inject ILogger<SourceEdit> Logger
 
 @*
     One source's settings. What it reads from — the connection and the bucket, directory, or
@@ -227,7 +228,8 @@
         }
         catch (Exception ex)
         {
-            loadError = $"Could not load the source: {ex.Message}";
+            Logger.LogError(ex, "Could not load source {SourceId} for editing", Id);
+            loadError = "Could not load the source. Reload the page to try again; if it keeps failing, the server log has the cause.";
         }
     }
 
@@ -288,8 +290,10 @@
         }
         catch (Exception ex)
         {
-            // An exception escaping a Blazor event handler tears down the circuit.
-            (message, success) = ($"Could not save: {ex.Message}", false);
+            // An exception escaping a Blazor event handler tears down the circuit. The exception's
+            // text is for the log, not the page: it can quote internals that mean nothing here.
+            Logger.LogError(ex, "Could not save source {SourceId}", source.Id);
+            (message, success) = ("Could not save the source, so nothing was changed. Try again; if it keeps failing, the server log has the cause.", false);
         }
         finally
         {

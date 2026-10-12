@@ -63,6 +63,15 @@ public static class AtlassianSiteTroubleshooting
     public const string MissingScope = "missing-scope";
     public const string NothingToCheckYet = "site-has-no-pages-or-no-other-users-yet";
 
+    /// <summary>A synced space answered 403 or 404: access was taken away, or the space was deleted.</summary>
+    public const string SpaceUnreadable = "space-can-no-longer-be-read";
+
+    /// <summary>Atlassian could not be reached, or answered in a way that says nothing about the credential.</summary>
+    public const string Unreachable = "couldnt-reach-atlassian";
+
+    /// <summary>A sync left out attachments over the size cap or of a type Connapse can't read.</summary>
+    public const string AttachmentsSkipped = "attachments-skipped";
+
     /// <summary>
     /// The guide's Troubleshooting section as a whole: for a timeout, a rate limit or an unreadable
     /// answer, which say nothing about the credential, so no single entry fits.
@@ -71,6 +80,9 @@ public static class AtlassianSiteTroubleshooting
 
     public static IReadOnlyList<string> All { get; } =
         [SiteNotFound, CredentialsRejected, CantReadConfluence, NoSpaces, NotAdministrator, MissingScope, NothingToCheckYet, General];
+
+    /// <summary>The entries only sync, the spaces dialog and the linking app link to; the site test never fails with these.</summary>
+    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, Unreachable, AttachmentsSkipped];
 
     public static string UrlOf(string anchor) => $"{GuideUrl}#{anchor}";
 }
@@ -198,7 +210,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             }
             catch (AtlassianAuthException ex)
             {
-                var rejected = run.Fail(CredentialsRejectedMessage, detail: ex.Message);
+                var rejected = run.Fail(CredentialsRejectedMessage, detail: ex.Detail ?? ex.Message);
                 rejected.Details!["rejected"] = true;
                 return rejected;
             }
@@ -322,7 +334,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             {
                 // Two 401s in a row after the same token read Confluence above: Atlassian refuses a
                 // token on one endpoint like this when its scopes don't cover that endpoint.
-                return run.Fail(MissingPermissionScopeMessage, AtlassianSiteTroubleshooting.MissingScope, ex.Message);
+                return run.Fail(MissingPermissionScopeMessage, AtlassianSiteTroubleshooting.MissingScope, ex.Detail ?? ex.Message);
             }
             catch (Exception ex) when (IsProbeFailure(ex))
             {
@@ -416,11 +428,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
     // What Atlassian answered, for the "Show details" disclosure: a status and the exception text
     // Connapse wrote, never a request (which is where a secret or token would be).
-    private static string Describe(Exception ex) => ex switch
+    internal static string Describe(Exception ex) => ex switch
     {
         HttpRequestException { StatusCode: { } status } => $"HTTP {(int)status} ({status})",
         HttpRequestException => "No HTTP answer: the connection failed.",
-        AtlassianAuthException => ex.Message,
+        AtlassianAuthException auth => auth.Detail ?? auth.Message,
         JsonException => "Atlassian's answer wasn't valid JSON.",
         _ => ex.Message,
     };

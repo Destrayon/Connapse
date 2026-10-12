@@ -76,7 +76,7 @@ public sealed class ConfluenceSpaceConnectorListingTests : IDisposable
 
         var act = () => connector.GetChangesAsync(first.NextCursor);
 
-        await act.Should().ThrowAsync<AtlassianMalformedResponseException>();
+        (await act.Should().ThrowAsync<AtlassianUnavailableException>()).WithInnerException<AtlassianMalformedResponseException>();
         SnapshotStore().Should().BeEquivalentTo(before);
         (await connector.ListFilesAsync()).Should().BeEquivalentTo(listedBefore);
     }
@@ -97,7 +97,7 @@ public sealed class ConfluenceSpaceConnectorListingTests : IDisposable
 
         var act = () => connector.GetChangesAsync(first.NextCursor);
 
-        await act.Should().ThrowAsync<AtlassianMalformedResponseException>();
+        (await act.Should().ThrowAsync<AtlassianUnavailableException>()).WithInnerException<AtlassianMalformedResponseException>();
         SnapshotStore().Should().BeEquivalentTo(before);
         (await connector.ListFilesAsync()).Select(f => f.Path).Should().BeEquivalentTo(
             "/pages/101.md", "/pages/102.md", "/pages/103.md", "/blogposts/201.md");

@@ -272,10 +272,12 @@ public class SourceSyncService(
             // would silently roll progress backwards.
             var current = await sourceStore.GetAsync(source.Id, ct);
 
+            // The message is written for an administrator; a provider's own answer rides after it.
+            string error = SyncErrorText.Of(ex);
             await sourceStore.UpdateSyncStateAsync(
-                source.Id, current?.SyncCursor, SyncStatus.Failed, ex.Message, DateTime.UtcNow, ct);
+                source.Id, current?.SyncCursor, SyncStatus.Failed, error, DateTime.UtcNow, ct);
 
-            return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: ex.Message);
+            return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: error);
         }
         finally
         {

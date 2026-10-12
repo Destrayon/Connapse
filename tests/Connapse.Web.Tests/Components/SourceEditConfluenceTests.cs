@@ -48,9 +48,36 @@ public class SourceEditConfluenceTests : IDisposable
         ctx.Services.AddSingleton(connections);
         ctx.Services.AddSingleton(Substitute.For<IConnectorFactory>());
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
+        ctx.Services.AddLogging();
     }
 
     public void Dispose() => ctx.Dispose();
+
+    [Fact]
+    public void Save_UnexpectedFailure_ShowsAPlainMessageAndNotTheExceptionText()
+    {
+        sources.UpdateAsync(source.Id, Arg.Any<UpdateSourceRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Source?>>(_ => throw new InvalidOperationException("Npgsql: connection to 10.0.0.5:5432 refused"));
+        var cut = Render();
+
+        cut.Find("#confluence-attachments").Change(false);
+        cut.Find("button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain("Could not save the source, so nothing was changed."));
+        cut.Markup.Should().NotContain("Npgsql").And.NotContain("10.0.0.5");
+    }
+
+    [Fact]
+    public void Load_UnexpectedFailure_ShowsAPlainMessageAndNotTheExceptionText()
+    {
+        sources.GetAsync(source.Id, Arg.Any<CancellationToken>())
+            .Returns<Task<Source?>>(_ => throw new InvalidOperationException("Npgsql: connection to 10.0.0.5:5432 refused"));
+
+        var cut = ctx.Render<SourceEditPage>(p => p.Add(x => x.Id, source.Id));
+
+        cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain("Could not load the source."));
+        cut.Markup.Should().NotContain("Npgsql").And.NotContain("10.0.0.5");
+    }
 
     private IRenderedComponent<SourceEditPage> Render()
     {
