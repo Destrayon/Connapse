@@ -1322,7 +1322,7 @@
                     @if (!testSuccess && testDetail is { Length: > 0 })
                     {
                         <details class="mt-1">
-                            <summary class="small">Raw error</summary>
+                            <summary class="small">Details</summary>
                             <pre class="small mb-0 mt-1" style="white-space:pre-wrap">@testDetail</pre>
                         </details>
                     }
@@ -2481,7 +2481,7 @@
         // Only AtlassianSiteService may create a site: it saves one only after every probe passes.
         if (isNew && form.Provider == ConnectionProvider.Atlassian)
         {
-            Fail("Use Test and save to add an Atlassian site.");
+            Fail("Use Check and save to add an Atlassian site.");
             return;
         }
 

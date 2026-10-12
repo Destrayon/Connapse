@@ -301,7 +301,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Rejected_ShowsFailedAndAnnouncesIt()
+    public void TestConnection_Rejected_ShowsFailedAndAnnouncesIt()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
             new AtlassianLinkAppRegistration("link-client"),
@@ -320,7 +320,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Accepted_AnnouncesItInAStatusRegion()
+    public void TestConnection_Accepted_AnnouncesItInAStatusRegion()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
@@ -403,7 +403,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Rejected_ShowsAtlassiansAnswerUnderDetails()
+    public void TestConnection_Rejected_ShowsAtlassiansAnswerUnderDetails()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
@@ -417,7 +417,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Unreachable_LinksTheTroubleshootingEntry()
+    public void TestConnection_Unreachable_LinksTheTroubleshootingEntry()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
@@ -447,7 +447,7 @@ public class AtlassianProviderCardTests : IDisposable
 
     [Theory]
     [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", true, "Checked automatically every day.")]
-    [InlineData(null, true, "once Recheck has run here")]
+    [InlineData(null, true, "once Test connection has run here")]
     [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", false, "Not checked automatically while sign-in is off.")]
     public void LastChecked_SaysWhenTheAppIsCheckedAgain(string? callbackUrl, bool signInEnabled, string expected)
     {

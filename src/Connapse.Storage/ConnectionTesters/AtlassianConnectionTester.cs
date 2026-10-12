@@ -426,7 +426,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         }
     }
 
-    // What Atlassian answered, for the "Show details" disclosure: a status and the exception text
+    // What Atlassian answered, for the "Details" disclosure: a status and the exception text
     // Connapse wrote, never a request (which is where a secret or token would be).
     internal static string Describe(Exception ex) => ex switch
     {

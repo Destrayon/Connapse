@@ -199,7 +199,7 @@
                                         </button>
                                     }
                                     <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => ToggleEnabled(source)">
-                                        @(source.Enabled ? "Disable" : "Enable")
+                                        @(source.Enabled ? "Pause syncing" : "Resume syncing")
                                     </button>
                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(source)">
                                         Delete
@@ -945,7 +945,7 @@
     {
         (string css, string? icon, string text) = source switch
         {
-            { Enabled: false } => ("text-bg-secondary", null, "Disabled"),
+            { Enabled: false } => ("text-bg-secondary", "bi-pause-circle", "Paused"),
             { LastSyncStatus: SyncStatus.Succeeded, LastSyncError: { Length: > 0 } notice }
                 when SourceSyncNotice.KindOf(notice) == SyncNoticeKind.Waiting => ("text-bg-light border", "bi-hourglass-split", "Waiting"),
             { LastSyncStatus: SyncStatus.Succeeded, LastSyncError.Length: > 0 } => ("text-bg-warning", "bi-exclamation-triangle-fill", "Warning"),
@@ -1067,7 +1067,9 @@
                 await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(),
                     new { source.Name, updated.Enabled });
 
-                Succeed($"'{source.Name}' {(updated.Enabled ? "enabled" : "disabled")}.");
+                Succeed(updated.Enabled
+                    ? $"Syncing resumed for '{source.Name}'."
+                    : $"Syncing paused for '{source.Name}'. Nothing is deleted, and its documents stay searchable.");
             }
 
             await LoadAsync();

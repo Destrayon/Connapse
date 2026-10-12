@@ -210,7 +210,7 @@
     private static string CheckSchedule(AtlassianLinkAppRegistration app) => app switch
     {
         { SignInEnabled: false } => "Not checked automatically while sign-in is off.",
-        { CallbackUrl: null or "" } => "Checked automatically every day once Recheck has run here.",
+        { CallbackUrl: null or "" } => "Checked automatically every day once Test connection has run here.",
         _ => "Checked automatically every day.",
     };
 
@@ -281,7 +281,7 @@
                       }
                       else
                       {
-                          <text>Not yet. Choose Recheck.</text>
+                          <text>Not yet. Choose Test connection.</text>
                       }
                       <span class="d-block text-muted" id="atlassian-app-check-schedule">@CheckSchedule(app)</span>
                   </dd>
@@ -304,11 +304,11 @@
         <button type="button" id="atlassian-app-recheck" class="btn btn-sm btn-outline-secondary" disabled="@checkBusy" @onclick="RecheckAsync">
             @if (checkBusy)
             {
-                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking…</span>
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Testing…</span>
             }
             else
             {
-                <span>Recheck</span>
+                <span class="bi-plug me-1" aria-hidden="true"></span><span>Test connection</span>
             }
         </button>
         <div class="ms-auto d-flex gap-2 align-items-start flex-wrap">

@@ -190,7 +190,7 @@ public class AtlassianConnectionFormTests : IDisposable
         result.TextContent.Should().Contain("Signing in as the service account").And.NotContain("(step:").And.NotContain(Secret);
         result.QuerySelector("a.alert-link")!.GetAttribute("href")
             .Should().EndWith("docs/atlassian-setup.md#client-id-or-secret-rejected");
-        cut.Find("#atlassian-save-result-details").TextContent.Should().Contain("Show details").And.Contain("HTTP 401");
+        cut.Find("#atlassian-save-result-details").TextContent.Should().Contain("Details").And.Contain("HTTP 401");
         store.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
         created.Should().BeFalse();
     }

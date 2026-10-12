@@ -125,10 +125,10 @@ provider page.
 **Look up site** shows the site's **Cloud ID**, Atlassian's permanent identifier for the site, so you
 can confirm it's the right one before entering the credential.
 
-**Test and save** runs five checks in order: **Finding the site**, **Signing in as the service
+**Check and save** runs five checks in order: **Finding the site**, **Signing in as the service
 account**, **Reading Confluence**, **Listing spaces**, and **Checking access permissions** (the admin
 role). The site is saved when every check passes, named after its host. A failure names the check, says
-what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Show details** shows
+what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Details** shows
 Atlassian's own answer. If the test fails, the secret is kept for your next attempt. A brand-new site
 with no pages or no other users can be saved with **Save anyway**.
 
@@ -307,7 +307,7 @@ are images or other files no parser can read. Pages and comments still synced.
 
 ### Couldn't reach Atlassian
 
-**Symptom:** **Check and save** or **Recheck** on the **Linking app** card answers *Couldn't reach
+**Symptom:** **Check and save** or **Test connection** on the **Linking app** card answers *Couldn't reach
 Atlassian…*, or a Confluence source failed with *Confluence on this site didn't answer properly, so
 nothing changed this cycle.* or *Atlassian's sign-in service answered with a redirect…*
 **Likely cause:** this server can't reach Atlassian over HTTPS (a firewall, a proxy, or DNS), or

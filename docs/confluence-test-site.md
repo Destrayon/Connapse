@@ -35,7 +35,7 @@ Follow [step 2 of the Atlassian setup guide](atlassian-setup.md#2-service-accoun
 The full field-by-field steps are in the [Atlassian setup guide](atlassian-setup.md).
 
 1. **Admin** → **Providers** → **Atlassian**: create and save the linking app ([step 1 of the guide](atlassian-setup.md#1-linking-app)). Without it, nobody can link an account in step 4.4, so every search shows no Confluence results.
-2. **Connections** → **Add connection** → **Atlassian site**: enter the site, the service account's client ID and secret, and **Test and save**.
+2. **Connections** → **Add connection** → **Atlassian site**: enter the site, the service account's client ID and secret, and **Check and save**.
 3. **Sources** → **New source** → choose the site's connection → tick **Engineering** and **Company Operations**, tick **Include attachments** if it isn't already (it starts off when the site's last test didn't confirm the `read:attachment:confluence` scope, and the GPU budget question below is answered only by an attached PDF), and **Create source**.
 4. Link accounts: as yourself, go to **Profile** → **Integrations** → Atlassian and sign in as your Atlassian account. Then, as a second Connapse user, link the second person's Atlassian account.
 
