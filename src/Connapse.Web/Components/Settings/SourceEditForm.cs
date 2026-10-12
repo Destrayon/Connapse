@@ -12,7 +12,7 @@ namespace Connapse.Web.Components.Settings;
 /// directory, or repository — is not editable: pointing a source somewhere else is a new source.
 /// <para>
 /// A class rather than page logic, like <see cref="SourceForm"/>: the scope keys written here must
-/// match what <c>ConnectorFactory</c> reads, and the page has no test harness.
+/// match what <c>ConnectorFactory</c> reads.
 /// </para>
 /// </summary>
 public sealed class SourceEditForm
