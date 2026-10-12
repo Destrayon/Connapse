@@ -426,4 +426,135 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         (await guard.CanReadAsync(user, await DocumentAsync("allowed-page.md"), default))
             .Should().BeFalse("the user has no Atlassian link");
     }
+
+    // ── Jira ──────────────────────────────────────────────────────────────
+
+    private const string JiraGroup = "6e87dc72-4f1f-421f-9382-2fee8b652487";
+
+    private int JiraCalls => fixture.Atlassian.Calls
+        .Where(c => c.Key.StartsWith($"/ex/jira/{_cloudId}/", StringComparison.Ordinal)).Sum(c => c.Value);
+
+    /// <summary>
+    /// Issue 30001, a comment restricted to <see cref="JiraGroup"/> and an internal note.
+    /// <see cref="AllowedAccount"/> browses the issue, is an agent and is in the group;
+    /// <see cref="DeniedAccount"/> is a customer who only browses it.
+    /// </summary>
+    private async Task<Guid> SeedJiraAsync(IServiceProvider sp)
+    {
+        var jira = new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId).MapEnforcement();
+        jira.Browse(AllowedAccount, "30001");
+        jira.Agent(AllowedAccount, "30001");
+        jira.Groups(AllowedAccount, ("engineering", JiraGroup));
+        jira.Browse(DeniedAccount, "30001");
+
+        await sp.GetRequiredService<IConnectionStore>().CreateAsync(new CreateConnectionRequest(
+            $"atl-{_cloudId}", ConnectionProvider.Atlassian,
+            $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-{{_cloudId}}"}""",
+            "service-secret"), null);
+
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"c-{Guid.NewGuid():N}" };
+        db.Containers.Add(container);
+
+        foreach (var (name, uri) in new (string, string?)[]
+                 {
+                     ("jira-issue.md", AtlassianUri.ForJiraIssue(_cloudId, "30001")),
+                     ("jira-group-comment.md", AtlassianUri.ForJiraComment(_cloudId, "30001", "501", false,
+                         new JiraRestriction(JiraRestrictionType.Group, JiraGroup))),
+                     ("jira-internal-note.md", AtlassianUri.ForJiraComment(_cloudId, "30001", "502", true, null)),
+                     ("upload.md", null),
+                 })
+        {
+            var document = new DocumentEntity
+            {
+                Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
+                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow, Metadata = [],
+            };
+            db.Documents.Add(document);
+            db.Chunks.Add(new ChunkEntity
+            {
+                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = container.Id,
+                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return container.Id;
+    }
+
+    private async Task<IEnumerable<string?>> SearchJiraAsync(string? atlassianAccount)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        return await SearchAsync(await SeedJiraAsync(scope.ServiceProvider), atlassianAccount);
+    }
+
+    [Fact]
+    public async Task Search_JiraLinkedAllowed_SeesIssueRestrictedCommentAndNote()
+    {
+        var names = await SearchJiraAsync(AllowedAccount);
+
+        names.Should().Contain(["jira-issue.md", "jira-group-comment.md", "jira-internal-note.md", "upload.md"]);
+    }
+
+    [Fact]
+    public async Task Search_JiraLinkedDenied_SeesOnlyTheIssue()
+    {
+        var names = await SearchJiraAsync(DeniedAccount);
+
+        names.Should().Contain(["jira-issue.md", "upload.md"])
+            .And.NotContain(["jira-group-comment.md", "jira-internal-note.md"]);
+        JiraCalls.Should().BeGreaterThan(0, "a linked user's Jira hits are checked live");
+    }
+
+    [Fact]
+    public async Task Search_JiraUnlinked_SeesNoneAndMakesNoCalls()
+    {
+        var names = await SearchJiraAsync(atlassianAccount: null);
+
+        names.Should().NotContain(["jira-issue.md", "jira-group-comment.md", "jira-internal-note.md"])
+            .And.Contain("upload.md");
+        JiraCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task McpGetDocument_DeniedJiraComment_ReturnsNotFound()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid containerId = await SeedJiraAsync(sp);
+        string denied = await DocumentIdAsync(sp, containerId, "jira-group-comment.md");
+        string allowed = await DocumentIdAsync(sp, containerId, "jira-issue.md");
+
+        var (deniedResult, missingResult, allowedResult) = await AsUserAsync(sp, DeniedAccount, async () => (
+            await McpTools.GetDocument(sp, containerId.ToString(), denied),
+            await McpTools.GetDocument(sp, containerId.ToString(), Guid.Empty.ToString()),
+            await McpTools.GetDocument(sp, containerId.ToString(), allowed)));
+
+        deniedResult.Should().Be(missingResult.Replace(Guid.Empty.ToString(), denied));
+        allowedResult.Should().NotContain("not found in this container");
+    }
+
+    [Fact]
+    public async Task RestGetDocument_DeniedJiraCommentAndNote_Return404()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid containerId = await SeedJiraAsync(sp);
+        string comment = await DocumentIdAsync(sp, containerId, "jira-group-comment.md");
+        string note = await DocumentIdAsync(sp, containerId, "jira-internal-note.md");
+        string issue = await DocumentIdAsync(sp, containerId, "jira-issue.md");
+        using var client = await ViewerClientAsync(sp, DeniedAccount);
+        string Files(string id) => $"/api/containers/{containerId}/files/{id}";
+
+        var deniedResponse = await client.GetAsync(Files(comment));
+        var missingResponse = await client.GetAsync(Files(Guid.Empty.ToString()));
+        deniedResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await deniedResponse.Content.ReadAsStringAsync()).Should()
+            .Be((await missingResponse.Content.ReadAsStringAsync()).Replace(Guid.Empty.ToString(), comment));
+        (await client.GetAsync(Files(comment) + "/content")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.GetAsync(Files(note))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await client.GetAsync(Files(issue))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 }
