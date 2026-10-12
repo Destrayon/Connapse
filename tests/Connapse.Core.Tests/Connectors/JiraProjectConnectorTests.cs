@@ -934,6 +934,40 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_UntieableCommentChangedSincePageRead_EveryAttachmentDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "tied.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        // Group A on the page, so its stored route equals 30001's tie; group B by the time it is read.
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Media", T0, Visibility: GroupVisibility(GroupA),
+            RenderedBody: "<img data-media-services-id=\"bbbb\">"));
+        _jira.ServeComments(issue);
+        _jira.ChangedSincePageRead["3"] = issue.Comments[1] with { Visibility = GroupVisibility(GroupB) };
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        Doc(delta, AttachmentPath("20001", "30001", "tied.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Sync_DenyAllUntieableComment_EveryAttachmentDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "tied.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        issue.Comments.Add(new FakeJiraComment("7", "Fay", "Named group", T0, Visibility: new { type = "group", value = "admins" },
+            RenderedBody: "<img data-media-services-id=\"bbbb\">"));
+        _jira.ServeComments(issue);
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        Doc(delta, AttachmentPath("20001", "30001", "tied.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
     public async Task Sync_LaterUntieableCommentIsInternal_UntiedAttachmentInternal()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");

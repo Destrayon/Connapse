@@ -479,13 +479,15 @@ public sealed partial class JiraProjectConnector(
     /// A comment that shows a file Connapse cannot name by id (a media-service reference, or an
     /// attachment address of an unknown form) may show any of the issue's attachments. So when
     /// any comment does, an attachment keeps its tie only if every such comment has the tie's
-    /// restriction; every other attachment becomes deny-all.
+    /// restriction; every other attachment becomes deny-all. If such a comment is deny-all, or its
+    /// restriction changed since the page read, every attachment of the issue becomes deny-all.
     /// </summary>
     private async Task TieAttachmentsAsync(JiraStoredIssue issue, CancellationToken ct)
     {
         var attachments = issue.Attachments.ToDictionary(a => a.Id, StringComparer.Ordinal);
         var routes = new Dictionary<string, (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll)>(StringComparer.Ordinal);
         var untieableCommentIds = new List<string>();
+        bool untieableUnsettled = false;
 
         foreach (var comment in issue.Comments)
         {
@@ -526,7 +528,11 @@ public sealed partial class JiraProjectConnector(
             }
 
             if (HasUntieableReference(html))
+            {
                 untieableCommentIds.Add(comment.Id);
+                // Its restriction is not known for certain, so no tie can be compared against it.
+                untieableUnsettled |= changed || route.DenyAll;
+            }
         }
 
         if (untieableCommentIds.Count == 0)
@@ -539,6 +545,12 @@ public sealed partial class JiraProjectConnector(
             if (attachment.RestrictingCommentId is null)
             {
                 attachment.RestrictingCommentId = untiedOwner;
+                attachment.DenyAll = true;
+            }
+            else if (untieableUnsettled)
+            {
+                if (routes[untiedOwner].Internal)
+                    attachment.RestrictingCommentId = untiedOwner;
                 attachment.DenyAll = true;
             }
             else if (untieableCommentIds.Any(id => routes[id] != routes[attachment.RestrictingCommentId]))
