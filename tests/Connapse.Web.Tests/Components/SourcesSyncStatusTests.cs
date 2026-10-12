@@ -81,6 +81,29 @@ public class SourcesSyncStatusTests : IDisposable
         """{"spaceId":"100","spaceKey":"ENG"}""", DateTime.UtcNow, DateTime.UtcNow,
         LastSyncedAt: DateTime.UtcNow, LastSyncStatus: status, LastSyncError: error);
 
+    /// <summary>
+    /// A paused source says so with a badge, not by fading its row: halving the opacity took its
+    /// failure and warning text below 4.5:1, on the row most likely to need attention.
+    /// </summary>
+    [Theory]
+    [InlineData(SyncStatus.Failed, ".sync-error")]
+    [InlineData(SyncStatus.Succeeded, ".sync-notice-warning")]
+    public void PausedSource_KeepsItsAlertsAtFullContrast_AndSaysPausedWithABadge(SyncStatus status, string alert)
+    {
+        string error = status == SyncStatus.Failed
+            ? AtlassianSyncErrors.SpaceUnreadable("ENG", 403)
+            : ConfluenceSpaceConnector.AttachmentScopeNotice;
+        var cut = Render(Confluence(status, error) with { Enabled = false });
+
+        cut.Markup.Should().NotContain("opacity-50");
+        cut.Find(alert).ClassList.Should().NotContain("opacity-50");
+        foreach (var row in cut.FindAll("tbody tr"))
+            row.ClassList.Should().Contain("source-paused").And.NotContain("opacity-50");
+        var badge = cut.FindAll("tbody td .badge").Single(b => b.TextContent.Contains("Paused"));
+        badge.QuerySelector(".bi-pause-circle").Should().NotBeNull("the state is an icon and text, not colour alone");
+        cut.FindAll("tbody button").Should().Contain(b => b.TextContent.Trim() == "Resume syncing");
+    }
+
     [Fact]
     public void SpaceUnreadable_ShowsThePlainMessage_LinksItsEntry_AndKeepsTheStatusUnderDetails()
     {
@@ -103,6 +126,7 @@ public class SourcesSyncStatusTests : IDisposable
     [InlineData(AtlassianSyncErrors.FreshTokenRefused, "#cant-read-confluence")]
     [InlineData(AtlassianSyncErrors.Unavailable, "#couldnt-reach-atlassian")]
     [InlineData(AtlassianSyncErrors.TokenRedirected, "#couldnt-reach-atlassian")]
+    [InlineData(AtlassianSyncErrors.NoAccessToken, "#couldnt-reach-atlassian")]
     [InlineData("Something nobody planned for.", "#troubleshooting")]
     public void EachConfluenceFailure_LinksItsTroubleshootingEntry(string error, string anchor)
     {

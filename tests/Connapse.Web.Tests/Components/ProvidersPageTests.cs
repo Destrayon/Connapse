@@ -206,27 +206,41 @@ public class ProvidersPageTests
     /// Atlassian surfaces without an intro (connection form, New source and edit source) open with
     /// it through SetupGuideLink, so the guide is always the first thing under a title.
     /// </summary>
+    /// <summary>
+    /// One place for the setup guide on every provider surface: SetupGuideLink, right-aligned in
+    /// the row of the surface's title, straight after the title. Provider pages, the connection
+    /// form, the New source dialog and the edit-source page all do it the same way.
+    /// </summary>
     [Fact]
-    public void SetupGuideLink_SitsInTheSameSlotWithTheSameWords_OnEveryProviderAndAtlassianSurface()
+    public void SetupGuideLink_SitsInTheTitleRow_OnEveryProviderSurface()
     {
-        const string Sentence = "Every field, where to find its value, and what each error means are in the";
         string root = PageTestPaths.RepositoryRoot();
         string Read(params string[] parts) => Regex.Replace(
             File.ReadAllText(Path.Combine([root, "src", "Connapse.Web", "Components", .. parts])), @"\s+", " ");
 
         string providers = Read("Pages", "Providers.razor");
-        foreach (string guide in new[] { "AWS setup guide", "Azure setup guide", "GitHub setup guide", "Atlassian setup guide" })
-        {
-            int link = providers.IndexOf(guide, StringComparison.Ordinal);
-            link.Should().BePositive();
-            providers.LastIndexOf(Sentence, link, StringComparison.Ordinal).Should().BeGreaterThan(link - 200,
-                $"the {guide} link ends its provider's intro with the shared sentence");
-        }
+        providers.Should().Contain(
+            "<h1 class=\"mb-0\"><span class=\"bi-cloud-fill me-2\"></span>@Current.DisplayName</h1> @if (SetupGuide(Key) is { } guide) "
+            + "{ <SetupGuideLink Id=\"@($\"{Key}-setup-guide\")\" Href=\"@guide.Href\" Name=\"@guide.Name\" /> }");
+        providers.Should().NotContain("target=\"_blank\" rel=\"noopener\">AWS setup guide</a>")
+            .And.NotContain("rel=\"noopener\">Azure setup guide</a>")
+            .And.NotContain("rel=\"noopener\">GitHub setup guide</a>")
+            .And.NotContain("rel=\"noopener\">Atlassian setup guide</a>", "no intro hand-writes its guide link any more");
+        foreach (string key in new[] { "aws", "azure", "github", "atlassian" })
+            Connapse.Web.Components.Pages.Providers.SetupGuide(key).Should().NotBeNull(key);
 
-        Read("Shared", "SetupGuideLink.razor").Should().Contain(Sentence);
-        Read("Connections", "AtlassianConnectionForm.razor").Should().Contain("<SetupGuideLink Id=\"atlassian-setup-guide\"");
-        Read("Sources", "ConfluenceSpaceForm.razor").Should().Contain("<SetupGuideLink Id=\"confluence-setup-guide\"");
-        Read("Pages", "SourceEdit.razor").Should().Contain("<SetupGuideLink Id=\"confluence-setup-guide\"");
+        Read("Pages", "Connections.razor").Should().Contain(
+            "@(isNew ? \"Add connection\" : $\"Edit {editing.Name}\")</h5> @if (form.Provider == ConnectionProvider.Atlassian) "
+            + "{ <SetupGuideLink Id=\"atlassian-setup-guide\"");
+        Read("Pages", "Sources.razor").Should().Contain(
+            "<h5 class=\"modal-title\" id=\"new-source-title\">New source</h5>");
+        Read("Pages", "Sources.razor").Should().MatchRegex(
+            "id=\"new-source-title\">New source</h5> @\\* [^*]+\\*@ @if \\(selectedProvider is ConnectionProvider.Atlassian\\) \\{ <SetupGuideLink Id=\"confluence-setup-guide\"");
+        Read("Pages", "SourceEdit.razor").Should().Contain(
+            "<h1 class=\"h4 mb-0\">@source.Name</h1> @if (form.Confluence is not null) { <SetupGuideLink Id=\"confluence-setup-guide\"");
+        Read("Connections", "AtlassianConnectionForm.razor").Should().NotContain("<SetupGuideLink");
+        Read("Sources", "ConfluenceSpaceForm.razor").Should().NotContain("<SetupGuideLink");
+        Read("Shared", "SetupGuideLink.razor").Should().Contain("CssClass { get; set; } = \"ms-auto\"");
     }
 }
 

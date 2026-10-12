@@ -36,7 +36,14 @@
     }
     else
     {
-        <h1 class="h4 mt-2 mb-4">@source.Name</h1>
+        @* The setup guide sits in the title row, as on every provider surface. *@
+        <div class="d-flex flex-wrap align-items-baseline gap-2 mt-2 mb-4">
+            <h1 class="h4 mb-0">@source.Name</h1>
+            @if (form.Confluence is not null)
+            {
+                <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+            }
+        </div>
 
         <section class="card mb-3">
             <div class="card-body">
@@ -103,7 +110,6 @@
         {
             <section class="card mb-3">
                 <div class="card-body">
-                    <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
                     <fieldset id="confluence-attachments-group">
                         <legend class="h6 mb-3">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
                         <div class="form-check">
@@ -115,6 +121,10 @@
                                 @ConfluenceSpaceSelection.AttachmentScopeHelp
                                 <a href="@ConfluenceSpaceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">How to add it<span class="visually-hidden"> (opens in a new tab)</span></a>.
                             </div>
+                            @if (confluence.IncludeAttachments && connection is { } site && !ConfluenceSpaceSelection.AttachmentScopeConfirmed(site.Health))
+                            {
+                                <ConfluenceAttachmentScopeRoute Id="confluence-attachments-scope-route" ConnectionId="site.Id" SiteName="@site.Name" />
+                            }
                         </div>
                         <div class="ms-4 mt-2">
                             <label class="form-label small" for="confluence-max-attachment-mb">@ConfluenceSpaceSelection.MaxAttachmentMbLabel</label>

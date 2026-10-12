@@ -90,11 +90,16 @@ In [Atlassian Administration](https://admin.atlassian.com):
    **Users**, add the service account, and choose **Viewer**. On older sites without space roles the
    page is **Permissions**, where it needs **View**. Being an admin does not grant this.
 4. Back on the service account, choose **Create credentials** → **OAuth 2.0**. On **Select scopes**,
-   paste this list into the scope search box. The list narrows to exactly these seven; tick each one:
+   paste the required scopes into the scope search box (**Copy required scopes** on the site form copies
+   them). The list narrows to exactly these six; tick each one:
 
    ```
-   read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence read:folder:confluence read:content-details:confluence read:content.permission:confluence
+   read:space:confluence read:page:confluence read:comment:confluence read:folder:confluence read:content-details:confluence read:content.permission:confluence
    ```
+
+   Only if a source will include attachments, also add `read:attachment:confluence` (**Copy with the
+   attachments permission** copies all seven). You can add it later, when a source first needs it: see
+   [Missing scope](#missing-scope).
 
    | Scope | Used for |
    |-------|----------|
@@ -125,10 +130,10 @@ provider page.
 **Look up site** shows the site's **Cloud ID**, Atlassian's permanent identifier for the site, so you
 can confirm it's the right one before entering the credential.
 
-**Test and save** runs five checks in order: **Finding the site**, **Signing in as the service
+**Check and save** runs five checks in order: **Finding the site**, **Signing in as the service
 account**, **Reading Confluence**, **Listing spaces**, and **Checking access permissions** (the admin
 role). The site is saved when every check passes, named after its host. A failure names the check, says
-what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Show details** shows
+what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Details** shows
 Atlassian's own answer. If the test fails, the secret is kept for your next attempt. A brand-new site
 with no pages or no other users can be saved with **Save anyway**.
 
@@ -158,7 +163,8 @@ always included.
 
 **Attachments and their scope.** When the site's last **Test connection** did not confirm the
 `read:attachment:confluence` scope, **Include attachments** starts off and the dialog says why. You can
-still turn it on. If Atlassian then refuses to list or download attachments, the source keeps syncing
+still turn it on; the New source dialog and the source's edit page then say what to add and link to
+**Replace credentials** on that site, opened on the Connections page. If Atlassian then refuses to list or download attachments, the source keeps syncing
 its pages and comments, skips attachments for that sync, and shows this warning on the Sources page:
 *Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it
 to the credential, or turn off Include attachments.* The site itself is not marked **Needs new
@@ -199,7 +205,7 @@ the service account, or the credential was deleted or revoked.
 ### Can't read Confluence
 
 **Symptom:** *The credential can't read Confluence on this site.*, or a Confluence source that failed
-with *Atlassian refused the service account's requests even with a new token.*
+with *Atlassian refused the service account's requests even with a new token.* The site is not marked **Needs new credentials**, because Atlassian accepted the credential itself.
 **Likely cause:** the service account has no Confluence role on this site, or the credential was created
 without the Confluence scopes.
 **Fix:** set Confluence to its admin role on the service account (step 2.2). If it already has it,
@@ -235,7 +241,8 @@ read:attachment:confluence permission*.
 **Likely cause:** the credential was created without one of the scopes in step 2.4. For attachments, it
 is the optional `read:attachment:confluence`.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
-search and tick each one (step 2.4), then use **Replace credentials** on the site with the new client ID
+search and tick each one (step 2.4; for attachments, include `read:attachment:confluence`), then use
+**Replace credentials** on the site with the new client ID
 and secret. The replacement is tested before it is used, and its test records which scopes it has, so
 new sources then start with attachments on. If you don't want
 attachments, turn off **Include attachments** on the source instead (see [step 4](#4-confluence-sources)).
@@ -307,9 +314,9 @@ are images or other files no parser can read. Pages and comments still synced.
 
 ### Couldn't reach Atlassian
 
-**Symptom:** **Check and save** or **Recheck** on the **Linking app** card answers *Couldn't reach
+**Symptom:** **Check and save** or **Test connection** on the **Linking app** card answers *Couldn't reach
 Atlassian…*, or a Confluence source failed with *Confluence on this site didn't answer properly, so
-nothing changed this cycle.* or *Atlassian's sign-in service answered with a redirect…*
+nothing changed this cycle.*, *Atlassian's sign-in service answered with a redirect…* or *Atlassian's sign-in service answered without an access token.* These don't mark the site **Needs new credentials**: its credential may still be fine.
 **Likely cause:** this server can't reach Atlassian over HTTPS (a firewall, a proxy, or DNS), or
 Atlassian had a temporary outage. **Details** on the Sources page shows what came back.
 **Fix:** check that the server can open `https://auth.atlassian.com` and `https://api.atlassian.com`,

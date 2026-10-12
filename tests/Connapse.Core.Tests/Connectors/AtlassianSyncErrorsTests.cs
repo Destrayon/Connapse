@@ -98,7 +98,7 @@ public sealed class AtlassianSyncErrorsTests : IDisposable
     [Theory]
     [InlineData(AtlassianSyncErrors.FreshTokenRefused, AtlassianSiteTroubleshooting.CantReadConfluence)]
     [InlineData(AtlassianSyncErrors.TokenRedirected, AtlassianSiteTroubleshooting.Unreachable)]
-    [InlineData(AtlassianSyncErrors.NoAccessToken, AtlassianSiteTroubleshooting.General)]
+    [InlineData(AtlassianSyncErrors.NoAccessToken, AtlassianSiteTroubleshooting.Unreachable)]
     [InlineData(ConfluenceSpaceConnector.AttachmentScopeNotice, AtlassianSiteTroubleshooting.MissingScope)]
     [InlineData("1 attachment was skipped: larger than 25 MB, or a file type Connapse can't read.", AtlassianSiteTroubleshooting.AttachmentsSkipped)]
     [InlineData("Atlassian is rate limiting this site; retry after 30 seconds.", AtlassianSiteTroubleshooting.General)]

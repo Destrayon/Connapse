@@ -3,7 +3,7 @@
 
 @*
     One Atlassian site test result: what failed in plain words (never the internal step id), what
-    to do, the troubleshooting entry for it, and Atlassian's own answer behind "Show details". A
+    to do, the troubleshooting entry for it, and Atlassian's own answer behind "Details". A
     warning (no page or no other user yet) does not block: it offers to save anyway.
 *@
 
@@ -23,7 +23,7 @@
     @if (!report.Success)
     {
         <details class="mt-1" id="@($"{Id}-details")">
-            <summary>Show details</summary>
+            <summary>Details</summary>
             <dl class="mb-0 mt-1">
                 <dt>Step</dt>
                 <dd>@report.StepLabel</dd>

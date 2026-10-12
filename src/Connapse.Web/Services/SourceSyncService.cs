@@ -221,7 +221,8 @@ public class SourceSyncService(
 
             // A site whose credential was refused, then replaced or restored in Atlassian, reads
             // again: the connection stops asking for new credentials.
-            if (connection is { Health.CredentialRejected: true })
+            // So does one whose sign-in failed during an earlier sync for any other reason.
+            if (connection is { Health.CredentialRejected: true } or { Provider: ConnectionProvider.Atlassian, Health: { Succeeded: false, Origin: "sync" } })
             {
                 await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
                     new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null,
@@ -256,12 +257,10 @@ public class SourceSyncService(
             // Atlassian refused the service account's credential (revoked, rotated, or expired):
             // the site's connection says it needs new credentials rather than failing quietly.
             if (connection is { Provider: ConnectionProvider.Atlassian }
-                && ex is Connapse.Storage.Connectors.Atlassian.AtlassianAuthException)
+                && ex is Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth)
             {
                 await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
-                    new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token",
-                        Message: $"Atlassian refused the stored credential while syncing source '{source.Name}'.",
-                        Origin: "sync", CredentialRejected: true), ct);
+                    AtlassianSignInHealth(auth, source.Name), ct);
             }
 
             // Record the failure without discarding progress: a transient outage must not
@@ -288,6 +287,32 @@ public class SourceSyncService(
 
             gate.Release();
         }
+    }
+
+    /// <summary>
+    /// What a failed Atlassian sign-in during a sync says about the site. Only a refused client ID
+    /// or secret needs new credentials; a redirect from a proxy, a token answer without a token,
+    /// or a token refused for a missing role or scope is a failed check with its own message, which
+    /// the source's error links to the matching troubleshooting entry.
+    /// </summary>
+    internal static ConnectionHealth AtlassianSignInHealth(
+        Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth, string sourceName)
+    {
+        bool credentialRefused = auth.TokenRefused
+            && auth.Message == Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.CredentialRefused;
+        if (credentialRefused)
+        {
+            return new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.TokenStep,
+                Message: $"Atlassian refused the stored credential while syncing source '{sourceName}'.",
+                Origin: "sync", CredentialRejected: true);
+        }
+
+        // Refused even with a fresh token: the sign-in worked, reading Confluence did not.
+        string step = auth.TokenRefused
+            ? Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.TokenStep
+            : Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.IdentityStep;
+        return new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: step,
+            Message: $"While syncing source '{sourceName}': {auth.Message}", Origin: "sync", CredentialRejected: false);
     }
 
     private async Task<SourceSyncResult> SyncViaDeltaAsync(

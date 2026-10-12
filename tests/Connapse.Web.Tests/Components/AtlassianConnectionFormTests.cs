@@ -70,7 +70,8 @@ public class AtlassianConnectionFormTests : IDisposable
             .Should().Contain("This service account reads your site for Atlassian sources and checks each user's access.");
         cut.FindAll("#atlassian-scopes-confluence code").Select(c => c.TextContent)
             .Should().Equal(AtlassianConnectionForm.ConfluenceScopeList.Split(' '));
-        cut.FindAll("#atlassian-copy-all").Should().ContainSingle();
+        cut.FindAll("#atlassian-copy-required").Should().ContainSingle();
+        cut.FindAll("#atlassian-copy-with-attachments").Should().ContainSingle();
         AtlassianConnectionForm.ConfluenceScopeList.Should().Be(
             "read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence "
             + "read:folder:confluence read:content-details:confluence read:content.permission:confluence");
@@ -96,12 +97,17 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
-    public void New_LinksTheSetupGuideAtTheTop()
+    public void SetupGuideLink_RendersAsTheTitleRowLink_ToTheSiteConnectionSection()
     {
-        var cut = ctx.Render<AtlassianConnectionForm>();
+        var link = ctx.Render<Connapse.Web.Components.Shared.SetupGuideLink>(p => p
+            .Add(l => l.Id, "atlassian-setup-guide")
+            .Add(l => l.Href, AtlassianSiteFieldSpecs.SiteConnectionSection)).Find("#atlassian-setup-guide");
 
-        cut.Find("#atlassian-setup-guide a").GetAttribute("href")
-            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#3-site-connection");
+        link.TagName.Should().Be("A");
+        link.GetAttribute("href").Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#3-site-connection");
+        link.GetAttribute("target").Should().Be("_blank");
+        link.ClassList.Should().Contain("ms-auto", "it sits at the right of the title row");
+        link.TextContent.Should().Contain("Atlassian setup guide").And.Contain("(opens in a new tab)");
     }
 
     [Fact]
@@ -190,7 +196,7 @@ public class AtlassianConnectionFormTests : IDisposable
         result.TextContent.Should().Contain("Signing in as the service account").And.NotContain("(step:").And.NotContain(Secret);
         result.QuerySelector("a.alert-link")!.GetAttribute("href")
             .Should().EndWith("docs/atlassian-setup.md#client-id-or-secret-rejected");
-        cut.Find("#atlassian-save-result-details").TextContent.Should().Contain("Show details").And.Contain("HTTP 401");
+        cut.Find("#atlassian-save-result-details").TextContent.Should().Contain("Details").And.Contain("HTTP 401");
         store.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
         created.Should().BeFalse();
     }
@@ -355,14 +361,11 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
-    public void New_GuideLinkUsesTheSameSentenceAsEveryOtherAtlassianSurface()
+    public void Form_LeavesTheGuideLinkToTheConnectionsTitleRow()
     {
         var cut = ctx.Render<AtlassianConnectionForm>();
 
-        cut.Find("#atlassian-setup-guide").TextContent.Should()
-            .Contain("Every field, where to find its value, and what each error means are in the");
-        cut.Markup.IndexOf("id=\"atlassian-setup-guide\"", StringComparison.Ordinal)
-            .Should().BeLessThan(cut.Markup.IndexOf("id=\"atlassian-site-url\"", StringComparison.Ordinal));
+        cut.FindAll("#atlassian-setup-guide").Should().BeEmpty("the page's title row carries it, whichever provider is chosen");
     }
 
     [Fact]
@@ -493,6 +496,114 @@ public class AtlassianConnectionFormTests : IDisposable
         store.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
         cut.Find("#atlassian-replace-kept").TextContent.Should().Contain("Secret kept for your next attempt");
         AssertSecretGone(cut, NewSecret);
+    }
+
+    [Fact]
+    public void ReplaceCredentials_MovesFocusToItsFirstField_AndCancelReturnsItToTheButton()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, AtlassianConnection()));
+
+        cut.Find("#atlassian-replace-open").Click();
+        cut.FindAll("#atlassian-replace-open").Should().BeEmpty();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-replace-client-id");
+
+        cut.FindAll("#atlassian-replace button").Single(b => b.TextContent.Trim() == "Cancel").Click();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-replace-open");
+    }
+
+    [Fact]
+    public void ClearIt_OnTheKeptReplacementSecret_MovesFocusToTheSecretField()
+    {
+        Connection site = AtlassianConnection();
+        store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
+        cut.Find("#atlassian-replace-open").Click();
+        cut.Find("#atlassian-replace-client-id").Input("client-2");
+        cut.Find("#atlassian-replace-client-secret").Change(NewSecret);
+        cut.Find("#atlassian-replace-save").Click();
+        cut.WaitForAssertion(() => cut.Find("#atlassian-replace-kept"));
+
+        cut.Find("#atlassian-replace-secret-clear").Click();
+
+        cut.FindAll("#atlassian-replace-kept").Should().BeEmpty();
+        ctx.LastFocusedRef().Should().NotBeNull().And.Be(SecretInputRef(cut, "atlassian-replace-client-secret"));
+    }
+
+    /// <summary>A secret field's input (CSS-isolated, so matched by its reference field).</summary>
+    private static string? SecretInputRef(IRenderedComponent<AtlassianConnectionForm> cut, string id) =>
+        FocusAssertions.RefField(cut.FindComponents<Connapse.Web.Components.Shared.SecretTextArea>().Single(s => s.Instance.Id == id).Instance, "input");
+
+    /// <summary>
+    /// The Connections page swaps its list and this form, taking the pressed button with them, so
+    /// focus follows. The page needs too many services to render here, so its source is read, as
+    /// ConnectionInUseListTests does for the dialog focus.
+    /// </summary>
+    [Fact]
+    public void ConnectionsPage_MovesFocusWhenTheListAndTheFormReplaceEachOther()
+    {
+        string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
+
+        page.Should().Contain("<h5 @ref=\"formHeading\" id=\"connection-form-title\" tabindex=\"-1\">");
+        page.Should().Contain("@ref=\"addConnectionButton\"").And.Contain("@ref=\"editButtons[c.Id]\"");
+        System.Text.RegularExpressions.Regex.Matches(page, @"focusAfterSwap = \(\) => formHeading\.FocusAsync\(\);").Count
+            .Should().Be(2, "both Add connection and Edit open the form with focus on its heading");
+        page.Should().Contain("ReturnFocusToList(isNew ? null : editing?.Id);")
+            .And.Contain("ReturnFocusToList(created.Id);")
+            .And.Contain("await FocusAfterSwapAsync();");
+    }
+
+    [Fact]
+    public void CopyRequiredScopes_LeavesOutTheAttachmentPermission_WhichHasItsOwnCopy()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+
+        cut.Find("#atlassian-copy-required").Click();
+        cut.Find("#atlassian-copy-with-attachments").Click();
+
+        var copied = ctx.JSInterop.Invocations.Where(i => i.Identifier == "connapse.copyToClipboard")
+            .Select(i => (string)i.Arguments[0]!).ToList();
+        copied.Should().Equal(AtlassianConnectionForm.RequiredScopeList, AtlassianConnectionForm.ConfluenceScopeList);
+        copied[0].Split(' ').Should().HaveCount(6).And.NotContain("read:attachment:confluence");
+        copied[1].Split(' ').Should().HaveCount(7).And.Contain("read:attachment:confluence");
+        cut.Find("#atlassian-service-account-guide").TextContent.Should().Contain("Only if a source will include attachments");
+    }
+
+    [Fact]
+    public void StartReplacing_OpensReplaceCredentialsWithFocusOnItsFirstField()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p
+            .Add(f => f.Existing, AtlassianConnection())
+            .Add(f => f.StartReplacing, true));
+
+        cut.Find("#atlassian-replace").Should().NotBeNull();
+        cut.FindAll("#atlassian-replace-open").Should().BeEmpty();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-replace-client-id");
+    }
+
+    [Fact]
+    public void ConnectionsPage_OpensASiteWithReplaceCredentialsFromTheQuery()
+    {
+        string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
+
+        page.Should().Contain("await OpenEditFromQueryAsync();")
+            .And.Contain("query.TryGetValue(\"replace\", out var replace) && replace.ToString() == \"1\"")
+            .And.Contain("StartReplacing=\"@atlassianStartReplacing\"");
+        Connapse.Web.Components.Sources.ConfluenceSpaceSelection.ReplaceCredentialsUrl(Guid.Empty)
+            .Should().Be($"/connections?edit={Guid.Empty}&replace=1");
+    }
+
+    [Fact]
+    public void ClearIt_OnTheKeptSecret_MovesFocusToTheSecretField()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+        FillAndSave(cut);
+        cut.WaitForAssertion(() => cut.Find("#atlassian-secret-kept"));
+
+        cut.Find("#atlassian-secret-clear").Click();
+
+        ctx.LastFocusedRef().Should().NotBeNull().And.Be(SecretInputRef(cut, "atlassian-client-secret"));
     }
 
     [Fact]

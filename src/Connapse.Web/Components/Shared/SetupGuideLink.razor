@@ -1,13 +1,12 @@
 @*
-    The setup-guide pointer every Atlassian surface opens with, in the words the AWS, Azure and
-    GitHub provider pages use in their intros, so the link is always the first line under a title.
+    The setup-guide link every provider surface carries in one place: right-aligned in the row of
+    the surface's title (a provider page's heading, the connection form's heading, the New source
+    dialog's header, the edit-source heading), so the help is found where it was found last time.
 *@
 
-<p class="small text-muted mb-2" id="@Id">
-    <span class="bi-book me-1" aria-hidden="true"></span>
-    Every field, where to find its value, and what each error means are in the
-    <a href="@Href" target="_blank" rel="noopener">@Name<span class="visually-hidden"> (opens in a new tab)</span></a>.
-</p>
+<a id="@Id" class="setup-guide-link small text-nowrap @CssClass" href="@Href" target="_blank" rel="noopener">
+    <span class="bi-book me-1" aria-hidden="true"></span>@Name<span class="visually-hidden"> (opens in a new tab)</span>
+</a>
 
 @code {
     [Parameter, EditorRequired] public string Id { get; set; } = "";
@@ -15,4 +14,7 @@
     [Parameter, EditorRequired] public string Href { get; set; } = "";
 
     [Parameter] public string Name { get; set; } = "Atlassian setup guide";
+
+    /// <summary>Placement within the title row; right-aligned by default.</summary>
+    [Parameter] public string CssClass { get; set; } = "ms-auto";
 }

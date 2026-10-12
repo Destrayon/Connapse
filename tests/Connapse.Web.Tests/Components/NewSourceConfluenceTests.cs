@@ -193,17 +193,16 @@ public class NewSourceConfluenceTests : IDisposable
     }
 
     [Fact]
-    public void Dialog_OpensTheConfluencePartWithTheSetupGuideLink_AsEveryAtlassianSurfaceDoes()
+    public void Dialog_PutsTheSetupGuideLinkInItsTitleRow_AsEveryProviderSurfaceDoes()
     {
         var cut = OpenDialog();
         cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
 
         var guide = cut.Find("#confluence-setup-guide");
-        guide.TextContent.Should().Contain("Every field, where to find its value, and what each error means are in the");
-        guide.QuerySelector("a")!.GetAttribute("href").Should().Be(
+        guide.GetAttribute("href").Should().Be(
             "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
-        cut.Markup.IndexOf("id=\"confluence-setup-guide\"", StringComparison.Ordinal)
-            .Should().BeLessThan(cut.Markup.IndexOf("id=\"confluence-spaces\"", StringComparison.Ordinal));
+        guide.ParentElement!.ClassList.Should().Contain("modal-header", "the link sits in the dialog's title row");
+        guide.PreviousElementSibling!.Id.Should().Be("new-source-title");
     }
 
     [Fact]
@@ -385,6 +384,29 @@ public class NewSourceConfluenceTests : IDisposable
         cut.WaitForAssertion(() => created.Should().ContainSingle());
         using var doc = JsonDocument.Parse(created[0].ScopeJson);
         doc.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public void Dialog_TurningAttachmentsOnWithoutTheScope_ShowsWhatToAddAndWhereToAddIt()
+    {
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>()
+            .NavigateTo($"/sources?new={otherConnection.Id}");
+        var cut = ctx.Render<SourcesPage>();
+        cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(1));
+        cut.FindAll("#confluence-attachments-scope-route").Should().BeEmpty("nothing is asked for until attachments are turned on");
+
+        cut.Find("#confluence-attachments").Change(true);
+
+        cut.FindAll("#confluence-attachments-scope").Should().BeEmpty();
+        var route = cut.Find("#confluence-attachments-scope-route");
+        route.TextContent.Should().Contain("read:attachment:confluence").And.Contain("globex.atlassian.net");
+        cut.Find("#confluence-attachments-scope-route-replace").GetAttribute("href")
+            .Should().Be($"/connections?edit={otherConnection.Id}&replace=1");
+        cut.Find("#confluence-attachments-scope-route-replace").TextContent.Should().Contain("Replace credentials on globex.atlassian.net");
+        cut.Find("#confluence-attachments-scope-route-guide").GetAttribute("href")
+            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+        cut.Find("#confluence-attachments").GetAttribute("aria-describedby")
+            .Should().Be("confluence-attachments-help confluence-attachments-scope-route");
     }
 
     [Fact]

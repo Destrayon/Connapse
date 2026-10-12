@@ -67,4 +67,52 @@ public class AtlassianIdentityCardTests : IDisposable
         cut.FindAll("#atlassian-connect").Should().BeEmpty();
         cut.Markup.Should().Contain("Providers → Atlassian");
     }
+
+    private static UserAtlassianIdentityLinkEntity Linked() => new()
+    {
+        Id = Guid.NewGuid(), UserId = Guid.NewGuid(), AccountId = "acc-1", ConnectedAt = DateTime.UtcNow,
+    };
+
+    [Fact]
+    public void Disconnect_MovesFocusIntoTheConfirmation_AndCancelReturnsItToDisconnect()
+    {
+        var cut = ctx.Render<AtlassianIdentityCard>(p => p.Add(c => c.Link, Linked()).Add(c => c.SignInAvailable, true));
+
+        cut.Find("#atlassian-disconnect").Click();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-disconnect-confirm");
+
+        cut.Find("#atlassian-disconnect-cancel").Click();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-disconnect");
+    }
+
+    [Fact]
+    public void ConfirmDisconnect_OnceTheLinkIsGone_MovesFocusToTheSignInButton()
+    {
+        IRenderedComponent<AtlassianIdentityCard>? cut = null;
+        cut = ctx.Render<AtlassianIdentityCard>(p => p
+            .Add(c => c.Link, Linked())
+            .Add(c => c.SignInAvailable, true)
+            .Add(c => c.OnDisconnect, () => cut!.Render(q => q.Add(c => c.Link, null))));
+
+        cut.Find("#atlassian-disconnect").Click();
+        cut.Find("#atlassian-disconnect-confirm").Click();
+
+        cut.WaitForAssertion(() => ctx.LastFocused(cut)?.Id.Should().Be("atlassian-connect"));
+    }
+
+    [Fact]
+    public void ConfirmDisconnect_WithSignInOff_MovesFocusToTheCard()
+    {
+        IRenderedComponent<AtlassianIdentityCard>? cut = null;
+        cut = ctx.Render<AtlassianIdentityCard>(p => p
+            .Add(c => c.Link, Linked())
+            .Add(c => c.SignInAvailable, false)
+            .Add(c => c.OnDisconnect, () => cut!.Render(q => q.Add(c => c.Link, null))));
+
+        cut.Find("#atlassian-disconnect").Click();
+        cut.Find("#atlassian-disconnect-confirm").Click();
+
+        cut.WaitForAssertion(() => ctx.LastFocused(cut)?.Id.Should().Be("atlassian-identity-card"));
+        cut.Find("#atlassian-identity-card").GetAttribute("tabindex").Should().Be("-1");
+    }
 }

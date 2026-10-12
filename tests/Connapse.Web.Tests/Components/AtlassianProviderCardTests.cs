@@ -301,7 +301,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Rejected_ShowsFailedAndAnnouncesIt()
+    public void TestConnection_Rejected_ShowsFailedAndAnnouncesIt()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
             new AtlassianLinkAppRegistration("link-client"),
@@ -320,7 +320,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Accepted_AnnouncesItInAStatusRegion()
+    public void TestConnection_Accepted_AnnouncesItInAStatusRegion()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
@@ -403,7 +403,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Rejected_ShowsAtlassiansAnswerUnderDetails()
+    public void TestConnection_Rejected_ShowsAtlassiansAnswerUnderDetails()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
@@ -417,7 +417,7 @@ public class AtlassianProviderCardTests : IDisposable
     }
 
     [Fact]
-    public void Recheck_Unreachable_LinksTheTroubleshootingEntry()
+    public void TestConnection_Unreachable_LinksTheTroubleshootingEntry()
     {
         credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("link-client"));
         credentials.GetAtlassianLinkAppSecretAsync(Arg.Any<CancellationToken>()).Returns(Secret);
@@ -447,7 +447,7 @@ public class AtlassianProviderCardTests : IDisposable
 
     [Theory]
     [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", true, "Checked automatically every day.")]
-    [InlineData(null, true, "once Recheck has run here")]
+    [InlineData(null, true, "once Test connection has run here")]
     [InlineData("http://localhost/api/v1/auth/cloud/atlassian/callback", false, "Not checked automatically while sign-in is off.")]
     public void LastChecked_SaysWhenTheAppIsCheckedAgain(string? callbackUrl, bool signInEnabled, string expected)
     {
@@ -522,6 +522,88 @@ public class AtlassianProviderCardTests : IDisposable
 
         token.Release();
         cut.WaitForAssertion(() => cut.Find("#atlassian-app-client-secret").HasAttribute("disabled").Should().BeFalse());
+    }
+
+    [Fact]
+    public void KeepTheCurrentApp_ReturnsFocusToCheckAndSave()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("new-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-app-replace-confirm");
+
+        cut.Find("#atlassian-app-replace-keep").Click();
+
+        cut.FindAll("#atlassian-app-replace").Should().BeEmpty();
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-app-save");
+    }
+
+    [Fact]
+    public void Cancel_ReturnsFocusToTheToggleThatReopensTheSetup()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-cancel").Click();
+
+        cut.FindAll("#atlassian-app-cancel").Should().BeEmpty();
+        ctx.LastFocusedRef().Should().NotBeNull().And.Be(EditToggleRef(cut));
+    }
+
+    [Fact]
+    public void CheckAndReplace_WhenSaved_MovesFocusToTheToggle_AsTheSetupCloses()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("new-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+        cut.Find("#atlassian-app-replace-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("#atlassian-app-client-id").Should().BeEmpty());
+        cut.WaitForAssertion(() => ctx.LastFocusedRef().Should().NotBeNull().And.Be(EditToggleRef(cut)));
+    }
+
+    /// <summary>The step card's "Change the linking app" toggle (CSS-isolated, so matched by its reference field).</summary>
+    private static string? EditToggleRef(IRenderedComponent<AtlassianProviderCard> cut) =>
+        FocusAssertions.RefField(cut.FindComponent<Connapse.Web.Components.Providers.ProviderStepCard>().Instance, "editToggle");
+
+    [Fact]
+    public void CheckAndReplace_WhenRejected_ReturnsFocusToCheckAndSave()
+    {
+        token.Answer(HttpStatusCode.Forbidden, AccessDenied);
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(new AtlassianLinkAppRegistration("old-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("button[aria-controls='atlassian-app-setup']").Click();
+        cut.Find("#atlassian-app-client-id").Input("new-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+        cut.Find("#atlassian-app-replace-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-app-client-secret-error"));
+        ctx.LastFocused(cut)!.Id.Should().Be("atlassian-app-save");
+    }
+
+    [Fact]
+    public void Remove_MovesFocusToTheClientIdOfTheSetupItReopens()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(
+            new AtlassianLinkAppRegistration("link-client"), new AtlassianLinkAppRegistration("link-client"), (AtlassianLinkAppRegistration?)null);
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Remove the linking app from Connapse")).Click();
+        cut.Find("input[id^='reset-confirm-']").Input("link-client");
+        cut.FindAll("button").Single(b => b.TextContent == "Remove the linking app").Click();
+
+        cut.WaitForAssertion(() => ctx.LastFocused(cut)?.Id.Should().Be("atlassian-app-client-id"));
     }
 
     /// <summary>Atlassian's token endpoint, answering every request one way, or unreachable.</summary>

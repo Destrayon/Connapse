@@ -16,7 +16,7 @@
     added on the Connections page with the service account Connapse reads it as.
 *@
 
-<ProviderStepCard Id="atlassian-app" Title="Linking app"
+<ProviderStepCard @ref="stepCard" Id="atlassian-app" Title="Linking app"
                   Description="The Atlassian app people sign in through so search can respect what they may read."
                   Status="AppStatus" StatusLabel="@AppStatusLabel"
                   Expanded="showAppSetup" ExpandedChanged="SetExpanded" EditLabel="Change the linking app"
@@ -80,7 +80,7 @@
                     The secret is stored encrypted and is never shown. Enter both values only to replace the app.
                 </p>
             }
-            <ProviderField Spec="AtlassianLinkAppFieldSpecs.ClientId" Small="true" Value="@appClientId"
+            <ProviderField @ref="clientIdField" Spec="AtlassianLinkAppFieldSpecs.ClientId" Small="true" Value="@appClientId"
                            ValueChanged="@((string? v) => appClientId = v)" Disabled="@appBusy" Error="@clientIdError" />
             <ProviderField Spec="AtlassianLinkAppFieldSpecs.ClientSecret" Small="true" Value="@appClientSecret"
                            ValueChanged="@((string? v) => appClientSecret = v)" Disabled="@appBusy" Error="@secretError">
@@ -106,13 +106,13 @@
                     </p>
                     <button @ref="replaceConfirmButton" type="button" id="atlassian-app-replace-confirm" class="btn btn-sm btn-warning"
                             disabled="@appBusy" @onclick="CheckAndSaveAsync">Check and replace</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary ms-1" @onclick="() => confirmingReplace = false">Keep the current app</button>
+                    <button type="button" id="atlassian-app-replace-keep" class="btn btn-sm btn-outline-secondary ms-1" @onclick="KeepCurrentApp">Keep the current app</button>
                 </div>
             }
             else
             {
                 <div class="d-flex gap-2">
-                    <button type="button" id="atlassian-app-save" class="btn btn-sm btn-outline-primary" disabled="@appBusy" @onclick="SaveAppAsync">
+                    <button @ref="saveButton" type="button" id="atlassian-app-save" class="btn btn-sm btn-outline-primary" disabled="@appBusy" @onclick="SaveAppAsync">
                         @if (appBusy)
                         {
                             <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking with Atlassian…</span>
@@ -124,7 +124,7 @@
                     </button>
                     @if (linkApp is not null)
                     {
-                        <button type="button" id="atlassian-app-cancel" class="btn btn-sm btn-outline-secondary" disabled="@appBusy" @onclick="CancelEdit">Cancel</button>
+                        <button type="button" id="atlassian-app-cancel" class="btn btn-sm btn-outline-secondary" disabled="@appBusy" @onclick="CancelFromButton">Cancel</button>
                     }
                 </div>
             }
@@ -210,7 +210,7 @@
     private static string CheckSchedule(AtlassianLinkAppRegistration app) => app switch
     {
         { SignInEnabled: false } => "Not checked automatically while sign-in is off.",
-        { CallbackUrl: null or "" } => "Checked automatically every day once Recheck has run here.",
+        { CallbackUrl: null or "" } => "Checked automatically every day once Test connection has run here.",
         _ => "Checked automatically every day.",
     };
 
@@ -281,7 +281,7 @@
                       }
                       else
                       {
-                          <text>Not yet. Choose Recheck.</text>
+                          <text>Not yet. Choose Test connection.</text>
                       }
                       <span class="d-block text-muted" id="atlassian-app-check-schedule">@CheckSchedule(app)</span>
                   </dd>
@@ -304,11 +304,11 @@
         <button type="button" id="atlassian-app-recheck" class="btn btn-sm btn-outline-secondary" disabled="@checkBusy" @onclick="RecheckAsync">
             @if (checkBusy)
             {
-                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking…</span>
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Testing…</span>
             }
             else
             {
-                <span>Recheck</span>
+                <span class="bi-plug me-1" aria-hidden="true"></span><span>Test connection</span>
             }
         </button>
         <div class="ms-auto d-flex gap-2 align-items-start flex-wrap">
@@ -344,11 +344,40 @@
         await LoadAsync();
     }
 
+    // A control that removes itself hands focus on after the render that removes it.
+    private ProviderStepCard? stepCard;
+    private ProviderField? clientIdField;
+    private ElementReference saveButton;
+    private Func<ValueTask>? focusAfterRender;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!focusReplaceConfirm) return;
-        focusReplaceConfirm = false;
-        await replaceConfirmButton.FocusAsync();
+        if (focusReplaceConfirm)
+        {
+            focusReplaceConfirm = false;
+            await replaceConfirmButton.FocusAsync();
+        }
+        if (focusAfterRender is { } focus)
+        {
+            focusAfterRender = null;
+            await focus();
+        }
+    }
+
+    /// <summary>The setup closed under the control that closed it: back to the toggle that reopens it.</summary>
+    private ValueTask FocusEditToggle() => stepCard?.FocusEditToggleAsync() ?? ValueTask.CompletedTask;
+
+    /// <summary>
+    /// After the replace confirmation closes: to Check and save if the setup is still open (the
+    /// check failed, or the confirmation was declined), otherwise to the toggle that reopens it.
+    /// </summary>
+    private ValueTask FocusAfterConfirmation() =>
+        stepCard is { HasEditToggle: true } && !showAppSetup ? FocusEditToggle() : saveButton.FocusAsync();
+
+    private void KeepCurrentApp()
+    {
+        confirmingReplace = false;
+        focusAfterRender = () => saveButton.FocusAsync();
     }
 
     private async Task LoadAsync()
@@ -371,6 +400,13 @@
         (clientIdError, secretError, appError, secretRejected, confirmingReplace) = (null, null, null, false, false);
         (secretErrorDetail, appErrorDetail, appErrorUnreachable) = (null, null, false);
         showAppSetup = false;
+    }
+
+    /// <summary>Cancel closes the setup it sits in, so focus goes to the toggle that reopens it.</summary>
+    private void CancelFromButton()
+    {
+        CancelEdit();
+        focusAfterRender = FocusEditToggle;
     }
 
     private void ClearMessages()
@@ -444,6 +480,8 @@
         finally
         {
             appBusy = false;
+            // The confirmation, or on success the whole setup, is gone from under the button pressed.
+            focusAfterRender = FocusAfterConfirmation;
         }
     }
 
@@ -529,6 +567,8 @@
                 return;
             }
             await LoadAsync();
+            // The remove action went with the app; the setup it reopens starts at the client ID.
+            focusAfterRender = () => clientIdField?.FocusAsync() ?? ValueTask.CompletedTask;
             statusMessage = "The linking app was removed. People who linked keep their links, but nobody can link an account until a new app is added.";
         }
         catch (Exception ex)

@@ -188,6 +188,69 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         (await connections.GetAsync(connection.Id))!.Health!.CredentialRejected.Should().BeFalse();
     }
 
+    public enum SignInProblem { ProxyRedirect, TokenWithoutToken, RefusedWithAFreshToken }
+
+    /// <summary>
+    /// Sign-in problems other than a refused client ID or secret fail the source with their own
+    /// message and troubleshooting entry, and record a failed check on the site, but never mark it
+    /// Needs new credentials: its secret may be fine. The next good sync clears the failure.
+    /// </summary>
+    [Theory]
+    [InlineData(SignInProblem.ProxyRedirect)]
+    [InlineData(SignInProblem.TokenWithoutToken)]
+    [InlineData(SignInProblem.RefusedWithAFreshToken)]
+    public async Task OtherSignInProblems_FailTheSourceWithTheirOwnError_AndNeverAskForNewCredentials(SignInProblem problem)
+    {
+        SeedSpace();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        (string message, string anchor, string step) = problem switch
+        {
+            SignInProblem.ProxyRedirect => (AtlassianSyncErrors.TokenRedirected, "#couldnt-reach-atlassian", "token"),
+            SignInProblem.TokenWithoutToken => (AtlassianSyncErrors.NoAccessToken, "#couldnt-reach-atlassian", "token"),
+            _ => (AtlassianSyncErrors.FreshTokenRefused, "#cant-read-confluence", "identity"),
+        };
+        switch (problem)
+        {
+            case SignInProblem.ProxyRedirect: _api.FailTokenWith(System.Net.HttpStatusCode.Redirect); break;
+            case SignInProblem.TokenWithoutToken: _api.AnswerTokenWith("{}"); break;
+            default: _api.FailWith(System.Net.HttpStatusCode.Unauthorized); break;
+        }
+
+        try
+        {
+            var failed = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+            failed.Error.Should().StartWith(message);
+            AtlassianSyncErrors.TroubleshootingUrl(failed.Error!).Should().EndWith(anchor);
+            (await sources.GetAsync(source.Id))!.LastSyncStatus.Should().Be(SyncStatus.Failed);
+        }
+        finally
+        {
+            _api.FailTokenWith(null);
+            _api.AnswerTokenWith(null);
+            _api.FailWith(null);
+        }
+
+        var site = (await connections.GetAsync(connection.Id))!;
+        site.Health.Should().NotBeNull();
+        site.Health!.CredentialRejected.Should().BeFalse("only a refused client ID or secret needs new credentials");
+        site.Health.Succeeded.Should().BeFalse();
+        site.Health.Origin.Should().Be("sync");
+        site.Health.Step.Should().Be(step);
+        site.Health.Message.Should().Contain(message);
+
+        var recovered = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, site, CancellationToken.None);
+
+        recovered.Error.Should().BeNull();
+        var healthy = (await connections.GetAsync(connection.Id))!.Health!;
+        healthy.Succeeded.Should().BeTrue("a sync that reads again clears the failed sign-in");
+        healthy.CredentialRejected.Should().BeFalse();
+    }
+
     [Fact]
     public async Task FirstSync_EnqueuesEveryPageAndBlogpost()
     {

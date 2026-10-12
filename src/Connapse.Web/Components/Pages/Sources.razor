@@ -140,7 +140,7 @@
                 <tbody>
                     @foreach (var source in sources)
                     {
-                        <tr class="@(source.Enabled ? "" : "opacity-50")">
+                        <tr class="@(source.Enabled ? "" : "source-paused")">
                             <td>
                                 <div class="fw-medium">@source.Name</div>
                                 @if (!string.IsNullOrWhiteSpace(source.Description))
@@ -199,7 +199,7 @@
                                         </button>
                                     }
                                     <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => ToggleEnabled(source)">
-                                        @(source.Enabled ? "Disable" : "Enable")
+                                        @(source.Enabled ? "Pause syncing" : "Resume syncing")
                                     </button>
                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(source)">
                                         Delete
@@ -210,7 +210,7 @@
 
                         @if (source.LastSyncStatus == SyncStatus.Succeeded && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 <td colspan="7" class="pt-0 border-top-0">
                                     @if (SourceSyncNotice.KindOf(source.LastSyncError) == SyncNoticeKind.Waiting)
                                     {
@@ -239,7 +239,7 @@
                         @if (source.LastSyncStatus == SyncStatus.Failed && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
                             var (failure, failureDetail) = SyncErrorText.Split(source.LastSyncError);
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 @* Administrators only: a provider's failure text routinely quotes the
                                    resource that failed, which is the same infrastructure detail the
                                    API withholds from non-admin readers. *@
@@ -269,7 +269,7 @@
 
                         @if (isAdmin && _unlocated.TryGetValue(source.Id, out int unlocatedCount))
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 <td colspan="7" class="pt-0 border-top-0">
                                     <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small" role="status">
                                         <strong>@unlocatedCount</strong> document@(unlocatedCount == 1 ? "" : "s")
@@ -287,7 +287,7 @@
 
                         @if (source.WithheldDeletions is { } withheld && isAdmin)
                         {
-                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <tr class="@(source.Enabled ? "" : "source-paused")">
                                 @* Administrators only, matching the sync-error row: the count
                                    is harmless, but the action it offers is destructive. *@
                                 <td colspan="7" class="pt-0 border-top-0">
@@ -321,7 +321,12 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="new-source-title">New source</h5>
-                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
+                    @* In the title row, as on every provider surface; the close button keeps the far corner. *@
+                    @if (selectedProvider is ConnectionProvider.Atlassian)
+                    {
+                        <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+                    }
+                    <button type="button" class="btn-close @(selectedProvider is ConnectionProvider.Atlassian ? "ms-3" : "")" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
                 </div>
                 <div class="modal-body">
                     @if (createError is not null)
@@ -418,7 +423,7 @@
                     {
                         @* An Atlassian connection is one site. Each space ticked becomes its own
                            source, named after the site and the space, so there is no name field. *@
-                        <ConfluenceSpaceForm ConnectionId="@form.ConnectionId" Selection="confluenceForm"
+                        <ConfluenceSpaceForm ConnectionId="@form.ConnectionId" Selection="confluenceForm" SiteName="@SelectedConnection?.Name"
                                              ExistingSpaceIds="confluenceExisting" />
                     }
                     else
@@ -945,7 +950,7 @@
     {
         (string css, string? icon, string text) = source switch
         {
-            { Enabled: false } => ("text-bg-secondary", null, "Disabled"),
+            { Enabled: false } => ("text-bg-secondary", "bi-pause-circle", "Paused"),
             { LastSyncStatus: SyncStatus.Succeeded, LastSyncError: { Length: > 0 } notice }
                 when SourceSyncNotice.KindOf(notice) == SyncNoticeKind.Waiting => ("text-bg-light border", "bi-hourglass-split", "Waiting"),
             { LastSyncStatus: SyncStatus.Succeeded, LastSyncError.Length: > 0 } => ("text-bg-warning", "bi-exclamation-triangle-fill", "Warning"),
@@ -1067,7 +1072,9 @@
                 await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(),
                     new { source.Name, updated.Enabled });
 
-                Succeed($"'{source.Name}' {(updated.Enabled ? "enabled" : "disabled")}.");
+                Succeed(updated.Enabled
+                    ? $"Syncing resumed for '{source.Name}'."
+                    : $"Syncing paused for '{source.Name}'. Nothing is deleted, and its documents stay searchable.");
             }
 
             await LoadAsync();

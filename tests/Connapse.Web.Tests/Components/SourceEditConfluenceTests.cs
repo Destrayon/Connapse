@@ -79,6 +79,34 @@ public class SourceEditConfluenceTests : IDisposable
         cut.Markup.Should().NotContain("Npgsql").And.NotContain("10.0.0.5");
     }
 
+    [Fact]
+    public void Attachments_OnASiteWithoutTheScope_ShowWhatToAddAndLinkReplaceCredentials()
+    {
+        var cut = Render();
+
+        var route = cut.Find("#confluence-attachments-scope-route");
+        route.TextContent.Should().Contain("read:attachment:confluence");
+        cut.Find("#confluence-attachments-scope-route-replace").GetAttribute("href")
+            .Should().Be($"/connections?edit={Site.Id}&replace=1");
+
+        cut.Find("#confluence-attachments").Change(false);
+        cut.FindAll("#confluence-attachments-scope-route").Should().BeEmpty("nothing is asked for with attachments off");
+    }
+
+    [Fact]
+    public void Attachments_OnASiteWhoseTestConfirmedTheScope_AskForNothing()
+    {
+        connections.GetAsync(Site.Id, Arg.Any<CancellationToken>()).Returns(Site with
+        {
+            Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
+                ConfirmedScopes: [Connapse.Web.Components.Sources.ConfluenceSpaceSelection.AttachmentScope]),
+        });
+
+        var cut = Render();
+
+        cut.FindAll("#confluence-attachments-scope-route").Should().BeEmpty();
+    }
+
     private IRenderedComponent<SourceEditPage> Render()
     {
         var cut = ctx.Render<SourceEditPage>(p => p.Add(x => x.Id, source.Id));
@@ -135,14 +163,14 @@ public class SourceEditConfluenceTests : IDisposable
     }
 
     [Fact]
-    public void ConfluenceSection_OpensWithTheSetupGuideLink_AndKeepsAttachmentHelpToTwoSentences()
+    public void Page_PutsTheSetupGuideLinkInItsTitleRow_AndKeepsAttachmentHelpToTwoSentences()
     {
         var cut = Render();
 
-        cut.Find("#confluence-setup-guide a").GetAttribute("href").Should().Be(
+        var guide = cut.Find("#confluence-setup-guide");
+        guide.GetAttribute("href").Should().Be(
             "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
-        cut.Markup.IndexOf("id=\"confluence-setup-guide\"", StringComparison.Ordinal)
-            .Should().BeLessThan(cut.Markup.IndexOf("id=\"confluence-attachments-group\"", StringComparison.Ordinal));
+        guide.PreviousElementSibling!.TagName.Should().Be("H1", "the link sits in the page's title row");
 
         var help = cut.Find("#confluence-attachments-help");
         string text = System.Text.RegularExpressions.Regex.Replace(help.TextContent, @"\s+", " ").Trim();
