@@ -67,8 +67,8 @@ before it saves anything:
 
 | Field | Required | Where to get it |
 |-------|----------|-----------------|
-| Client ID | Yes | The app's **Settings** page in the developer console |
-| Client secret | Yes | The same page, labelled **Secret**. Stored encrypted and never shown again |
+| Client ID | Yes | The app's **Settings** page in the developer console: one string of letters and digits, with no spaces |
+| Client secret | Yes | The same page, labelled **Secret**: one long string of characters. Stored encrypted and never shown again |
 
 Then link your own account under **Profile → Integrations → Atlassian** to confirm the app works.
 
@@ -103,7 +103,7 @@ In [Atlassian Administration](https://admin.atlassian.com):
    | `read:comment:confluence` | Indexing comments |
    | `read:attachment:confluence` | Indexing attachments (optional: needed only if a source includes attachments; see [step 4](#4-confluence-sources)) |
    | `read:folder:confluence` | Following folders in the page tree |
-   | `read:content-details:confluence` | Reading page restrictions |
+   | `read:content-details:confluence` | Finding what changed since the last sync and looking up people |
    | `read:content.permission:confluence` | Checking what each person may read |
 
 5. Create the credential, then copy the **client ID** and **secret**. The secret is shown only once.
@@ -119,8 +119,8 @@ provider page.
 | Field | Required | Where to get it |
 |-------|----------|-----------------|
 | Site URL | Yes | The address in your browser when you open Confluence, such as `https://acme.atlassian.net` |
-| Client ID | Yes | The service account's OAuth 2.0 credential, from step 2 |
-| Client secret | Yes | Shown once when the credential is created in step 2. Stored encrypted and never shown again |
+| Client ID | Yes | The service account's OAuth 2.0 credential, from step 2: one string of letters and digits, with no spaces |
+| Client secret | Yes | One long string of characters, shown once when the credential is created in step 2. Stored encrypted and never shown again |
 
 **Look up site** shows the site's **Cloud ID**, Atlassian's permanent identifier for the site, so you
 can confirm it's the right one before entering the credential.
@@ -135,7 +135,11 @@ with no pages or no other users can be saved with **Save anyway**.
 A saved site shows its status and when it was last checked. **Test connection** checks it again
 without entering the secret. **Replace credentials** tests a new client ID and secret and switches to
 them only if the test passes, so the site's sources keep working. A site whose credential stops
-working is marked **Needs new credentials**. Deleting a site requires typing its name.
+working is marked **Needs new credentials**. Deleting a site requires typing its name, and is refused
+while any source uses it: the refusal lists each of those sources, linked to its page. Deleting a site
+leaves the service account and its credential in Atlassian. To revoke the credential, open Atlassian
+Administration → **Directory** → **Service accounts**, choose the service account, and delete its
+OAuth 2.0 credential.
 
 ## 4. Confluence sources
 
@@ -155,7 +159,7 @@ always included.
 **Attachments and their scope.** When the site's last **Test connection** did not confirm the
 `read:attachment:confluence` scope, **Include attachments** starts off and the dialog says why. You can
 still turn it on. If Atlassian then refuses to list or download attachments, the source keeps syncing
-its pages and comments, skips attachments for that sync, and shows this warning on the Sources page:
+its pages and comments, skips attachments for that sync, and shows this note on the Sources page:
 *Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it
 to the credential, or turn off Include attachments.* The site itself is not marked **Needs new
 credentials**, because its credential still works for everything else. To fix it, see [Missing

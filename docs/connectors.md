@@ -136,7 +136,7 @@ A Confluence source's scope names one space. Connapse checks `spaceId` against t
 }
 ```
 
-`includeAttachments` defaults to `true` and `maxAttachmentMb` to 25; `maxAttachmentMb` must be 1 to 100. Space ids come from `GET /api/v1/atlassian/sites/{connectionId}/spaces`.
+`includeAttachments` defaults on when the site's last test confirmed the `read:attachment:confluence` scope, otherwise off. `maxAttachmentMb` defaults to 25; `maxAttachmentMb` must be 1 to 100. Space ids come from `GET /api/v1/atlassian/sites/{connectionId}/spaces`.
 
 `hostKeyFingerprint` is not typed. Connapse records it on the first successful connection and refuses every later one that does not match — see [Host keys](#host-keys).
 
