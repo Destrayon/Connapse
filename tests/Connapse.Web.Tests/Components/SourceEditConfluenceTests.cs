@@ -135,14 +135,14 @@ public class SourceEditConfluenceTests : IDisposable
     }
 
     [Fact]
-    public void ConfluenceSection_OpensWithTheSetupGuideLink_AndKeepsAttachmentHelpToTwoSentences()
+    public void Page_PutsTheSetupGuideLinkInItsTitleRow_AndKeepsAttachmentHelpToTwoSentences()
     {
         var cut = Render();
 
-        cut.Find("#confluence-setup-guide a").GetAttribute("href").Should().Be(
+        var guide = cut.Find("#confluence-setup-guide");
+        guide.GetAttribute("href").Should().Be(
             "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
-        cut.Markup.IndexOf("id=\"confluence-setup-guide\"", StringComparison.Ordinal)
-            .Should().BeLessThan(cut.Markup.IndexOf("id=\"confluence-attachments-group\"", StringComparison.Ordinal));
+        guide.PreviousElementSibling!.TagName.Should().Be("H1", "the link sits in the page's title row");
 
         var help = cut.Find("#confluence-attachments-help");
         string text = System.Text.RegularExpressions.Regex.Replace(help.TextContent, @"\s+", " ").Trim();

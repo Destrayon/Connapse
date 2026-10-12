@@ -149,16 +149,20 @@
             </ol>
         </nav>
 
-        <h1 class="mb-3"><span class="bi-cloud-fill me-2"></span>@Current.DisplayName</h1>
+        @* The setup guide sits in the title row on every provider page, as on every other provider surface. *@
+        <div class="d-flex flex-wrap align-items-baseline gap-2 mb-3">
+            <h1 class="mb-0"><span class="bi-cloud-fill me-2"></span>@Current.DisplayName</h1>
+            @if (SetupGuide(Key) is { } guide)
+            {
+                <SetupGuideLink Id="@($"{Key}-setup-guide")" Href="@guide.Href" Name="@guide.Name" />
+            }
+        </div>
 
         @if (Key == "aws")
         {
             <p class="text-muted">
                 Three steps: the identity Connapse reads S3 with, the directory people are looked up
-                in, and the application they sign into. Every field, where to find its value, and
-                what each error means are in the
-                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md"
-                   target="_blank" rel="noopener">AWS setup guide</a>.
+                in, and the application they sign into.
             </p>
         }
 
@@ -1088,10 +1092,7 @@
                 Two steps: the Azure app identity Connapse reads Blob storage and permissions with, and
                 the Entra application people sign in through. No client secrets — Connapse authenticates
                 with certificates it generates on this host (the private keys never leave it) or a
-                managed identity. Every field, where to find its value, and what each error means are in
-                the
-                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md"
-                   target="_blank" rel="noopener">Azure setup guide</a>.
+                managed identity.
             </p>
 
             <ProviderStepCard Id="azure-access" Title="Access"
@@ -1652,9 +1653,7 @@
         {
             <p class="text-muted">
                 Connapse reads GitHub through one GitHub App that you create here. Each organisation
-                or account you install it on becomes a connection. Every field, where to find its
-                value, and what each error means are in the
-                <a href="@GitHubMessages.GuideUrl" target="_blank" rel="noopener">GitHub setup guide</a>.
+                or account you install it on becomes a connection.
             </p>
             <p class="text-muted small">
                 The App asks for read-only access: Contents to read markdown docs, Issues and Pull
@@ -1870,8 +1869,6 @@
             <p class="text-muted" id="atlassian-intro">
                 Two parts: the linking app people sign in through, set up here, and one connection per
                 Atlassian site with the service account Connapse reads it as, added on the Connections page.
-                Every field, where to find its value, and what each error means are in the
-                <a href="@AtlassianLinkAppFieldSpecs.GuideSection" target="_blank" rel="noopener">Atlassian setup guide</a>.
             </p>
             <p class="text-muted small">
                 The linking app asks Atlassian for one permission, <code>read:me</code>, which lets Connapse read
@@ -1889,6 +1886,16 @@
     /// <summary>Which provider is being shown; null means the list.</summary>
     [Parameter]
     public string? Key { get; set; }
+
+    /// <summary>The provider's setup guide, linked in the page's title row; null for a provider without one.</summary>
+    public static (string Href, string Name)? SetupGuide(string? key) => key switch
+    {
+        "aws" => ("https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md", "AWS setup guide"),
+        "azure" => ("https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md", "Azure setup guide"),
+        "github" => (GitHubMessages.GuideUrl, "GitHub setup guide"),
+        "atlassian" => (AtlassianLinkAppFieldSpecs.GuideSection, "Atlassian setup guide"),
+        _ => null,
+    };
 
     private string? saveMessage;
     private bool saveSuccess;

@@ -36,7 +36,14 @@
     }
     else
     {
-        <h1 class="h4 mt-2 mb-4">@source.Name</h1>
+        @* The setup guide sits in the title row, as on every provider surface. *@
+        <div class="d-flex flex-wrap align-items-baseline gap-2 mt-2 mb-4">
+            <h1 class="h4 mb-0">@source.Name</h1>
+            @if (form.Confluence is not null)
+            {
+                <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+            }
+        </div>
 
         <section class="card mb-3">
             <div class="card-body">
@@ -103,7 +110,6 @@
         {
             <section class="card mb-3">
                 <div class="card-body">
-                    <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
                     <fieldset id="confluence-attachments-group">
                         <legend class="h6 mb-3">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
                         <div class="form-check">

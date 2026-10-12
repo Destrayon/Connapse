@@ -528,8 +528,14 @@
     else
     {
         @* ── Create / edit ─────────────────────────────────────────── *@
-        <div class="col-12">
+        @* The setup guide sits in the title row, as on every provider surface, so it is in the same
+           place whichever provider is chosen below. *@
+        <div class="col-12 d-flex flex-wrap align-items-baseline gap-2" style="max-width:40rem">
             <h5 @ref="formHeading" id="connection-form-title" tabindex="-1">@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
+            @if (form.Provider == ConnectionProvider.Atlassian)
+            {
+                <SetupGuideLink Id="atlassian-setup-guide" Href="@AtlassianSiteFieldSpecs.SiteConnectionSection" />
+            }
         </div>
 
         @* A new Atlassian site is named after its host by the service that saves it, so its Name

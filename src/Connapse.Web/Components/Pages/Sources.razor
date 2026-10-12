@@ -321,7 +321,12 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="new-source-title">New source</h5>
-                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
+                    @* In the title row, as on every provider surface; the close button keeps the far corner. *@
+                    @if (selectedProvider is ConnectionProvider.Atlassian)
+                    {
+                        <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+                    }
+                    <button type="button" class="btn-close @(selectedProvider is ConnectionProvider.Atlassian ? "ms-3" : "")" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
                 </div>
                 <div class="modal-body">
                     @if (createError is not null)

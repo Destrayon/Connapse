@@ -193,17 +193,16 @@ public class NewSourceConfluenceTests : IDisposable
     }
 
     [Fact]
-    public void Dialog_OpensTheConfluencePartWithTheSetupGuideLink_AsEveryAtlassianSurfaceDoes()
+    public void Dialog_PutsTheSetupGuideLinkInItsTitleRow_AsEveryProviderSurfaceDoes()
     {
         var cut = OpenDialog();
         cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
 
         var guide = cut.Find("#confluence-setup-guide");
-        guide.TextContent.Should().Contain("Every field, where to find its value, and what each error means are in the");
-        guide.QuerySelector("a")!.GetAttribute("href").Should().Be(
+        guide.GetAttribute("href").Should().Be(
             "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
-        cut.Markup.IndexOf("id=\"confluence-setup-guide\"", StringComparison.Ordinal)
-            .Should().BeLessThan(cut.Markup.IndexOf("id=\"confluence-spaces\"", StringComparison.Ordinal));
+        guide.ParentElement!.ClassList.Should().Contain("modal-header", "the link sits in the dialog's title row");
+        guide.PreviousElementSibling!.Id.Should().Be("new-source-title");
     }
 
     [Fact]

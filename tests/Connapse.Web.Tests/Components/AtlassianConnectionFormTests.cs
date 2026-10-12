@@ -96,12 +96,17 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
-    public void New_LinksTheSetupGuideAtTheTop()
+    public void SetupGuideLink_RendersAsTheTitleRowLink_ToTheSiteConnectionSection()
     {
-        var cut = ctx.Render<AtlassianConnectionForm>();
+        var link = ctx.Render<Connapse.Web.Components.Shared.SetupGuideLink>(p => p
+            .Add(l => l.Id, "atlassian-setup-guide")
+            .Add(l => l.Href, AtlassianSiteFieldSpecs.SiteConnectionSection)).Find("#atlassian-setup-guide");
 
-        cut.Find("#atlassian-setup-guide a").GetAttribute("href")
-            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#3-site-connection");
+        link.TagName.Should().Be("A");
+        link.GetAttribute("href").Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#3-site-connection");
+        link.GetAttribute("target").Should().Be("_blank");
+        link.ClassList.Should().Contain("ms-auto", "it sits at the right of the title row");
+        link.TextContent.Should().Contain("Atlassian setup guide").And.Contain("(opens in a new tab)");
     }
 
     [Fact]
@@ -355,14 +360,11 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
-    public void New_GuideLinkUsesTheSameSentenceAsEveryOtherAtlassianSurface()
+    public void Form_LeavesTheGuideLinkToTheConnectionsTitleRow()
     {
         var cut = ctx.Render<AtlassianConnectionForm>();
 
-        cut.Find("#atlassian-setup-guide").TextContent.Should()
-            .Contain("Every field, where to find its value, and what each error means are in the");
-        cut.Markup.IndexOf("id=\"atlassian-setup-guide\"", StringComparison.Ordinal)
-            .Should().BeLessThan(cut.Markup.IndexOf("id=\"atlassian-site-url\"", StringComparison.Ordinal));
+        cut.FindAll("#atlassian-setup-guide").Should().BeEmpty("the page's title row carries it, whichever provider is chosen");
     }
 
     [Fact]
