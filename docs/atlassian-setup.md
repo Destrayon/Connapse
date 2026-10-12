@@ -205,7 +205,7 @@ the service account, or the credential was deleted or revoked.
 ### Can't read Confluence
 
 **Symptom:** *The credential can't read Confluence on this site.*, or a Confluence source that failed
-with *Atlassian refused the service account's requests even with a new token.*
+with *Atlassian refused the service account's requests even with a new token.* The site is not marked **Needs new credentials**, because Atlassian accepted the credential itself.
 **Likely cause:** the service account has no Confluence role on this site, or the credential was created
 without the Confluence scopes.
 **Fix:** set Confluence to its admin role on the service account (step 2.2). If it already has it,
@@ -316,7 +316,7 @@ are images or other files no parser can read. Pages and comments still synced.
 
 **Symptom:** **Check and save** or **Test connection** on the **Linking app** card answers *Couldn't reach
 Atlassian…*, or a Confluence source failed with *Confluence on this site didn't answer properly, so
-nothing changed this cycle.* or *Atlassian's sign-in service answered with a redirect…*
+nothing changed this cycle.*, *Atlassian's sign-in service answered with a redirect…* or *Atlassian's sign-in service answered without an access token.* These don't mark the site **Needs new credentials**: its credential may still be fine.
 **Likely cause:** this server can't reach Atlassian over HTTPS (a firewall, a proxy, or DNS), or
 Atlassian had a temporary outage. **Details** on the Sources page shows what came back.
 **Fix:** check that the server can open `https://auth.atlassian.com` and `https://api.atlassian.com`,

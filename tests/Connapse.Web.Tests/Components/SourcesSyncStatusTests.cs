@@ -126,6 +126,7 @@ public class SourcesSyncStatusTests : IDisposable
     [InlineData(AtlassianSyncErrors.FreshTokenRefused, "#cant-read-confluence")]
     [InlineData(AtlassianSyncErrors.Unavailable, "#couldnt-reach-atlassian")]
     [InlineData(AtlassianSyncErrors.TokenRedirected, "#couldnt-reach-atlassian")]
+    [InlineData(AtlassianSyncErrors.NoAccessToken, "#couldnt-reach-atlassian")]
     [InlineData("Something nobody planned for.", "#troubleshooting")]
     public void EachConfluenceFailure_LinksItsTroubleshootingEntry(string error, string anchor)
     {

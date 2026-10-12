@@ -59,7 +59,8 @@ public static class AtlassianSyncErrors
             return AtlassianSiteTroubleshooting.CredentialsRejected;
         if (message.StartsWith(FreshTokenRefused, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.CantReadConfluence;
-        if (message.StartsWith(TokenRedirected, StringComparison.Ordinal) || message.StartsWith(Unavailable, StringComparison.Ordinal))
+        if (message.StartsWith(TokenRedirected, StringComparison.Ordinal) || message.StartsWith(NoAccessToken, StringComparison.Ordinal)
+            || message.StartsWith(Unavailable, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.Unreachable;
         if (message.Contains(ConfluenceSpaceConnector.AttachmentScopeNotice, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.MissingScope;
