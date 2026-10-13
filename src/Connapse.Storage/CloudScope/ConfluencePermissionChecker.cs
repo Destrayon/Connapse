@@ -60,7 +60,7 @@ public sealed class ConfluencePermissionChecker(
     {
         try
         {
-            if (await sites.SiteForAsync(cloudId, ct) is not { } found)
+            if (await sites.SiteForAsync(cloudId, AtlassianProduct.Confluence, ct) is not { } found)
                 return (false, FailureTtl);
             var client = sites.ClientFor(found.Site, found.Secret, AtlassianProduct.Confluence);
 

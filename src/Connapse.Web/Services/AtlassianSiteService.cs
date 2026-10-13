@@ -50,13 +50,18 @@ public sealed record AtlassianProjectsResult(
     string? TroubleshootingUrl = null);
 
 /// <param name="Test">The test that ran: the failed probe for <see cref="AtlassianAddOutcome.TestFailed"/>, or a warning saved anyway.</param>
+/// <param name="Name">
+/// For <see cref="AtlassianAddOutcome.Conflict"/>, the connection already in the way: the site's
+/// connection for the same product, or another connection with the name this one would take.
+/// </param>
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
     Connection? Connection = null,
     ConnectionTestResult? Test = null,
     string? SiteUrl = null,
     string? CloudId = null,
-    string? ClientId = null);
+    string? ClientId = null,
+    string? Name = null);
 
 /// <param name="Test">The test of the new credential, when one ran.</param>
 public sealed record AtlassianReplaceResult(
@@ -168,9 +173,13 @@ public sealed class AtlassianSiteService(
     /// Save a site whose only failure is a warning (no page or no other user yet to check
     /// administrator access against). Any other failure is never saved.
     /// </param>
+    /// <param name="product">
+    /// What the connection reads. A site has at most one connection per product; its Jira connection
+    /// is named apart from its Confluence one, which keeps the site's bare host name as before.
+    /// </param>
     public async Task<AtlassianAddResult> AddAsync(
         string? siteUrl, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
-        CancellationToken ct = default)
+        AtlassianProduct product = AtlassianProduct.Confluence, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(siteUrl)
             || string.IsNullOrWhiteSpace(clientId)
@@ -187,12 +196,20 @@ public sealed class AtlassianSiteService(
         string normalizedSite = (string)siteUrlValue;
         string cloudId = (string)cloudIdValue;
         string trimmedClientId = clientId.Trim();
-        string name = new Uri(normalizedSite).Host;
+        string host = new Uri(normalizedSite).Host;
+        string name = product == AtlassianProduct.Jira ? $"{host} (Jira)" : host;
 
-        string configJson = JsonSerializer.Serialize(new { siteUrl = normalizedSite, cloudId, clientId = trimmedClientId });
+        string configJson = JsonSerializer.Serialize(new
+        {
+            siteUrl = normalizedSite, cloudId, clientId = trimmedClientId, product = AtlassianSite.ProductValue(product),
+        });
 
         // Cancelled while the check ran: stop before anything is saved.
         ct.ThrowIfCancellationRequested();
+
+        // One connection per site and product, whatever it has been renamed to since.
+        if (await SiteConnectionAsync(cloudId, product, ct) is { } existing)
+            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: existing.Name);
 
         Connection connection;
         try
@@ -203,17 +220,29 @@ public sealed class AtlassianSiteService(
         }
         catch (InvalidOperationException)
         {
-            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite);
+            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: name);
         }
 
         await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),
-            new { Provider = "Atlassian", SiteUrl = normalizedSite, CloudId = cloudId, ClientId = trimmedClientId, SavedWithWarning = !result.Success }, ct);
+            new
+            {
+                Provider = "Atlassian", Product = AtlassianSite.ProductValue(product), SiteUrl = normalizedSite, CloudId = cloudId,
+                ClientId = trimmedClientId, SavedWithWarning = !result.Success,
+            }, ct);
 
         if (await connections.RecordHealthAsync(connection.Id, HealthOf(result), ct) is { } health)
             connection = connection with { Health = health };
 
         return new AtlassianAddResult(AtlassianAddOutcome.Created, connection, result, normalizedSite, cloudId, trimmedClientId);
     }
+
+    /// <summary>The site's saved connection for <paramref name="product"/>, if it has one.</summary>
+    private async Task<Connection?> SiteConnectionAsync(string cloudId, AtlassianProduct product, CancellationToken ct) =>
+        (await connections.ListAsync(take: int.MaxValue, ct: ct)).FirstOrDefault(c =>
+            c.Provider == ConnectionProvider.Atlassian
+            && AtlassianSite.FromConfigJson(c.ConfigJson) is { } site
+            && site.Product == product
+            && string.Equals(site.CloudId, cloudId, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Tests a new client ID and secret against the site's stored address and, only when they pass,

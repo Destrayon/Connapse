@@ -15,17 +15,21 @@ namespace Connapse.Storage.CloudScope;
 public sealed class AtlassianSiteLookup(
     IServiceScopeFactory scopes, IHttpClientFactory http, AtlassianTokenSource tokens, ILogger logger)
 {
-    private readonly ConcurrentDictionary<string, Lazy<Task<(AtlassianSite Site, string Secret)?>>> _sites = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(string CloudId, AtlassianProduct Product), Lazy<Task<(AtlassianSite Site, string Secret)?>>> _sites = new();
 
-    /// <summary>The connection that reads <paramref name="cloudId"/>, or null when none does or its secret is gone.</summary>
-    internal Task<(AtlassianSite Site, string Secret)?> SiteForAsync(string cloudId, CancellationToken ct) =>
-        _sites.GetOrAdd(cloudId, id => new Lazy<Task<(AtlassianSite, string)?>>(() => LookUpAsync(id, ct))).Value;
+    /// <summary>
+    /// The connection that reads <paramref name="product"/> on <paramref name="cloudId"/>, or null when
+    /// none does or its secret is gone. Another product's connection to the same site never stands in:
+    /// its credential was granted for that product alone.
+    /// </summary>
+    internal Task<(AtlassianSite Site, string Secret)?> SiteForAsync(string cloudId, AtlassianProduct product, CancellationToken ct) =>
+        _sites.GetOrAdd((cloudId, product), key => new Lazy<Task<(AtlassianSite, string)?>>(() => LookUpAsync(key.CloudId, key.Product, ct))).Value;
 
     /// <summary>A client for one product of a site <see cref="SiteForAsync"/> found.</summary>
     public AtlassianApiClient ClientFor(AtlassianSite site, string secret, AtlassianProduct product) =>
         new(http.CreateClient(AtlassianApiClient.HttpClientName), tokens, site, secret, product: product);
 
-    private async Task<(AtlassianSite Site, string Secret)?> LookUpAsync(string cloudId, CancellationToken ct)
+    private async Task<(AtlassianSite Site, string Secret)?> LookUpAsync(string cloudId, AtlassianProduct product, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
@@ -34,21 +38,22 @@ public sealed class AtlassianSiteLookup(
         {
             if (connection.Provider != ConnectionProvider.Atlassian
                 || AtlassianSite.FromConfigJson(connection.ConfigJson) is not { } site
+                || site.Product != product
                 || !string.Equals(site.CloudId, cloudId, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             string? secret = await connections.GetSecretAsync(connection.Id, ct);
             if (string.IsNullOrEmpty(secret))
             {
-                logger.LogWarning("Atlassian connection {ConnectionId} has no readable secret; denying checks on site {CloudId}",
-                    connection.Id, cloudId);
+                logger.LogWarning("Atlassian connection {ConnectionId} has no readable secret; denying {Product} checks on site {CloudId}",
+                    connection.Id, product, cloudId);
                 return null;
             }
 
             return (site, secret);
         }
 
-        logger.LogWarning("No Atlassian connection reads site {CloudId}; denying its documents", cloudId);
+        logger.LogWarning("No Atlassian {Product} connection reads site {CloudId}; denying those documents", product, cloudId);
         return null;
     }
 }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Web.Components.Sources;
 
 namespace Connapse.Web.Services;
@@ -57,11 +58,12 @@ public abstract class AtlassianSourceScope
     /// The checks the New source dialog runs, for the REST API: the id must be one the site's service
     /// account can read now and not already a source on the connection, and the attachment cap must be
     /// in range. The scope stored is rebuilt from Atlassian's answer, so an API-created source matches
-    /// a UI-created one. <paramref name="notReady"/>, when set, refuses the site before Atlassian is asked.
+    /// a UI-created one. A connection for another product than <paramref name="product"/> is refused, and
+    /// <paramref name="notReady"/>, when set, refuses the site, both before Atlassian is asked.
     /// </summary>
     private protected static async Task<Result> ResolveAsync<TItem, TSelection>(
         string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore,
-        ScopeTexts texts, string? notReady, CancellationToken ct)
+        ScopeTexts texts, AtlassianProduct product, string? notReady, CancellationToken ct)
         where TItem : IAtlassianSourceItem
         where TSelection : AtlassianSourceSelection<TItem, TSelection>, new()
     {
@@ -74,6 +76,8 @@ public abstract class AtlassianSourceScope
             return Result.Fail(Outcome.Invalid, parsed.Field!, parsed.Error);
         if (parsed.Id is not { } id)
             return Result.Fail(Outcome.Invalid, idField, texts.MissingId(connection.Id));
+        if (AtlassianSite.FromConfigJson(connection.ConfigJson) is { } site && site.Product != product)
+            return Result.Fail(Outcome.Invalid, "connectionId", WrongProduct(connection, site.Product, product));
         if (notReady is not null)
             return Result.Fail(Outcome.Invalid, "connectionId", notReady);
 
@@ -104,6 +108,11 @@ public abstract class AtlassianSourceScope
         var request = requests.Single();
         return new Result(Outcome.Valid, request.ScopeJson, request.Name);
     }
+
+    /// <summary>What a source of <paramref name="wanted"/> on a connection for <paramref name="actual"/> is told.</summary>
+    private static string WrongProduct(Connection connection, AtlassianProduct actual, AtlassianProduct wanted) =>
+        $"Connection '{connection.Name}' is a {actual} connection, so it can't hold a {wanted} source. "
+        + $"Choose this site's {wanted} connection, or add one on the Connections page.";
 
     /// <summary>Whether a scope's <c>kind</c> value is a Jira project's; the one place that comparison is made.</summary>
     public static bool IsJiraKind(string? kind) => string.Equals(kind, JiraProjectSelection.Kind, StringComparison.OrdinalIgnoreCase);

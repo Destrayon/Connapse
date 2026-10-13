@@ -1284,7 +1284,24 @@ public sealed class JiraProjectConnectorTests : IDisposable
 
     private static long Size(SyncDelta delta, string path) => delta.Upserted.Single(f => f.Path == path).SizeBytes;
 
-    private static (ConnectorFactory Factory, Connection Connection) Factory()
+    [Fact]
+    public void Factory_JiraKindOnConfluenceConnection_Throws()
+    {
+        var (factory, connection) = Factory(product: null);
+        var source = Source(connection.Id, """{"kind":"jira-project","projectId":"10000","projectKey":"ENG"}""");
+
+        Action act = () => factory.Create(source, connection, "service-secret");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*'{source.Name}'*Confluence*");
+
+        var (jiraFactory, jiraConnection) = Factory();
+        var space = Source(jiraConnection.Id, """{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG"}""");
+        Action reverse = () => jiraFactory.Create(space, jiraConnection, "service-secret");
+        reverse.Should().Throw<InvalidOperationException>().WithMessage($"*'{space.Name}'*Jira*");
+    }
+
+    /// <param name="product">The connection's product; null writes none, which is a Confluence site.</param>
+    private static (ConnectorFactory Factory, Connection Connection) Factory(string? product = "jira")
     {
         var security = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
         security.CurrentValue.Returns(new SourceSecuritySettings());
@@ -1309,7 +1326,9 @@ public sealed class JiraProjectConnectorTests : IDisposable
             atlassianSettings: atlassian);
         var connection = new Connection(
             Id: Guid.NewGuid(), Name: "conn", Provider: ConnectionProvider.Atlassian,
-            ConfigJson: $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}""",
+            ConfigJson: product is null
+                ? $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}"""
+                : $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"{{product}}"}""",
             CreatedByUserId: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow);
         return (factory, connection);
     }

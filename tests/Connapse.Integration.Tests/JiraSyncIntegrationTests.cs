@@ -59,7 +59,7 @@ public sealed class JiraSyncIntegrationTests(SharedWebAppFixture fixture)
         // Created as an admin would: the site through its test, the source through POST /api/sources.
         string host = $"jira-sync-{Guid.NewGuid():N}"[..20] + ".atlassian.net";
         var site = await fixture.AdminClient.PostAsJsonAsync("/api/v1/atlassian/sites",
-            new { siteUrl = $"https://{host}", clientId = $"client-{_cloudId}", clientSecret = "jira-sync-secret" });
+            new { siteUrl = $"https://{host}", clientId = $"client-{_cloudId}", clientSecret = "jira-sync-secret", product = "jira" });
         site.StatusCode.Should().Be(HttpStatusCode.Created, await site.Content.ReadAsStringAsync());
         Guid connectionId = (await site.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 

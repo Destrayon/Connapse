@@ -18,8 +18,10 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) : IAsyncLifetime
 {
-    private const string CloudId = "11111111-2222-3333-4444-555555555555";
-    private const string Root = "/ex/confluence/" + CloudId + "/wiki";
+    // A site of its own per test: a site has one connection per product, and every host the fake
+    // answers for resolves to this one cloud id.
+    private readonly string CloudId = Guid.NewGuid().ToString("D");
+    private string Root => "/ex/confluence/" + CloudId + "/wiki";
     private const string Secret = "confluence-sources-secret-123";
 
     private readonly FakeAtlassianApi _api = fixture.Atlassian;

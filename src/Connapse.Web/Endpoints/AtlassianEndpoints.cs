@@ -12,12 +12,14 @@ namespace Connapse.Web.Endpoints;
 public sealed record ResolveAtlassianSiteRequest(string? SiteUrl);
 
 /// <param name="SaveAnyway">Save even though the site has no page or no other user yet to check administrator access against.</param>
-public sealed record CreateAtlassianSiteRequest(string? SiteUrl, string? ClientId, string? ClientSecret, bool? SaveAnyway = null)
+/// <param name="Product">What the connection reads: <c>confluence</c> (when left out) or <c>jira</c>.</param>
+public sealed record CreateAtlassianSiteRequest(
+    string? SiteUrl, string? ClientId, string? ClientSecret, bool? SaveAnyway = null, string? Product = null)
 {
     // The generated ToString would print the secret into any log line or message it reached.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***, SaveAnyway = {SaveAnyway}");
+        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***, SaveAnyway = {SaveAnyway}, Product = {Product}");
         return true;
     }
 }
@@ -269,8 +271,14 @@ public static class AtlassianEndpoints
             [FromServices] AtlassianSiteService sites,
             CancellationToken ct) =>
         {
+            AtlassianProduct? product = string.IsNullOrWhiteSpace(request.Product)
+                ? AtlassianProduct.Confluence
+                : AtlassianSite.ProductOf(request.Product.Trim());
+            if (product is null)
+                return Results.BadRequest(new { error = "product must be \"confluence\" or \"jira\".", field = "product" });
+
             var added = await sites.AddAsync(request.SiteUrl, request.ClientId, request.ClientSecret, UserIdOf(http),
-                request.SaveAnyway ?? false, ct);
+                request.SaveAnyway ?? false, product.Value, ct);
 
             return added.Outcome switch
             {
@@ -278,12 +286,12 @@ public static class AtlassianEndpoints
                     Results.BadRequest(new { error = "siteUrl, clientId and clientSecret are required." }),
                 AtlassianAddOutcome.TestFailed => Results.UnprocessableEntity(Report(added.Test!)),
                 AtlassianAddOutcome.Conflict =>
-                    Results.Conflict(new { error = $"A connection named '{new Uri(added.SiteUrl!).Host}' already exists." }),
+                    Results.Conflict(new { error = $"A connection named '{added.Name}' already exists." }),
                 _ => Results.Created($"/api/v1/atlassian/sites/{added.Connection!.Id}",
                     new
                     {
                         id = added.Connection.Id, name = added.Connection.Name, siteUrl = added.SiteUrl, cloudId = added.CloudId,
-                        clientId = added.ClientId, test = Report(added.Test!),
+                        clientId = added.ClientId, product = AtlassianSite.ProductValue(product.Value), test = Report(added.Test!),
                     }),
             };
         }).RequireAuthorization("RequireAdmin");

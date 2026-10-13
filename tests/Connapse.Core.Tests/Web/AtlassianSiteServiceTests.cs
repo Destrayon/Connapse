@@ -25,6 +25,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     private readonly FakeAtlassianApi _api = new();
     private readonly IConnectionStore _store = Substitute.For<IConnectionStore>();
     private readonly List<(string Action, string? Id, string Details)> _events = [];
+    private readonly List<Connection> _saved = [];
     private readonly AtlassianSiteService _sites;
 
     public AtlassianSiteServiceTests()
@@ -48,7 +49,15 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _api.MapJson(Root + "/rest/api/content/7/permission/check", new { hasPermission = true });
 
         _store.CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns(c => Site(c.Arg<CreateConnectionRequest>().Name));
+            .Returns(c =>
+            {
+                var request = c.Arg<CreateConnectionRequest>();
+                var saved = Site(request.Name) with { ConfigJson = request.ConfigJson };
+                _saved.Add(saved);
+                return saved;
+            });
+        _store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(_ => (IReadOnlyList<Connection>)[.. _saved]);
     }
 
     public void Dispose() => _api.Dispose();
@@ -135,6 +144,37 @@ public sealed class AtlassianSiteServiceTests : IDisposable
 
         added.Outcome.Should().Be(AtlassianAddOutcome.TestFailed);
         await _store.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
+    }
+
+    [Fact]
+    public async Task Add_SameSiteBothProducts_Allowed()
+    {
+        var confluence = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
+        var jira = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
+
+        confluence.Outcome.Should().Be(AtlassianAddOutcome.Created);
+        jira.Outcome.Should().Be(AtlassianAddOutcome.Created);
+        AtlassianSite.FromConfigJson(confluence.Connection!.ConfigJson)
+            .Should().Be(new AtlassianSite("https://acme.atlassian.net", CloudId, "client-1"));
+        AtlassianSite.FromConfigJson(jira.Connection!.ConfigJson)
+            .Should().Be(new AtlassianSite("https://acme.atlassian.net", CloudId, "client-1", AtlassianProduct.Jira));
+        confluence.Connection.Name.Should().Be("acme.atlassian.net");
+        jira.Connection.Name.Should().NotBe(confluence.Connection.Name);
+    }
+
+    [Fact]
+    public async Task Add_SameSiteSameProduct_Duplicate()
+    {
+        var first = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
+        // Renamed, so only the site and product can tell it is the same connection.
+        _saved[0] = _saved[0] with { Name = "Our Jira" };
+
+        var second = await _sites.AddAsync("https://acme.atlassian.net", "client-2", Secret, null, product: AtlassianProduct.Jira);
+
+        first.Outcome.Should().Be(AtlassianAddOutcome.Created);
+        second.Outcome.Should().Be(AtlassianAddOutcome.Conflict);
+        second.Name.Should().Be("Our Jira");
+        await _store.Received(1).CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

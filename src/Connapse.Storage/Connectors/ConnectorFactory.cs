@@ -354,6 +354,13 @@ public class ConnectorFactory(
             ?? throw new InvalidOperationException(
                 $"Source '{source.Name}' is on connection '{connection.Name}', which is not a well-formed Atlassian site.");
 
+        // A connection's credential was granted for its own product alone, so a source of the other
+        // product never reads through it.
+        if (site.Product != product)
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' reads {product} but is on connection '{connection.Name}', which is a {site.Product} "
+                + $"connection. Recreate the source on a {product} connection for this site.");
+
         if (string.IsNullOrEmpty(secret))
             throw new InvalidOperationException(
                 $"Source '{source.Name}' is on connection '{connection.Name}', which has no service-account secret stored.");

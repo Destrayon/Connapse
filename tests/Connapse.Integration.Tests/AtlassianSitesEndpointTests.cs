@@ -25,8 +25,10 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 {
-    private const string CloudId = "11111111-2222-3333-4444-555555555555";
-    private const string Root = "/ex/confluence/" + CloudId + "/wiki";
+    // A site of its own per test: a site has one connection per product, and every host the fake
+    // answers for resolves to this one cloud id.
+    private readonly string CloudId = Guid.NewGuid().ToString("D");
+    private string Root => "/ex/confluence/" + CloudId + "/wiki";
     private const string Secret = "atlassian-secret-value-123";
     private const string EditorEmail = "editor@atlassian-sites-tests.connapse.io";
     private const string EditorPassword = "EditorTest1!";
@@ -94,8 +96,8 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         return client;
     }
 
-    private Task<HttpResponseMessage> CreateAsync(HttpClient client, string host, string secret = Secret) =>
-        client.PostAsJsonAsync(Sites, new { siteUrl = $"https://{host}", clientId = "client-1", clientSecret = secret });
+    private Task<HttpResponseMessage> CreateAsync(HttpClient client, string host, string secret = Secret, string? product = null) =>
+        client.PostAsJsonAsync(Sites, new { siteUrl = $"https://{host}", clientId = "client-1", clientSecret = secret, product });
 
     private async Task<Connection?> FindAsync(string name)
     {
@@ -375,9 +377,9 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         second.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
-    private async Task<Guid> CreateSiteAsync(string host)
+    private async Task<Guid> CreateSiteAsync(string host, string? product = null)
     {
-        var response = await CreateAsync(_fixture.AdminClient, host);
+        var response = await CreateAsync(_fixture.AdminClient, host, product: product);
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("id").GetGuid();
@@ -456,11 +458,12 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
     public async Task Rename_BlankOrTakenName_IsRefused()
     {
         Guid id = await CreateSiteAsync("rename-refused.atlassian.net");
-        await CreateSiteAsync("rename-taken.atlassian.net");
+        // The site's other connection: the test site has one cloud id, and one connection per product.
+        await CreateSiteAsync("rename-taken.atlassian.net", product: "jira");
 
         (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = " " }))
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = "rename-taken.atlassian.net" }))
+        (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = "rename-taken.atlassian.net (Jira)" }))
             .StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{Guid.NewGuid()}", new { name = "x" }))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
