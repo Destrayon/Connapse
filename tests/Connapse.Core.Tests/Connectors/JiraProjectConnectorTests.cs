@@ -32,7 +32,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         _jira.AddProject(ProjectId, "ENG", "Engineering");
     }
 
-    private JiraProjectConnector Connector(bool includeAttachments = true, int maxAttachmentMb = 25)
+    private JiraProjectConnector Connector(bool includeAttachments = true, int maxAttachmentMb = 25, int sweepSlice = 500)
     {
         var site = new AtlassianSite("https://acme.atlassian.net", CloudId, "client-1");
         var tokens = new AtlassianTokenSource(new FakeFactory(_api), TimeProvider.System);
@@ -40,7 +40,10 @@ public sealed class JiraProjectConnectorTests : IDisposable
             new JiraProjectConfig(site, ProjectId, "ENG", _root, includeAttachments, maxAttachmentMb),
             new AtlassianApiClient(_api.CreateClient(), tokens, site, "secret", product: AtlassianProduct.Jira),
             clock: _clock,
-            fileTypes: new Extensions(".txt", ".pdf"));
+            fileTypes: new Extensions(".txt", ".pdf"))
+        {
+            SweepSliceSize = sweepSlice,
+        };
     }
 
     public void Dispose()
@@ -584,6 +587,121 @@ public sealed class JiraProjectConnectorTests : IDisposable
         await _connector.GetChangesAsync(third.NextCursor);
 
         _jira.BulkFetches.Should().BeEmpty("the sweep's time was carried in the cursor");
+    }
+
+    [Fact]
+    public async Task Sync_RateLimitedDuringSweep_CycleAppliesOrdinaryChangesAndNextCycleFinishesSweep()
+    {
+        var quiet = Issue("20001", "ENG-1", "Login fails");
+        quiet.Comments.Add(new FakeJiraComment("1", "Ada", "Secret", T0, Visibility: GroupVisibility(GroupA)));
+        var edited = Issue("20002", "ENG-2", "Second");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromHours(25));
+        quiet.Comments[0] = quiet.Comments[0] with { Visibility = GroupVisibility(GroupB) };
+        edited.Summary = "Second, edited";
+        edited.Updated = _clock.GetUtcNow();
+        // Every read of the quiet issue's comments is refused: the sweep cannot finish this cycle.
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/issue/20001/comment", StringComparison.Ordinal) ? RateLimited() : null;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.Deferred.Should().BeFalse("a rate limit in the sweep must not hold back the cycle's ordinary changes");
+        second.IsFullListing.Should().BeTrue();
+        second.NextCursor.Should().NotBe(first.NextCursor);
+        Doc(second, "/issues/20002.md")!.Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-2 Second, edited");
+        Doc(second, CommentPath("20001", "1"))!.ResourceUri
+            .Should().EndWith($"/group/{GroupA}", "an issue the sweep could not read in full keeps its last record");
+
+        _api.Intercept = null;
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+
+        _jira.BulkFetches.SelectMany(b => b).Should().Contain("20001", "the unfinished sweep carries on");
+        Doc(third, CommentPath("20001", "1"))!.ResourceUri.Should().EndWith($"/group/{GroupB}");
+
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        await _connector.GetChangesAsync(third.NextCursor);
+
+        _jira.BulkFetches.Should().BeEmpty("the sweep finished, so the next one is a day away");
+    }
+
+    [Fact]
+    public async Task Sync_RateLimitedDuringSweep_IssuesReadInFullAreKeptAndSweepResumesAfterThem()
+    {
+        var connector = Connector(sweepSlice: 10);
+        var a = Issue("20001", "ENG-1", "A");
+        a.Comments.Add(new FakeJiraComment("1", "Ada", "Secret", T0, Visibility: GroupVisibility(GroupA)));
+        var b = Issue("20002", "ENG-2", "B");
+        b.Comments.Add(new FakeJiraComment("2", "Bob", "Secret", T0, Visibility: GroupVisibility(GroupA)));
+        var c = Issue("20003", "ENG-3", "C");
+        c.Comments.Add(new FakeJiraComment("3", "Cy", "Secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromHours(25));
+        foreach (var issue in new[] { a, b, c })
+            issue.Comments[0] = issue.Comments[0] with { Visibility = GroupVisibility(GroupB) };
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/issue/20002/comment", StringComparison.Ordinal) ? RateLimited() : null;
+        var second = await connector.GetChangesAsync(first.NextCursor);
+
+        second.Deferred.Should().BeFalse();
+        Doc(second, CommentPath("20001", "1"))!.ResourceUri.Should().EndWith($"/group/{GroupB}", "it was read in full before the limit");
+        Doc(second, CommentPath("20002", "2"))!.ResourceUri.Should().EndWith($"/group/{GroupA}", "its read was cut off");
+        Doc(second, CommentPath("20003", "3"))!.ResourceUri.Should().EndWith($"/group/{GroupA}", "it was never reached");
+
+        _api.Intercept = null;
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var third = await connector.GetChangesAsync(second.NextCursor);
+
+        _jira.BulkFetches.SelectMany(x => x).Should().BeEquivalentTo(new[] { "20002", "20003" }, "the sweep resumes after the last issue it read in full");
+        Doc(third, CommentPath("20002", "2"))!.ResourceUri.Should().EndWith($"/group/{GroupB}");
+        Doc(third, CommentPath("20003", "3"))!.ResourceUri.Should().EndWith($"/group/{GroupB}");
+    }
+
+    [Fact]
+    public async Task Sync_LargeProject_SweepRunsInSlicesAcrossCycles()
+    {
+        var connector = Connector(sweepSlice: 2);
+        foreach (string id in new[] { "20001", "20002", "20003" })
+            Issue(id, "ENG-" + id[^1], "Issue " + id);
+        var first = await connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromHours(25));
+        _jira.BulkFetches.Clear();
+        var second = await connector.GetChangesAsync(first.NextCursor);
+        _jira.BulkFetches.SelectMany(x => x).Should().Equal("20001", "20002");
+
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var third = await connector.GetChangesAsync(second.NextCursor);
+        _jira.BulkFetches.SelectMany(x => x).Should().Equal("20003");
+
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        await connector.GetChangesAsync(third.NextCursor);
+        _jira.BulkFetches.Should().BeEmpty("the sweep is done until a day after it began");
+    }
+
+    [Fact]
+    public async Task Sync_RateLimitedOnSweepBulkFetch_CycleCompletesAndSweepStaysDue()
+    {
+        Issue("20001", "ENG-1", "First");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromHours(25));
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/issue/bulkfetch", StringComparison.Ordinal) ? RateLimited() : null;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.Deferred.Should().BeFalse();
+        second.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+
+        _api.Intercept = null;
+        _jira.BulkFetches.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        await _connector.GetChangesAsync(second.NextCursor);
+        _jira.BulkFetches.SelectMany(x => x).Should().Equal("20001");
     }
 
     [Fact]
