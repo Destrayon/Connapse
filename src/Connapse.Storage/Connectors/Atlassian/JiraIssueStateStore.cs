@@ -117,8 +117,9 @@ internal sealed class JiraSyncState
 {
     public string ProjectName { get; set; } = "";
     public string ProjectKey { get; set; } = "";
-    public List<string> RichTextFieldIds { get; set; } = [];        // from GET /field, refreshed each cycle
+    public List<string> RichTextFieldIds { get; set; } = [];        // from GET /field, refreshed hourly and on each reconcile
     public Dictionary<string, string> FieldNames { get; set; } = [];
+    public DateTimeOffset? FieldsReadAt { get; set; }                // when GET /field was last read
 }
 
 /// <summary>

@@ -22,19 +22,29 @@ namespace Connapse.Storage.Connectors.Atlassian;
 /// <param name="StatePath">This source's own issue-state directory.</param>
 /// <param name="IncludeAttachments">Whether issue attachments are indexed too.</param>
 /// <param name="MaxAttachmentMb">Attachments larger than this are skipped.</param>
+/// <param name="ReconcileInterval">
+/// How long after the last complete listing of the project the next one runs; null is
+/// <see cref="DefaultReconcileInterval"/>. Cycles in between fetch only what changed.
+/// </param>
 public sealed record JiraProjectConfig(
     AtlassianSite Site, string ProjectId, string ProjectKey, string StatePath,
-    bool IncludeAttachments = true, int MaxAttachmentMb = 25)
+    bool IncludeAttachments = true, int MaxAttachmentMb = 25, TimeSpan? ReconcileInterval = null)
 {
     /// <summary>The largest attachment cap a source may ask for; attachments are buffered and parsed in memory.</summary>
     public const int MaxAttachmentMbCeiling = 100;
+
+    /// <summary>How often a project is listed in full, which is how deleted and moved issues drop out.</summary>
+    public static readonly TimeSpan DefaultReconcileInterval = TimeSpan.FromHours(1);
 }
 
 /// <summary>
-/// Syncs a Jira project's issues as record documents. Every cycle lists the project's issue ids,
-/// asks which issues changed since the last cycle, fetches only those, and hands the sync engine
-/// a full listing from the issue-state store: the engine re-ingests what changed signature and
-/// deletes what is gone, so a deleted issue or one moved to another project drops out the same way.
+/// Syncs a Jira project's issues as record documents. Every cycle asks which issues changed since
+/// the last cycle and fetches only those. An ordinary cycle hands the sync engine every document of
+/// those issues, and as deletions only their documents the store shows are gone. A reconcile, by
+/// default hourly (<see cref="JiraProjectConfig.ReconcileInterval"/>), also lists the project's
+/// issue ids and hands over a full listing from the issue-state store: the engine re-ingests what
+/// changed signature and deletes what is gone, so a deleted issue or one moved to another project
+/// drops out the same way.
 /// Comments that carry a group or role visibility, and JSM internal notes, are left out of the
 /// issue document. Each is its own document instead, whose resource URI carries its restriction
 /// (see <see cref="Route"/>).
@@ -63,6 +73,9 @@ public sealed partial class JiraProjectConnector(
 
     private static readonly TimeSpan SweepInterval = TimeSpan.FromHours(24);
 
+    /// <summary>How long the site's field list is used before it is read again.</summary>
+    private static readonly TimeSpan FieldListTtl = TimeSpan.FromHours(1);
+
     private const int BulkFetchSize = 100;
 
     private static readonly string[] BulkFieldNames = ["summary", "updated", "attachment"];
@@ -83,6 +96,8 @@ public sealed partial class JiraProjectConnector(
     /// several cycles, so the sweep's requests never crowd out a cycle's ordinary changes.
     /// </summary>
     internal int SweepSliceSize { get; init; } = 500;
+
+    private TimeSpan ReconcileInterval => config.ReconcileInterval ?? JiraProjectConfig.DefaultReconcileInterval;
 
     public ConnectorType Type => ConnectorType.Atlassian;
 
@@ -128,19 +143,51 @@ public sealed partial class JiraProjectConnector(
         var state = cursor is null ? new JiraSyncState() : _store.LoadState();
         HashSet<string> listed;
         var fetched = new Dictionary<string, JiraStoredIssue>(StringComparer.Ordinal);
+        // The issues the change query returned: an incremental cycle lists their documents again
+        // even when the store already has them, as when the engine kept the cursor of the last cycle.
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        bool reconcile;
+        string listingKey;
 
         try
         {
             await ReadProjectAsync(state, ct);
-            await ReadFieldsAsync(state, ct);
 
-            listed = await ListIdsAsync(ct);
-            var changed = new HashSet<string>(
-                everything ? listed : listed.Where(id => _store.Load(id) is null), StringComparer.Ordinal);
+            // A reconcile runs on a fresh start, once the interval has passed since the last one,
+            // and when the project's name or the source's attachment settings changed, which change
+            // documents of issues no change query returns. A reconcile that was deferred or failed,
+            // or whose deletions were withheld, left the cursor as it was, so the next cycle runs it again.
+            listingKey = ListingKey(state);
+            reconcile = everything
+                || previous!.LastReconcileAt is not { } reconciled
+                || now - reconciled >= ReconcileInterval
+                || previous.ListingKey != listingKey;
+            if (reconcile || state.FieldsReadAt is not { } fieldsRead || now - fieldsRead >= FieldListTtl)
+                await ReadFieldsAsync(state, now, ct);
+
+            HashSet<string> changed;
+            if (reconcile)
+            {
+                listed = await ListIdsAsync(ct);
+                changed = new HashSet<string>(
+                    everything ? listed : listed.Where(id => _store.Load(id) is null), StringComparer.Ordinal);
+            }
+            else
+            {
+                // No listing: the store stands in for it, with what the change query adds.
+                listed = _store.Ids().ToHashSet(StringComparer.Ordinal);
+                changed = new HashSet<string>(StringComparer.Ordinal);
+            }
+
             if (!everything)
             {
                 foreach (var (id, updated) in await ChangedSinceAsync(previous!.WatermarkMs!.Value, ct))
                 {
+                    if (!reconcile)
+                    {
+                        listed.Add(id);
+                        reported.Add(id);
+                    }
                     if (listed.Contains(id) && (updated is null || _store.Load(id)?.Updated != updated))
                         changed.Add(id);
                 }
@@ -173,21 +220,33 @@ public sealed partial class JiraProjectConnector(
         // The history is written before any record it shaped: it only grows, so a crash in between
         // leaves it ahead of the records, never behind them.
         var history = _history;
+        // Each record this cycle replaces, as it was: an incremental cycle deletes the documents it
+        // listed that the new record no longer does.
+        var before = new Dictionary<string, JiraStoredIssue>(StringComparer.Ordinal);
         foreach (var issue in fetched.Values)
         {
             var last = _store.Load(issue.Id);
+            if (last is not null)
+                before[issue.Id] = last;
             KeepTiesHidden(last, issue, history);
             issue.Tombstones = Tombstones(last, issue, takenUpMs, startedMs);
         }
         _store.SaveAttachmentHistory(history);
         foreach (var issue in fetched.Values)
             _store.Save(issue);
-        foreach (string id in _store.Ids().Where(id => !keep.Contains(id)).ToList())
-            _store.Delete(id);
+        // Only a full listing proves an issue gone; between reconciles a record stays.
+        if (reconcile)
+        {
+            foreach (string id in _store.Ids().Where(id => !keep.Contains(id)).ToList())
+                _store.Delete(id);
+        }
         foreach (string id in _store.Ids().Where(id => !fetched.ContainsKey(id)).ToList())
         {
-            if (_store.Load(id) is { } unfetched && unfetched.Tombstones.RemoveAll(t => TakenUp(t, takenUpMs)) > 0)
-                _store.Save(unfetched);
+            if (_store.Load(id) is not { } unfetched || !unfetched.Tombstones.Any(t => TakenUp(t, takenUpMs)))
+                continue;
+            before[id] = _store.Load(id)!;
+            unfetched.Tombstones.RemoveAll(t => TakenUp(t, takenUpMs));
+            _store.Save(unfetched);
         }
         _store.SaveState(state);
 
@@ -198,14 +257,80 @@ public sealed partial class JiraProjectConnector(
               + "Max attachment size on the source."
             : null;
 
+        DateTimeOffset? lastReconcileAt = reconcile ? now : previous?.LastReconcileAt;
         var next = sweepStartedAt is null
             ? new JiraCursor(startedMs, everything ? now : previous?.LastCommentSweepAt)
             : sweepDone
                 ? new JiraCursor(startedMs, sweepStartedAt)
                 : new JiraCursor(startedMs, previous?.LastCommentSweepAt, sweepStartedAt, sweptThrough);
+        next = next with { LastReconcileAt = lastReconcileAt, ListingKey = listingKey };
 
+        if (reconcile)
+        {
+            return new SyncDelta(
+                files, [], next.Serialize(), RequiresFullResync: false, IsFullListing: true, Notice: notice);
+        }
+
+        var (upserted, deleted) = IncrementalChanges(files, fetched, reported, listed, before);
         return new SyncDelta(
-            files, [], next.Serialize(), RequiresFullResync: false, IsFullListing: true, Notice: notice);
+            upserted, deleted, next.Serialize(), RequiresFullResync: false, IsFullListing: false, Notice: notice);
+    }
+
+    /// <summary>
+    /// An incremental cycle's delta: every document of each issue it fetched, the change query
+    /// returned, or that lists a tombstone, and as deletions the paths a replaced record listed
+    /// that the new one does not. A tombstone keeps its path listed, so a vanished restricted
+    /// document is rewritten to deny-all rather than deleted; a tombstone taken up is dropped, and
+    /// its document then deleted, as a full listing would.
+    /// </summary>
+    private (List<ConnectorFile> Upserted, List<string> Deleted) IncrementalChanges(
+        IReadOnlyList<ConnectorFile> files, Dictionary<string, JiraStoredIssue> fetched, HashSet<string> reported,
+        HashSet<string> listed, Dictionary<string, JiraStoredIssue> before)
+    {
+        var touched = new HashSet<string>(fetched.Keys, StringComparer.Ordinal);
+        touched.UnionWith(reported.Where(listed.Contains));
+        touched.UnionWith(before.Keys);
+        foreach (string id in _store.Ids())
+        {
+            if (!touched.Contains(id) && _store.Load(id) is { Tombstones.Count: > 0 })
+                touched.Add(id);
+        }
+
+        var byIssue = files
+            .Where(f => IssueIdOf(f.Path) is { } id && touched.Contains(id))
+            .GroupBy(f => IssueIdOf(f.Path)!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+        // Only the old record's paths are compared, which neither the state nor the history shape.
+        var state = _store.LoadState();
+        var noHistory = new Dictionary<string, JiraAttachmentHistory>(StringComparer.Ordinal);
+        var deleted = new List<string>();
+        foreach (var (id, last) in before)
+        {
+            var now = (byIssue.GetValueOrDefault(id) ?? []).Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+            int unused = 0;
+            deleted.AddRange(IssueFiles(last, state, noHistory, ref unused).Select(f => f.Path).Where(p => !now.Contains(p)));
+        }
+
+        return (
+            [.. byIssue.Values.SelectMany(f => f).OrderBy(f => f.Path, StringComparer.Ordinal)],
+            [.. deleted.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)]);
+    }
+
+    /// <summary>The issue id a document path is under, or null when it is not one of this connector's.</summary>
+    private static string? IssueIdOf(string path)
+    {
+        var match = IssueIdPattern().Match(path);
+        return match.Success ? match.Groups["id"].Value : null;
+    }
+
+    /// <summary>A short hash of what every document's listing depends on beyond its own issue.</summary>
+    private string ListingKey(JiraSyncState state)
+    {
+        string text = string.Join('\u001f',
+            state.ProjectKey, state.ProjectName, config.IncludeAttachments ? "attachments" : "none",
+            config.MaxAttachmentMb.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
     }
 
     /// <summary>
@@ -547,7 +672,7 @@ public sealed partial class JiraProjectConnector(
     }
 
     /// <summary>The site's rich-text custom fields: those whose schema is the textarea custom type.</summary>
-    private async Task ReadFieldsAsync(JiraSyncState state, CancellationToken ct)
+    private async Task ReadFieldsAsync(JiraSyncState state, DateTimeOffset now, CancellationToken ct)
     {
         var fields = await api.GetJsonAsync<List<FieldResponse>>("rest/api/3/field", ct);
         var rich = fields
@@ -558,6 +683,7 @@ public sealed partial class JiraProjectConnector(
 
         state.RichTextFieldIds = [.. rich.Select(field => field.Id!)];
         state.FieldNames = rich.ToDictionary(field => field.Id!, field => field.Name ?? field.Id!, StringComparer.Ordinal);
+        state.FieldsReadAt = now;
     }
 
     private async Task<HashSet<string>> ListIdsAsync(CancellationToken ct)
@@ -964,27 +1090,7 @@ public sealed partial class JiraProjectConnector(
         skipped = 0;
 
         foreach (var issue in _store.Ids().Select(_store.Load).OfType<JiraStoredIssue>())
-        {
-            files.Add(ToConnectorFile(issue, state));
-            files.AddRange(issue.Comments
-                .Where(c => JiraIssueStateStore.IsId(c.Id) && Route(c, config.ProjectId).Separate)
-                .Select(c => ToCommentFile(issue, c, state)));
-            files.AddRange(issue.Tombstones
-                .Where(t => JiraIssueStateStore.IsId(t.Id))
-                .Select(t => ToTombstoneFile(issue, t, state)));
-
-            if (!config.IncludeAttachments)
-                continue;
-
-            foreach (var attachment in issue.Attachments.Where(a => JiraIssueStateStore.IsId(a.Id)))
-            {
-                // An empty file has nothing to index, and is neither too large nor unreadable.
-                if (IsIndexable(attachment))
-                    files.Add(ToAttachmentFile(issue, attachment, state, history));
-                else if (attachment.Size > 0)
-                    skipped++;
-            }
-        }
+            files.AddRange(IssueFiles(issue, state, history, ref skipped));
 
         return
         [
@@ -993,6 +1099,33 @@ public sealed partial class JiraProjectConnector(
                 .DistinctBy(f => f.Path, StringComparer.Ordinal)
                 .OrderBy(f => f.Path, StringComparer.Ordinal),
         ];
+    }
+
+    /// <summary>One issue's documents, as <see cref="Listing"/> lists them; <paramref name="skipped"/> counts its attachments left out.</summary>
+    private List<ConnectorFile> IssueFiles(
+        JiraStoredIssue issue, JiraSyncState state, IReadOnlyDictionary<string, JiraAttachmentHistory> history, ref int skipped)
+    {
+        var files = new List<ConnectorFile> { ToConnectorFile(issue, state) };
+        files.AddRange(issue.Comments
+            .Where(c => JiraIssueStateStore.IsId(c.Id) && Route(c, config.ProjectId).Separate)
+            .Select(c => ToCommentFile(issue, c, state)));
+        files.AddRange(issue.Tombstones
+            .Where(t => JiraIssueStateStore.IsId(t.Id))
+            .Select(t => ToTombstoneFile(issue, t, state)));
+
+        if (!config.IncludeAttachments)
+            return files;
+
+        foreach (var attachment in issue.Attachments.Where(a => JiraIssueStateStore.IsId(a.Id)))
+        {
+            // An empty file has nothing to index, and is neither too large nor unreadable.
+            if (IsIndexable(attachment))
+                files.Add(ToAttachmentFile(issue, attachment, state, history));
+            else if (attachment.Size > 0)
+                skipped++;
+        }
+
+        return files;
     }
 
     /// <summary>
@@ -1216,6 +1349,9 @@ public sealed partial class JiraProjectConnector(
     [GeneratedRegex(@"^/issues/(?<id>[0-9]{1,19})\.md\z", RegexOptions.CultureInvariant)]
     private static partial Regex PathPattern();
 
+    [GeneratedRegex(@"^/issues/(?<id>[0-9]{1,19})(?:\.md\z|/)", RegexOptions.CultureInvariant)]
+    private static partial Regex IssueIdPattern();
+
     [GeneratedRegex(@"^/issues/(?<id>[0-9]{1,19})/comments/(?<comment>[0-9]{1,19})\.md\z", RegexOptions.CultureInvariant)]
     private static partial Regex CommentPathPattern();
 
@@ -1347,8 +1483,11 @@ public sealed partial class JiraProjectConnector(
 /// began. A sweep still under way carries when it began and the last issue id (in ordinal order)
 /// it has re-read.
 /// </summary>
+/// <param name="LastReconcileAt">When the last full listing ran; a cursor without one reconciles next.</param>
+/// <param name="ListingKey">What that listing's documents depended on beyond their issues; a change reconciles next.</param>
 internal sealed record JiraCursor(
-    long? WatermarkMs, DateTimeOffset? LastCommentSweepAt, DateTimeOffset? SweepStartedAt = null, string? SweptThrough = null)
+    long? WatermarkMs, DateTimeOffset? LastCommentSweepAt, DateTimeOffset? SweepStartedAt = null, string? SweptThrough = null,
+    DateTimeOffset? LastReconcileAt = null, string? ListingKey = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

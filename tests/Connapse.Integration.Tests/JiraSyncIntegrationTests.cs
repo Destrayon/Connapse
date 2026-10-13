@@ -112,6 +112,67 @@ public sealed class JiraSyncIntegrationTests(SharedWebAppFixture fixture)
     }
 
     /// <summary>
+    /// An ordinary cycle after the first is incremental: no id listing, the changed issue re-queued,
+    /// and the comment document it no longer has, made public, deleted through the delta's paths.
+    /// </summary>
+    [Fact]
+    public async Task JiraSync_IncrementalCycle_RequeuesTheChangedIssueAndDeletesItsGoneComment()
+    {
+        var (sourceId, connectionId, jira) = await CreateJiraSourceAsync();
+        jira.MapSync();
+        jira.AddProject(FakeJira.ProjectId, "ENG", "Engineering");
+        DateTimeOffset created = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var issue = jira.AddIssue(new FakeJiraIssue("30002", "ENG-2", $"The {Term} plan", created));
+        issue.Comments.Add(new FakeJiraComment("41", "Bob", "Was secret", created,
+            Visibility: new { type = "group", value = "admins", identifier = "6e87dc72-4f1f-421f-9382-2fee8b652487" }));
+        jira.ServeComments(issue);
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var sources = sp.GetRequiredService<ISourceStore>();
+        var connection = (await sp.GetRequiredService<IConnectionStore>().GetAsync(connectionId))!;
+        var queue = new RecordingIngestionQueue();
+        var service = NewSyncService(sp, queue);
+
+        (await service.SyncSourceAsync((await sources.GetAsync(sourceId))!, connection, CancellationToken.None)).Error.Should().BeNull();
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo("/issues/30002.md", "/issues/30002/comments/41.md");
+        await using (var db = await sp.GetRequiredService<IDbContextFactory<Connapse.Storage.Data.KnowledgeDbContext>>().CreateDbContextAsync())
+        {
+            // Settled as the pipeline would leave them, so a changed signature is what re-queues a document.
+            foreach (var job in queue.Jobs)
+            {
+                var document = await db.Documents.SingleAsync(d => d.Id == Guid.Parse(job.DocumentId));
+                document.IngestionStatus = DocumentStatus.Ready;
+                document.Metadata = new Dictionary<string, string>
+                {
+                    [SourceSyncService.RemoteLastModifiedKey] = job.Options.Metadata![SourceSyncService.RemoteLastModifiedKey],
+                    [SourceSyncService.RemoteSizeKey] = job.Options.Metadata[SourceSyncService.RemoteSizeKey],
+                };
+            }
+            await db.SaveChangesAsync();
+        }
+        queue.Jobs.Clear();
+
+        // Made public, which moves the issue's updated time: the comment belongs inline now.
+        DateTimeOffset edited = DateTimeOffset.UtcNow;
+        issue.Comments[0] = issue.Comments[0] with { Updated = edited, Visibility = null };
+        issue.Updated = edited;
+        jira.Jqls.Clear();
+        var second = await service.SyncSourceAsync((await sources.GetAsync(sourceId))!, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(1);
+        jira.Jqls.Should().ContainSingle().Which.Should().Contain("updated >=", "an incremental cycle makes no id listing");
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/issues/30002.md");
+        await using (var db = await sp.GetRequiredService<IDbContextFactory<Connapse.Storage.Data.KnowledgeDbContext>>().CreateDbContextAsync())
+        {
+            (await db.Documents.Where(d => d.SourceId == sourceId).Select(d => d.Path).ToListAsync())
+                .Should().Equal("/issues/30002.md");
+        }
+        (await sources.GetAsync(sourceId))!.SyncCursor.Should().Contain("lastReconcileAt");
+    }
+
+    /// <summary>
     /// A Jira source whose requests are refused even with a fresh token says so in Jira's words,
     /// links Jira's troubleshooting entry, and records the failure at the site's Jira step.
     /// </summary>

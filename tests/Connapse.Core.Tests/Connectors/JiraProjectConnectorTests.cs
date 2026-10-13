@@ -32,12 +32,13 @@ public sealed class JiraProjectConnectorTests : IDisposable
         _jira.AddProject(ProjectId, "ENG", "Engineering");
     }
 
-    private JiraProjectConnector Connector(bool includeAttachments = true, int maxAttachmentMb = 25, int sweepSlice = 500)
+    private JiraProjectConnector Connector(
+        bool includeAttachments = true, int maxAttachmentMb = 25, int sweepSlice = 500, TimeSpan? reconcileInterval = null)
     {
         var site = new AtlassianSite("https://acme.atlassian.net", CloudId, "client-1");
         var tokens = new AtlassianTokenSource(new FakeFactory(_api), TimeProvider.System);
         return new JiraProjectConnector(
-            new JiraProjectConfig(site, ProjectId, "ENG", _root, includeAttachments, maxAttachmentMb),
+            new JiraProjectConfig(site, ProjectId, "ENG", _root, includeAttachments, maxAttachmentMb, reconcileInterval),
             new AtlassianApiClient(_api.CreateClient(), tokens, site, "secret", product: AtlassianProduct.Jira),
             clock: _clock,
             fileTypes: new Extensions(".txt", ".pdf"))
@@ -107,7 +108,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var second = await _connector.GetChangesAsync(first.NextCursor);
 
         Size(second, "/issues/20001.md").Should().NotBe(Size(first, "/issues/20001.md"));
-        Size(second, "/issues/20002.md").Should().Be(Size(first, "/issues/20002.md"));
+        Doc(second, "/issues/20002.md").Should().BeNull("an incremental cycle lists only what changed");
         _jira.BulkFetches.SelectMany(b => b).Should().Equal(new[] { "20001" }, "only the changed issue is fetched again");
     }
 
@@ -119,9 +120,10 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var first = await _connector.GetChangesAsync(null);
 
         _jira.RemoveIssue("20002");
-        _clock.Advance(TimeSpan.FromMinutes(5));
+        _clock.Advance(JiraProjectConfig.DefaultReconcileInterval);
         var second = await _connector.GetChangesAsync(first.NextCursor);
 
+        second.IsFullListing.Should().BeTrue();
         second.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
         (await _connector.ExistsAsync("/issues/20002.md")).Should().BeFalse();
     }
@@ -136,9 +138,10 @@ public sealed class JiraProjectConnectorTests : IDisposable
         moved.ProjectId = "10001";
         moved.Key = "OPS-7";
         moved.Updated = T0.AddMinutes(1);
-        _clock.Advance(TimeSpan.FromMinutes(5));
+        _clock.Advance(JiraProjectConfig.DefaultReconcileInterval);
         var second = await _connector.GetChangesAsync(first.NextCursor);
 
+        second.IsFullListing.Should().BeTrue();
         second.Upserted.Select(f => f.Path).Should().Equal("/issues/20002.md");
     }
 
@@ -186,7 +189,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         _jira.SearchPageSize = 1;
         _api.Intercept = uri => uri.AbsolutePath.EndsWith("/search/jql", StringComparison.Ordinal)
             && uri.Query.Contains("nextPageToken", StringComparison.Ordinal) ? RateLimited() : null;
-        _clock.Advance(TimeSpan.FromMinutes(5));
+        _clock.Advance(JiraProjectConfig.DefaultReconcileInterval);
         var second = await _connector.GetChangesAsync(first.NextCursor);
 
         second.Deferred.Should().BeTrue();
@@ -244,11 +247,12 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var second = Issue("20002", "ENG-2", "Second");
         var first = await _connector.GetChangesAsync(null);
 
-        _clock.Advance(TimeSpan.FromMinutes(10));
+        _clock.Advance(JiraProjectConfig.DefaultReconcileInterval);
         second.Updated = _clock.GetUtcNow().AddMinutes(-1);
         BulkFetchAnswersWithIssueError(new { issueIdsOrKeys = new[] { "20002" }, status = 404 });
         var delta = await _connector.GetChangesAsync(first.NextCursor);
 
+        delta.IsFullListing.Should().BeTrue();
         delta.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
     }
 
@@ -316,6 +320,336 @@ public sealed class JiraProjectConnectorTests : IDisposable
             .Should().ThrowAsync<JiraProjectUnreadableException>();
         ex.Which.Should().BeAssignableTo<SourceAccessRevokedException>();
         ex.Which.Message.Should().Contain("ENG");
+    }
+
+    // ── Incremental cycles and the reconcile ───────────────────────────────
+
+    private string IdListing => $"project = {ProjectId}";
+
+    [Fact]
+    public async Task Sync_NoChangeIncrementalCycle_OnlyTheChangeQueryAndNoFieldRead()
+    {
+        Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        var first = await _connector.GetChangesAsync(null);
+        _jira.Jqls.Clear();
+        _jira.BulkFetches.Clear();
+        _jira.FieldReads = 0;
+
+        var cursor = first.NextCursor;
+        for (int cycle = 0; cycle < 11; cycle++)
+        {
+            _clock.Advance(TimeSpan.FromMinutes(5));
+            var delta = await _connector.GetChangesAsync(cursor);
+            delta.IsFullListing.Should().BeFalse();
+            delta.Upserted.Should().BeEmpty();
+            delta.DeletedPaths.Should().BeEmpty();
+            cursor = delta.NextCursor;
+        }
+
+        _jira.Jqls.Should().HaveCount(11).And.OnlyContain(j => j.Contains("updated >=", StringComparison.Ordinal),
+            "an incremental cycle makes only the change query");
+        _jira.FieldReads.Should().Be(0, "the field list is cached for an hour");
+        _jira.BulkFetches.Should().BeEmpty();
+        (await _connector.ListFilesAsync()).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Sync_ChangedIssueIncremental_UpsertsItsDocumentsWithTheirUris()
+    {
+        var changed = Issue("20001", "ENG-1", "Login fails");
+        changed.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        changed.Comments.Add(new FakeJiraComment("4", "Di", "Internal note", T0, JsdPublic: false));
+        _jira.Attach(changed, Attachment("30001", "secret.txt"));
+        _jira.Attach(changed, Attachment("30002", "public.txt"));
+        _jira.ServeComments(changed);
+        Issue("20002", "ENG-2", "Quiet");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        changed.Summary = "Login fails, edited";
+        changed.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeFalse();
+        second.DeletedPaths.Should().BeEmpty();
+        second.Upserted.Select(f => f.Path).Should().BeEquivalentTo(
+            "/issues/20001.md", CommentPath("20001", "2"), CommentPath("20001", "4"),
+            AttachmentPath("20001", "30001", "secret.txt"), AttachmentPath("20001", "30002", "public.txt"));
+        Doc(second, "/issues/20001.md")!.ResourceUri.Should().Be(AtlassianUri.ForJiraIssue(CloudId, "20001"));
+        Doc(second, "/issues/20001.md")!.Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 Login fails, edited");
+        Doc(second, CommentPath("20001", "2"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+        Doc(second, CommentPath("20001", "4"))!.ResourceUri.Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "4", true, null));
+        Doc(second, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+        Doc(second, AttachmentPath("20001", "30002", "public.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, null));
+        foreach (var file in second.Upserted)
+            file.ResourceUri.Should().Be(Doc(first, file.Path)!.ResourceUri, "an incremental cycle lists the same URIs a full one does");
+    }
+
+    [Fact]
+    public async Task Sync_CommentRestrictedToPublicIncremental_ItsDocumentDeleted()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Was secret", T0, Visibility: GroupVisibility(GroupA)));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Stays secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        DateTimeOffset edited = _clock.GetUtcNow().AddMinutes(-1);
+        issue.Comments[0] = issue.Comments[0] with { Updated = edited, Visibility = null };
+        issue.Updated = edited;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeFalse();
+        second.DeletedPaths.Should().Equal(CommentPath("20001", "1"));
+        second.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", CommentPath("20001", "2"));
+        Size(second, "/issues/20001.md").Should().NotBe(Size(first, "/issues/20001.md"));
+        (await ReadAsync("/issues/20001.md")).Should().Contain("Was secret");
+    }
+
+    [Fact]
+    public async Task Sync_RestrictedCommentVanishesIncremental_TombstoneListedNotDeleted()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Comments.Clear();
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeFalse();
+        second.DeletedPaths.Should().BeEmpty("a tombstone keeps the document listed, deny-all");
+        Doc(second, CommentPath("20001", "2"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, JiraRestriction.DenyAll));
+        Size(second, CommentPath("20001", "2")).Should().Be(Size(first, CommentPath("20001", "2")));
+
+        // Not taken up (the engine kept the old cursor): listed again, though the issue did not change since.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var again = await _connector.GetChangesAsync(first.NextCursor);
+        Doc(again, CommentPath("20001", "2"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, JiraRestriction.DenyAll));
+
+        // Taken up: dropped, and its document deleted, as a full listing would.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var later = await _connector.GetChangesAsync(again.NextCursor);
+        later.IsFullListing.Should().BeFalse();
+        later.DeletedPaths.Should().Equal(CommentPath("20001", "2"));
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    [Fact]
+    public async Task Sync_DeletedIssue_RemovedOnlyAtTheNextReconcile()
+    {
+        Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        var first = await _connector.GetChangesAsync(null);
+
+        _jira.RemoveIssue("20002");
+        _clock.Advance(TimeSpan.FromMinutes(30));
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeFalse();
+        second.DeletedPaths.Should().BeEmpty();
+        (await _connector.ExistsAsync("/issues/20002.md")).Should().BeTrue("deletions wait for the reconcile");
+
+        _clock.Advance(TimeSpan.FromMinutes(30));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+
+        third.IsFullListing.Should().BeTrue("an hour has passed since the last reconcile");
+        third.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+        (await _connector.ExistsAsync("/issues/20002.md")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Sync_Reconcile_RunsOnFreshStartAndOnceTheIntervalHasPassed()
+    {
+        Issue("20001", "ENG-1", "First");
+        var first = await _connector.GetChangesAsync(null);
+        first.IsFullListing.Should().BeTrue();
+        _jira.Jqls.Should().Contain(IdListing);
+
+        var cursor = first.NextCursor;
+        foreach (int minutes in new[] { 20, 20, 19 })
+        {
+            _jira.Jqls.Clear();
+            _clock.Advance(TimeSpan.FromMinutes(minutes));
+            var delta = await _connector.GetChangesAsync(cursor);
+            delta.IsFullListing.Should().BeFalse();
+            _jira.Jqls.Should().NotContain(IdListing);
+            cursor = delta.NextCursor;
+        }
+
+        _jira.Jqls.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        var due = await _connector.GetChangesAsync(cursor);
+        due.IsFullListing.Should().BeTrue();
+        _jira.Jqls.Should().Contain(IdListing);
+
+        _jira.Jqls.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        (await _connector.GetChangesAsync(due.NextCursor)).IsFullListing.Should().BeFalse("the interval runs from the last reconcile");
+        _jira.Jqls.Should().NotContain(IdListing);
+    }
+
+    [Fact]
+    public async Task Sync_ReconcileIntervalIsConfigurable()
+    {
+        var connector = Connector(reconcileInterval: TimeSpan.FromMinutes(15));
+        Issue("20001", "ENG-1", "First");
+        var first = await connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var second = await connector.GetChangesAsync(first.NextCursor);
+        second.IsFullListing.Should().BeFalse();
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        (await connector.GetChangesAsync(second.NextCursor)).IsFullListing.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Sync_ReconcileDeferred_NextCycleReconciles()
+    {
+        Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        Issue("20003", "ENG-3", "Third");
+        _jira.SearchPageSize = 1;
+        var first = await _connector.GetChangesAsync(null);
+
+        _jira.RemoveIssue("20003");
+        _clock.Advance(TimeSpan.FromMinutes(61));
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/search/jql", StringComparison.Ordinal)
+            && uri.Query.Contains("nextPageToken", StringComparison.Ordinal) ? RateLimited() : null;
+        var deferred = await _connector.GetChangesAsync(first.NextCursor);
+        deferred.Deferred.Should().BeTrue();
+        deferred.NextCursor.Should().Be(first.NextCursor);
+
+        _api.Intercept = null;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var retried = await _connector.GetChangesAsync(deferred.NextCursor);
+
+        retried.IsFullListing.Should().BeTrue("a deferred reconcile retries on the next cycle");
+        retried.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", "/issues/20002.md");
+    }
+
+    [Fact]
+    public async Task Sync_ReconcileUnavailable_NextCycleReconciles()
+    {
+        Issue("20001", "ENG-1", "First");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(61));
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/search/jql", StringComparison.Ordinal)
+            && !uri.Query.Contains("updated", StringComparison.Ordinal) ? new HttpResponseMessage(System.Net.HttpStatusCode.BadGateway) : null;
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor))
+            .Should().ThrowAsync<AtlassianUnavailableException>();
+
+        _api.Intercept = null;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        (await _connector.GetChangesAsync(first.NextCursor)).IsFullListing.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Sync_CursorWithoutLastReconcileAt_Reconciles()
+    {
+        Issue("20001", "ENG-1", "First");
+        var first = await _connector.GetChangesAsync(null);
+        _jira.Jqls.Clear();
+
+        // A cursor written before the reconcile existed.
+        long watermark = _clock.GetUtcNow().ToUnixTimeMilliseconds();
+        string legacy = $$"""{"watermarkMs":{{watermark}},"lastCommentSweepAt":"{{_clock.GetUtcNow():O}}"}""";
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var delta = await _connector.GetChangesAsync(legacy);
+
+        delta.IsFullListing.Should().BeTrue();
+        _jira.Jqls.Should().Contain(IdListing);
+        delta.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    [Fact]
+    public async Task Sync_RateLimitedInIncrementalCycle_DeferredKeepsCursorAndStore()
+    {
+        var edited = Issue("20001", "ENG-1", "First");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        edited.Summary = "First, edited";
+        edited.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/issue/bulkfetch", StringComparison.Ordinal) ? RateLimited() : null;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.Deferred.Should().BeTrue();
+        second.NextCursor.Should().Be(first.NextCursor);
+        second.Upserted.Should().BeEmpty();
+        second.DeletedPaths.Should().BeEmpty();
+        second.IsFullListing.Should().BeFalse();
+        (await _connector.ListFilesAsync()).Single().Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 First");
+
+        _api.Intercept = null;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+        Doc(third, "/issues/20001.md")!.Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 First, edited");
+    }
+
+    [Fact]
+    public async Task Sync_FieldList_RefetchedOnceAnHourHasPassed()
+    {
+        var connector = Connector(reconcileInterval: TimeSpan.FromHours(3));
+        Issue("20001", "ENG-1", "First");
+        var first = await connector.GetChangesAsync(null);
+        _jira.FieldReads.Should().Be(1);
+
+        _clock.Advance(TimeSpan.FromMinutes(59));
+        var second = await connector.GetChangesAsync(first.NextCursor);
+        _jira.FieldReads.Should().Be(1);
+
+        _jira.Jqls.Clear();
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        var third = await connector.GetChangesAsync(second.NextCursor);
+        third.IsFullListing.Should().BeFalse();
+        _jira.Jqls.Should().NotContain(IdListing, "the field list is refreshed without a reconcile");
+        _jira.FieldReads.Should().Be(2);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        await connector.GetChangesAsync(third.NextCursor);
+        _jira.FieldReads.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Sync_ProjectRenamed_NextCycleReconciles()
+    {
+        Issue("20001", "ENG-1", "First");
+        var first = await _connector.GetChangesAsync(null);
+
+        _jira.AddProject(ProjectId, "ENG", "Platform");
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeTrue("every document's breadcrumb and signature carry the project name");
+        Doc(second, "/issues/20001.md")!.Metadata!["jira:breadcrumb"].Should().Be("Platform > ENG-1 First");
+    }
+
+    [Fact]
+    public async Task Sync_SweepInIncrementalCycle_UpsertsSweptIssues()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Secret", T0, Visibility: GroupVisibility(GroupA)));
+        Issue("20002", "ENG-2", "Quiet");
+        var connector = Connector(reconcileInterval: TimeSpan.FromDays(7));
+        var first = await connector.GetChangesAsync(null);
+
+        issue.Comments[0] = issue.Comments[0] with { Visibility = GroupVisibility(GroupB) };
+        _clock.Advance(TimeSpan.FromHours(24));
+        var swept = await connector.GetChangesAsync(first.NextCursor);
+
+        swept.IsFullListing.Should().BeFalse();
+        swept.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", CommentPath("20001", "1"), "/issues/20002.md");
+        Doc(swept, CommentPath("20001", "1"))!.ResourceUri.Should().EndWith($"/group/{GroupB}");
     }
 
     [Fact]
@@ -650,7 +984,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var second = await _connector.GetChangesAsync(first.NextCursor);
 
         _jira.BulkFetches.Should().BeEmpty("no day has passed since the fresh start read every comment");
-        Doc(second, CommentPath("20001", "1"))!.ResourceUri.Should().EndWith($"/group/{GroupA}");
+        (await _connector.ListFilesAsync()).Single(f => f.Path == CommentPath("20001", "1")).ResourceUri.Should().EndWith($"/group/{GroupA}");
 
         _clock.Advance(TimeSpan.FromHours(24));
         var third = await _connector.GetChangesAsync(second.NextCursor);
