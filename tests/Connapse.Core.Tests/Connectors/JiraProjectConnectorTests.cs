@@ -433,6 +433,23 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_BulkFetchCountsNoComments_CommentsStillRead()
+    {
+        // Seen on a live site: bulkfetch's comment total was 0 for an issue whose comment list
+        // returned a comment restricted to the role "QA/Ops Team".
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Role secret", T0,
+            Visibility: new { type = "role", value = "QA/Ops Team", identifier = "QA/Ops Team" }));
+        _jira.BulkCommentTotal = 0;
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        delta.Upserted.Select(f => f.Path).Should().Contain(CommentPath("20001", "3"));
+        Doc(delta, CommentPath("20001", "3"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraComment(CloudId, "20001", "3", false, new JiraRestriction(JiraRestrictionType.Role, "QA/Ops Team", ProjectId)));
+    }
+
+    [Fact]
     public async Task Sync_RestrictedAndInternalComments_EachTheirOwnDocument()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");

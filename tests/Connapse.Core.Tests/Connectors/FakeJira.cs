@@ -172,6 +172,12 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     /// <summary>The most comments one comment page holds, whatever <c>maxResults</c> asks.</summary>
     public int CommentPageSize { get; set; } = 100;
 
+    /// <summary>
+    /// When set, the comment total bulkfetch reports for every issue, whatever its comments are: a live
+    /// site reported 0 for an issue whose role-restricted comment the comment list returned.
+    /// </summary>
+    public int? BulkCommentTotal { get; set; }
+
     /// <summary>Maps the routes a sync reads: fields, <c>search/jql</c> (GET) and <c>bulkfetch</c>.</summary>
     public FakeJira MapSync()
     {
@@ -352,7 +358,7 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
                         created = Time(a.Created),
                         content = $"https://acme.atlassian.net/rest/api/3/attachment/content/{a.Id}",
                     }),
-                    comment = new { total = i.Comments.Count, maxResults = 20, startAt = 0, comments = i.Comments.Take(20).Select(Comment) },
+                    comment = new { total = BulkCommentTotal ?? i.Comments.Count, maxResults = 20, startAt = 0, comments = i.Comments.Take(20).Select(Comment) },
                 },
             }),
             issueErrors = ids.Where(id => !_issues.ContainsKey(id)).Select(id => new { issueIdsOrKeys = new[] { id }, status = 404 }),
