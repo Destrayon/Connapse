@@ -1,0 +1,32 @@
+# Jira connector: live validation on connapseos.atlassian.net
+
+**Date:** 2026-10-13 · **Issue:** #708 · **Site:** connapseos.atlassian.net (Jira Premium trial, alongside Confluence)
+
+This file records the answers to the spec's live checklist (`docs/superpowers/specs/2026-10-12-atlassian-jira-provider-design.md`, section 5) as they're observed on the test site.
+
+## Answered
+
+| # | Question | Answer | How it was observed |
+|---|---|---|---|
+| 1 | Can a service account with client credentials read other users' groups and role actors? | **Yes** | The Jira site test passed its **Reading Jira groups and project roles** step, which calls `/user/groups` for another account and reads a space role's actors. |
+| — | Does **Jira Administration → App admin** on a service account grant Administer Jira? | **Yes**, without adding the account to `jira-admins-<site>` | The **Checking Jira access permissions** step passed (`permissions/check` for another account). On Jira's **Global permissions** page, `jira-admins-connapseos` had no members, so that page can't show the grant. |
+
+## Found and fixed while setting up
+
+- **The site test's issue search used POST.** Atlassian requires `read:field.default-value:jira` and `read:field.option:jira` for the POST form of `/rest/api/3/search/jql`, which the scope list doesn't include. A credential with every listed scope therefore failed at **Reading issues and comments**. The test now uses GET, as the sync does.
+- **The optional attachment probe used `/attachment/meta`,** which needs `read:instance-configuration:jira`. It now probes `/attachment/content/0`, which needs `read:attachment:jira` only.
+- Every other Jira call the code makes was checked against the v3 spec's granular scopes, and all are covered by the 25-scope list.
+- **The setup steps didn't match the live UI.** The gear opens **Jira admin settings**, and a space's settings are under **•••** next to its name → **Space settings**. Team-managed spaces have no "Browse spaces" permission. The guide, the Jira form and the error messages were corrected.
+
+## Still open
+
+2. What a role restriction's `visibility.identifier` holds, and how team-managed space roles resolve.
+3. Whether a comment's author sees their own restricted comment.
+4. Whether changing a comment's visibility bumps the issue's `updated` time (this decides whether the daily comment sweep is needed).
+5. Whether the service account receives attachments from restricted comments it can't see.
+6. Whether `SERVICEDESK_AGENT` denies a portal customer.
+7. The rate-limit headers on Jira client-credentials traffic.
+- From the Phase 8 review: whether the 1,000-issue cap counts per request or per permission entry, and whether a site without Service Management rejects the `SERVICEDESK_AGENT` key.
+- From the Phase 9 review: the real `renderedBody` form of an attachment link inside a restricted comment.
+
+Items 2–5 need the seed script's restricted comments in a company-managed space (ENG).

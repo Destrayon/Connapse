@@ -74,7 +74,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
 3. Leave **Global permissions** as it is. It grants **Administer Jira** and **Browse users and groups**
    to groups (`jira-admins-<site>`, `org-admins`, `jira-users-<site>`), and **App admin** from step 1
    gives the service account admin rights without adding it to any of them, so **View Users** there
-   won't list it even when it works. Connapse's site check confirms it instead, at **Checking Jira
+   won't list it. That's expected: App admin is enough (confirmed on a live site in October 2026). Connapse's site check confirms it instead, at **Checking Jira
    access permissions** (step 5). Only if that check fails, an organization admin adds the service
    account to `jira-admins-<site>` in Atlassian Administration (**Directory** → **Groups** →
    `jira-admins-<site>` → **Add group members**, or **Directory** → **Service accounts** → **•••** →
