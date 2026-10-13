@@ -51,8 +51,12 @@ public sealed class JiraPermissionCheckerTests : IDisposable
     /// </summary>
     private Task<bool[]> CheckAsync(string account, params JiraResource[] resources)
     {
-        foreach (var r in resources.Where(r => r.Kind == JiraResourceKind.Comment && !_jira.HasLiveComment(r.IssueId, r.ChildId!)))
-            _jira.LiveComment(r.IssueId, r.ChildId!, VisibilityOf(r.Restriction), r.Internal ? false : null);
+        foreach (var r in resources)
+        {
+            string? governing = r.Kind == JiraResourceKind.Comment ? r.ChildId : r.CommentId;
+            if (governing is not null && !_jira.HasLiveComment(r.IssueId, governing))
+                _jira.LiveComment(r.IssueId, governing, VisibilityOf(r.Restriction), r.Internal ? false : null);
+        }
         foreach (var r in resources.Where(r => r.Restriction is { Type: JiraRestrictionType.Role, ProjectId: not null } && !_jira.HasLiveIssue(r.IssueId)))
             _jira.LiveIssueProject(r.IssueId, r.Restriction!.ProjectId!);
         return _checker.CanSeeAsync(CloudId, account, resources, Sites(), default);
@@ -78,6 +82,9 @@ public sealed class JiraPermissionCheckerTests : IDisposable
             _commentIds[shape] = id = (77 + _commentIds.Count).ToString(System.Globalization.CultureInfo.InvariantCulture);
         return new(CloudId, issue, JiraResourceKind.Comment, id, internalNote, restriction);
     }
+
+    private static JiraResource TiedAttachment(string issue, string commentId, bool internalNote = false, JiraRestriction? restriction = null) =>
+        new(CloudId, issue, JiraResourceKind.Attachment, "30001", internalNote, restriction, commentId);
 
     private int CommentReads => _api.Calls.Where(c => c.Key.Contains("/comment/", StringComparison.Ordinal)).Sum(c => c.Value);
 
@@ -663,11 +670,90 @@ public sealed class JiraPermissionCheckerTests : IDisposable
 
         (await CheckAsync(
                 Issue("10001"), Issue("10002"),
-                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30001", false, Group(GroupA)),
-                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30002", false, null)))
-            .Should().Equal(true, true, true, true);
+                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30002", false, null),
+                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30003", false, JiraRestriction.DenyAll)))
+            .Should().Equal(true, true, true, false);
 
         CommentReads.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Check_RestrictedAttachmentNamingNoComment_DeniedWithoutRead()
+    {
+        // Not a shape the parser accepts any more; a restriction it can't re-check admits no one.
+        _jira.Browse(Account, "10001");
+        _jira.Agent(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+
+        (await CheckAsync(
+                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30001", false, Group(GroupA)),
+                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30002", true, null)))
+            .Should().Equal(false, false);
+        CommentReads.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Check_TiedAttachmentCommentUnchanged_Allowed()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Agent(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA });
+        _jira.LiveComment("10001", "502", jsdPublic: false);
+
+        (await CheckAsync(TiedAttachment("10001", "501", restriction: Group(GroupA)), TiedAttachment("10001", "502", internalNote: true)))
+            .Should().Equal(true, true);
+
+        Calls("/issue/10001/comment/501").Should().Be(1);
+        Calls("/issue/10001/comment/502").Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("group B")]
+    [InlineData("public")]
+    [InlineData("internal")]
+    [InlineData("gone")]
+    public async Task Check_TiedAttachmentCommentChanged_Denied(string now)
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Agent(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA), ("support", GroupB));
+        if (now == "group B")
+            _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupB });
+        else if (now == "public")
+            _jira.LiveComment("10001", "501");
+        else if (now == "internal")
+            _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA }, jsdPublic: false);
+        else
+            _jira.LiveCommentFails("10001", "501", HttpStatusCode.NotFound);
+
+        (await CheckAsync(Issue("10001"), TiedAttachment("10001", "501", restriction: Group(GroupA)))).Should().Equal(true, false);
+    }
+
+    [Fact]
+    public async Task Check_TiedAttachmentAndItsCommentShareOneRead()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA });
+
+        (await CheckAsync(Comment("10001", restriction: Group(GroupA), id: "501"), TiedAttachment("10001", "501", restriction: Group(GroupA))))
+            .Should().Equal(true, true);
+        Calls("/issue/10001/comment/501").Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("10000", true)]
+    [InlineData("10099", false)]
+    public async Task Check_RoleTiedAttachment_ChecksIssueProject(string liveProject, bool expected)
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Role(Project, "10002", "Developers", FakeJira.UserActor(Account));
+        _jira.LiveComment("10001", "501", new { type = "role", value = "Developers" });
+        _jira.LiveIssueProject("10001", liveProject);
+
+        (await CheckAsync(TiedAttachment("10001", "501", restriction: Role("Developers")))).Should().Equal(expected);
+        Calls("/issue/10001").Should().Be(1);
     }
 
     [Fact]

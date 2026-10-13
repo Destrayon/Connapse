@@ -994,9 +994,9 @@ public sealed class JiraProjectConnectorTests : IDisposable
 
         var group = new JiraRestriction(JiraRestrictionType.Group, GroupA);
         Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
-            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, group));
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, group, "2"));
         Doc(delta, AttachmentPath("20001", "30002", "diagram.txt"))!.ResourceUri
-            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, group));
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, group, "2"));
         Doc(delta, AttachmentPath("20001", "30003", "public.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30003", false, null));
         _jira.RenderedReads.Should().Equal(new[] { "2" }, "only restricted comments are read rendered");
@@ -1013,7 +1013,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var delta = await _connector.GetChangesAsync(null);
 
         Doc(delta, AttachmentPath("20001", "30001", "logs.txt"))!.ResourceUri
-            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", true, null));
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", true, null, "4"));
     }
 
     /// <summary>
@@ -1049,8 +1049,8 @@ public sealed class JiraProjectConnectorTests : IDisposable
             [CommentPath("20001", "3")] = new(CloudId, "20001", JiraResourceKind.Comment, "3", false, role),
             [CommentPath("20001", "4")] = new(CloudId, "20001", JiraResourceKind.Comment, "4", true, null),
             [CommentPath("20001", "5")] = new(CloudId, "20001", JiraResourceKind.Comment, "5", false, JiraRestriction.DenyAll),
-            [AttachmentPath("20001", "30001", "group.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30001", false, group),
-            [AttachmentPath("20001", "30002", "role.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30002", false, role),
+            [AttachmentPath("20001", "30001", "group.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30001", false, group, "2"),
+            [AttachmentPath("20001", "30002", "role.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30002", false, role, "3"),
             [AttachmentPath("20001", "30003", "denied.txt")] =
                 new(CloudId, "20001", JiraResourceKind.Attachment, "30003", false, JiraRestriction.DenyAll),
             [AttachmentPath("20001", "30004", "public.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30004", false, null),
@@ -1088,7 +1088,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         Doc(delta, AttachmentPath("20001", "30002", "unreadable.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, JiraRestriction.DenyAll));
         Doc(delta, AttachmentPath("20001", "30003", "same.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30003", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)),
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30003", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"),
             "two comments with the same restriction agree");
     }
 
@@ -1224,7 +1224,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var delta = await _connector.GetChangesAsync(null);
 
         Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
     }
 
     [Theory]
@@ -1273,7 +1273,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         Doc(delta, AttachmentPath("20001", "30001", "other.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
         Doc(delta, AttachmentPath("20001", "30002", "same.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
     }
 
     [Fact]
@@ -1409,7 +1409,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         _jira.ServeComments(issue);
         var first = await _connector.GetChangesAsync(null);
         Doc(first, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
 
         issue.Comments.Clear();
         if (change == "made public")
@@ -1431,6 +1431,52 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_OneOfTwoTyingCommentsHidden_AttachmentStaysDenyAllNeverTheSurvivorsTie()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "shared.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "B", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        Doc(first, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+
+        // Comment A is now hidden from the service account: Jira's answer leaves it out.
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        var second = await _connector.GetChangesAsync(null);
+        var third = await _connector.GetChangesAsync(null);
+
+        foreach (var delta in new[] { second, third })
+            Doc(delta, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        new JiraIssueStateStore(_root).Load("20001")!.Attachments.Single().TiedBy.Should().Equal("2", "3");
+    }
+
+    [Fact]
+    public async Task Sync_HiddenTyingCommentReturns_TieRestored()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+    }
+
+    [Fact]
     public async Task Sync_RenderedReadNotFound_AnotherCommentStillTies()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");
@@ -1443,7 +1489,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var delta = await _connector.GetChangesAsync(null);
 
         Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "3"));
     }
 
     [Fact]

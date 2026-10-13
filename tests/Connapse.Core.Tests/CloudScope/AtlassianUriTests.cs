@@ -107,19 +107,57 @@ public sealed class AtlassianUriTests
     public void JiraUri_AttachmentWithRole_RoundTrips()
     {
         var restriction = new JiraRestriction(JiraRestrictionType.Role, "Developers", "10200");
-        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", false, restriction);
+        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", false, restriction, "55");
 
-        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/attachment/77/role/10200/Developers");
-        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", false, restriction));
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/attachment/77/comment/55/role/10200/Developers");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", false, restriction, "55"));
     }
 
     [Fact]
     public void JiraUri_AttachmentOfInternalNote_RoundTrips()
     {
-        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", true, null);
+        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", true, null, "55");
 
-        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", true, null));
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/attachment/77/comment/55/internal");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", true, null, "55"));
     }
+
+    [Fact]
+    public void JiraUri_AttachmentWithInternalGroup_RoundTrips()
+    {
+        var restriction = new JiraRestriction(JiraRestrictionType.Group, Group);
+        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", true, restriction, "55");
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/attachment/77/comment/55/internal/group/{Group}");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", true, restriction, "55"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void JiraUri_UntiedAttachment_PlainOrDenyAll_RoundTrips(bool internalNote)
+    {
+        string plain = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", false, null);
+        string denied = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", internalNote, JiraRestriction.DenyAll);
+
+        plain.Should().Be($"atlassian://{Cloud}/jira/issue/10001/attachment/77");
+        Parse(plain).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", false, null));
+        Parse(denied).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", internalNote, JiraRestriction.DenyAll));
+    }
+
+    [Theory]
+    [InlineData("/jira/issue/1/attachment/2/group/" + Group)]               // a live restriction without its comment
+    [InlineData("/jira/issue/1/attachment/2/role/10200/Developers")]
+    [InlineData("/jira/issue/1/attachment/2/internal")]
+    [InlineData("/jira/issue/1/attachment/2/comment/3")]                     // tied, but to nothing restricted
+    [InlineData("/jira/issue/1/attachment/2/comment/3/")]
+    [InlineData("/jira/issue/1/attachment/2/comment/x/group/" + Group)]
+    [InlineData("/jira/issue/1/attachment/2/group/" + Group + "/comment/3")] // the comment out of place
+    [InlineData("/jira/issue/1/attachment/2/comment/3/comment/4/internal")]
+    [InlineData("/jira/issue/1/comment/2/comment/3/internal")]               // only an attachment names a comment
+    [InlineData("/jira/issue/1/comment/3/internal/comment/4")]
+    public void JiraUri_AttachmentTieShape_Rejected(string suffix) =>
+        AtlassianUri.TryParseJira("atlassian://" + Cloud + suffix, out _).Should().BeFalse();
 
     [Theory]
     [InlineData("QA/Ops Team")]

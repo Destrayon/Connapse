@@ -28,6 +28,13 @@ internal sealed class JiraStoredAttachment
     public string? RestrictingCommentId { get; set; }
 
     /// <summary>
+    /// Every restricted comment that has ever linked the attachment, or may have shown it (one
+    /// whose files Connapse cannot name), carried over from record to record. While one of them
+    /// is missing, or is restricted otherwise than the tie, the attachment is deny-all.
+    /// </summary>
+    public List<string> TiedBy { get; set; } = [];
+
+    /// <summary>
     /// Linked from restricted comments that disagree, from one Connapse cannot interpret, or from
     /// one whose restriction changed while it was read: indexed so that nobody sees it.
     /// </summary>

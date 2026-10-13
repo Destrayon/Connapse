@@ -254,23 +254,41 @@ public sealed partial class JiraProjectConnector(
     }
 
     /// <summary>
-    /// An attachment a restricted comment tied (or made deny-all) in the last record, and that no
-    /// restricted comment ties now, stays deny-all instead of becoming unrestricted. Its comment may
-    /// have been made public, deleted, edited to drop the link, or hidden from the service account,
-    /// and Connapse cannot tell those apart; only a file no restricted comment ever tied is listed
-    /// unrestricted. The stored tie is kept, so the next cycle keeps it hidden too.
+    /// Carries each attachment's <see cref="JiraStoredAttachment.TiedBy"/> over from the last record,
+    /// and makes it deny-all unless every comment that has ever tied it is still returned with the
+    /// restriction of its tie now. A tying comment may have been made public, deleted, edited to drop
+    /// the link, or hidden from the service account, and Connapse cannot tell those apart, so a file
+    /// a restricted comment once hid is never listed unrestricted, nor under another comment's
+    /// restriction alone. Only a file no restricted comment ever tied is listed unrestricted.
     /// </summary>
     private void KeepTiesHidden(JiraStoredIssue? last, JiraStoredIssue now)
     {
-        if (last is null || !config.IncludeAttachments)
+        if (!config.IncludeAttachments)
             return;
 
-        var before = last.Attachments.ToDictionary(a => a.Id, StringComparer.Ordinal);
-        foreach (var attachment in now.Attachments.Where(a => a.RestrictingCommentId is null))
+        var before = (last?.Attachments ?? []).ToDictionary(a => a.Id, StringComparer.Ordinal);
+        var comments = now.Comments.DistinctBy(c => c.Id).ToDictionary(c => c.Id, StringComparer.Ordinal);
+        foreach (var attachment in now.Attachments)
         {
-            if (before.TryGetValue(attachment.Id, out var was) && (was.RestrictingCommentId is not null || was.DenyAll))
+            if (before.TryGetValue(attachment.Id, out var was))
             {
-                attachment.RestrictingCommentId = was.RestrictingCommentId;
+                attachment.TiedBy.AddRange(was.TiedBy);
+                // A record written before TiedBy was kept names only its tie.
+                if (was.RestrictingCommentId is { } earlier)
+                    attachment.TiedBy.Add(earlier);
+            }
+            attachment.TiedBy = [.. attachment.TiedBy.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+            if (attachment.TiedBy.Count == 0)
+                continue;
+
+            var tie = attachment.RestrictingCommentId is { } tyingId && comments.TryGetValue(tyingId, out var tying)
+                ? Route(tying, config.ProjectId)
+                : default;
+            bool settled = tie.Separate && attachment.TiedBy.All(id =>
+                comments.TryGetValue(id, out var comment) && Route(comment, config.ProjectId) == tie);
+            if (!settled)
+            {
+                attachment.RestrictingCommentId ??= attachment.TiedBy[0];
                 attachment.DenyAll = true;
             }
         }
@@ -727,6 +745,7 @@ public sealed partial class JiraProjectConnector(
                 if (!attachments.TryGetValue(id, out var attachment))
                     continue;
 
+                attachment.TiedBy.Add(comment.Id);
                 if (attachment.RestrictingCommentId is null)
                     attachment.RestrictingCommentId = comment.Id;
                 else if (routes[attachment.RestrictingCommentId] != route)
@@ -751,6 +770,8 @@ public sealed partial class JiraProjectConnector(
         string untiedOwner = untieableCommentIds.FirstOrDefault(id => routes[id].Internal) ?? untieableCommentIds[0];
         foreach (var attachment in issue.Attachments)
         {
+            // Each of them may show this file, so each counts as having tied it.
+            attachment.TiedBy.AddRange(untieableCommentIds);
             if (attachment.RestrictingCommentId is null)
             {
                 attachment.RestrictingCommentId = untiedOwner;
@@ -931,8 +952,8 @@ public sealed partial class JiraProjectConnector(
     }
 
     /// <summary>
-    /// The URI of an attachment: the tying comment's internal flag and restriction, deny-all when
-    /// the tie says so or the tying comment is no longer a restricted one on record.
+    /// The URI of an attachment: the tying comment's id, internal flag and restriction, or deny-all
+    /// when the tie says so or the tying comment is no longer a restricted one on record.
     /// </summary>
     private string AttachmentUri(JiraStoredIssue issue, JiraStoredAttachment attachment)
     {
@@ -943,8 +964,10 @@ public sealed partial class JiraProjectConnector(
         var comment = issue.Comments.FirstOrDefault(c => c.Id == commentId);
         var route = comment is null ? default : Route(comment, config.ProjectId);
         bool denyAll = attachment.DenyAll || !route.Separate || route.DenyAll;
-        return AtlassianUri.ForJiraAttachment(
-            cloudId, issue.Id, attachment.Id, route.Internal, denyAll ? JiraRestriction.DenyAll : route.Restriction);
+        // A live tie names its comment, so search can re-check that comment's visibility; deny-all needs no check.
+        return denyAll
+            ? AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, route.Internal, JiraRestriction.DenyAll)
+            : AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, route.Internal, route.Restriction, commentId);
     }
 
     internal static string AttachmentPathFor(string issueId, JiraStoredAttachment attachment) =>

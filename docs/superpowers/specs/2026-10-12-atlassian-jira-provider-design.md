@@ -172,7 +172,8 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
    - Issue: browse.
    - Restricted comment: browse **and** membership **and** the live check.
    - Internal note: browse **and** agent **and** the live check, **and** membership if it also has `visibility`.
-   - Attachment: browse, **and** its comment's rule if it is tied to one. An attachment's URI does not name its comment, so it is not re-checked live. Instead, once a restricted comment has tied it, the sync keeps it deny-all if no restricted comment ties it any more; only a file no restricted comment ever tied is listed unrestricted.
+   - Attachment: browse, **and** its comment's rule if it is tied to one. A tied attachment's URI names its comment (`.../attachment/{a}/comment/{c}/...`), and that comment gets the same live check, plus the live-project check for a role. A deny-all attachment needs no read, and an untied one carries no restriction.
+   - The sync records every restricted comment that has ever tied an attachment. If any of them is no longer returned, or is now restricted differently from the attachment's tie, the attachment is deny-all. So a file a restricted comment once hid is never listed unrestricted, nor under another comment's restriction alone; only a file no restricted comment ever tied is listed unrestricted.
 
 **Account guard.** `JiraPermissionChecker` refuses to send any request whose `accountId` is null, empty, whitespace or `anonymous`. Without `accountId`, Jira evaluates the calling service account, which fails fully open.
 

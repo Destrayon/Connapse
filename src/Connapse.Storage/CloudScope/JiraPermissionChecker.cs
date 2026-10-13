@@ -11,8 +11,8 @@ namespace Connapse.Storage.CloudScope;
 /// may see. Every document needs browse on its issue; an internal note also needs
 /// <c>SERVICEDESK_AGENT</c>; a restricted comment also needs membership of its group (by id) or
 /// project role. Both permissions come from one bulk <c>permissions/check</c>. A comment or internal
-/// note is then read live, and admitted only while Jira still gives it the visibility its URI
-/// carries. Only an explicit yes admits: an id missing from Jira's answer, and every failure to
+/// note, and an attachment tied to one, is then read live, and admitted only while Jira still
+/// gives the comment the visibility the URI carries. Only an explicit yes admits: an id missing from Jira's answer, and every failure to
 /// get an answer, is a denial.
 /// </summary>
 /// <remarks>
@@ -128,15 +128,16 @@ public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermis
 
         // A comment document's URI is only as fresh as the last sync. Jira must still give the
         // comment exactly the visibility the URI carries: tightened since, the URI would admit
-        // people Jira now hides it from; made public, it now lives in the issue document.
-        var comments = candidates.Where(i => verdicts[i] && resources[i].Kind == JiraResourceKind.Comment).ToList();
+        // people Jira now hides it from; made public, it now lives in the issue document. An
+        // attachment tied to a restricted comment is held to that comment the same way.
+        var comments = candidates.Where(i => verdicts[i] && IsGovernedByComment(resources[i])).ToList();
         if (comments.Count > 0)
         {
             var live = await LiveRoutesAsync(cloudId, comments.Select(i => resources[i]), ClientAsync, ct);
             foreach (int i in comments)
             {
                 JiraResource r = resources[i];
-                verdicts[i] = r.ChildId is { } commentId && live.TryGetValue((r.IssueId, commentId), out LiveComment? now)
+                verdicts[i] = GoverningComment(r) is { } commentId && live.TryGetValue((r.IssueId, commentId), out LiveComment? now)
                     && now is not null && Matches(now, r);
             }
 
@@ -226,7 +227,7 @@ public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermis
     private async Task<Dictionary<(string IssueId, string CommentId), LiveComment?>> LiveRoutesAsync(
         string cloudId, IEnumerable<JiraResource> comments, Func<Task<AtlassianApiClient?>> clientAsync, CancellationToken ct)
     {
-        var keys = comments.Where(r => IsId(r.ChildId ?? "")).Select(r => (r.IssueId, CommentId: r.ChildId!)).Distinct().ToList();
+        var keys = comments.Select(r => (r.IssueId, CommentId: GoverningComment(r)!)).Where(k => IsId(k.CommentId)).Distinct().ToList();
         var routes = new Dictionary<(string, string), LiveComment?>();
         var uncached = new List<(string IssueId, string CommentId)>();
         foreach (var key in keys)
@@ -282,6 +283,22 @@ public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermis
             : live.Restriction;
         return Equals(restriction, uri.Restriction);
     }
+
+    /// <summary>
+    /// A comment document, or an attachment carrying a comment's internal flag or restriction. One
+    /// whose URI does not name that comment cannot be re-checked, so <see cref="GoverningComment"/>
+    /// gives null and it is denied.
+    /// </summary>
+    private static bool IsGovernedByComment(JiraResource r) =>
+        r.Kind == JiraResourceKind.Comment
+        || (r.Kind == JiraResourceKind.Attachment && (r.CommentId is not null || r.Internal || r.Restriction is not null));
+
+    private static string? GoverningComment(JiraResource r) => r.Kind switch
+    {
+        JiraResourceKind.Comment => r.ChildId,
+        JiraResourceKind.Attachment => r.CommentId,
+        _ => null,
+    };
 
     private static string LiveKey(string cloudId, string issueId, string commentId) =>
         $"atl:jira:{cloudId}:comment:{issueId}:{commentId}";
