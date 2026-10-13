@@ -188,6 +188,34 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_JiraHit_DeniedWithoutCalls()
+    {
+        SearchHit[] hits =
+        [
+            Hit("issue", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("note", AtlassianUri.ForJiraComment(CloudId, "10001", "55", true, null)),
+        ];
+
+        (await NewVerifier().VerifyAsync(hits, _user, 10)).Should().BeEmpty();
+
+        _api.Requests.Should().BeEmpty();
+        await _links.DidNotReceiveWithAnyArgs().GetLinkAsync(default, default);
+    }
+
+    [Fact]
+    public async Task Verify_JiraHitBesideConfluenceHit_OnlyConfluenceIsAdmitted()
+    {
+        Allow("1", true);
+        SearchHit[] hits =
+        [
+            Hit("jira", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("p1", AtlassianUri.ForPage(CloudId, "1")),
+        ];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("p1");
+    }
+
+    [Fact]
     public async Task Verify_ManyChunksOfOnePage_ChecksEachPageOnce()
     {
         Allow("1", true);

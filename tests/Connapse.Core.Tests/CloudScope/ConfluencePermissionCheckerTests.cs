@@ -78,7 +78,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         (await CheckAsync()).Should().BeTrue();
 
         body.Should().Be("""{"subject":{"type":"user","identifier":"557058:abc"},"operation":"read"}""");
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         _api.MapJson(CheckPath, new { hasPermission = false });
 
         (await CheckAsync()).Should().BeFalse();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         _api.Map(CheckPath, _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
 
         (await CheckAsync()).Should().BeFalse();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
     }
 
     [Theory]
@@ -120,7 +120,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         (await CheckAsync()).Should().BeFalse();
         (await CheckAsync()).Should().BeFalse("the failure is cached, not retried at once");
 
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
         Checks.Should().Be(1);
     }
 
@@ -232,7 +232,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         });
 
         (await CheckAsync()).Should().BeFalse();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
     }
 
     [Theory]
@@ -254,7 +254,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
 
         await FluentActions.Awaiting(() => _checker.CanReadAsync(CloudId, "42", Account, cts.Token))
             .Should().ThrowAsync<OperationCanceledException>();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().BeNull();
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().BeNull();
     }
 
     internal sealed class HandlerFactory(HttpMessageHandler handler) : IHttpClientFactory
