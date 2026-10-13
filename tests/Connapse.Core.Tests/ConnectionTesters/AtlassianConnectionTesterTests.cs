@@ -365,10 +365,34 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     }
 
     [Fact]
+    public async Task Test_JiraSearch_IsAGetLikeTheSync()
+    {
+        _jira.MapSiteTest();
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Success.Should().BeTrue();
+        _jira.Searches.Should().ContainSingle().Which.Should().StartWith("GET ?jql=")
+            .And.Contain("maxResults=1").And.Contain("fields=id");
+        _api.Requests.Should().NotContain(u => u.AbsolutePath.EndsWith("/attachment/meta"),
+            "attachment/meta needs read:instance-configuration:jira, which the scope list doesn't ask for");
+    }
+
+    [Fact]
+    public async Task Test_JiraAttachmentScope_ConfirmedByAMissingAttachment()
+    {
+        _jira.MapSiteTest();
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        ((string[])result.Details!["scopes"]).Should().Contain(AtlassianSiteScopes.JiraAttachment);
+    }
+
+    [Fact]
     public async Task Test_JiraWithoutTheAttachmentScope_StillPasses()
     {
         _jira.MapSiteTest();
-        _jira.Answer("/attachment/meta", HttpStatusCode.Forbidden);
+        _jira.Answer("/attachment/content/0", HttpStatusCode.Forbidden);
 
         var result = await _tester.TestConnectionAsync(_jiraRequest);
 
