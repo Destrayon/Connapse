@@ -62,7 +62,8 @@ First set up the service account for Jira: steps 1 to 4 of [Add Jira to an exist
 2. Find the two account IDs the script needs:
    - **The service account's:** in Atlassian Administration, go to **Directory** → **Service accounts** and open the account. The ID is the long value at the end of the page's address.
    - **The second person's:** **Directory** → **Users** → open the person; the ID is in the same place. It is optional, and only used to warn you if they would see a restricted comment.
-3. Run the script with `--dry-run` to see every request it would make, then again without it:
+3. Allow comments to be restricted to groups: in Jira, choose the gear icon → **Jira admin settings** → **System** → **General configuration** → **Edit settings**, set **Comment visibility** to **Groups & Project Roles**, and choose **Update**. Sites start with roles only, and the group-restricted comment fails without this.
+4. Run the script with `--dry-run` to see every request it would make, then again without it:
 
    ```powershell
    $env:JIRA_EMAIL = "you@example.com"
@@ -82,15 +83,15 @@ First set up the service account for Jira: steps 1 to 4 of [Add Jira to an exist
    | Service project **SUP** with one internal note, if the site has Jira Service Management | agents only |
 
    The attachment is uploaded to an ENG issue, and the group-restricted comment links to its content URL (a link, not an embedded media node, because the REST API doesn't return the Media file ID an embedded node needs).
-4. Do the manual steps the script prints at the end. Each one says whether it happens in Atlassian Administration or in Jira: creating the group or the roles needs admin rights, and a service project needs a Service Management license. Re-run the script after doing them so it can add the comments it skipped.
-5. In Jira, open the gear icon at the top right → **Jira admin settings**; the sidebar opens on **System**. Choose **Space roles** (**Project roles** on sites that still say project) and confirm that **Developers** and **QA/Ops Team** exist. New sites may have only **Administrators**, so create any role that's missing and re-run the script.
-6. In the ENG space (under **Spaces** in Jira's sidebar), choose **•••** next to its name → **Space settings** → **Access** and confirm the service account is in both roles. A new role has no permissions until it is added to the permission scheme, but comment visibility only needs membership.
-7. If the site has Service Management: in the SUP project, choose **Invite team**, which adds people to the **Service Space Team** role, and invite the service account. No Atlassian page confirms a service account can be an agent; if the invite fails, skip the internal note question below.
+5. Do the manual steps the script prints at the end. Each one says whether it happens in Atlassian Administration or in Jira: creating the group or the roles needs admin rights, and a service project needs a Service Management license. Re-run the script after doing them so it can add the comments it skipped.
+6. In Jira, open the gear icon at the top right → **Jira admin settings**; the sidebar opens on **System**. Choose **Space roles** (**Project roles** on sites that still say project) and confirm that **Developers** and **QA/Ops Team** exist. New sites may have only **Administrators**, so create any role that's missing and re-run the script.
+7. In the ENG space (under **Spaces** in Jira's sidebar), choose **•••** next to its name → **Space settings** → **Access** and confirm the service account is in both roles. A new role has no permissions until it is added to the permission scheme, but comment visibility only needs membership.
+8. If the site has Service Management: in the SUP project, choose **Invite team**, which adds people to the **Service Space Team** role, and invite the service account. No Atlassian page confirms a service account can be an agent; if the invite fails, skip the internal note question below.
 
 Then connect Connapse, after seeding so the site has projects and roles to check:
 
-8. **Connections** → **Add connection** → **Jira site**: enter `https://connapse-test.atlassian.net` and the Jira credential's client ID and secret, then **Check and save**. All seven checks should pass. If **Reading Jira groups and project roles** fails, go back to steps 5 and 6.
-9. **Sources** → **New source** → choose **Jira · connapse-test.atlassian.net** → tick **ENG** (and **SUP**), keep **Include attachments** ticked, and **Create source**.
+9. **Connections** → **Add connection** → **Jira site**: enter `https://connapse-test.atlassian.net` and the Jira credential's client ID and secret, then **Check and save**. All seven checks should pass. If **Reading Jira groups and project roles** fails, go back to steps 6 and 7.
+10. **Sources** → **New source** → choose **Jira · connapse-test.atlassian.net** → tick **ENG** (and **SUP**), keep **Include attachments** ticked, and **Create source**.
 10. The accounts linked in step 4.4 need nothing more: the same link covers Jira. Search as each person once the sources finish syncing. The script prints this table at the end:
 
    | Question | Answer | You | Second person | Unlinked user |

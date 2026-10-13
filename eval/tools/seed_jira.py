@@ -145,7 +145,9 @@ class Jira:
                 time.sleep(float(r.headers.get("Retry-After", 2 ** attempt)))
                 continue
             if r.status_code not in ok:
-                raise RuntimeError(f"{method} {path} -> HTTP {r.status_code}: {r.text[:300]}")
+                # An HTML error page says nothing useful and floods the terminal: name it instead.
+                body = "an HTML page" if r.text.lstrip().startswith("<") else r.text[:300]
+                raise RuntimeError(f"{method} {path} -> HTTP {r.status_code}: {body}")
             return r.json() if r.content and "json" in r.headers.get("Content-Type", "") else None
         raise RuntimeError(f"{method} {path} kept failing; Atlassian may be rate limiting, try again later")
 
@@ -332,7 +334,12 @@ def push(args):
         try:
             j.write("POST", f"/rest/api/3/issue/{issue_key}/comment", json=payload)
         except RuntimeError as e:
-            manual.append((JIRA, f"Add this comment to {issue_key}, visible only to {label}: \"{marker}\" ({e})"))
+            if "GROUP_VISIBILITY_SETTING_NOT_ENABLED" in str(e):
+                manual.append((JIRA, "Comments can't be restricted to groups on this site yet. In Jira, choose the gear icon > "
+                                     "Jira admin settings > System > General configuration > Edit settings, set Comment visibility "
+                                     "to Groups & Project Roles, choose Update, then run this script again."))
+            else:
+                manual.append((JIRA, f"Add this comment to {issue_key}, visible only to {label}: \"{marker}\" ({e})"))
             return False
         print(f"comment ({label}) on {issue_key}: added")
         return True
@@ -427,11 +434,14 @@ def push(args):
             manual.append((JIRA, f"In the {jsm_key} service project, choose Invite team and invite the service account, so it is an agent "
                                  "and can read the internal note. If the invite fails, skip the internal note question."))
     except RuntimeError as e:
-        print("service project: not created through the API")
-        manual.append((JIRA, "This site may not have Jira Service Management. If it does: create a service project "
-                             f"({JSM_NAME}, key {JSM_KEY}) from Projects > Create project (or Spaces > Create space), invite the service "
-                             f"account with Invite team, create a request titled \"Print queue outage on the third floor\", and add an "
-                             f"internal note: \"{INTERNAL_FACT}\" (API said: {e})"))
+        if "/rest/servicedeskapi/servicedesk -> HTTP 403" in str(e) or "/rest/servicedeskapi/servicedesk -> HTTP 404" in str(e):
+            print("service project: skipped, this site doesn't have Jira Service Management (the internal note question needs it)")
+        else:
+            print("service project: not created through the API")
+            manual.append((JIRA, "Create a service project "
+                                 f"({JSM_NAME}, key {JSM_KEY}) from Projects > Create project (or Spaces > Create space), invite the service "
+                                 f"account with Invite team, create a request titled \"Print queue outage on the third floor\", and add an "
+                                 f"internal note: \"{INTERNAL_FACT}\" (API said: {e})"))
 
     if not sa:
         manual.append((TERMINAL, "Re-run with --service-account-id so the account joins the group and the project roles."))
