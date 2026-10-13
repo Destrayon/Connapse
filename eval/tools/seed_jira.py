@@ -286,7 +286,10 @@ def push(args):
         fields = {"project": {"key": PROJECT_KEY}, "summary": summary, "description": adf(text),
                   "issuetype": {"name": epic_type if is_epic else task_type}}
         if n in CHILDREN_OF_EPIC and epic_type:
-            fields["parent"] = {"key": keys[0]}
+            if 0 in keys:
+                fields["parent"] = {"key": keys[0]}
+            else:
+                manual.append(f"Once the epic '{ISSUES[0][0]}' exists, set it as the parent of '{summary}'.")
         try:
             made = j.write("POST", "/rest/api/3/issue", json={"fields": fields})
         except RuntimeError as e:
@@ -389,7 +392,7 @@ def push(args):
         jsm_types = [t["name"] for t in jsm_project.get("issueTypes", []) if not t.get("subtask")]
         jsm_issue = None if args.dry_run else next(iter(
             (i["key"] for i in j.call("GET", "/rest/api/3/search/jql", params={
-                "jql": f'project = {jsm_key} AND summary ~ "print queue outage"', "fields": "summary", "maxResults": 1}).get("issues", [])), None))
+                "jql": f'project = {jsm_key} AND summary ~ "print queue outage"', "fields": "summary", "maxResults": 1}).get("issues", []))), None)
         if not jsm_issue:
             jsm_issue = j.write("POST", "/rest/api/3/issue", json={"fields": {
                 "project": {"key": jsm_key}, "summary": "Print queue outage on the third floor",
@@ -397,9 +400,8 @@ def push(args):
                 "description": adf("Several people report that nothing prints from the third floor.")}})["key"]
             if args.dry_run:
                 jsm_issue = f"{jsm_key}-1"
-        add_comment(jsm_issue, "agents only (internal)", adf(INTERNAL_FACT), marker="PRINT-ECHO-12",
-                    properties=[{"key": "sd.public.comment", "value": {"internal": True}}])
-        jsm_done = True
+        jsm_done = add_comment(jsm_issue, "agents only (internal)", adf(INTERNAL_FACT), marker="PRINT-ECHO-12",
+                               properties=[{"key": "sd.public.comment", "value": {"internal": True}}])
         manual.append(f"Give the service account the Jira Service Management agent product access on {jsm_key} (Project settings > People), "
                       "so it can see the internal note's issue.")
     except RuntimeError as e:

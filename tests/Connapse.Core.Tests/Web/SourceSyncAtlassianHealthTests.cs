@@ -34,6 +34,19 @@ public class SourceSyncAtlassianHealthTests
         health.Message.Should().Contain(message).And.Contain("'ENG'");
     }
 
+    [Theory]
+    [InlineData(AtlassianSyncErrors.JiraFreshTokenRefused, false, "jira-identity")]
+    [InlineData(AtlassianSyncErrors.TokenRedirected, true, "token")]
+    public void JiraSource_RefusedRequests_RecordedAtTheJiraStep(string message, bool tokenRefused, string step)
+    {
+        var health = SourceSyncService.AtlassianSignInHealth(new AtlassianAuthException(message, tokenRefused), "ENG", jira: true);
+
+        health.CredentialRejected.Should().BeFalse();
+        health.Step.Should().Be(step);
+        Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.StepLabel(health.Step)
+            .Should().NotContain("Confluence");
+    }
+
     [Fact]
     public void CredentialRefusedText_WithoutATokenRefusal_IsNotTreatedAsRefused()
     {

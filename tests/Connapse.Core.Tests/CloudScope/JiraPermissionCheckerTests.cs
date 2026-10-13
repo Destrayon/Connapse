@@ -27,7 +27,7 @@ public sealed class JiraPermissionCheckerTests : IDisposable
     public JiraPermissionCheckerTests()
     {
         _jira = new FakeJira(_api, CloudId).MapEnforcement();
-        _checker = NewJiraChecker(_api, _cache);
+        _checker = NewJiraChecker(_cache);
     }
 
     public void Dispose()
@@ -36,12 +36,8 @@ public sealed class JiraPermissionCheckerTests : IDisposable
         _cache.Dispose();
     }
 
-    internal static JiraPermissionChecker NewJiraChecker(HttpMessageHandler handler, IMemoryCache cache)
-    {
-        var factory = new HandlerFactory(handler);
-        return new JiraPermissionChecker(factory, new AtlassianTokenSource(factory, TimeProvider.System),
-            cache, NullLogger<JiraPermissionChecker>.Instance);
-    }
+    internal static JiraPermissionChecker NewJiraChecker(IMemoryCache cache) =>
+        new(cache, NullLogger<JiraPermissionChecker>.Instance);
 
     private AtlassianSiteLookup Sites() => NewChecker(_api, _cache, AtlassianConnectionStore()).NewSiteLookup();
 
@@ -249,6 +245,43 @@ public sealed class JiraPermissionCheckerTests : IDisposable
         (await CheckAsync(Comment("10001", restriction: Role("../x/y")))).Should().Equal(true);
         _api.Requests.Should().NotContain(u => u.OriginalString.Contains("x/y") || u.OriginalString.Contains("x%2F"));
     }
+
+    [Fact]
+    public async Task Check_RoleUrlWithTrailingSlash_Allowed()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Role(Project, "10002", "Developers", FakeJira.UserActor(Account));
+        _api.MapJson(_jira.Root + $"/project/{Project}/role", new Dictionary<string, string>
+        {
+            ["Developers"] = $"https://api.atlassian.com/ex/jira/{CloudId}/rest/api/3/project/{Project}/role/10002/",
+        });
+
+        (await CheckAsync(Comment("10001", restriction: Role("Developers")))).Should().Equal(true);
+    }
+
+    [Fact]
+    public async Task Check_NineteenDigitRoleId_Read()
+    {
+        const string longId = "1234567890123456789";
+        _jira.Browse(Account, "10001");
+        _jira.Role(Project, longId, "Developers", FakeJira.UserActor(Account));
+
+        (await CheckAsync(Comment("10001", restriction: Role("Developers")))).Should().Equal(true);
+        Calls($"/project/{Project}/role/{longId}").Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("https://api.atlassian.com/ex/jira/c/rest/api/3/project/10000/role/10002", "10002")]
+    [InlineData("https://api.atlassian.com/ex/jira/c/rest/api/3/project/10000/role/10002/", "10002")]
+    [InlineData("https://api.atlassian.com/ex/jira/c/rest/api/3/project/10000/role/10002 ", "10002")]
+    [InlineData("https://x/role/1234567890123456789", "1234567890123456789")]
+    [InlineData("https://x/role/12345678901234567890", null)]
+    [InlineData("https://x/role/..", null)]
+    [InlineData("https://x/role/", null)]
+    [InlineData("https://x/role/１２", null)]
+    [InlineData("", null)]
+    public void RoleIdOf_TakesTheTrailingDigitsOnly(string url, string? id) =>
+        JiraPermissionChecker.RoleIdOf(url).Should().Be(id);
 
     [Fact]
     public async Task Check_RoleUrlNotNumeric_Denied()

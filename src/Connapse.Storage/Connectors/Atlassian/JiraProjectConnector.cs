@@ -75,8 +75,11 @@ public sealed partial class JiraProjectConnector(
 
     internal JiraProjectConfig Config => config;
 
-    // Kept for the attachment phases, which skip attachments without a parser as Confluence does.
-    internal IFileTypeValidator? FileTypes => fileTypes;
+    /// <summary>
+    /// How many issues one cycle re-reads for the sweep. A project with more issues is swept over
+    /// several cycles, so the sweep's requests never crowd out a cycle's ordinary changes.
+    /// </summary>
+    internal int SweepSliceSize { get; init; } = 500;
 
     public ConnectorType Type => ConnectorType.Atlassian;
 
@@ -105,12 +108,18 @@ public sealed partial class JiraProjectConnector(
         // cycle has completed, as in Confluence, so jobs already queued still find their records.
         bool everything = cursor is null || previous!.WatermarkMs is null;
         DateTimeOffset now = _clock.GetUtcNow();
-        bool sweep = everything
-            || (SweepEnabled && (previous!.LastCommentSweepAt is not { } swept || now - swept >= SweepInterval));
+        // A sweep under way carries on; otherwise one starts a day after the last one began. A
+        // fresh start reads every issue anyway, so it counts as a sweep of its own.
+        DateTimeOffset? sweepStartedAt = everything || !SweepEnabled
+            ? null
+            : previous!.SweepStartedAt
+              ?? (previous.LastCommentSweepAt is not { } swept || now - swept >= SweepInterval ? now : null);
+        string? sweptThrough = previous?.SweepStartedAt is not null ? previous.SweptThrough : null;
+        bool sweepDone = false;
         long startedMs = now.ToUnixTimeMilliseconds();
         var state = cursor is null ? new JiraSyncState() : _store.LoadState();
         HashSet<string> listed;
-        Dictionary<string, JiraStoredIssue> fetched;
+        var fetched = new Dictionary<string, JiraStoredIssue>(StringComparer.Ordinal);
 
         try
         {
@@ -118,9 +127,8 @@ public sealed partial class JiraProjectConnector(
             await ReadFieldsAsync(state, ct);
 
             listed = await ListIdsAsync(ct);
-            // A sweep fetches every listed issue again, and with it every comment.
             var changed = new HashSet<string>(
-                sweep ? listed : listed.Where(id => _store.Load(id) is null), StringComparer.Ordinal);
+                everything ? listed : listed.Where(id => _store.Load(id) is null), StringComparer.Ordinal);
             if (!everything)
             {
                 foreach (var (id, updated) in await ChangedSinceAsync(previous!.WatermarkMs!.Value, ct))
@@ -130,7 +138,10 @@ public sealed partial class JiraProjectConnector(
                 }
             }
 
-            fetched = await FetchAsync(changed, listed, startedMs, ct);
+            await FetchAsync(changed, listed, startedMs, fetched, null, ct);
+
+            if (sweepStartedAt is not null)
+                (sweptThrough, sweepDone) = await SweepAsync(listed, fetched, sweptThrough, startedMs, ct);
         }
         catch (AtlassianRateLimitedException ex)
         {
@@ -161,9 +172,14 @@ public sealed partial class JiraProjectConnector(
               + "Max attachment size on the source."
             : null;
 
+        var next = sweepStartedAt is null
+            ? new JiraCursor(startedMs, everything ? now : previous?.LastCommentSweepAt)
+            : sweepDone
+                ? new JiraCursor(startedMs, sweepStartedAt)
+                : new JiraCursor(startedMs, previous?.LastCommentSweepAt, sweepStartedAt, sweptThrough);
+
         return new SyncDelta(
-            files, [], new JiraCursor(startedMs, sweep ? now : previous?.LastCommentSweepAt).Serialize(),
-            RequiresFullResync: false, IsFullListing: true, Notice: notice);
+            files, [], next.Serialize(), RequiresFullResync: false, IsFullListing: true, Notice: notice);
     }
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) =>
@@ -395,17 +411,60 @@ public sealed partial class JiraProjectConnector(
     }
 
     /// <summary>
-    /// Fetches the changed issues a hundred at a time, and each one's comments in full. An issue
-    /// bulkfetch does not return keeps its previous record (or, new, waits for the next cycle); one
-    /// whose comments answer 404 was deleted since the listing and is taken out of it.
+    /// The sweep's next slice: up to <see cref="SweepSliceSize"/> listed issues after
+    /// <paramref name="after"/> in id order, each fetched again with every comment. Issues this
+    /// cycle already fetched count as swept. A rate limit ends the slice early: each issue read in
+    /// full before it is kept, the one being read keeps its last record, and the sweep resumes
+    /// after the last issue read in full. Returns where the sweep has reached and whether it is done.
     /// </summary>
-    private async Task<Dictionary<string, JiraStoredIssue>> FetchAsync(
-        HashSet<string> changed, HashSet<string> listed, long startedMs, CancellationToken ct)
+    private async Task<(string? After, bool Done)> SweepAsync(
+        HashSet<string> listed, Dictionary<string, JiraStoredIssue> fetched, string? after, long startedMs, CancellationToken ct)
     {
-        var fetched = new Dictionary<string, JiraStoredIssue>(StringComparer.Ordinal);
+        var remaining = listed
+            .Where(id => after is null || string.CompareOrdinal(id, after) > 0)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        var slice = new List<string>();
+        string? end = after;
+        foreach (string id in remaining)
+        {
+            if (slice.Count == SweepSliceSize)
+                break;
+            end = id;
+            if (!fetched.ContainsKey(id))
+                slice.Add(id);
+        }
+
+        string? lastRead = null;
+        try
+        {
+            await FetchAsync(slice, listed, startedMs, fetched, id => lastRead = id, ct);
+        }
+        catch (AtlassianRateLimitedException)
+        {
+            _logger.LogWarning(
+                "Jira project {ProjectKey}: rate limited during the comment sweep; it carries on next cycle",
+                LogSanitizer.Sanitize(config.ProjectKey));
+            return (lastRead ?? after, false);
+        }
+
+        return (end, remaining.Count == 0 || end == remaining[^1]);
+    }
+
+    /// <summary>
+    /// Fetches the given issues a hundred at a time, and each one's comments in full, into
+    /// <paramref name="fetched"/>. An issue bulkfetch does not return keeps its previous record
+    /// (or, new, waits for the next cycle); one whose comments answer 404 was deleted since the
+    /// listing and is taken out of it. Issues are handled in id order, and <paramref name="handled"/>
+    /// is told each id once it is done with, so an issue cut off partway is never in the result.
+    /// </summary>
+    private async Task FetchAsync(
+        IEnumerable<string> ids, HashSet<string> listed, long startedMs,
+        Dictionary<string, JiraStoredIssue> fetched, Action<string>? handled, CancellationToken ct)
+    {
         DateTimeOffset readAt = DateTimeOffset.FromUnixTimeMilliseconds(startedMs);
 
-        foreach (string[] batch in changed.Order(StringComparer.Ordinal).Chunk(BulkFetchSize))
+        foreach (string[] batch in ids.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Chunk(BulkFetchSize))
         {
             BulkResponse bulk;
             using (var response = await api.PostAsync(
@@ -416,57 +475,70 @@ public sealed partial class JiraProjectConnector(
                     ?? throw new AtlassianMalformedResponseException("Jira returned an empty bulkfetch answer.");
             }
 
+            var returned = new Dictionary<string, BulkIssue>(StringComparer.Ordinal);
             foreach (var item in bulk.Issues ?? [])
             {
-                if (!JiraIssueStateStore.IsId(item.Id) || !batch.Contains(item.Id) || item.Fields?.Updated is not { } updated)
-                    continue;
+                if (JiraIssueStateStore.IsId(item.Id))
+                    returned[item.Id!] = item;
+            }
 
-                var issue = new JiraStoredIssue
-                {
-                    Id = item.Id!,
-                    Key = item.Key ?? "",
-                    Summary = item.Fields.Summary ?? "",
-                    Updated = updated,
-                    Attachments = [.. (item.Fields.Attachment ?? [])
-                        .Where(a => JiraIssueStateStore.IsId(a.Id) && !string.IsNullOrWhiteSpace(a.Filename))
-                        .Select(a => new JiraStoredAttachment
-                        {
-                            Id = a.Id!,
-                            FileName = a.Filename!,
-                            MediaType = a.MimeType,
-                            Size = a.Size ?? 0,
-                            Created = a.Created ?? DateTimeOffset.MinValue,
-                        })],
-                    CommentsReadAt = readAt,
-                };
+            foreach (string id in batch)
+            {
+                await FetchOneAsync(returned.GetValueOrDefault(id), listed, readAt, fetched, ct);
+                handled?.Invoke(id);
+            }
+        }
+    }
 
-                // The inline comment field is capped at 20 and serves only as a count.
-                if (item.Fields.Comment?.Total is not 0)
+    private async Task FetchOneAsync(
+        BulkIssue? item, HashSet<string> listed, DateTimeOffset readAt,
+        Dictionary<string, JiraStoredIssue> fetched, CancellationToken ct)
+    {
+        if (item?.Fields?.Updated is not { } updated)
+            return;
+
+        var issue = new JiraStoredIssue
+        {
+            Id = item.Id!,
+            Key = item.Key ?? "",
+            Summary = item.Fields.Summary ?? "",
+            Updated = updated,
+            Attachments = [.. (item.Fields.Attachment ?? [])
+                .Where(a => JiraIssueStateStore.IsId(a.Id) && !string.IsNullOrWhiteSpace(a.Filename))
+                .Select(a => new JiraStoredAttachment
                 {
-                    try
-                    {
-                        await foreach (var comment in CommentsAsync(issue.Id, ct))
-                        {
-                            if (!JiraIssueStateStore.IsId(comment.Id))
-                                continue;
-                            issue.Comments.Add(ToStored(comment));
-                        }
-                    }
-                    catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
-                    {
-                        listed.Remove(issue.Id);
+                    Id = a.Id!,
+                    FileName = a.Filename!,
+                    MediaType = a.MimeType,
+                    Size = a.Size ?? 0,
+                    Created = a.Created ?? DateTimeOffset.MinValue,
+                })],
+            CommentsReadAt = readAt,
+        };
+
+        // The inline comment field is capped at 20 and serves only as a count.
+        if (item.Fields.Comment?.Total is not 0)
+        {
+            try
+            {
+                await foreach (var comment in CommentsAsync(issue.Id, ct))
+                {
+                    if (!JiraIssueStateStore.IsId(comment.Id))
                         continue;
-                    }
+                    issue.Comments.Add(ToStored(comment));
                 }
-
-                if (config.IncludeAttachments && issue.Attachments.Count > 0)
-                    await TieAttachmentsAsync(issue, ct);
-
-                fetched[issue.Id] = issue;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+            {
+                listed.Remove(issue.Id);
+                return;
             }
         }
 
-        return fetched;
+        if (config.IncludeAttachments && issue.Attachments.Count > 0)
+            await TieAttachmentsAsync(issue, ct);
+
+        fetched[issue.Id] = issue;
     }
 
     /// <summary>
@@ -945,8 +1017,13 @@ public sealed partial class JiraProjectConnector(
     }
 }
 
-/// <summary>The cursor: when the last complete cycle started, and when comments were last swept.</summary>
-internal sealed record JiraCursor(long? WatermarkMs, DateTimeOffset? LastCommentSweepAt)
+/// <summary>
+/// The cursor: when the last complete cycle started, and when the last finished comment sweep
+/// began. A sweep still under way carries when it began and the last issue id (in ordinal order)
+/// it has re-read.
+/// </summary>
+internal sealed record JiraCursor(
+    long? WatermarkMs, DateTimeOffset? LastCommentSweepAt, DateTimeOffset? SweepStartedAt = null, string? SweptThrough = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

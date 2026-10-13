@@ -53,7 +53,6 @@ internal sealed class JiraSyncState
     public string ProjectKey { get; set; } = "";
     public List<string> RichTextFieldIds { get; set; } = [];        // from GET /field, refreshed each cycle
     public Dictionary<string, string> FieldNames { get; set; } = [];
-    public Dictionary<string, string> AttachmentIssues { get; set; } = [];
 }
 
 /// <summary>

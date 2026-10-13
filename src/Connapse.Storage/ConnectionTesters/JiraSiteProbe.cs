@@ -313,9 +313,8 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
             if (role.Value.ValueKind != JsonValueKind.String || role.Value.GetString() is not { } address)
                 continue;
 
-            string last = address.TrimEnd('/')[(address.TrimEnd('/').LastIndexOf('/') + 1)..];
-            if (long.TryParse(last, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long id))
-                return id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (Connapse.Storage.CloudScope.JiraPermissionChecker.RoleIdOf(address) is { } id)
+                return id;
         }
 
         return null;

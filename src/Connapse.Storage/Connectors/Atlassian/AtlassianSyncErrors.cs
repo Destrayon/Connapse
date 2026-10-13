@@ -26,6 +26,10 @@ public static class AtlassianSyncErrors
         "Atlassian refused the service account's requests even with a new token. Check that the service account has "
         + "a Confluence role on this site and that its credential has every scope the setup guide lists.";
 
+    public const string JiraFreshTokenRefused =
+        "Atlassian refused the service account's requests even with a new token. Check that the service account has "
+        + "Jira access on this site and that its credential has every Jira scope the setup guide lists.";
+
     public const string Unavailable =
         "Confluence on this site didn't answer properly, so nothing changed this cycle. Connapse tries again on the "
         + "next sync. If it keeps failing, check that this server can reach api.atlassian.com over HTTPS.";
@@ -58,15 +62,17 @@ public static class AtlassianSyncErrors
               + "hidden from search until then.";
     }
 
+    private const string ProjectPrefix = "Jira project ";
+
     /// <summary>A Jira project that answered 403 (access taken away) or 404 (deleted, or no longer visible).</summary>
     public static string JiraProjectUnreadable(string projectKey, int status)
     {
         string key = LogSanitizer.Sanitize(projectKey);
         return status == 404
-            ? $"Jira project {key} can no longer be read: it was deleted, or the service account can no longer see it. "
+            ? $"{ProjectPrefix}{key}{SpaceUnreadablePhrase}: it was deleted, or the service account can no longer see it. "
               + "If the project still exists, give the service account the Browse projects permission in it, then sync "
               + "again; if it was deleted, delete this source. Its documents are hidden from search until then."
-            : $"Jira project {key} can no longer be read: the service account lost access to it. Give the service "
+            : $"{ProjectPrefix}{key}{SpaceUnreadablePhrase}: the service account lost access to it. Give the service "
               + "account the Browse projects permission in the project, then sync again. Its documents are hidden "
               + "from search until then.";
     }
@@ -80,14 +86,19 @@ public static class AtlassianSyncErrors
         string message = SyncErrorText.Split(error).Message;
         if (message.StartsWith(SpacePrefix, StringComparison.Ordinal) && message.Contains(SpaceUnreadablePhrase, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.SpaceUnreadable;
+        if (message.StartsWith(ProjectPrefix, StringComparison.Ordinal) && message.Contains(SpaceUnreadablePhrase, StringComparison.Ordinal))
+            return AtlassianSiteTroubleshooting.ProjectUnreadable;
         if (message.StartsWith(CredentialRefused, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.CredentialsRejected;
         if (message.StartsWith(FreshTokenRefused, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.CantReadConfluence;
+        if (message.StartsWith(JiraFreshTokenRefused, StringComparison.Ordinal))
+            return AtlassianSiteTroubleshooting.CantReadJira;
         if (message.StartsWith(TokenRedirected, StringComparison.Ordinal) || message.StartsWith(NoAccessToken, StringComparison.Ordinal)
             || message.StartsWith(Unavailable, StringComparison.Ordinal) || message.StartsWith(JiraUnavailable, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.Unreachable;
-        if (message.Contains(ConfluenceSpaceConnector.AttachmentScopeNotice, StringComparison.Ordinal))
+        if (message.Contains(ConfluenceSpaceConnector.AttachmentScopeNotice, StringComparison.Ordinal)
+            || message.Contains(JiraProjectConnector.AttachmentScopeNotice, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.MissingScope;
         if (message.Contains(ConfluenceSpaceConnector.SkippedAttachmentsPhrase, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.AttachmentsSkipped;

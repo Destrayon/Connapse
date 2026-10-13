@@ -17,8 +17,7 @@ namespace Connapse.Storage.CloudScope;
 /// Definite answers are cached for <see cref="AllowTtl"/>, failures for <see cref="FailureTtl"/>.
 /// Cancellation is never cached and always propagates.
 /// </remarks>
-public sealed class JiraPermissionChecker(
-    IHttpClientFactory http, AtlassianTokenSource tokens, IMemoryCache cache, ILogger<JiraPermissionChecker> logger)
+public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermissionChecker> logger)
 {
     public static readonly TimeSpan AllowTtl = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan FailureTtl = TimeSpan.FromSeconds(30);
@@ -73,8 +72,7 @@ public sealed class JiraPermissionChecker(
             {
                 siteLooked = true;
                 if (await sites.SiteForAsync(cloudId, ct) is { } found)
-                    client = new AtlassianApiClient(http.CreateClient(AtlassianApiClient.HttpClientName), tokens,
-                        found.Site, found.Secret, product: AtlassianProduct.Jira);
+                    client = sites.ClientFor(found.Site, found.Secret, AtlassianProduct.Jira);
             }
             return client;
         }
@@ -266,8 +264,7 @@ public sealed class JiraPermissionChecker(
         var matches = list.Roles.Where(r => string.Equals(r.Name, roleName, StringComparison.Ordinal)).ToList();
         if (matches.Count != 1)
             return false; // missing, or ambiguous
-        string roleId = matches[0].Url.TrimEnd().Split('/')[^1];
-        if (!IsId(roleId))
+        if (RoleIdOf(matches[0].Url) is not { } roleId)
             return false;
 
         string actorsKey = $"atl:jira:{cloudId}:actors:{projectId}:{roleId}";
@@ -345,7 +342,21 @@ public sealed class JiraPermissionChecker(
     private static bool IsDenyAll(string groupId) =>
         Guid.TryParse(groupId, out Guid id) && id.ToString("D") == JiraRestriction.DenyAll.Value;
 
-    private static bool IsId(string value) => value.Length is > 0 and <= 18 && value.All(char.IsAsciiDigit);
+    private static bool IsId(string value) => JiraIssueStateStore.IsId(value);
+
+    /// <summary>
+    /// A project role's numeric id from its address (<c>…/project/{id}/role/{roleId}</c>): the last
+    /// path segment, ignoring trailing whitespace and slashes, when it is 1 to 19 ASCII digits that
+    /// fit a 64-bit id. Null otherwise. The address itself is never followed.
+    /// </summary>
+    internal static string? RoleIdOf(string? url)
+    {
+        string trimmed = (url ?? "").TrimEnd().TrimEnd('/');
+        string last = trimmed[(trimmed.LastIndexOf('/') + 1)..];
+        return IsId(last) && long.TryParse(last, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _)
+            ? last
+            : null;
+    }
 
     private static string PermissionKey(string cloudId, string accountId, string permission, string issueId) =>
         $"atl:jira:{cloudId}:{accountId}:{permission}:{issueId}";
