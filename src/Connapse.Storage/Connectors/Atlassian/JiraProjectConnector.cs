@@ -271,7 +271,7 @@ public sealed partial class JiraProjectConnector(
     /// for a record from before the history existed, the last record's), then decides it afresh.
     /// It is released from deny-all only on positive evidence: exactly one comment has ever tied
     /// it, this cycle read that comment with its rendered body, its restriction is settled, and
-    /// the tie pass made nothing of it deny-all. A comment still restricted must link it, and the
+    /// the tie pass made nothing of it deny-all, and its history is not unresolvable. A comment still restricted must link it, and the
     /// attachment takes its route; one now public lifts the restriction, as Jira does. Anything
     /// else leaves it deny-all until a later cycle re-verifies it. A tying comment may have been made public, deleted, edited to drop
     /// the link, or hidden from the service account, and Connapse cannot tell those apart, so a file
@@ -303,7 +303,7 @@ public sealed partial class JiraProjectConnector(
             history[attachment.Id] = entry;
 
             string? only = entry.TiedBy.Count == 1 ? entry.TiedBy[0] : null;
-            bool released = only is not null && !attachment.DenyAll
+            bool released = only is not null && !attachment.DenyAll && !entry.Unresolvable
                 && now.Reads.TryGetValue(only, out var read) && read.Settled && comments.ContainsKey(only)
                 && (read.Restricted ? attachment.RestrictingCommentId == only : attachment.RestrictingCommentId is null);
             entry.DenyAll = !released;
@@ -318,7 +318,9 @@ public sealed partial class JiraProjectConnector(
     /// <summary>
     /// Seeds the attachment history from every stored record when the file is missing or of an
     /// older format: each attachment's tie and <see cref="JiraStoredAttachment.TiedBy"/>, a deny-all
-    /// one, and an attachment tombstone, as deny-all until re-verified. Merged into what the file holds.
+    /// one and an attachment tombstone as <see cref="JiraAttachmentHistory.Unresolvable"/>: deny-all
+    /// for good, since neither names the comment that caused it. A single tie with no deny-all
+    /// releases under the normal rule. Merged into what the file holds.
     /// </summary>
     private void SeedAttachmentHistory()
     {
@@ -338,9 +340,14 @@ public sealed partial class JiraProjectConnector(
                 var entry = EntryFor(attachment.Id);
                 entry.TiedBy = [.. entry.TiedBy.Concat(ties).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
                 entry.DenyAll |= attachment.DenyAll || entry.TiedBy.Count > 1;
+                entry.Unresolvable |= attachment.DenyAll;
             }
             foreach (var tombstone in issue.Tombstones.Where(t => t.AttachmentFileName is not null && JiraIssueStateStore.IsId(t.Id)))
-                EntryFor(tombstone.Id).DenyAll = true;
+            {
+                var entry = EntryFor(tombstone.Id);
+                entry.DenyAll = true;
+                entry.Unresolvable = true;
+            }
         }
         _store.SaveAttachmentHistory(history);
     }
@@ -351,7 +358,7 @@ public sealed partial class JiraProjectConnector(
     /// </summary>
     private static bool HiddenByHistory(JiraStoredAttachment attachment, IReadOnlyDictionary<string, JiraAttachmentHistory> history) =>
         history.TryGetValue(attachment.Id, out var entry)
-        && (entry.DenyAll || entry.TiedBy.Count > 1
+        && (entry.DenyAll || entry.Unresolvable || entry.TiedBy.Count > 1
             || (attachment.RestrictingCommentId is { } tie && (entry.TiedBy.Count == 0 || entry.TiedBy[0] != tie)));
 
     private static bool TakenUp(JiraStoredTombstone tombstone, long? takenUpMs) =>

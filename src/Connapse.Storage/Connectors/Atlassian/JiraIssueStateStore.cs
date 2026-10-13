@@ -73,6 +73,15 @@ internal sealed class JiraAttachmentHistory
     /// <see cref="TiedBy"/> and finds its restriction settled. More than one tie never releases.
     /// </summary>
     public bool DenyAll { get; set; }
+
+    /// <summary>
+    /// Deny-all for good: what made it deny-all names no governing comment Connapse can re-check.
+    /// Set for a deny-all seeded from a record written before the history existed (which kept at
+    /// most its first tie, not the comment that caused the deny-all) and for one seeded from an
+    /// attachment tombstone. The comment behind it may stay hidden from the service account
+    /// forever, so no surviving or later tie releases it.
+    /// </summary>
+    public bool Unresolvable { get; set; }
 }
 
 /// <summary>A comment's rendered read this cycle: whether it is restricted, and whether its restriction is settled.</summary>

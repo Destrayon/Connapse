@@ -1683,7 +1683,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
-    public async Task Upgrade_LegacyDenyAllWithOneReadableComment_Released()
+    public async Task Upgrade_LegacyDenyAllWithOneReadableComment_StaysDenyAll()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");
         _jira.Attach(issue, Attachment("30001", "shared.txt"));
@@ -1701,13 +1701,56 @@ public sealed class JiraProjectConnectorTests : IDisposable
         _jira.ServeComments(issue);
         var after = await _connector.GetChangesAsync(null);
 
-        // A legacy record names only its tie, so the seeded history holds comment 2 alone; read
-        // again and settled, it releases the file under its restriction.
-        Doc(after, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri.Should().Be(
+        // A legacy record names only its first tie, not whatever made it deny-all (here group B's
+        // comment, hidden now), so comment 2 reading back settled proves nothing.
+        Doc(after, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        var entry = new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"];
+        entry.Unresolvable.Should().BeTrue();
+        entry.DenyAll.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacyDenyAllNamingNoComment_NewSingleTie_StaysDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+        var store = new JiraIssueStateStore(_root);
+        var record = store.Load("20001")!;
+        record.Attachments.Single().DenyAll = true; // deny-all, with no comment recorded
+        store.Save(record);
+
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        foreach (int _ in Enumerable.Range(0, 2))
+        {
+            var delta = await _connector.GetChangesAsync(null);
+            Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        }
+        new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"].Unresolvable.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacySingleTieReadableAgain_Released()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+
+        var after = await _connector.GetChangesAsync(null);
+
+        Doc(after, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
             AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
         var entry = new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"];
         entry.TiedBy.Should().Equal("2");
-        entry.DenyAll.Should().BeFalse();
+        entry.Unresolvable.Should().BeFalse();
     }
 
     [Fact]
@@ -1736,6 +1779,16 @@ public sealed class JiraProjectConnectorTests : IDisposable
 
         Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+
+        // A new comment ties it alone: the seeded entry names no governing comment, so it never releases.
+        issue.Comments.Add(new FakeJiraComment("7", "Gil", "New", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        issue.Updated = _clock.GetUtcNow();
+        var tiedAgain = await _connector.GetChangesAsync(back.NextCursor);
+        Doc(tiedAgain, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"].Unresolvable.Should().BeTrue();
     }
 
     [Fact]
