@@ -27,8 +27,8 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 {
     // A site of its own per test: a site has one connection per product, and every host the fake
     // answers for resolves to this one cloud id.
-    private readonly string CloudId = Guid.NewGuid().ToString("D");
-    private string Root => "/ex/confluence/" + CloudId + "/wiki";
+    private readonly string _cloudId = Guid.NewGuid().ToString("D");
+    private string Root => "/ex/confluence/" + _cloudId + "/wiki";
     private const string Secret = "atlassian-secret-value-123";
     private const string EditorEmail = "editor@atlassian-sites-tests.connapse.io";
     private const string EditorPassword = "EditorTest1!";
@@ -50,7 +50,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         _api.FailTokenWith(null);
         _api.AnswerTokenWith(null);
         _api.FailWith(null);
-        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
+        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = _cloudId });
         _api.MapJson(Root + "/rest/api/user/current", new { accountId = "svc" });
         _api.MapJson(Root + "/api/v2/spaces", new { results = new[] { new { id = "1" } } });
         _api.MapJson(Root + "/api/v2/pages", new { results = new[] { new { id = "7" } } });
@@ -144,7 +144,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("cloudId").GetString().Should().Be(CloudId);
+        body.GetProperty("cloudId").GetString().Should().Be(_cloudId);
         body.GetProperty("siteUrl").GetString().Should().Be("https://acme.atlassian.net");
     }
 
@@ -359,7 +359,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         connection.HasSecret.Should().BeTrue();
 
         var site = AtlassianSite.FromConfigJson(connection.ConfigJson);
-        site.Should().Be(new AtlassianSite("https://passing.atlassian.net", CloudId, "client-1"));
+        site.Should().Be(new AtlassianSite("https://passing.atlassian.net", _cloudId, "client-1"));
 
         using var scope = _fixture.Factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
@@ -592,6 +592,23 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         var response = await _fixture.AdminClient.GetAsync($"{Sites}/{other.Id}/spaces");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task SpacesAndProjects_OtherProductsConnection_Return400()
+    {
+        Guid confluence = await CreateSiteAsync("list-wrong-product.atlassian.net");
+        Guid jira = await CreateSiteAsync("list-wrong-product.atlassian.net", product: "jira");
+
+        var spaces = await _fixture.AdminClient.GetAsync($"{Sites}/{jira}/spaces");
+        var projects = await _fixture.AdminClient.GetAsync($"{Sites}/{confluence}/projects");
+
+        spaces.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await spaces.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("This is a Jira connection; list its projects instead.");
+        projects.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await projects.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("This is a Confluence connection; list its spaces instead.");
     }
 
     [Fact]

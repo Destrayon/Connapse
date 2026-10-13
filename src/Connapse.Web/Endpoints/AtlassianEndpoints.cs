@@ -493,6 +493,8 @@ public static class AtlassianEndpoints
                 AtlassianSpacesOutcome.NotFound => Results.NotFound(new { error = "No such connection." }),
                 AtlassianSpacesOutcome.NotAtlassian =>
                     Results.BadRequest(new { error = "That connection is not an Atlassian site." }),
+                AtlassianSpacesOutcome.WrongProduct =>
+                    Results.BadRequest(new { error = listed.Error, field = "connectionId" }),
                 AtlassianSpacesOutcome.Unavailable =>
                     Results.Json(new { error = listed.Error }, statusCode: StatusCodes.Status502BadGateway),
                 _ => Results.Ok(listed.Spaces!.Select(s => new { id = s.Id, key = s.Key, name = s.Name, type = s.Type })),
@@ -512,6 +514,8 @@ public static class AtlassianEndpoints
                 AtlassianSpacesOutcome.NotFound => Results.NotFound(new { error = "No such connection." }),
                 AtlassianSpacesOutcome.NotAtlassian =>
                     Results.BadRequest(new { error = "That connection is not an Atlassian site." }),
+                AtlassianSpacesOutcome.WrongProduct =>
+                    Results.BadRequest(new { error = listed.Error, field = "connectionId" }),
                 AtlassianSpacesOutcome.Unavailable =>
                     Results.Json(new { error = listed.Error }, statusCode: StatusCodes.Status502BadGateway),
                 _ => Results.Ok(listed.Projects!.Select(p => new { id = p.Id, key = p.Key, name = p.Name, projectTypeKey = p.ProjectTypeKey })),

@@ -15,7 +15,11 @@ public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict }
 
 public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
 
-public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable }
+/// <summary>
+/// How listing a site's spaces or projects went. <see cref="WrongProduct"/>: the connection is the
+/// site's other product's, whose credential lists nothing here; its message says what to list instead.
+/// </summary>
+public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable, WrongProduct }
 
 /// <summary>A space or project an admin can turn into a source: what the pickers share.</summary>
 public interface IAtlassianSourceItem
@@ -334,6 +338,10 @@ public sealed class AtlassianSiteService(
             return (AtlassianSpacesOutcome.NotAtlassian, null, null, null);
 
         AtlassianSite? site = AtlassianSite.FromConfigJson(connection.ConfigJson);
+        // Refused before the secret is read: the credential was granted for the connection's own product alone.
+        if (site is not null && site.Product != product)
+            return (AtlassianSpacesOutcome.WrongProduct, null, WrongProductMessage(site.Product), null);
+
         string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
         if (site is null || string.IsNullOrEmpty(secret))
             return (AtlassianSpacesOutcome.Unavailable, null,
@@ -370,6 +378,10 @@ public sealed class AtlassianSiteService(
                 AtlassianSiteTroubleshooting.UrlOf(refused ? refusedEntry : AtlassianSiteTroubleshooting.Unreachable));
         }
     }
+
+    private static string WrongProductMessage(AtlassianProduct actual) => actual == AtlassianProduct.Jira
+        ? "This is a Jira connection; list its projects instead."
+        : "This is a Confluence connection; list its spaces instead.";
 
     private static JiraProjectInfo? ReadProject(JsonElement item)
     {

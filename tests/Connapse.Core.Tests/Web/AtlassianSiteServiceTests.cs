@@ -178,6 +178,37 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ListSpaces_JiraConnection_RefusedWithoutARequest()
+    {
+        Connection jira = Site() with
+        {
+            ConfigJson = $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"jira"}""",
+        };
+        _store.GetAsync(jira.Id, Arg.Any<CancellationToken>()).Returns(jira);
+
+        var listed = await _sites.ListSpacesAsync(jira.Id, includePersonal: false);
+
+        listed.Outcome.Should().Be(AtlassianSpacesOutcome.WrongProduct);
+        listed.Error.Should().Be("This is a Jira connection; list its projects instead.");
+        _api.Requests.Should().BeEmpty();
+        await _store.DidNotReceiveWithAnyArgs().GetSecretAsync(default, default);
+    }
+
+    [Fact]
+    public async Task ListProjects_ConfluenceConnection_RefusedWithoutARequest()
+    {
+        Connection confluence = Site();
+        _store.GetAsync(confluence.Id, Arg.Any<CancellationToken>()).Returns(confluence);
+
+        var listed = await _sites.ListProjectsAsync(confluence.Id);
+
+        listed.Outcome.Should().Be(AtlassianSpacesOutcome.WrongProduct);
+        listed.Error.Should().Be("This is a Confluence connection; list its spaces instead.");
+        _api.Requests.Should().BeEmpty();
+        await _store.DidNotReceiveWithAnyArgs().GetSecretAsync(default, default);
+    }
+
+    [Fact]
     public async Task Replace_WhenTheNewCredentialPasses_UpdatesSecretAndClientIdInPlace()
     {
         Connection site = Site();

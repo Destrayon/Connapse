@@ -222,6 +222,7 @@
                         Audit, selection, connectionId, listed.Spaces!.Count, durationMs));
                     break;
                 case AtlassianSpacesOutcome.Unavailable:
+                case AtlassianSpacesOutcome.WrongProduct:
                     selection.Available = [];
                     (loadError, loadErrorUrl) = (listed.Error, listed.TroubleshootingUrl);
                     await RecordAsync(() => AtlassianSourceSetupEvents.StepFailedAsync(

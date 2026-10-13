@@ -21,11 +21,11 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsyncLifetime
 {
-    // A cloud id of its own, so the Jira routes mapped here never make other classes' sites pass for Jira.
-    // A site of its own per test: a site has one connection per product, and every host the fake
-    // answers for resolves to this one cloud id.
-    private readonly string CloudId = Guid.NewGuid().ToString("D");
-    private string Wiki => "/ex/confluence/" + CloudId + "/wiki";
+    // A cloud id of its own per test: the Jira routes mapped here never make other classes' sites pass
+    // for Jira, and a site has one connection per product while every host the fake answers for
+    // resolves to this one cloud id.
+    private readonly string _cloudId = Guid.NewGuid().ToString("D");
+    private string Wiki => "/ex/confluence/" + _cloudId + "/wiki";
     private const string Secret = "jira-sources-secret-123";
     private const string EditorEmail = "editor@jira-sources-tests.connapse.io";
     private const string EditorPassword = "EditorTest1!";
@@ -39,7 +39,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         _api.FailTokenWith(null);
         _api.AnswerTokenWith(null);
         _api.FailWith(null);
-        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
+        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = _cloudId });
         _api.MapJson(Wiki + "/rest/api/user/current", new { accountId = "svc" });
         _api.MapJson(Wiki + "/api/v2/spaces", new { results = new[] { new { id = "100", key = "ENG", name = "Engineering", type = "global" } } });
         _api.MapJson(Wiki + "/api/v2/pages", new { results = new[] { new { id = "7" } } });
@@ -49,7 +49,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         });
         _api.MapJson(Wiki + "/rest/api/content/7/permission/check", new { hasPermission = true });
 
-        _jira = new FakeJira(_api, CloudId).MapSiteTest();
+        _jira = new FakeJira(_api, _cloudId).MapSiteTest();
         _api.MapJson(_jira.Root + "/project/search", new
         {
             values = new object[]
@@ -219,7 +219,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
             var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
             var connection = await store.CreateAsync(new Connapse.Core.CreateConnectionRequest(
                 "jira-api-noproducts.atlassian.net", Connapse.Core.ConnectionProvider.Atlassian,
-                $$"""{"siteUrl":"https://jira-api-noproducts.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"jira"}""",
+                $$"""{"siteUrl":"https://jira-api-noproducts.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-1","product":"jira"}""",
                 Secret), null);
             await store.RecordHealthAsync(connection.Id, new Connapse.Core.ConnectionHealth(
                 DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test", Products: null));

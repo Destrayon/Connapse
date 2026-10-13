@@ -20,8 +20,8 @@ public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) 
 {
     // A site of its own per test: a site has one connection per product, and every host the fake
     // answers for resolves to this one cloud id.
-    private readonly string CloudId = Guid.NewGuid().ToString("D");
-    private string Root => "/ex/confluence/" + CloudId + "/wiki";
+    private readonly string _cloudId = Guid.NewGuid().ToString("D");
+    private string Root => "/ex/confluence/" + _cloudId + "/wiki";
     private const string Secret = "confluence-sources-secret-123";
 
     private readonly FakeAtlassianApi _api = fixture.Atlassian;
@@ -32,7 +32,7 @@ public sealed class ConfluenceSourcesEndpointTests(SharedWebAppFixture fixture) 
         _api.FailTokenWith(null);
         _api.AnswerTokenWith(null);
         _api.FailWith(null);
-        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
+        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = _cloudId });
         _api.MapJson(Root + "/rest/api/user/current", new { accountId = "svc" });
         _api.MapJson(Root + "/api/v2/spaces", new
         {

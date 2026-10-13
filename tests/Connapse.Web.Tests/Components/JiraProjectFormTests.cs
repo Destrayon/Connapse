@@ -41,9 +41,12 @@ public class JiraProjectFormTests : IDisposable
 
     private static string Detail(string details, string name) => JsonDocument.Parse(details).RootElement.GetProperty(name).ToString();
 
+    // A connection reads one product: a site whose only product is Jira is a Jira connection.
     private static Connection Site(string host, string cloudId, params string[] products) => new(
         Guid.NewGuid(), host, ConnectionProvider.Atlassian,
-        $$"""{"siteUrl":"https://{{host}}","cloudId":"{{cloudId}}","clientId":"client-1"}""",
+        products is ["jira"]
+            ? $$"""{"siteUrl":"https://{{host}}","cloudId":"{{cloudId}}","clientId":"client-1","product":"jira"}"""
+            : $$"""{"siteUrl":"https://{{host}}","cloudId":"{{cloudId}}","clientId":"client-1"}""",
         null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true,
         Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
             ConfirmedScopes: [AtlassianSiteScopes.JiraAttachment], Products: products));
@@ -143,7 +146,9 @@ public class JiraProjectFormTests : IDisposable
 
         cut.Find("#atlassian-product-jira").Change(true);
 
-        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+        // The connection is Confluence's, so its credential lists no Jira projects (#725).
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("This is a Confluence connection; list its spaces instead."));
+        cut.FindAll(".jira-project-option").Should().BeEmpty();
         cut.FindAll("#confluence-spaces").Should().BeEmpty();
     }
 
@@ -236,7 +241,8 @@ public class JiraProjectFormTests : IDisposable
         cut.Find("#atlassian-product-jira").Change(true);
         cut.Find("#atlassian-product-confluence").Change(true);
         cut.Find("#atlassian-product-jira").Change(true);
-        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+        // The connection is Confluence's, so the Jira attempt is refused rather than listed (#725).
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("This is a Confluence connection; list its spaces instead."));
 
         var started = SetupEvents().Where(e => e.Action == AtlassianSourceSetupEvents.Started).ToList();
         started.Select(e => Detail(e.Details, "Product")).Should().Equal(["confluence", "jira"], "each product's attempt starts once");
