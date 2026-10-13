@@ -28,8 +28,7 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 
 ## Still open
 
-
-2. What a role restriction's `visibility.identifier` holds, and how team-managed space roles resolve.
+2. How team-managed space roles resolve. In company-managed ENG, a role restriction's identifier is the role name, and resolving it through the project's role list worked for both test roles.
 3. Whether a comment's author sees their own restricted comment.
 4. Whether changing a comment's visibility bumps the issue's `updated` time (this decides whether the daily comment sweep is needed).
 5. Whether the service account receives attachments from restricted comments it can't see.
