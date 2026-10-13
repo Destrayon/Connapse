@@ -1272,8 +1272,9 @@ public sealed class JiraProjectConnectorTests : IDisposable
         // The media reference in group A's comment may be 30001, which group B's comment also links.
         Doc(delta, AttachmentPath("20001", "30001", "other.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
-        Doc(delta, AttachmentPath("20001", "30002", "same.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+        // The comment that links 30002 also shows a file Connapse can't name, so its tie can't be verified.
+        Doc(delta, AttachmentPath("20001", "30002", "same.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, JiraRestriction.DenyAll));
     }
 
     [Fact]
@@ -1420,11 +1421,15 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var second = await _connector.GetChangesAsync(null);
         var third = await _connector.GetChangesAsync(null);
 
-        // The comment's restriction may only have moved out of Connapse's sight: the file stays hidden.
+        // Removed, the comment's restriction may only have moved out of Connapse's sight, and with the
+        // link dropped nothing says what governs the file: it stays hidden. Made public, Jira has
+        // lifted the restriction, and the file follows the issue.
+        var expected = change == "made public"
+            ? AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, null)
+            : AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll);
         foreach (var delta in new[] { second, third })
         {
-            Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
-                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+            Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(expected);
             Doc(delta, AttachmentPath("20001", "30002", "public.txt"))!.ResourceUri
                 .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, null), "no restricted comment ever tied it");
         }
@@ -1525,6 +1530,48 @@ public sealed class JiraProjectConnectorTests : IDisposable
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
         Doc(delta, AttachmentPath("20001", "30002", "single.txt"))!.ResourceUri.Should().Be(
             AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+
+        var again = await _connector.GetChangesAsync(null);
+        Doc(again, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll), "two ties never release");
+    }
+
+    [Fact]
+    public async Task Sync_UntieableReferencePersists_StaysDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA),
+            RenderedBody: LinkTo("30001") + "<img data-media-services-id=\"9f1c\">"));
+        _jira.ServeComments(issue);
+
+        foreach (int _ in Enumerable.Range(0, 3))
+        {
+            var delta = await _connector.GetChangesAsync(null);
+            Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        }
+    }
+
+    [Fact]
+    public async Task Sync_TyingCommentHidden_StaysDenyAllAcrossSyncs()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        foreach (int _ in Enumerable.Range(0, 3))
+        {
+            var delta = await _connector.GetChangesAsync(null);
+            Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        }
+        new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"].TiedBy.Should().Equal("2");
     }
 
     [Theory]
@@ -1636,7 +1683,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
-    public async Task Upgrade_LegacyDenyAllWithOneSurvivingTie_StaysDenyAll()
+    public async Task Upgrade_LegacyDenyAllWithOneReadableComment_Released()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");
         _jira.Attach(issue, Attachment("30001", "shared.txt"));
@@ -1654,8 +1701,13 @@ public sealed class JiraProjectConnectorTests : IDisposable
         _jira.ServeComments(issue);
         var after = await _connector.GetChangesAsync(null);
 
-        Doc(after, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
-            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        // A legacy record names only its tie, so the seeded history holds comment 2 alone; read
+        // again and settled, it releases the file under its restriction.
+        Doc(after, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+        var entry = new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"];
+        entry.TiedBy.Should().Equal("2");
+        entry.DenyAll.Should().BeFalse();
     }
 
     [Fact]
@@ -1731,7 +1783,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Sync_RenderedReadNotFoundNoHistory_EveryAttachmentStickyDenyAll(bool internalNote)
+    public async Task Sync_RenderedReadNotFoundNoHistory_DeniedUntilReverified(bool internalNote)
     {
         var issue = Issue("20001", "ENG-1", "Login fails");
         _jira.Attach(issue, Attachment("30001", "linked.txt"));
@@ -1749,12 +1801,14 @@ public sealed class JiraProjectConnectorTests : IDisposable
             Doc(first, AttachmentPath("20001", id, name))!.ResourceUri
                 .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", id, internalNote, JiraRestriction.DenyAll));
 
-        // Readable again next cycle: the deny-all is for good.
+        // Readable again next cycle, with the same restriction: the file it links takes its tie
+        // back. The file it doesn't link has nothing to govern it, so it stays hidden.
         _jira.ServeComments(issue);
         var second = await _connector.GetChangesAsync(null);
-        foreach (var (id, name) in new[] { ("30001", "linked.txt"), ("30002", "unlinked.txt") })
-            Doc(second, AttachmentPath("20001", id, name))!.ResourceUri
-                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", id, internalNote, JiraRestriction.DenyAll));
+        Doc(second, AttachmentPath("20001", "30001", "linked.txt"))!.ResourceUri.Should().Be(AtlassianUri.ForJiraAttachment(
+            CloudId, "20001", "30001", internalNote, internalNote ? null : new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+        Doc(second, AttachmentPath("20001", "30002", "unlinked.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", internalNote, JiraRestriction.DenyAll));
     }
 
     [Fact]

@@ -68,9 +68,16 @@ internal sealed class JiraAttachmentHistory
     /// <summary>Every restricted comment that has ever tied the attachment, or may have shown it.</summary>
     public List<string> TiedBy { get; set; } = [];
 
-    /// <summary>Deny-all for good: tied by more than one comment, or made deny-all by a tie pass.</summary>
+    /// <summary>
+    /// Deny-all until re-verified: released only by a cycle that reads the one comment in
+    /// <see cref="TiedBy"/> and finds its restriction settled. More than one tie never releases.
+    /// </summary>
     public bool DenyAll { get; set; }
 }
+
+/// <summary>A comment's rendered read this cycle: whether it is restricted, and whether its restriction is settled.</summary>
+/// <param name="Settled">Unchanged since the page read, not deny-all, and with no file reference Connapse cannot name.</param>
+internal sealed record JiraCommentRead(bool Restricted, bool Settled);
 
 /// <summary>The attachment history file: its format version and the entries by attachment id.</summary>
 internal sealed class JiraAttachmentHistoryFile
@@ -90,6 +97,10 @@ internal sealed class JiraStoredIssue
     public List<JiraStoredAttachment> Attachments { get; set; } = [];
     public List<JiraStoredTombstone> Tombstones { get; set; } = [];
     public DateTimeOffset? CommentsReadAt { get; set; }
+
+    /// <summary>This cycle's successful rendered reads of comments, by id. Never stored.</summary>
+    [JsonIgnore]
+    public Dictionary<string, JiraCommentRead> Reads { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>Sync bookkeeping for one project that is not part of any issue.</summary>

@@ -73,6 +73,9 @@ public sealed partial class JiraProjectConnector(
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly ILogger _logger = logger ?? NullLogger.Instance;
 
+    // The attachment history as this cycle started; the tie pass reads it to know which comments to re-verify.
+    private Dictionary<string, JiraAttachmentHistory> _history = new(StringComparer.Ordinal);
+
     internal JiraProjectConfig Config => config;
 
     /// <summary>
@@ -102,6 +105,7 @@ public sealed partial class JiraProjectConnector(
         // Before any record is replaced or deleted: state from before the history existed holds it
         // only in the records.
         SeedAttachmentHistory();
+        _history = _store.LoadAttachmentHistory();
 
         var previous = cursor is null ? null : JiraCursor.TryParse(cursor);
         if (cursor is not null && previous is null)
@@ -168,7 +172,7 @@ public sealed partial class JiraProjectConnector(
         long? takenUpMs = previous?.WatermarkMs;
         // The history is written before any record it shaped: it only grows, so a crash in between
         // leaves it ahead of the records, never behind them.
-        var history = _store.LoadAttachmentHistory();
+        var history = _history;
         foreach (var issue in fetched.Values)
         {
             var last = _store.Load(issue.Id);
@@ -264,9 +268,12 @@ public sealed partial class JiraProjectConnector(
 
     /// <summary>
     /// Merges each attachment's ties this cycle into its <see cref="JiraAttachmentHistory"/> (and,
-    /// for a record from before the history existed, the last record's), and makes it deny-all
-    /// when the history is sticky or unless the one comment that has ever tied it is still
-    /// returned and restricted now. A tying comment may have been made public, deleted, edited to drop
+    /// for a record from before the history existed, the last record's), then decides it afresh.
+    /// It is released from deny-all only on positive evidence: exactly one comment has ever tied
+    /// it, this cycle read that comment with its rendered body, its restriction is settled, and
+    /// the tie pass made nothing of it deny-all. A comment still restricted must link it, and the
+    /// attachment takes its route; one now public lifts the restriction, as Jira does. Anything
+    /// else leaves it deny-all until a later cycle re-verifies it. A tying comment may have been made public, deleted, edited to drop
     /// the link, or hidden from the service account, and Connapse cannot tell those apart, so a file
     /// a restricted comment once hid is never listed unrestricted, nor under another comment's
     /// restriction alone. Only a file no restricted comment ever tied is listed unrestricted. A file
@@ -281,9 +288,6 @@ public sealed partial class JiraProjectConnector(
         foreach (var attachment in now.Attachments)
         {
             var entry = history.GetValueOrDefault(attachment.Id) ?? new JiraAttachmentHistory();
-            // Deny-all from this cycle's tie pass is for good, like more than one tie.
-            if (attachment.DenyAll && attachment.TiedBy.Count > 0)
-                entry.DenyAll = true;
             entry.TiedBy.AddRange(attachment.TiedBy);
             if (before.TryGetValue(attachment.Id, out var was))
             {
@@ -293,16 +297,17 @@ public sealed partial class JiraProjectConnector(
                     entry.TiedBy.Add(earlier);
             }
             entry.TiedBy = [.. entry.TiedBy.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
-            entry.DenyAll |= entry.TiedBy.Count > 1;
             attachment.TiedBy = [.. entry.TiedBy];
-            if (entry.TiedBy.Count == 0 && !entry.DenyAll)
+            if (entry.TiedBy.Count == 0 && !entry.DenyAll && !attachment.DenyAll)
                 continue;
             history[attachment.Id] = entry;
 
-            var tie = attachment.RestrictingCommentId is { } tyingId && comments.TryGetValue(tyingId, out var tying)
-                ? Route(tying, config.ProjectId)
-                : default;
-            if (entry.DenyAll || !tie.Separate || entry.TiedBy[0] != attachment.RestrictingCommentId)
+            string? only = entry.TiedBy.Count == 1 ? entry.TiedBy[0] : null;
+            bool released = only is not null && !attachment.DenyAll
+                && now.Reads.TryGetValue(only, out var read) && read.Settled && comments.ContainsKey(only)
+                && (read.Restricted ? attachment.RestrictingCommentId == only : attachment.RestrictingCommentId is null);
+            entry.DenyAll = !released;
+            if (!released)
             {
                 attachment.RestrictingCommentId ??= entry.TiedBy.FirstOrDefault();
                 attachment.DenyAll = true;
@@ -313,7 +318,7 @@ public sealed partial class JiraProjectConnector(
     /// <summary>
     /// Seeds the attachment history from every stored record when the file is missing or of an
     /// older format: each attachment's tie and <see cref="JiraStoredAttachment.TiedBy"/>, a deny-all
-    /// one as sticky, and an attachment tombstone as sticky deny-all. Merged into what the file holds.
+    /// one, and an attachment tombstone, as deny-all until re-verified. Merged into what the file holds.
     /// </summary>
     private void SeedAttachmentHistory()
     {
@@ -340,10 +345,14 @@ public sealed partial class JiraProjectConnector(
         _store.SaveAttachmentHistory(history);
     }
 
-    /// <summary>Whether the history alone makes an attachment deny-all: sticky, or not tied by exactly its one comment.</summary>
+    /// <summary>
+    /// Whether the history alone makes an attachment deny-all: not yet re-verified, tied by more
+    /// than one comment, or tied now by another comment than the one it records.
+    /// </summary>
     private static bool HiddenByHistory(JiraStoredAttachment attachment, IReadOnlyDictionary<string, JiraAttachmentHistory> history) =>
         history.TryGetValue(attachment.Id, out var entry)
-        && (entry.DenyAll || entry.TiedBy.Count != 1 || entry.TiedBy[0] != attachment.RestrictingCommentId);
+        && (entry.DenyAll || entry.TiedBy.Count > 1
+            || (attachment.RestrictingCommentId is { } tie && (entry.TiedBy.Count == 0 || entry.TiedBy[0] != tie)));
 
     private static bool TakenUp(JiraStoredTombstone tombstone, long? takenUpMs) =>
         takenUpMs is { } ms && ms >= tombstone.RecordedMs;
@@ -769,12 +778,21 @@ public sealed partial class JiraProjectConnector(
         var routes = new Dictionary<string, (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll)>(StringComparer.Ordinal);
         var untieableCommentIds = new List<string>();
         bool untieableUnsettled = false;
+        // A public comment is read too when an attachment's history names it: releasing that
+        // attachment needs this cycle's evidence about it.
+        var inHistory = issue.Attachments
+            .SelectMany(a => _history.GetValueOrDefault(a.Id)?.TiedBy ?? [])
+            .ToHashSet(StringComparer.Ordinal);
 
         foreach (var comment in issue.Comments)
         {
             var route = Route(comment, config.ProjectId);
             if (!route.Separate)
+            {
+                if (inHistory.Contains(comment.Id))
+                    await ReadPublicCommentAsync(issue, comment, route, ct);
                 continue;
+            }
             routes[comment.Id] = route;
 
             CommentResponse live;
@@ -796,6 +814,7 @@ public sealed partial class JiraProjectConnector(
             string html = live.RenderedBody
                 ?? throw new AtlassianMalformedResponseException($"Jira returned comment {comment.Id} without its rendered body.");
             bool changed = Route(ToStored(live), config.ProjectId) != route;
+            issue.Reads[comment.Id] = new JiraCommentRead(true, !changed && !route.DenyAll && !HasUntieableReference(html));
 
             foreach (string id in LinkedAttachmentIds(html))
             {
@@ -845,6 +864,30 @@ public sealed partial class JiraProjectConnector(
                 attachment.DenyAll = true;
             }
         }
+    }
+
+    /// <summary>
+    /// Records this cycle's read of a public comment an attachment's history names. Gone, or
+    /// without its rendered body, it records nothing, and the attachment stays deny-all.
+    /// </summary>
+    private async Task ReadPublicCommentAsync(
+        JiraStoredIssue issue, JiraStoredComment comment,
+        (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll) route, CancellationToken ct)
+    {
+        CommentResponse live;
+        try
+        {
+            live = await api.GetJsonAsync<CommentResponse>(
+                $"rest/api/3/issue/{issue.Id}/comment/{comment.Id}?expand=renderedBody", ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            return;
+        }
+        if (live.RenderedBody is not { } html)
+            return;
+        bool unchanged = Route(ToStored(live), config.ProjectId) == route;
+        issue.Reads[comment.Id] = new JiraCommentRead(false, unchanged && !HasUntieableReference(html));
     }
 
     /// <summary>The attachment ids a comment's rendered HTML links to, by any of Jira's attachment addresses.</summary>
