@@ -1,6 +1,7 @@
 using System.Net;
 using Connapse.Core.Tests.Connectors;
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Connectors.Atlassian;
 using FluentAssertions;
 using Xunit;
 
@@ -17,11 +18,13 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     private readonly FakeJira _jira;
     private readonly AtlassianConnectionTester _tester;
     private readonly AtlassianSiteTestRequest _request = new("https://acme.atlassian.net", "client-1", "secret");
+    private readonly AtlassianSiteTestRequest _jiraRequest =
+        new("https://acme.atlassian.net", "client-1", "secret", AtlassianProduct.Jira);
 
     public AtlassianConnectionTesterTests()
     {
         _tester = new AtlassianConnectionTester(new FakeFactory(_api));
-        // Jira answers 404 everywhere until a test maps it, as on a site without Jira.
+        // Jira answers 404 everywhere until a test maps it.
         _jira = new FakeJira(_api, CloudId);
         _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
         _api.MapJson(Root + "/rest/api/user/current", new { accountId = OwnAccount });
@@ -69,29 +72,34 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     }
 
     [Fact]
-    public async Task Test_ConfluencePasses_ProductsIsConfluence()
+    public async Task Test_ConfluencePasses_DetailsAreTheSiteAndItsScopesOnly()
     {
+        _jira.MapSiteTest();
+
         var result = await _tester.TestConnectionAsync(_request);
 
         result.Success.Should().BeTrue();
-        result.Details!["products"].Should().Be("confluence");
-        result.Details.Should().NotContainKey("product:confluence");
+        result.Message.Should().Be("Connected to https://acme.atlassian.net: found the site, signed in as the service account, "
+            + "read Confluence, listed spaces, read comments, folders and changes, and confirmed it can check what other people may read.");
+        result.Details!.Keys.Should().BeEquivalentTo("cloudId", "siteUrl", "scopes");
+        ((string[])result.Details["scopes"]).Should().OnlyContain(s => s.EndsWith(":confluence"));
+        _api.Calls.Keys.Should().NotContain(k => k.StartsWith("/ex/jira/"), "a Confluence connection never asks Jira");
     }
 
     [Fact]
-    public async Task Test_ConfluenceWarns_ProductsIsConfluence()
+    public async Task Test_ConfluenceWarns_DetailsAreAsBefore()
     {
         _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
 
         var result = await _tester.TestConnectionAsync(_request);
 
         result.Success.Should().BeFalse();
-        result.Details!["warning"].Should().Be(true);
-        result.Details["products"].Should().Be("confluence");
+        result.Details!.Keys.Should().BeEquivalentTo("step", "troubleshoot", "stepMs", "warning", "siteUrl", "cloudId");
+        result.Details["step"].Should().Be(AtlassianConnectionTester.AdminStep);
     }
 
     [Fact]
-    public async Task Test_ConfluenceFails_SameStepAndMessageAsBefore()
+    public async Task Test_ConfluenceFails_DetailsAreAsBefore()
     {
         _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
 
@@ -99,47 +107,58 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
 
         result.Success.Should().BeFalse();
         result.Message.Should().Be(ConfluenceSiteProbe.NoSpacesMessage);
-        result.Details!["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
+        result.Details!.Keys.Should().BeEquivalentTo("step", "troubleshoot", "stepMs", "detail");
+        result.Details["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
         result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NoSpaces);
         result.Details["detail"].Should().Be("HTTP 403 (Forbidden)");
-        result.Details["product:confluence"].Should().Be(ConfluenceSiteProbe.NoSpacesMessage);
-        result.Details.Should().NotContainKey("products");
     }
 
     [Fact]
-    public async Task Test_JiraAllProbesPass_ProductsIncludesJira()
+    public async Task Test_JiraAllProbesPass_Succeeds()
     {
         _jira.MapSiteTest();
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
         result.Success.Should().BeTrue();
-        result.Details!["products"].Should().Be("confluence,jira");
-        result.Details.Should().NotContainKey("product:jira");
-        result.Message.Should().StartWith("Connected to https://acme.atlassian.net: Confluence and Jira are ready.");
+        result.Message.Should().Be("Connected to https://acme.atlassian.net: found the site, signed in as the service account, "
+            + "read Jira, listed projects, read issues and comments, and confirmed it can check who may read each issue and comment.");
+        result.Details!.Keys.Should().BeEquivalentTo("cloudId", "siteUrl", "scopes");
+        result.Details["cloudId"].Should().Be(CloudId);
         string[] scopes = (string[])result.Details["scopes"];
-        scopes.Should().Contain(AtlassianSiteScopes.Confluence.Select(s => s.Name))
-            .And.Contain(AtlassianSiteScopes.JiraProvenByTest)
+        scopes.Should().Contain(AtlassianSiteScopes.JiraProvenByTest)
             .And.Contain(AtlassianSiteScopes.JiraAttachment)
+            .And.OnlyContain(s => s.EndsWith(":jira"))
             .And.OnlyHaveUniqueItems();
+        _api.Calls.Keys.Should().NotContain(k => k.StartsWith("/ex/confluence/"), "a Jira connection never asks Confluence");
         _jira.Searches.Should().ContainSingle().Which.Should().Contain($"project = {FakeJira.ProjectId} ORDER BY updated DESC");
         _jira.PermissionChecks.Should().ContainSingle().Which.Should().Contain(FakeJira.OtherAccount)
             .And.Contain("BROWSE_PROJECTS").And.NotContain(FakeJira.OwnAccount).And.NotContain("customer-1");
     }
 
     [Fact]
-    public async Task Test_JiraMyselfRefused_FailsJiraIdentityOnly()
+    public async Task Test_JiraSiteNotFound_NamesJira()
+    {
+        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = "not-a-guid" });
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.SiteStep);
+        result.Message.Should().Contain("when you open Jira").And.NotContain("Confluence");
+    }
+
+    [Fact]
+    public async Task Test_JiraMyselfRefused_FailsJiraIdentity()
     {
         _jira.MapSiteTest();
         _jira.Answer("/myself", HttpStatusCode.Forbidden);
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Success.Should().BeTrue("Confluence still passes, so the site saves");
-        result.Details!["products"].Should().Be("confluence");
-        result.Details["product:jira"].Should().Be(JiraSiteProbe.CantReadJiraMessage);
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraIdentityStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJira);
+        result.Success.Should().BeFalse();
+        result.Message.Should().Be(JiraSiteProbe.CantReadJiraMessage);
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraIdentityStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJira);
         _api.Calls.Should().NotContainKey(_jira.Root + "/project/search");
     }
 
@@ -149,12 +168,15 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _jira.Answer("/permissions/check", HttpStatusCode.Forbidden);
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["products"].Should().Be("confluence");
-        result.Details["product:jira"].Should().Be(JiraSiteProbe.NotJiraAdministratorMessage);
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NotJiraAdministrator);
+        result.Success.Should().BeFalse();
+        result.Message.Should().Be(JiraSiteProbe.NotJiraAdministratorMessage);
+        result.Message.Should().Contain("set Jira to User and Jira Administration to App admin")
+            .And.Contain("jira-admins-<site> group").And.Contain("Directory > Groups")
+            .And.NotContain("admin role");
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NotJiraAdministrator);
     }
 
     [Theory]
@@ -170,11 +192,11 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
         });
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
-        ((string)result.Details["product:jira"]).Should().StartWith(JiraSiteProbe.UnverifiedMessage);
-        result.Details["products"].Should().Be("confluence");
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
+        result.Message.Should().StartWith(JiraSiteProbe.UnverifiedMessage);
     }
 
     [Fact]
@@ -183,12 +205,12 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _jira.Answer("/user/groups", HttpStatusCode.Forbidden);
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["products"].Should().Be("confluence");
-        result.Details["product:jira"].Should().Be(JiraSiteProbe.CantReadMembershipMessage);
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJiraMembership);
+        result.Success.Should().BeFalse();
+        result.Message.Should().Be(JiraSiteProbe.CantReadMembershipMessage);
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJiraMembership);
     }
 
     [Theory]
@@ -199,10 +221,25 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _jira.Answer(path, HttpStatusCode.Forbidden);
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJiraMembership);
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJiraMembership);
+    }
+
+    [Fact]
+    public async Task Test_JiraRoleUrlWithTrailingSlash_ReadsTheRole()
+    {
+        _jira.MapSiteTest();
+        _api.MapJson(_jira.Root + "/project/10000/role", new Dictionary<string, string>
+        {
+            ["Developers"] = $"https://api.atlassian.com/ex/jira/{CloudId}/rest/api/3/project/10000/role/10002/",
+        });
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Success.Should().BeTrue();
+        _api.Calls.GetValueOrDefault(_jira.Root + "/project/10000/role/10002").Should().Be(1);
     }
 
     [Fact]
@@ -211,9 +248,9 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _api.MapJson(_jira.Root + "/project/10000/role/10002", new { id = 10002, name = "Developers" });
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
     }
 
     [Fact]
@@ -222,12 +259,12 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _api.MapJson(_jira.Root + "/project/10000/role", new Dictionary<string, string> { ["Developers"] = "not-a-role-address" });
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["products"].Should().Be("confluence");
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJiraMembership);
-        ((string[])result.Details["scopes"]).Should().NotContain(AtlassianSiteScopes.JiraProjectRole);
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraMembershipStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.CantReadJiraMembership);
+        result.Details.Should().NotContainKey("scopes");
     }
 
     [Fact]
@@ -236,13 +273,12 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _jira.Answer("/users/search", HttpStatusCode.Forbidden);
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["product:jira"].Should().Be(JiraSiteProbe.CantListUsersMessage);
-        ((string)result.Details["product:jira"]).Should().Contain("read:user:jira").And.Contain("Browse users and groups")
-            .And.NotContain("Administer Jira");
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
+        result.Message.Should().Be(JiraSiteProbe.CantListUsersMessage);
+        result.Message.Should().Contain("read:user:jira").And.Contain("Browse users and groups").And.NotContain("Administer Jira");
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
         _jira.PermissionChecks.Should().BeEmpty();
     }
 
@@ -252,30 +288,29 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _api.MapJson(_jira.Root + "/myself", new { accountId = "", accountType = "app" });
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["products"].Should().Be("confluence");
-        result.Details["product:jira"].Should().Be(JiraSiteProbe.CantReadJiraMessage);
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraIdentityStep);
+        result.Success.Should().BeFalse();
+        result.Message.Should().Be(JiraSiteProbe.CantReadJiraMessage);
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraIdentityStep);
         _api.Calls.Should().NotContainKey(_jira.Root + "/users/search");
         _jira.PermissionChecks.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Test_JiraRateLimitedWhileConfluencePasses_FailsJiraOnly()
+    public async Task Test_JiraRateLimited_FailsAtTheStepItWasOn()
     {
         _jira.MapSiteTest();
         _api.Intercept = uri => uri.AbsolutePath == _jira.Root + "/issue/bulkfetch"
             ? new HttpResponseMessage(HttpStatusCode.TooManyRequests)
             : null;
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Success.Should().BeTrue();
-        result.Details!["products"].Should().Be("confluence");
-        ((string)result.Details["product:jira"]).Should().Contain("rate limiting");
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraContentStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("rate limiting");
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraContentStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
     }
 
     [Fact]
@@ -287,12 +322,14 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
             new { accountId = "anonymous", accountType = "atlassian" },
             new { accountId = "addon-1", accountType = "app" });
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Success.Should().BeTrue();
-        result.Details!["products"].Should().Be("confluence,jira", "a product that only warned is offered once saved");
-        result.Details["product:jira"].Should().Be(JiraSiteProbe.NoOtherUserMessage);
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
+        result.Success.Should().BeFalse();
+        result.Details!["warning"].Should().Be(true);
+        result.Message.Should().Be(JiraSiteProbe.NoOtherUserMessage);
+        result.Details["step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NothingToCheckYet);
+        result.Details["cloudId"].Should().Be(CloudId);
         _jira.PermissionChecks.Should().BeEmpty("a check without another account answers for the service account");
     }
 
@@ -302,12 +339,63 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _api.MapJson(_jira.Root + "/project/search", new { values = Array.Empty<object>(), total = 0, isLast = true });
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["products"].Should().Be("confluence,jira");
-        result.Details["product:jira"].Should().Be(JiraSiteProbe.NoProjectsMessage);
-        result.Details["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraProjectsStep);
+        result.Details!["warning"].Should().Be(true);
+        result.Message.Should().Be(JiraSiteProbe.NoProjectsMessage);
+        result.Details["step"].Should().Be(AtlassianConnectionTester.JiraProjectsStep);
         _jira.Searches.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Test_JiraFirstProjectHasNoIssue_SearchesAcrossBrowsableProjects()
+    {
+        _jira.MapSiteTest();
+        var projects = Enumerable.Range(0, 60).Select(i => new { id = (10000 + i).ToString(), key = "P" + i }).ToArray();
+        _api.MapJson(_jira.Root + "/project/search", new { values = projects, total = 60, isLast = false });
+        _api.Map(_jira.Root + "/search/jql", request =>
+        {
+            string query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            _jira.Searches.Add($"{request.Method} {query}");
+            return FakeAtlassianApi.Json(query.Contains("project in (", StringComparison.Ordinal)
+                ? new { issues = new object[] { new { id = FakeJira.IssueId } } }
+                : new { issues = Array.Empty<object>() });
+        });
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Success.Should().BeTrue();
+        _jira.Searches.Should().HaveCount(2).And.OnlyContain(s => s.StartsWith("GET ", StringComparison.Ordinal));
+        string across = _jira.Searches[1];
+        across.Should().Contain("ORDER BY updated DESC").And.Contain("maxResults=1");
+        string ids = System.Text.RegularExpressions.Regex.Match(across, @"project in \(([0-9,]+)\)").Groups[1].Value;
+        ids.Split(',').Should().HaveCount(50).And.StartWith("10000");
+        _api.Requests.Should().Contain(u => u.AbsolutePath.EndsWith("/project/search") && u.Query.Contains("maxResults=50"));
+        ((string[])result.Details!["scopes"]).Should().Contain(AtlassianSiteScopes.JiraIssue).And.Contain(AtlassianSiteScopes.JiraComment);
+    }
+
+    [Fact]
+    public async Task Test_JiraNoIssueInAnyProject_WarnsIssuesAndCommentsUnchecked()
+    {
+        _jira.MapSiteTest();
+        _api.MapJson(_jira.Root + "/project/search", new { values = new[] { new { id = "10000", key = "ENG" }, new { id = "10001", key = "OPS" } }, total = 2, isLast = true });
+        _api.Map(_jira.Root + "/search/jql", request =>
+        {
+            _jira.Searches.Add($"{request.Method} {Uri.UnescapeDataString(request.RequestUri!.Query)}");
+            return FakeAtlassianApi.Json(new { issues = Array.Empty<object>() });
+        });
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Success.Should().BeFalse();
+        result.Details!["warning"].Should().Be(true);
+        result.Message.Should().Be(JiraSiteProbe.NoIssuesMessage);
+        result.Details.Should().NotContainKey("scopes", "read:issue:jira and read:comment:jira were not confirmed");
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NothingToCheckYet);
+        result.Details["step"].Should().Be(AtlassianConnectionTester.JiraContentStep);
+        _jira.Searches.Should().HaveCount(2).And.OnlyContain(s => s.StartsWith("GET ", StringComparison.Ordinal));
+        _jira.PermissionChecks.Should().NotBeEmpty("the rest of the test still runs");
+        _api.Calls.Should().NotContainKey(_jira.Root + "/issue/bulkfetch");
     }
 
     [Theory]
@@ -319,103 +407,48 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.MapSiteTest();
         _jira.Answer(path, HttpStatusCode.Forbidden);
 
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
-        result.Details!["product:jira:step"].Should().Be(AtlassianConnectionTester.JiraContentStep);
-        result.Details["product:jira:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
-        ((string)result.Details["product:jira"]).Should().Contain($"missing the {scope} scope");
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraContentStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.MissingScope);
+        result.Message.Should().Contain($"missing the {scope} scope");
         _jira.PermissionChecks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Test_JiraSearch_IsAGetLikeTheSync()
+    {
+        _jira.MapSiteTest();
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Success.Should().BeTrue();
+        _jira.Searches.Should().ContainSingle().Which.Should().StartWith("GET ?jql=")
+            .And.Contain("maxResults=1").And.Contain("fields=id");
+        _api.Requests.Should().NotContain(u => u.AbsolutePath.EndsWith("/attachment/meta"),
+            "attachment/meta needs read:instance-configuration:jira, which the scope list doesn't ask for");
+    }
+
+    [Fact]
+    public async Task Test_JiraAttachmentScope_ConfirmedByAMissingAttachment()
+    {
+        _jira.MapSiteTest();
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        ((string[])result.Details!["scopes"]).Should().Contain(AtlassianSiteScopes.JiraAttachment);
     }
 
     [Fact]
     public async Task Test_JiraWithoutTheAttachmentScope_StillPasses()
     {
         _jira.MapSiteTest();
-        _jira.Answer("/attachment/meta", HttpStatusCode.Forbidden);
+        _jira.Answer("/attachment/content/0", HttpStatusCode.Forbidden);
 
-        var result = await _tester.TestConnectionAsync(_request);
-
-        result.Details!["products"].Should().Be("confluence,jira");
-        ((string[])result.Details["scopes"]).Should().NotContain(AtlassianSiteScopes.JiraAttachment);
-    }
-
-    [Fact]
-    public async Task Test_JiraOnlySite_SavesWithJiraOnly()
-    {
-        _jira.MapSiteTest();
-        _api.Map(Root + "/rest/api/user/current", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
-
-        var result = await _tester.TestConnectionAsync(_request);
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
 
         result.Success.Should().BeTrue();
-        result.Details!["products"].Should().Be("jira");
-        result.Details["cloudId"].Should().Be(CloudId);
-        result.Details["product:confluence"].Should().Be(ConfluenceSiteProbe.CantReadConfluenceMessage);
-        result.Message.Should().Be("Connected to https://acme.atlassian.net: found the site, signed in as the service account, "
-            + "read Jira, listed projects, read issues and comments, and confirmed it can check who may read each issue and comment.");
-        ((string[])result.Details["scopes"]).Should().OnlyContain(s => s.EndsWith(":jira"));
-    }
-
-    [Fact]
-    public async Task Test_ConfluenceWarnsJiraPasses_Passes()
-    {
-        _jira.MapSiteTest();
-        _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
-
-        var result = await _tester.TestConnectionAsync(_request);
-
-        result.Success.Should().BeTrue();
-        result.Details!.Should().NotContainKey("warning");
-        result.Details["products"].Should().Be("confluence,jira");
-        result.Details["product:confluence:step"].Should().Be(AtlassianConnectionTester.AdminStep);
-        result.Message.Should().Contain("read Jira, listed projects");
-    }
-
-    [Fact]
-    public async Task Test_BothFail_ReportsConfluencesFailureFirst()
-    {
-        _jira.MapSiteTest();
-        _jira.Answer("/myself", HttpStatusCode.Forbidden);
-        _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
-
-        var result = await _tester.TestConnectionAsync(_request);
-
-        result.Success.Should().BeFalse();
-        result.Message.Should().Be(ConfluenceSiteProbe.NoSpacesMessage);
-        result.Details!["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
-        result.Details["product:jira"].Should().Be(JiraSiteProbe.CantReadJiraMessage);
-        result.Details.Should().NotContainKey("products");
-    }
-
-    [Fact]
-    public async Task Test_ConfluenceFailsJiraWarns_WarnsWithJira()
-    {
-        _jira.MapSiteTest();
-        _api.MapJson(_jira.Root + "/project/search", new { values = Array.Empty<object>(), total = 0 });
-        _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
-
-        var result = await _tester.TestConnectionAsync(_request);
-
-        result.Success.Should().BeFalse();
-        result.Details!["warning"].Should().Be(true);
-        result.Details["step"].Should().Be(AtlassianConnectionTester.JiraProjectsStep);
-        result.Details["products"].Should().Be("jira");
-        result.Details["product:confluence"].Should().Be(ConfluenceSiteProbe.NoSpacesMessage);
-    }
-
-    [Fact]
-    public async Task Test_ConfluenceRateLimited_JiraStillRuns()
-    {
-        _jira.MapSiteTest();
-        _api.RateLimitNext = true;
-
-        var result = await _tester.TestConnectionAsync(_request);
-
-        result.Success.Should().BeTrue("a Confluence rate limit must not hide a working Jira");
-        result.Details!["products"].Should().Be("jira");
-        ((string)result.Details["product:confluence"]).Should().Contain("rate limiting");
-        result.Details["product:confluence:step"].Should().Be(AtlassianConnectionTester.IdentityStep);
-        result.Details["product:confluence:troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
+        ((string[])result.Details!["scopes"]).Should().NotContain(AtlassianSiteScopes.JiraAttachment);
     }
 
     [Fact]
@@ -942,6 +975,8 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
 
         result.Success.Should().BeFalse();
         result.Message.Should().Contain("rate limiting");
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.IdentityStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
     }
 
     [Theory]

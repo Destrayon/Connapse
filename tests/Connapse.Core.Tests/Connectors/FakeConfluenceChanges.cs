@@ -56,6 +56,12 @@ public sealed partial class FakeConfluence
     [GeneratedRegex("lastmodified >= \"(?<at>[^\"]+)\"")]
     private static partial Regex CqlSince();
 
+    [GeneratedRegex(@"type in \((?<types>[^)]*)\)")]
+    private static partial Regex CqlTypes();
+
+    [GeneratedRegex(@"type=(?<type>\w+)")]
+    private static partial Regex CqlType();
+
     /// <summary>Answers the comment and search routes; null when the path is neither. Caller holds the gate.</summary>
     private HttpResponseMessage? AnswerChanges(string rest, System.Collections.Specialized.NameValueCollection query)
     {
@@ -208,19 +214,28 @@ public sealed partial class FakeConfluence
             CqlSince().Match(cql).Groups["at"].Value, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal);
 
-        var hits = new List<(string Id, string Type, string Title, string PageId, string PageType, DateTimeOffset At)>();
-        if (cql.Contains("comment", StringComparison.Ordinal))
+        var types = CqlTypes().Match(cql) is { Success: true } listed
+            ? listed.Groups["types"].Value.Split(',', StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal)
+            : CqlType().Match(cql) is { Success: true } single ? [single.Groups["type"].Value] : [];
+
+        // A page's or blog post's own hit: its container is the space, and it carries its version.
+        var hits = new List<(string Id, string Type, string Title, string PageId, string PageType, DateTimeOffset At, int? Version)>();
+        hits.AddRange(_pages.Values
+            .Where(p => types.Contains(p.Kind) && p.SpaceId == spaceId && p.VersionAt >= since)
+            .Select(p => (p.Id, p.Kind, p.Title, p.SpaceId, "global", p.VersionAt!.Value, (int?)p.Version)));
+
+        if (types.Contains("comment"))
         {
             hits.AddRange(_comments.Values
                 .Where(c => _pages.TryGetValue(c.PageId, out var p) && p.SpaceId == spaceId && c.ModifiedAt >= since)
-                .Select(c => (c.Id, "comment", "Re: comment", c.PageId, _pages[c.PageId].Kind, c.ModifiedAt)));
+                .Select(c => (c.Id, "comment", "Re: comment", c.PageId, _pages[c.PageId].Kind, c.ModifiedAt, (int?)null)));
         }
 
-        if (cql.Contains("attachment", StringComparison.Ordinal))
+        if (types.Contains("attachment"))
         {
             hits.AddRange(_attachments.Values
                 .Where(a => _pages.TryGetValue(a.PageId, out var p) && p.SpaceId == spaceId && a.ModifiedAt >= since)
-                .Select(a => ("att" + a.Id, "attachment", a.FileName, a.PageId, _pages[a.PageId].Kind, a.ModifiedAt)));
+                .Select(a => ("att" + a.Id, "attachment", a.FileName, a.PageId, _pages[a.PageId].Kind, a.ModifiedAt, (int?)null)));
         }
 
         int limit = int.Parse(query["limit"] ?? "25", CultureInfo.InvariantCulture);
@@ -242,6 +257,7 @@ public sealed partial class FakeConfluence
                     title = h.Title,
                     // A number, as the real search API sends it (strings elsewhere).
                     container = new { id = long.Parse(h.PageId, CultureInfo.InvariantCulture), type = h.PageType },
+                    version = h.Version is { } number ? new { number } : null,
                 },
                 lastModified = h.At.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
             }),

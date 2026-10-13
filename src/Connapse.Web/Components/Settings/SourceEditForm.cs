@@ -44,6 +44,12 @@ public sealed class SourceEditForm
     /// </summary>
     public ConfluenceSpaceSelection? Confluence { get; private init; }
 
+    /// <summary>A Jira source's attachment settings, as <see cref="Confluence"/>; its project is not editable.</summary>
+    public JiraProjectSelection? Jira { get; private init; }
+
+    /// <summary>An Atlassian source's attachment settings, whichever product it reads; null for any other source.</summary>
+    public AtlassianSourceSelection? Attachments => (AtlassianSourceSelection?)Confluence ?? Jira;
+
     public static SourceEditForm From(Source source, ConnectionProvider? provider)
     {
         var scope = Parse(source.ScopeJson);
@@ -56,10 +62,14 @@ public sealed class SourceEditForm
         }
 
         ConfluenceSpaceSelection? confluence = null;
+        JiraProjectSelection? jira = null;
         if ((provider ?? source.Provider) == ConnectionProvider.Atlassian)
         {
-            var (include, maxMb) = Attachments(scope);
-            confluence = new ConfluenceSpaceSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
+            var (include, maxMb) = AttachmentsOf(scope);
+            if (AtlassianSourceScope.IsJira(source.ScopeJson))
+                jira = new JiraProjectSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
+            else
+                confluence = new ConfluenceSpaceSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
         }
 
         return new SourceEditForm
@@ -73,11 +83,12 @@ public sealed class SourceEditForm
             ExcludedPeople = Strings(scope, ExcludeAuthorsKey),
             DocPatterns = string.Join('\n', Strings(scope, "includePatterns")),
             Confluence = confluence,
+            Jira = jira,
         };
     }
 
     /// <summary>A Confluence scope's attachment settings, with the connector's defaults for a missing key.</summary>
-    private static (bool Include, int MaxMb) Attachments(JsonObject scope) =>
+    private static (bool Include, int MaxMb) AttachmentsOf(JsonObject scope) =>
         (scope["includeAttachments"]?.GetValueKind() != System.Text.Json.JsonValueKind.False,
          scope["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int mb) ? mb : ConfluenceSpaceSelection.DefaultMaxAttachmentMb);
 
@@ -112,11 +123,11 @@ public sealed class SourceEditForm
     {
         bool nameOk = ValidateName();
         bool intervalOk = ValidateSyncInterval();
-        bool sizeOk = Confluence is not { } confluence || confluence.ValidateMaxAttachmentMb();
+        bool sizeOk = Attachments is not { } attachments || attachments.ValidateMaxAttachmentMb();
 
         if (!nameOk) return NameError;
         if (!intervalOk) return SyncIntervalError;
-        if (!sizeOk) return Confluence!.MaxAttachmentMbError;
+        if (!sizeOk) return Attachments!.MaxAttachmentMbError;
         return null;
     }
 
@@ -159,19 +170,22 @@ public sealed class SourceEditForm
         {
             Set(scope, "includePatterns", SourceForm.ParsePatterns(DocPatterns));
         }
-        else if (Confluence is { } confluence)
+        else if (Attachments is { } attachments)
         {
             // Only what changed is sent, through the rules the PATCH API applies, so an
             // untouched source keeps its scope byte for byte and is not re-read.
-            var (include, maxMb) = Attachments(scope);
+            var (include, maxMb) = AttachmentsOf(scope);
             var changes = new JsonObject();
-            if (confluence.IncludeAttachments != include)
-                changes["includeAttachments"] = confluence.IncludeAttachments;
-            if (confluence.IncludeAttachments && confluence.MaxAttachmentMb != maxMb)
-                changes["maxAttachmentMb"] = confluence.MaxAttachmentMb;
+            if (attachments.IncludeAttachments != include)
+                changes["includeAttachments"] = attachments.IncludeAttachments;
+            if (attachments.IncludeAttachments && attachments.MaxAttachmentMb != maxMb)
+                changes["maxAttachmentMb"] = attachments.MaxAttachmentMb;
 
             if (changes.Count > 0
-                && ConfluenceSourceScope.Update(scope.ToJsonString(), changes.ToJsonString()) is { Outcome: ConfluenceSourceScope.Outcome.Valid, ScopeJson: { } updated })
+                && (Jira is not null
+                    ? JiraSourceScope.Update(scope.ToJsonString(), changes.ToJsonString())
+                    : ConfluenceSourceScope.Update(scope.ToJsonString(), changes.ToJsonString()))
+                    is { Outcome: AtlassianSourceScope.Outcome.Valid, ScopeJson: { } updated })
                 return updated;
         }
 

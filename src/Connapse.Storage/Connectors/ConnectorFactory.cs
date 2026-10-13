@@ -259,27 +259,27 @@ public class ConnectorFactory(
         };
     }
 
+    private ISyncCursorConnector CreateAtlassian(Source source, JsonDocument scope, Connection connection, string? secret)
+    {
+        string kind = Str(scope, "kind") ?? "";
+        return kind switch
+        {
+            "confluence-space" => CreateConfluence(source, scope, connection, secret),
+            "jira-project" => CreateJira(source, scope, connection, secret),
+            _ => throw new InvalidOperationException(
+                $"Source '{source.Name}' has unknown Atlassian content kind '{LogSanitizer.Sanitize(kind)}'."),
+        };
+    }
+
     /// <summary>
     /// A Confluence space on an Atlassian site connection. The space id and the site's cloud id
     /// both end up in request URLs and in every document's address, so each is checked here; the
     /// connection's secret is the service account's, and nothing reads without it.
     /// </summary>
-    private Atlassian.ConfluenceSpaceConnector CreateAtlassian(
+    private Atlassian.ConfluenceSpaceConnector CreateConfluence(
         Source source, JsonDocument scope, Connection connection, string? secret)
     {
-        string kind = Str(scope, "kind") ?? "";
-        if (kind != "confluence-space")
-            throw new InvalidOperationException(
-                $"Source '{source.Name}' has unknown Atlassian content kind '{LogSanitizer.Sanitize(kind)}'.");
-
-        string? spaceId = scope.RootElement.TryGetProperty("spaceId", out var id)
-            ? id.ValueKind switch
-            {
-                JsonValueKind.String => id.GetString(),
-                JsonValueKind.Number => id.GetRawText(),
-                _ => null,
-            }
-            : null;
+        string? spaceId = ScopeId(scope, "spaceId");
         if (!Atlassian.ConfluencePageStateStore.IsContentId(spaceId))
             throw new InvalidOperationException($"Source '{source.Name}' has no valid Confluence spaceId in its scope.");
 
@@ -287,9 +287,79 @@ public class ConnectorFactory(
         if (string.IsNullOrEmpty(spaceKey))
             throw new InvalidOperationException($"Source '{source.Name}' has no Confluence spaceKey in its scope.");
 
+        (Atlassian.AtlassianSite site, string statePath, int maxAttachmentMb, Atlassian.AtlassianApiClient api) = AtlassianCommon(
+            source, scope, connection, secret, Atlassian.AtlassianProduct.Confluence, Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling);
+
+        return new Atlassian.ConfluenceSpaceConnector(
+            new Atlassian.ConfluenceSpaceConfig(
+                site, spaceId!, spaceKey, statePath,
+                IncludeAttachments: Bool(scope, "includeAttachments") ?? true,
+                MaxAttachmentMb: maxAttachmentMb),
+            api,
+            loggerFactory?.CreateLogger<Atlassian.ConfluenceSpaceConnector>(),
+            // The parsers Ingestion registered, reached through Core's interface: an attachment
+            // without one is skipped and counted rather than ingested to fail.
+            fileTypes: fileTypes);
+    }
+
+    /// <summary>
+    /// A Jira project on an Atlassian site connection, checked as a Confluence space is: the
+    /// project id ends up in every query and request URL, so it must be digits.
+    /// </summary>
+    private Atlassian.JiraProjectConnector CreateJira(
+        Source source, JsonDocument scope, Connection connection, string? secret)
+    {
+        string? projectId = ScopeId(scope, "projectId");
+        if (!Atlassian.JiraIssueStateStore.IsId(projectId))
+            throw new InvalidOperationException($"Source '{source.Name}' has no valid Jira projectId in its scope.");
+
+        string? projectKey = Str(scope, "projectKey")?.Trim();
+        if (string.IsNullOrEmpty(projectKey))
+            throw new InvalidOperationException($"Source '{source.Name}' has no Jira projectKey in its scope.");
+
+        (Atlassian.AtlassianSite site, string statePath, int maxAttachmentMb, Atlassian.AtlassianApiClient api) = AtlassianCommon(
+            source, scope, connection, secret, Atlassian.AtlassianProduct.Jira, Atlassian.JiraProjectConfig.MaxAttachmentMbCeiling);
+
+        return new Atlassian.JiraProjectConnector(
+            new Atlassian.JiraProjectConfig(
+                site, projectId!, projectKey, statePath,
+                IncludeAttachments: Bool(scope, "includeAttachments") ?? true,
+                MaxAttachmentMb: maxAttachmentMb),
+            api,
+            loggerFactory?.CreateLogger<Atlassian.JiraProjectConnector>(),
+            fileTypes: fileTypes);
+    }
+
+    /// <summary>A scope id given as a JSON string or number; anything else is null.</summary>
+    private static string? ScopeId(JsonDocument scope, string name) =>
+        scope.RootElement.TryGetProperty(name, out var id)
+            ? id.ValueKind switch
+            {
+                JsonValueKind.String => id.GetString(),
+                JsonValueKind.Number => id.GetRawText(),
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
+    /// What every Atlassian source needs whatever it reads: the site, checked; the service
+    /// account's secret; the attachment cap, clamped to <paramref name="maxAttachmentMbCeiling"/>; its
+    /// own state directory; and a client pinned to <paramref name="product"/>.
+    /// </summary>
+    private (Atlassian.AtlassianSite Site, string StatePath, int MaxAttachmentMb, Atlassian.AtlassianApiClient Api) AtlassianCommon(
+        Source source, JsonDocument scope, Connection connection, string? secret, Atlassian.AtlassianProduct product,
+        int maxAttachmentMbCeiling)
+    {
         var site = Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson)
             ?? throw new InvalidOperationException(
                 $"Source '{source.Name}' is on connection '{connection.Name}', which is not a well-formed Atlassian site.");
+
+        // A connection's credential was granted for its own product alone, so a source of the other
+        // product never reads through it.
+        if (site.Product != product)
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' reads {product} but is on connection '{connection.Name}', which is a {site.Product} "
+                + $"connection. Recreate the source on a {product} connection for this site.");
 
         if (string.IsNullOrEmpty(secret))
             throw new InvalidOperationException(
@@ -299,7 +369,7 @@ public class ConnectorFactory(
         if (maxAttachmentMb <= 0)
             throw new InvalidOperationException($"Source '{source.Name}' has a maxAttachmentMb that is not a positive number.");
         // Clamped rather than refused, so a source saved with a larger cap still syncs.
-        maxAttachmentMb = Math.Min(maxAttachmentMb, Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling);
+        maxAttachmentMb = Math.Min(maxAttachmentMb, maxAttachmentMbCeiling);
 
         if (atlassianTokens is null || atlassianSettings is null)
             throw new InvalidOperationException(
@@ -309,18 +379,10 @@ public class ConnectorFactory(
         string statePath = Path.GetFullPath(Path.Combine(
             atlassianSettings.CurrentValue.StateDirectory, source.Id.ToString("N")));
 
-        return new Atlassian.ConfluenceSpaceConnector(
-            new Atlassian.ConfluenceSpaceConfig(
-                site, spaceId!, spaceKey, statePath,
-                IncludeAttachments: Bool(scope, "includeAttachments") ?? true,
-                MaxAttachmentMb: maxAttachmentMb),
-            new Atlassian.AtlassianApiClient(
-                httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret,
-                downloads: httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.DownloadHttpClientName)),
-            loggerFactory?.CreateLogger<Atlassian.ConfluenceSpaceConnector>(),
-            // The parsers Ingestion registered, reached through Core's interface: an attachment
-            // without one is skipped and counted rather than ingested to fail.
-            fileTypes: fileTypes);
+        return (site, statePath, maxAttachmentMb, new Atlassian.AtlassianApiClient(
+            httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret,
+            downloads: httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.DownloadHttpClientName),
+            product: product));
     }
 
     private static void RequireJsonObject(JsonDocument doc, string subject)

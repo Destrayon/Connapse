@@ -43,6 +43,16 @@ public sealed class ConfluenceSpaceUnreadableException(string message, string de
 }
 
 /// <summary>
+/// A Jira project answered 403 or 404: the service account lost Browse projects on it, or it was
+/// deleted. Its documents leave search until the project is readable again.
+/// </summary>
+public sealed class JiraProjectUnreadableException(string message, string detail, Exception inner)
+    : SourceAccessRevokedException(message, inner), IErrorDetail
+{
+    public string? Detail { get; } = detail;
+}
+
+/// <summary>
 /// Atlassian answered 200 with a body that is not the shape asked for: a listing with no
 /// <c>results</c> array, a null entry, or an entry without a valid id or version. Treated as a
 /// failed request, never as an empty or shorter answer, so it cannot read as deletions.

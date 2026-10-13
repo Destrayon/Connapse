@@ -55,7 +55,7 @@ public class AtlassianProviderCardTests : IDisposable
             .Should().Equal("Linking app");
         cut.FindAll("#atlassian-site-url").Should().BeEmpty();
         cut.Markup.Should().NotContain("read:page:confluence");
-        cut.Find("#atlassian-sites-elsewhere a").GetAttribute("href").Should().Be("/connections?new=atlassian");
+        cut.Find("#atlassian-sites-elsewhere a").GetAttribute("href").Should().Be("/connections");
     }
 
     [Fact]
@@ -106,9 +106,23 @@ public class AtlassianProviderCardTests : IDisposable
         var cut = ctx.Render<AtlassianProviderCardHost>();
 
         var add = cut.Find("#atlassian-add-site");
-        add.GetAttribute("href").Should().Be("/connections?new=atlassian");
+        add.GetAttribute("href").Should().Be("/connections?new=confluence");
         add.ClassList.Should().Contain(["btn", "btn-sm", "btn-outline-primary"]);
-        add.TextContent.Trim().Should().Be("Add an Atlassian site");
+        add.TextContent.Trim().Should().Be("Add a Confluence site");
+    }
+
+    [Fact]
+    public void LinkingApp_Stored_SummaryOffersAJiraSiteToo_SoJiraIsNotAddedThroughTheConfluenceForm()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(new AtlassianLinkAppRegistration("stored-client", CheckedAt: DateTime.UtcNow, CheckAccepted: true));
+
+        var cut = ctx.Render<AtlassianProviderCardHost>();
+
+        var add = cut.Find("#atlassian-add-jira-site");
+        add.GetAttribute("href").Should().Be("/connections?new=jira");
+        add.ClassList.Should().Contain(["btn", "btn-sm", "btn-outline-primary"]);
+        add.TextContent.Trim().Should().Be("Add a Jira site");
     }
 
     [Fact]
@@ -117,6 +131,7 @@ public class AtlassianProviderCardTests : IDisposable
         var cut = ctx.Render<AtlassianProviderCardHost>();
 
         cut.FindAll("#atlassian-add-site").Should().BeEmpty();
+        cut.FindAll("#atlassian-add-jira-site").Should().BeEmpty();
     }
 
     [Fact]
@@ -668,6 +683,7 @@ public class AtlassianProviderCardTests : IDisposable
         cut.FindAll("#atlassian-app .btn-primary, #atlassian-app .btn-outline-primary").Select(b => b.Id)
             .Should().Equal("atlassian-app-save");
         cut.Find("#atlassian-add-site").ClassList.Should().Contain("btn-outline-secondary");
+        cut.Find("#atlassian-add-jira-site").ClassList.Should().Contain("btn-outline-secondary");
     }
 
     [Fact]

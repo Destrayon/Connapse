@@ -2,6 +2,7 @@
 using Connapse.Core;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Connectors;
+using Connapse.Storage.Connectors.Atlassian;
 
 namespace Connapse.Web.Components.Settings;
 
@@ -67,6 +68,45 @@ public sealed record ConnectionForm
 
     /// <summary>Atlassian only: the site's host, for display. The form never edits an Atlassian config.</summary>
     public string? AtlassianSiteHost { get; private set; }
+
+    /// <summary>
+    /// Atlassian only: the product the site connection reads. A new site's is chosen in the provider
+    /// list; a saved one's is read from its config, where a missing value means Confluence.
+    /// </summary>
+    public AtlassianProduct AtlassianProduct { get; set; } = AtlassianProduct.Confluence;
+
+    /// <summary>The provider list's entry for a Confluence site.</summary>
+    public const string ConfluenceSiteChoice = "Atlassian:Confluence";
+
+    /// <summary>The provider list's entry for a Jira site.</summary>
+    public const string JiraSiteChoice = "Atlassian:Jira";
+
+    /// <summary>
+    /// The provider list's value: the provider's name, or for an Atlassian site one entry per product,
+    /// since a Confluence site and a Jira site are separate connections.
+    /// </summary>
+    public string ProviderChoice
+    {
+        get => Provider == ConnectionProvider.Atlassian
+            ? (AtlassianProduct == AtlassianProduct.Jira ? JiraSiteChoice : ConfluenceSiteChoice)
+            : Provider.ToString();
+        set
+        {
+            switch (value)
+            {
+                case ConfluenceSiteChoice:
+                    (Provider, AtlassianProduct) = (ConnectionProvider.Atlassian, AtlassianProduct.Confluence);
+                    break;
+                case JiraSiteChoice:
+                    (Provider, AtlassianProduct) = (ConnectionProvider.Atlassian, AtlassianProduct.Jira);
+                    break;
+                default:
+                    if (Enum.TryParse(value, out ConnectionProvider provider))
+                        (Provider, AtlassianProduct) = (provider, AtlassianProduct.Confluence);
+                    break;
+            }
+        }
+    }
 
     /// <summary>
     /// The stored config as it was read, for providers this form does not own. Atlassian sites are
@@ -234,6 +274,8 @@ public sealed record ConnectionForm
         if (form.Provider == ConnectionProvider.Atlassian
             && Uri.TryCreate(Str(node, "siteUrl"), UriKind.Absolute, out Uri? siteUri))
             form.AtlassianSiteHost = siteUri.Host;
+        if (form.Provider == ConnectionProvider.Atlassian && Str(node, "product") == AtlassianSite.ProductValue(AtlassianProduct.Jira))
+            form.AtlassianProduct = AtlassianProduct.Jira;
 
         // PrivateKey and Passphrase are deliberately not populated. The store never returns a
         // secret to a read model, and leaving them blank is what makes "save without retyping

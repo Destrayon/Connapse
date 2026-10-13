@@ -39,9 +39,9 @@
         @* The setup guide sits in the title row, as on every provider surface. *@
         <div class="d-flex flex-wrap align-items-baseline gap-2 mt-2 mb-4">
             <h1 class="h4 mb-0">@source.Name</h1>
-            @if (form.Confluence is not null)
+            @if (form.Attachments is { } guided)
             {
-                <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+                <SetupGuideLink Id="atlassian-setup-guide" Href="@guided.SetupGuideUrl" />
             }
         </div>
 
@@ -94,9 +94,9 @@
                     <dd class="col-sm-9 font-monospace">@(SourceScopeSummary.Describe(source.ScopeJson, SiteHost) ?? "—")</dd>
                 </dl>
                 <div class="form-text">
-                    @if (form.Confluence is not null)
+                    @if (form.Attachments is { } fixedItem)
                     {
-                        <text>@ConfluenceSpaceSelection.SpaceFixedNote</text>
+                        <text>@fixedItem.ItemFixedNote</text>
                     }
                     else
                     {
@@ -106,42 +106,45 @@
             </div>
         </section>
 
-        @if (form.Confluence is { } confluence)
+        @if (form.Attachments is { } atlassian)
         {
+            @* One section for Confluence and Jira alike; the field ids carry the product. *@
+            string id = atlassian.FieldIdPrefix;
             <section class="card mb-3">
                 <div class="card-body">
-                    <fieldset id="confluence-attachments-group">
-                        <legend class="h6 mb-3">@ConfluenceSpaceSelection.AttachmentsLabel</legend>
+                    <fieldset id="@($"{id}-attachments-group")">
+                        <legend class="h6 mb-3">@AtlassianSourceSelection.AttachmentsLabel</legend>
                         <div class="form-check">
-                            <input id="confluence-attachments" type="checkbox" class="form-check-input" aria-describedby="confluence-attachments-help"
-                                   @bind="confluence.IncludeAttachments" @bind:after="AttachmentsChanged" />
-                            <label for="confluence-attachments" class="form-check-label">@ConfluenceSpaceSelection.IncludeAttachmentsLabel</label>
-                            <div id="confluence-attachments-help" class="form-text mt-0">
-                                @ConfluenceSpaceSelection.IncludeAttachmentsShortHelp
-                                @ConfluenceSpaceSelection.AttachmentScopeHelp
-                                <a href="@ConfluenceSpaceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">How to add it<span class="visually-hidden"> (opens in a new tab)</span></a>.
+                            <input id="@($"{id}-attachments")" type="checkbox" class="form-check-input" aria-describedby="@($"{id}-attachments-help")"
+                                   @bind="atlassian.IncludeAttachments" @bind:after="AttachmentsChanged" />
+                            <label for="@($"{id}-attachments")" class="form-check-label">@AtlassianSourceSelection.IncludeAttachmentsLabel</label>
+                            <div id="@($"{id}-attachments-help")" class="form-text mt-0">
+                                @atlassian.AttachmentsShortHelp
+                                @atlassian.AttachmentScopeHelpText
+                                <a href="@AtlassianSourceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">How to add it<span class="visually-hidden"> (opens in a new tab)</span></a>.
                             </div>
-                            @if (confluence.IncludeAttachments && connection is { } site && !ConfluenceSpaceSelection.AttachmentScopeConfirmed(site.Health))
+                            @if (atlassian.IncludeAttachments && connection is { } site && !atlassian.AttachmentScopeConfirmedFor(site.Health))
                             {
-                                <ConfluenceAttachmentScopeRoute Id="confluence-attachments-scope-route" ConnectionId="site.Id" SiteName="@site.Name" />
+                                <ConfluenceAttachmentScopeRoute Id="@($"{id}-attachments-scope-route")" ConnectionId="site.Id" SiteName="@site.Name"
+                                                                Scope="@atlassian.RequiredAttachmentScope" />
                             }
                         </div>
                         <div class="ms-4 mt-2">
-                            <label class="form-label small" for="confluence-max-attachment-mb">@ConfluenceSpaceSelection.MaxAttachmentMbLabel</label>
-                            <input id="confluence-max-attachment-mb" type="number" class="form-control form-control-sm @(confluence.MaxAttachmentMbError is null ? "" : "is-invalid")"
-                                   min="@ConfluenceSpaceSelection.MinAttachmentMb" max="@ConfluenceSpaceSelection.MaxAttachmentMbLimit" style="max-width: 8rem;"
-                                   aria-describedby="@(confluence.MaxAttachmentMbError is null ? "confluence-max-attachment-mb-help" : "confluence-max-attachment-mb-error confluence-max-attachment-mb-help")"
-                                   aria-invalid="@(confluence.MaxAttachmentMbError is null ? null : "true")"
-                                   disabled="@(!confluence.IncludeAttachments)"
-                                   @bind="confluence.MaxAttachmentMb" @bind:after="ValidateMaxSize" @onblur="ValidateMaxSize" />
-                            @if (confluence.MaxAttachmentMbError is { } sizeError)
+                            <label class="form-label small" for="@($"{id}-max-attachment-mb")">@AtlassianSourceSelection.MaxAttachmentMbLabel</label>
+                            <input id="@($"{id}-max-attachment-mb")" type="number" class="form-control form-control-sm @(atlassian.MaxAttachmentMbError is null ? "" : "is-invalid")"
+                                   min="@AtlassianSourceSelection.MinAttachmentMb" max="@AtlassianSourceSelection.MaxAttachmentMbLimit" style="max-width: 8rem;"
+                                   aria-describedby="@(atlassian.MaxAttachmentMbError is null ? $"{id}-max-attachment-mb-help" : $"{id}-max-attachment-mb-error {id}-max-attachment-mb-help")"
+                                   aria-invalid="@(atlassian.MaxAttachmentMbError is null ? null : "true")"
+                                   disabled="@(!atlassian.IncludeAttachments)"
+                                   @bind="atlassian.MaxAttachmentMb" @bind:after="ValidateMaxSize" @onblur="ValidateMaxSize" />
+                            @if (atlassian.MaxAttachmentMbError is { } sizeError)
                             {
-                                <div id="confluence-max-attachment-mb-error" class="invalid-feedback d-block fw-semibold" role="alert">
+                                <div id="@($"{id}-max-attachment-mb-error")" class="invalid-feedback d-block fw-semibold" role="alert">
                                     <span class="bi-x-circle me-1" aria-hidden="true"></span>@sizeError
                                 </div>
                             }
-                            <div id="confluence-max-attachment-mb-help" class="form-text">
-                                @ConfluenceSpaceSelection.MaxAttachmentMbHelp
+                            <div id="@($"{id}-max-attachment-mb-help")" class="form-text">
+                                @AtlassianSourceSelection.MaxAttachmentMbHelp
                             </div>
                         </div>
                     </fieldset>
@@ -275,13 +278,13 @@
             ? new Uri(site.SiteUrl).Host
             : null;
 
-    private void ValidateMaxSize() => form?.Confluence?.ValidateMaxAttachmentMb();
+    private void ValidateMaxSize() => form?.Attachments?.ValidateMaxAttachmentMb();
 
     // As on the New source dialog: turning attachments off clears a size error; turning them on re-checks it.
     private void AttachmentsChanged()
     {
-        if (form?.Confluence is { } confluence && (confluence.MaxAttachmentMbError is not null || !confluence.IncludeAttachments))
-            confluence.ValidateMaxAttachmentMb();
+        if (form?.Attachments is { } atlassian && (atlassian.MaxAttachmentMbError is not null || !atlassian.IncludeAttachments))
+            atlassian.ValidateMaxAttachmentMb();
     }
 
     private async Task Save()

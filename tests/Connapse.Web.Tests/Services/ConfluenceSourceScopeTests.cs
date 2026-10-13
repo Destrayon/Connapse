@@ -28,6 +28,25 @@ public class ConfluenceSourceScopeTests
         doc.RootElement.GetProperty("maxAttachmentMb").GetInt32().Should().Be(10);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("\t\n")]
+    public void Update_EmptyScope_IsRefusedNeverStoredAsAnEmptyObject(string empty)
+    {
+        foreach (var result in new[]
+        {
+            ConfluenceSourceScope.Update(Current, empty),
+            JiraSourceScope.Update("""{"kind":"jira-project","projectId":"10000","projectKey":"ENG"}""", empty),
+        })
+        {
+            result.Outcome.Should().Be(AtlassianSourceScope.Outcome.Invalid);
+            result.Field.Should().Be("scopeJson");
+            result.Error.Should().Be(AtlassianSourceScope.EmptyScopeError);
+            result.ScopeJson.Should().BeNull();
+        }
+    }
+
     [Fact]
     public void Update_SameSpaceIdSentBack_IsAccepted()
     {

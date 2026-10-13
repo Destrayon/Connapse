@@ -28,7 +28,8 @@ public sealed class ConfluenceSpaceConnectorListingTests : IDisposable
     }
 
     private ConfluenceSpaceConnector NewConnector() =>
-        new(new ConfluenceSpaceConfig(_site, SpaceId, "ENG", _state),
+        // Every cycle a reconcile: these tests are about the full listing.
+        new(new ConfluenceSpaceConfig(_site, SpaceId, "ENG", _state, ReconcileInterval: TimeSpan.Zero),
             new AtlassianApiClient(_api.CreateClient(), new AtlassianTokenSource(new FakeFactory(_api), TimeProvider.System), _site, "secret"));
 
     private void SeedSpace()

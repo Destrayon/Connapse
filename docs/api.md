@@ -1367,7 +1367,7 @@ Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connect
 |--------|-------|---------|
 | GET | `/` | Every saved site, as [site objects](#atlassian-site-object) without `scopes` |
 | POST | `/resolve` | `{ "siteUrl" }` → `{ siteUrl, cloudId }`. `400` if the address is not `https://<name>.atlassian.net`, `404` if no site is there |
-| POST | `/` | `{ "siteUrl", "clientId", "clientSecret", "saveAnyway"? }`. Runs every site check and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId, test }`, where `test` is a [test report](#atlassian-test-report). The site is named after its host. A failed check is `422` with the test report. `saveAnyway: true` saves a site whose only problem is a warning (`warning: true`: no page or no other user yet to check administrator access against); any other failure is never saved. `409` if a connection for the site already exists |
+| POST | `/` | `{ "siteUrl", "clientId", "clientSecret", "product"?, "saveAnyway"? }`. `product` is `confluence` (the default) or `jira`: a site's Confluence and Jira are separate connections, so add it once as each to index both. Runs that product's site checks and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId, product, test }`, where `test` is a [test report](#atlassian-test-report). The site is named after its host, with ` (Jira)` added for a Jira connection. `400` with `field: "product"` for any other `product`. A failed check is `422` with the test report. `saveAnyway: true` saves a site whose only problem is a warning (`warning: true`: no page or no other user yet to check administrator access against); any other failure is never saved. `409` if the site already has a connection for that product |
 | GET | `/{connectionId}` | One [site object](#atlassian-site-object), with `scopes`. `404` if it isn't an Atlassian site |
 | PATCH | `/{connectionId}` | `{ "name" }` renames the site, as the Name field does. `200` with the site object. `400` if the name is blank or over 128 characters, `409` if another connection has it. Audited as `connection.updated` |
 | POST | `/{connectionId}/test` | Runs every check again with the stored secret and records the result as the site's health: `200` with a [test report](#atlassian-test-report), passed or not. `404` if the site is gone or its stored secret can't be read |
@@ -1375,7 +1375,8 @@ Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connect
 | POST | `/{connectionId}/pause` | Pause syncing: disables every source on the site. Nothing is deleted and documents stay searchable. `200` with `{ syncPaused: true, sources }`; `409` if the site has no sources. Audited as `connection.paused` |
 | POST | `/{connectionId}/resume` | Resume syncing. Optional body `{ "sourceIds": [...] }` turns back on only those sources (as the page's Resume dialog lets you untick some); without it, every source. `200` with `{ syncPaused, sources }`. `400` if a `sourceIds` entry isn't on this site. Audited as `connection.resumed` |
 | DELETE | `/{connectionId}?confirmName=<name>` | Deletes the site. `confirmName` must equal the site's name, the value the page asks you to type, or the answer is `400`. `409` while any source uses the site, with `{ error, sources: [{ id, name, url }] }`: `error` names each source, as the page's refusal does, and `url` is the source's page. Delete those sources first. `204` when deleted. Audited as `connection.deleted` |
-| GET | `/{connectionId}/spaces?includePersonal=false` | The spaces the site's service account can view: `[{ id, key, name, type }]`. `502` if Atlassian can't be reached |
+| GET | `/{connectionId}/spaces?includePersonal=false` | The spaces the site's service account can view: `[{ id, key, name, type }]`. `400` with `field: "connectionId"` on a Jira connection, `502` if Atlassian can't be reached |
+| GET | `/{connectionId}/projects` | The Jira projects the site's service account can browse: `[{ id, key, name, projectTypeKey }]`. `400` with `field: "connectionId"` on a Confluence connection, `502` if Atlassian can't be reached |
 
 #### Atlassian site object
 
@@ -1384,10 +1385,11 @@ Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connect
 | `id`, `name` | The connection's id and name |
 | `siteUrl`, `cloudId` | The site's address and Atlassian's own ID for it |
 | `clientId` | The service account credential's client ID. The secret is never returned; `hasSecret` says one is stored |
+| `product` | What the connection reads: `confluence` or `jira`. A connection saved without one is `confluence`. A `confluence-space` source needs a `confluence` connection and a `jira-project` source a `jira` one |
 | `sourceCount` | How many sources use the site |
 | `syncPaused` | `true` when the site has sources and every one is disabled |
 | `health` | The last check, or `null` before one: `{ checkedAt, succeeded, warning, step, stepLabel, message, origin, credentialRejected, lastSucceededAt, confirmedScopes }`. `origin` is `test` or `sync`; `credentialRejected: true` is what the page shows as **Needs new credentials** |
-| `scopes` | Single site only: `[{ name, reason, optional, product }]`, every scope the credential needs and why. `product` is `confluence` or `jira` |
+| `scopes` | Single site only: `[{ name, reason, optional, product }]`, every scope the connection's credential needs and why: its own product's only. `product` is `confluence` or `jira` |
 
 #### Atlassian test report
 
@@ -1398,12 +1400,11 @@ Returned by `/test`, inside `test` on a create or replace, and as the `422` body
 | `success` | `true` when every check passed |
 | `warning` | `true` when the only problem is a site with no page or no other user yet; `saveAnyway` can save past it |
 | `message` | What happened and what to do, as the page shows it |
-| `step` | The check that failed: `site`, `token`, `identity`, `spaces`, `content` (a scope a sync needs for comments, folders or changes is missing) or `admin`, or for Jira when no other product passed, `jira-identity`, `jira-projects`, `jira-content`, `jira-admin` or `jira-membership`; `null` on success |
+| `step` | The check that failed: `site`, `token`, `identity`, `spaces`, `content` (a scope a sync needs for comments, folders or changes is missing) or `admin`, or on a Jira connection `jira-identity`, `jira-projects`, `jira-content`, `jira-admin` or `jira-membership`; `null` on success |
 | `stepLabel` | That check in the page's words, for example "Signing in as the service account" |
 | `troubleshootingUrl` | The setup guide entry for the failure. A timeout, a rate limit or an answer Atlassian didn't finish links the guide's general Troubleshooting section, not a credential entry |
 | `detail` | Atlassian's own answer when it gave one, such as `HTTP 401 (Unauthorized)`; never a secret or token |
-| `scopes` | On success, the scopes the test confirmed the credential carries, for every product that passed. For Confluence: every required one, plus `read:attachment:confluence` when its probe passed. For Jira: the scopes its checks call (`read:user:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, `read:comment:jira`, `read:permission:jira`, `read:group:jira`, `read:project-role:jira`), `read:attachment:jira` when its probe passed, and any other Jira scope Atlassian lists as granted |
-| `otherProducts` | Each product (Confluence or Jira) that didn't pass, apart from the one `message` describes: `[{ name, message, stepLabel, troubleshootingUrl }]`. On a site that passes, a product the credential can't read at all reads `Not set up for this site.` with no `stepLabel` or `troubleshootingUrl` |
+| `scopes` | On success, the scopes the test confirmed the credential carries for the connection's product. For Confluence: every required one, plus `read:attachment:confluence` when its probe passed. For Jira: the scopes its checks call (`read:user:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, `read:comment:jira`, `read:permission:jira`, `read:group:jira`, `read:project-role:jira`), `read:attachment:jira` when its probe passed, and any other Jira scope Atlassian lists as granted |
 
 ### Atlassian Linking App
 

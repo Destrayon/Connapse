@@ -307,6 +307,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPerSchemeResultVerifier, AzureSearchResultVerifier>();
         // Confluence hits: checked live against the site, one call per uncached (account, page).
         services.AddSingleton<ConfluencePermissionChecker>();
+        // Jira hits: one bulk permissions/check per site per search, plus group and role reads when restricted.
+        services.AddSingleton<JiraPermissionChecker>();
         services.AddSingleton(_ => new AtlassianConnectionPresence(TimeProvider.System));
         services.AddScoped<IPerSchemeResultVerifier, AtlassianSearchResultVerifier>();
         services.AddScoped<ISearchResultVerifier>(sp => new CompositeSearchResultVerifier(

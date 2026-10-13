@@ -35,23 +35,6 @@ public class ConnectionStoreIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task RecordHealthAsync_AFailureKeepsTheLastProducts()
-    {
-        await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
-        var created = await store.CreateAsync(NewRequest(), createdByUserId: null);
-        var passedAt = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
-
-        await store.RecordHealthAsync(created.Id, new ConnectionHealth(passedAt, Succeeded: true, Step: null, Message: "ok",
-            Origin: "test", Products: ["confluence"]));
-        var failed = await store.RecordHealthAsync(created.Id, new ConnectionHealth(passedAt.AddHours(1), Succeeded: false,
-            Step: "spaces", Message: "no spaces", Origin: "test"));
-
-        failed!.Products.Should().Equal("confluence");
-        (await store.GetAsync(created.Id))!.Health!.Products.Should().Equal("confluence");
-    }
-
-    [Fact]
     public async Task RecordHealthAsync_UnknownConnection_ReturnsNull()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

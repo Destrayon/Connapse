@@ -117,7 +117,7 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
 - Content is read with `GET /rest/api/3/attachment/content/{id}`, redirect-checked, through `SizeCappedStream`.
 
 **`JiraRecordRenderer`:**
-- The header is the key and summary, type, status, priority, assignee, reporter, labels, components, fix versions, parent, issue links (type, direction, key and summary), created and updated.
+- The header is the key and summary, type, status, priority, assignee, reporter, labels, components, fix versions, parent (key only), issue links (type, direction and key only, never the linked issue's summary, which may be in a project or security level the reader can't see), created and updated.
 - The description and each rich-text custom field follow, as `## {Field name}` sections. Rich-text custom fields are those whose schema is a textarea custom type, discovered once per cycle through `GET /rest/api/3/field`.
 - Display names come from the issue payload. Mentions use their `attrs.text`.
 
@@ -162,11 +162,20 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
    - `GET /rest/api/3/project/{projectId}/role` maps the role name to an id within the issue's project. Zero or several matches deny.
    - `GET /rest/api/3/project/{projectId}/role/{roleId}` lists user actors (`accountId`) and group actors (`groupId`).
    - The user passes if their account or one of their groups is an actor.
-4. **Combine:**
+4. **Live comment check.**
+   - A restricted comment's or internal note's URI carries the visibility it had at the last sync, so a restriction tightened in Jira would otherwise be enforced only after the next sync, or later when syncs are rate limited or failing.
+   - So each comment hit that passed the checks above is read again as the service account, `GET /rest/api/3/issue/{issueId}/comment/{commentId}`, and routed by the connector's own rule. It is admitted only if Jira still gives it exactly the URI's internal flag and restriction.
+   - A comment now public, restricted differently, deleted or unreadable (404, 403, any other non-200, an unparseable answer, a timeout) is denied. A public comment is shown through the issue document, which follows the next sync.
+   - A role-restricted comment also needs its issue to be in the role's project still: `GET /rest/api/3/issue/{issueId}?fields=project` must answer the URI's project id. An issue moved to another project is denied until the next sync, because the same role name there is a different rule.
+   - Up to 10 reads run at once, within the search's budget.
+5. **Combine:**
    - Issue: browse.
-   - Restricted comment: browse **and** membership.
-   - Internal note: browse **and** agent, **and** membership if it also has `visibility`.
-   - Attachment: browse, **and** its comment's rule if it is tied to one.
+   - Restricted comment: browse **and** membership **and** the live check.
+   - Internal note: browse **and** agent **and** the live check, **and** membership if it also has `visibility`.
+   - Attachment: browse, **and** its comment's rule if it is tied to one. A tied attachment's URI names its comment (`.../attachment/{a}/comment/{c}/...`), and that comment gets the same live check, plus the live-project check for a role. A deny-all attachment needs no read, and an untied one carries no restriction.
+   - The sync records every restricted comment that has ever tied an attachment, in its own file in the source's state directory (`attachment-history.json`, by attachment id), apart from the issue records. A fetch that leaves an attachment out, an answer without the attachment field, an issue that drops out of the listing, attachments being switched off, or a resync does not lose it; it goes only with the source's whole state. A restricted comment that is listed but gone by the time its rendered body is read may have linked any of the issue's files, so it is recorded for every attachment of that issue, as is a comment showing a file Connapse cannot name.
+   - An attachment with any history is deny-all until re-verified. Each cycle that fetches its issue (a change or the daily sweep) decides it afresh, and releases it only on positive evidence: exactly one comment has ever tied it, Jira returns that comment, its rendered body is read this cycle, its restriction is unchanged and readable, and it shows no file Connapse cannot name. If the comment is still restricted and links the file, the attachment takes its restriction. If it is now public, the attachment follows the issue, as Jira lifts the restriction too, but its URI still names the comment (`.../attachment/{a}/comment/{c}` with no restriction): search admits it to issue browsers only while a live read finds the comment still public, so a comment restricted again before the next sync hides the file at once. A file no comment ever tied keeps the plain URI and needs no read. Anything else keeps it deny-all: a missing comment, a failed read, an unnameable file reference, or a restricted comment that no longer links it. A file tied by more than one comment never releases, even when they agree, because its URI can name only one comment for the live check. Release changes the state; the history itself is never shortened.
+   - State written before the history existed is upgraded at the start of the next sync, before any record changes. The history is seeded from every stored record's ties and deny-all flags, and from its attachment tombstones, as deny-all until re-verified. A legacy record kept at most its first tie, not the comment that made it deny-all, and a tombstone names no comment at all. Such an entry is marked unresolvable and stays deny-all for good, whatever later ties appear: the comment behind it may stay hidden from the service account forever, so a surviving tie proves nothing. A legacy single tie with no deny-all releases under the normal rule.
 
 **Account guard.** `JiraPermissionChecker` refuses to send any request whose `accountId` is null, empty, whitespace or `anonymous`. Without `accountId`, Jira evaluates the calling service account, which fails fully open.
 
@@ -178,6 +187,8 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
 | A user's groups | `(jira, cloudId, accountId)` | 5 minutes |
 | Role name to id per project | `(jira, cloudId, projectId)` | 5 minutes |
 | Role actors | `(jira, cloudId, projectId, roleId)` | 5 minutes |
+| A comment's live visibility (not per user) | `(jira, cloudId, issueId, commentId)` | 1 minute |
+| An issue's live project (not per user) | `(jira, cloudId, issueId)` | 1 minute |
 | Any failure | — | 30 seconds, as deny |
 
 Every key includes the product. Confluence's existing key gains it too, so ids can't collide.

@@ -8,12 +8,14 @@ using Connapse.Storage.Connectors.Atlassian;
 namespace Connapse.Storage.ConnectionTesters;
 
 /// <summary>The site and service-account credential an administrator wants to save.</summary>
-public sealed record AtlassianSiteTestRequest(string SiteUrl, string ClientId, string ClientSecret)
+/// <param name="Product">The product the connection reads; the test runs that product's probes only.</param>
+public sealed record AtlassianSiteTestRequest(
+    string SiteUrl, string ClientId, string ClientSecret, AtlassianProduct Product = AtlassianProduct.Confluence)
 {
     // The generated ToString would print the secret into any log line or message it reached.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***");
+        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***, Product = {Product}");
         return true;
     }
 }
@@ -151,6 +153,9 @@ public static class AtlassianSiteTroubleshooting
     /// <summary>A synced space answered 403 or 404: access was taken away, or the space was deleted.</summary>
     public const string SpaceUnreadable = "space-can-no-longer-be-read";
 
+    /// <summary>A synced Jira project answered 403 or 404: access was taken away, or the project was deleted.</summary>
+    public const string ProjectUnreadable = "project-can-no-longer-be-read";
+
     /// <summary>Atlassian could not be reached, or answered in a way that says nothing about the credential.</summary>
     public const string Unreachable = "couldnt-reach-atlassian";
 
@@ -168,7 +173,7 @@ public static class AtlassianSiteTroubleshooting
          CantReadJira, NotJiraAdministrator, CantReadJiraMembership, General];
 
     /// <summary>The entries only sync, the spaces dialog and the linking app link to; the site test never fails with these.</summary>
-    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, Unreachable, AttachmentsSkipped];
+    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, ProjectUnreadable, Unreachable, AttachmentsSkipped];
 
     public static string UrlOf(string anchor) => $"{GuideUrl}#{anchor}";
 }
@@ -199,6 +204,7 @@ internal sealed record ProductProbeResult(
 /// or message, never a secret or token). A site that passes carries its <c>cloudId</c>,
 /// <c>siteUrl</c> and confirmed <c>scopes</c> in <c>Details</c>; so does a warning, a check that
 /// could not finish only because the site has no pages or no other user yet.
+/// A Jira connection runs Jira's probes in place of Confluence's, with the same keys.
 /// </summary>
 /// <remarks>
 /// Uses its own token cache, never the shared one: that cache is keyed by client id, so a candidate
@@ -289,11 +295,12 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
         var run = new Run();
 
+        string product = request.Product == AtlassianProduct.Jira ? "Jira" : "Confluence";
         string? siteUrl = AtlassianSiteResolver.NormalizeSiteUrl(request.SiteUrl);
         if (siteUrl is null)
             return run.Fail(
                 "The site address must look like https://your-site.atlassian.net. Copy it from your browser's address bar "
-                + "while Confluence is open.");
+                + $"while {product} is open.");
 
         if (string.IsNullOrWhiteSpace(request.ClientId) || string.IsNullOrWhiteSpace(request.ClientSecret))
         {
@@ -309,9 +316,9 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             if (cloudId is null)
                 return run.Fail(
                     $"Couldn't find an Atlassian Cloud site at {siteUrl}. Check the spelling: it is the address in your "
-                    + "browser when you open Confluence.");
+                    + $"browser when you open {product}.");
 
-            var site = new AtlassianSite(siteUrl, cloudId, request.ClientId.Trim());
+            var site = new AtlassianSite(siteUrl, cloudId, request.ClientId.Trim(), request.Product);
             var tokens = new AtlassianTokenSource(httpClients, time ?? TimeProvider.System);
 
             run.Enter(TokenStep);
@@ -336,22 +343,22 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 return run.Fail(SignInUnansweredMessage, AtlassianSiteTroubleshooting.General, Describe(ex));
             }
 
-            var results = new List<ProductProbeResult>();
-            foreach (IAtlassianProductProbe probe in ProductProbes())
-            {
-                try
-                {
-                    results.Add(await probe.RunAsync(site, request.ClientSecret, tokens, run, linked));
-                }
-                catch (Exception ex) when (Unanswered(ex, ct) is { } failure)
-                {
-                    // Ends this product's probe at the step it was on; the next product still runs, so a
-                    // Confluence rate limit can't hide a working Jira.
-                    results.Add(run.For(probe.Product).Fail(failure.Message, failure.Troubleshoot, failure.Detail));
-                }
-            }
+            IAtlassianProductProbe probe = request.Product == AtlassianProduct.Jira
+                ? new JiraSiteProbe(httpClients, time)
+                : new ConfluenceSiteProbe(httpClients, time);
+            ProductProbeResult result = await probe.RunAsync(site, request.ClientSecret, tokens, run, linked);
 
-            return Combine(results, run, siteUrl, cloudId);
+            if (result.Passed)
+                return ConnectionTestResult.CreateSuccess(
+                    $"Connected to {siteUrl}: found the site, signed in as the service account, {result.Message}.",
+                    new Dictionary<string, object>
+                    {
+                        ["cloudId"] = cloudId,
+                        ["siteUrl"] = siteUrl,
+                        ["scopes"] = result.ConfirmedScopes.ToArray(),
+                    },
+                    run.Elapsed);
+            return result.Warning ? run.Warn(result, siteUrl, cloudId) : run.Fail(result);
         }
         catch (Exception ex) when (Unanswered(ex, ct) is { } failure)
         {
@@ -380,58 +387,6 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 AtlassianSiteTroubleshooting.General, Describe(ex)),
         _ => null,
     };
-
-    /// <summary>The products a site test probes once the token works, in the order they are reported.</summary>
-    private IReadOnlyList<IAtlassianProductProbe> ProductProbes() =>
-        [new ConfluenceSiteProbe(httpClients, time), new JiraSiteProbe(httpClients, time)];
-
-    /// <summary>
-    /// The test passes if any product passed, warns if none passed but one warned, and otherwise fails
-    /// with the first product's failure. <c>Details["products"]</c> names the products that passed or warned,
-    /// <c>Details["scopes"]</c> is the union of their confirmed scopes, and <c>Details["product:{name}"]</c>
-    /// holds the message of each product that didn't pass, with its step and troubleshooting entry in
-    /// <c>Details["product:{name}:step"]</c> and <c>Details["product:{name}:troubleshoot"]</c>.
-    /// </summary>
-    private static ConnectionTestResult Combine(IReadOnlyList<ProductProbeResult> results, Run run, string siteUrl, string cloudId)
-    {
-        List<ProductProbeResult> passed = results.Where(r => r.Passed).ToList();
-        ConnectionTestResult combined;
-        if (passed.Count > 0)
-        {
-            string[] scopes = passed.SelectMany(r => r.ConfirmedScopes).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            combined = ConnectionTestResult.CreateSuccess(
-                passed.Count == 1
-                    ? $"Connected to {siteUrl}: found the site, signed in as the service account, {passed[0].Message}."
-                    : $"Connected to {siteUrl}: {string.Join(" and ", passed.Select(r => AtlassianSiteScopes.DisplayName(r.Product)))} "
-                      + "are ready. Connapse found the site and signed in as the service account. "
-                      + string.Join(" ", passed.Select(r => $"In {AtlassianSiteScopes.DisplayName(r.Product)}, it {r.Message}.")),
-                new Dictionary<string, object>
-                {
-                    ["cloudId"] = cloudId,
-                    ["siteUrl"] = siteUrl,
-                    ["scopes"] = scopes,
-                },
-                run.Elapsed);
-        }
-        else if (results.FirstOrDefault(r => r.Warning) is { } warned)
-            combined = run.Warn(warned, siteUrl, cloudId);
-        else
-            combined = run.Fail(results[0]);
-
-        // A product that only warned is usable once the admin saves past the warning, so it counts.
-        List<string> usable = results.Where(r => r.Passed || r.Warning).Select(r => r.Product).ToList();
-        if (usable.Count > 0)
-            combined.Details!["products"] = string.Join(",", usable);
-        foreach (ProductProbeResult result in results.Where(r => !r.Passed && r.Message is not null))
-        {
-            combined.Details!["product:" + result.Product] = result.Message!;
-            if (result.Step is not null)
-                combined.Details["product:" + result.Product + ":step"] = result.Step;
-            if (result.Troubleshoot is not null)
-                combined.Details["product:" + result.Product + ":troubleshoot"] = result.Troubleshoot;
-        }
-        return combined;
-    }
 
     /// <summary>The step being run, and the clocks for the whole test and that step.</summary>
     internal sealed class Run

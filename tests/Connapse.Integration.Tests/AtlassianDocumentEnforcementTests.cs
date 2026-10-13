@@ -8,6 +8,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using Connapse.Storage.CloudScope;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Connapse.Web.Mcp;
@@ -425,5 +426,239 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
             (await guard.CanReadAsync(user, await DocumentAsync(name), default)).Should().BeTrue(name);
         (await guard.CanReadAsync(user, await DocumentAsync("allowed-page.md"), default))
             .Should().BeFalse("the user has no Atlassian link");
+    }
+
+    // ── Jira ──────────────────────────────────────────────────────────────
+
+    private const string JiraGroup = "6e87dc72-4f1f-421f-9382-2fee8b652487";
+
+    private int JiraCalls => fixture.Atlassian.Calls
+        .Where(c => c.Key.StartsWith($"/ex/jira/{_cloudId}/", StringComparison.Ordinal)).Sum(c => c.Value);
+
+    /// <summary>
+    /// Issue 30001, a comment restricted to <see cref="JiraGroup"/> and an internal note.
+    /// <see cref="AllowedAccount"/> browses the issue, is an agent and is in the group;
+    /// <see cref="DeniedAccount"/> is a customer who only browses it.
+    /// </summary>
+    private async Task<Guid> SeedJiraAsync(IServiceProvider sp, params (string Name, string? Uri)[] more)
+    {
+        var jira = new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId).MapEnforcement();
+        jira.Browse(AllowedAccount, "30001");
+        jira.Agent(AllowedAccount, "30001");
+        jira.Groups(AllowedAccount, ("engineering", JiraGroup));
+        jira.Browse(DeniedAccount, "30001");
+        // Jira still gives each comment the visibility its URI carries.
+        jira.LiveComment("30001", "501", new { type = "group", identifier = JiraGroup });
+        jira.LiveComment("30001", "502", jsdPublic: false);
+
+        await sp.GetRequiredService<IConnectionStore>().CreateAsync(new CreateConnectionRequest(
+            $"atl-{_cloudId}", ConnectionProvider.Atlassian,
+            $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-{{_cloudId}}","product":"jira"}""",
+            "service-secret"), null);
+
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"c-{Guid.NewGuid():N}" };
+        db.Containers.Add(container);
+
+        foreach (var (name, uri) in new (string, string?)[]
+                 {
+                     ("jira-issue.md", AtlassianUri.ForJiraIssue(_cloudId, "30001")),
+                     ("jira-group-comment.md", AtlassianUri.ForJiraComment(_cloudId, "30001", "501", false,
+                         new JiraRestriction(JiraRestrictionType.Group, JiraGroup))),
+                     ("jira-internal-note.md", AtlassianUri.ForJiraComment(_cloudId, "30001", "502", true, null)),
+                     ("upload.md", null),
+                 }.Concat(more))
+        {
+            var document = new DocumentEntity
+            {
+                Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
+                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow, Metadata = [],
+            };
+            db.Documents.Add(document);
+            db.Chunks.Add(new ChunkEntity
+            {
+                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = container.Id,
+                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return container.Id;
+    }
+
+    private async Task<IEnumerable<string?>> SearchJiraAsync(string? atlassianAccount)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        return await SearchAsync(await SeedJiraAsync(scope.ServiceProvider), atlassianAccount);
+    }
+
+    [Fact]
+    public async Task Search_JiraLinkedAllowed_SeesIssueRestrictedCommentAndNote()
+    {
+        var names = await SearchJiraAsync(AllowedAccount);
+
+        names.Should().Contain(["jira-issue.md", "jira-group-comment.md", "jira-internal-note.md", "upload.md"]);
+    }
+
+    [Fact]
+    public async Task Search_JiraCommentRestrictionChangedInJira_DeniedToTheOldGroup()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid containerId = await SeedJiraAsync(scope.ServiceProvider,
+            ("jira-regrouped-comment.md", AtlassianUri.ForJiraComment(_cloudId, "30001", "504", false,
+                new JiraRestriction(JiraRestrictionType.Group, JiraGroup))));
+        // Restricted to another group in Jira since the last sync; the URI still names the old one.
+        new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId)
+            .LiveComment("30001", "504", new { type = "group", identifier = "0b5e1b8e-56b0-4a35-9b8a-3a6b3c0c9f11" });
+
+        var names = await SearchAsync(containerId, AllowedAccount);
+
+        names.Should().Contain(["jira-issue.md", "jira-group-comment.md"]).And.NotContain("jira-regrouped-comment.md");
+    }
+
+    [Fact]
+    public async Task Search_JiraLinkedDenied_SeesOnlyTheIssue()
+    {
+        var names = await SearchJiraAsync(DeniedAccount);
+
+        names.Should().Contain(["jira-issue.md", "upload.md"])
+            .And.NotContain(["jira-group-comment.md", "jira-internal-note.md"]);
+        JiraCalls.Should().BeGreaterThan(0, "a linked user's Jira hits are checked live");
+    }
+
+    [Fact]
+    public async Task Search_JiraUnlinked_SeesNoneAndMakesNoCalls()
+    {
+        var names = await SearchJiraAsync(atlassianAccount: null);
+
+        names.Should().NotContain(["jira-issue.md", "jira-group-comment.md", "jira-internal-note.md"])
+            .And.Contain("upload.md");
+        JiraCalls.Should().Be(0);
+    }
+
+    /// <summary>
+    /// Syncs issue 30001 with <see cref="JiraProjectConnector"/> against a Jira of its own and returns
+    /// the URIs it lists: a comment restricted to the role <c>QA/Ops Team</c>, an attachment linked
+    /// from it, and an attachment no restricted comment links.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> ConnectorJiraUrisAsync()
+    {
+        using var api = new Connapse.Core.Tests.Connectors.FakeAtlassianApi();
+        var jira = new Connapse.Core.Tests.Connectors.FakeJira(api, _cloudId).MapSync();
+        jira.AddProject(Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "ENG", "Engineering");
+        var issue = jira.AddIssue(new Connapse.Core.Tests.Connectors.FakeJiraIssue("30001", "ENG-1", "Rollout", DateTimeOffset.UtcNow));
+        var at = DateTimeOffset.UtcNow.AddDays(-1);
+        jira.Attach(issue, new Connapse.Core.Tests.Connectors.FakeJiraAttachment("40001", "qa.txt", "qa notes"u8.ToArray(), at, null));
+        jira.Attach(issue, new Connapse.Core.Tests.Connectors.FakeJiraAttachment("40002", "open.txt", "open notes"u8.ToArray(), at, null));
+        issue.Comments.Add(new Connapse.Core.Tests.Connectors.FakeJiraComment("503", "Cy", "QA only", at,
+            Visibility: new { type = "role", value = "QA/Ops Team", identifier = "QA/Ops Team" },
+            RenderedBody: "<a href=\"https://acme.atlassian.net/rest/api/3/attachment/content/40001\">qa.txt</a>"));
+        jira.ServeComments(issue);
+
+        var site = new AtlassianSite("https://acme.atlassian.net", _cloudId, "client-" + _cloudId);
+        string root = Path.Combine(Path.GetTempPath(), "jira-enforcement-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var connector = new JiraProjectConnector(
+                new JiraProjectConfig(site, Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "ENG", root),
+                new AtlassianApiClient(api.CreateClient(), new AtlassianTokenSource(new SingleHandlerFactory(api), TimeProvider.System),
+                    site, "secret", product: AtlassianProduct.Jira),
+                fileTypes: new TextFiles());
+            var delta = await connector.GetChangesAsync(null);
+            return delta.Upserted.ToDictionary(f => f.Path, f => f.ResourceUri!);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class SingleHandlerFactory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    private sealed class TextFiles : IFileTypeValidator
+    {
+        public bool IsSupported(string fileName) => fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase);
+
+        public IReadOnlySet<string> SupportedExtensions { get; } = new HashSet<string> { ".txt" };
+    }
+
+    /// <summary>The role comment and both attachments, under the URIs the connector gave them; the allowed account is in the role.</summary>
+    private async Task<IEnumerable<string?>> SearchJiraRoleAndAttachmentsAsync(string atlassianAccount)
+    {
+        var uris = await ConnectorJiraUrisAsync();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid containerId = await SeedJiraAsync(scope.ServiceProvider,
+            ("jira-role-comment.md", uris["/issues/30001/comments/503.md"]),
+            ("jira-role-attachment.txt", uris["/issues/30001/attachments/40001/qa.txt"]),
+            ("jira-open-attachment.txt", uris["/issues/30001/attachments/40002/open.txt"]));
+        var jira = new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId);
+        jira.Role(Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "10007", "QA/Ops Team",
+            Connapse.Core.Tests.Connectors.FakeJira.UserActor(AllowedAccount));
+        jira.LiveComment("30001", "503", new { type = "role", value = "QA/Ops Team" });
+        jira.LiveIssueProject("30001", Connapse.Core.Tests.Connectors.FakeJira.ProjectId);
+        return await SearchAsync(containerId, atlassianAccount);
+    }
+
+    [Fact]
+    public async Task Search_JiraRoleMember_SeesRoleCommentAndItsAttachment()
+    {
+        var names = await SearchJiraRoleAndAttachmentsAsync(AllowedAccount);
+
+        names.Should().Contain(["jira-role-comment.md", "jira-role-attachment.txt", "jira-open-attachment.txt"]);
+    }
+
+    [Fact]
+    public async Task Search_JiraNotInRole_SeesOnlyTheUntiedAttachment()
+    {
+        var names = await SearchJiraRoleAndAttachmentsAsync(DeniedAccount);
+
+        names.Should().Contain(["jira-issue.md", "jira-open-attachment.txt"])
+            .And.NotContain(["jira-role-comment.md", "jira-role-attachment.txt"]);
+    }
+
+    [Fact]
+    public async Task McpGetDocument_DeniedJiraComment_ReturnsNotFound()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid containerId = await SeedJiraAsync(sp);
+        string denied = await DocumentIdAsync(sp, containerId, "jira-group-comment.md");
+        string allowed = await DocumentIdAsync(sp, containerId, "jira-issue.md");
+
+        var (deniedResult, missingResult, allowedResult) = await AsUserAsync(sp, DeniedAccount, async () => (
+            await McpTools.GetDocument(sp, containerId.ToString(), denied),
+            await McpTools.GetDocument(sp, containerId.ToString(), Guid.Empty.ToString()),
+            await McpTools.GetDocument(sp, containerId.ToString(), allowed)));
+
+        deniedResult.Should().Be(missingResult.Replace(Guid.Empty.ToString(), denied));
+        allowedResult.Should().NotContain("not found in this container");
+    }
+
+    [Fact]
+    public async Task RestGetDocument_DeniedJiraCommentAndNote_Return404()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        Guid containerId = await SeedJiraAsync(sp);
+        string comment = await DocumentIdAsync(sp, containerId, "jira-group-comment.md");
+        string note = await DocumentIdAsync(sp, containerId, "jira-internal-note.md");
+        string issue = await DocumentIdAsync(sp, containerId, "jira-issue.md");
+        using var client = await ViewerClientAsync(sp, DeniedAccount);
+        string Files(string id) => $"/api/containers/{containerId}/files/{id}";
+
+        var deniedResponse = await client.GetAsync(Files(comment));
+        var missingResponse = await client.GetAsync(Files(Guid.Empty.ToString()));
+        deniedResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await deniedResponse.Content.ReadAsStringAsync()).Should()
+            .Be((await missingResponse.Content.ReadAsStringAsync()).Replace(Guid.Empty.ToString(), comment));
+        (await client.GetAsync(Files(comment) + "/content")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.GetAsync(Files(note))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await client.GetAsync(Files(issue))).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }
