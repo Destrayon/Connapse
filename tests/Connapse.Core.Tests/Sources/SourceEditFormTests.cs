@@ -158,6 +158,22 @@ public class SourceEditFormTests
     }
 
     [Fact]
+    public void ToRequest_JiraAttachmentsChanged_KeepsTheProjectAndWritesTheNewSettings()
+    {
+        var source = MakeSource("""{"kind":"jira-project","projectId":"10000","projectKey":"ENG","includeAttachments":true,"maxAttachmentMb":25}""");
+        var form = SourceEditForm.From(source, ConnectionProvider.Atlassian);
+        form.Confluence.Should().BeNull("a Jira source is not a space");
+        form.Jira!.RequiredAttachmentScope.Should().Be("read:attachment:jira");
+        form.Jira.MaxAttachmentMb = 60;
+
+        var scope = JsonNode.Parse(form.ToRequest(source)!.ScopeJson!)!.AsObject();
+
+        scope["kind"]!.GetValue<string>().Should().Be("jira-project");
+        scope["projectId"]!.GetValue<string>().Should().Be("10000");
+        scope["maxAttachmentMb"]!.GetValue<int>().Should().Be(60);
+    }
+
+    [Fact]
     public void ToRequest_ConfluenceAttachmentsTurnedOffWithABadSize_StoresOffAndKeepsTheStoredSize()
     {
         var source = MakeSource(ConfluenceScope);

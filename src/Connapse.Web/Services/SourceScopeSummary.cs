@@ -46,6 +46,9 @@ public static class SourceScopeSummary
         if (ConfluenceSpace(node, siteHost) is { } space)
             return space;
 
+        if (JiraProject(node, siteHost) is { } project)
+            return project;
+
         if (GitHubRepository(node) is { } repository)
         {
             string kind = Str(node, "kind") is { } k && k.Equals("IssuesAndPullRequests", StringComparison.OrdinalIgnoreCase)
@@ -92,15 +95,34 @@ public static class SourceScopeSummary
             (null, { } k) => k,
             _ => "space " + (node["spaceId"]?.ToString() ?? "?"),
         };
+        return WithSiteAndAttachments(node, space, siteHost);
+    }
+
+    /// <summary>
+    /// <c>host / Jira project KEY · attachments up to 25 MB</c> for a Jira project scope, or null for
+    /// any other. A scope without its key shows the project id.
+    /// </summary>
+    private static string? JiraProject(JsonObject node, string? siteHost)
+    {
+        if (!string.Equals(Str(node, "kind"), Components.Sources.JiraProjectSelection.Kind, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        string project = "Jira project " + (Str(node, "projectKey") ?? node["projectId"]?.ToString() ?? "?");
+        return WithSiteAndAttachments(node, project, siteHost);
+    }
+
+    /// <summary>An Atlassian item prefixed with its site, when known, and followed by its attachment settings.</summary>
+    private static string WithSiteAndAttachments(JsonObject node, string item, string? siteHost)
+    {
         if (!string.IsNullOrWhiteSpace(siteHost))
-            space = $"{siteHost} / {space}";
+            item = $"{siteHost} / {item}";
 
         // The same defaults the connector applies when a key is missing.
         bool include = node["includeAttachments"]?.GetValueKind() != System.Text.Json.JsonValueKind.False;
         int maxMb = node["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int mb)
             ? mb
             : Components.Sources.ConfluenceSpaceSelection.DefaultMaxAttachmentMb;
-        return include ? $"{space} · attachments up to {maxMb} MB" : $"{space} · attachments off";
+        return include ? $"{item} · attachments up to {maxMb} MB" : $"{item} · attachments off";
     }
 
     /// <summary><c>owner/repo</c> for a GitHub scope, or null for any other provider's.</summary>

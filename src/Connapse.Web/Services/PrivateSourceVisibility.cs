@@ -64,7 +64,7 @@ public sealed class PrivateSourceVisibility(
     {
         // A Confluence space's name can itself be sensitive, and no per-user answer is cheap enough
         // to ask per listing, so these are shown to administrators only (who return before here).
-        if (IsConfluenceSpace(source.ScopeJson))
+        if (IsAtlassianContent(source.ScopeJson))
             return false;
 
         // The same holds for every kind an Atlassian connection carries, Jira's included, so the
@@ -95,9 +95,11 @@ public sealed class PrivateSourceVisibility(
     /// returns only what Confluence lets the caller read. A hidden private GitHub source stays
     /// unsearchable; being hidden is its permission answer.
     /// </summary>
-    public static bool IsSearchableWhenHidden(Source source) => IsConfluenceSpace(source.ScopeJson);
+    /// <remarks>A Jira project is the same: every hit is checked against Jira per user.</remarks>
+    public static bool IsSearchableWhenHidden(Source source) => IsAtlassianContent(source.ScopeJson);
 
-    private static bool IsConfluenceSpace(string? scopeJson)
+    /// <summary>A Confluence space or a Jira project: an Atlassian kind whose hits are checked live per user.</summary>
+    private static bool IsAtlassianContent(string? scopeJson)
     {
         try
         {
@@ -105,7 +107,8 @@ public sealed class PrivateSourceVisibility(
             return doc.RootElement.ValueKind == JsonValueKind.Object
                 && doc.RootElement.TryGetProperty("kind", out var kind)
                 && kind.ValueKind == JsonValueKind.String
-                && string.Equals(kind.GetString(), "confluence-space", StringComparison.OrdinalIgnoreCase);
+                && (string.Equals(kind.GetString(), "confluence-space", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(kind.GetString(), "jira-project", StringComparison.OrdinalIgnoreCase));
         }
         catch (JsonException)
         {
