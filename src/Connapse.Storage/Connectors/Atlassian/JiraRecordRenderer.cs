@@ -59,16 +59,31 @@ internal static partial class JiraRecordRenderer
         {
             md.Append('\n').Line("## Comments");
             foreach (var comment in comments)
-            {
-                md.Append('\n')
-                    .Line($"--- Comment by {OneLine(comment.AuthorName)}, {comment.Created.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} ---");
-                string body = Body(comment.Body);
-                if (body.Length > 0)
-                    md.Line(body);
-            }
+                AppendComment(md, comment);
         }
 
         return md.ToString();
+    }
+
+    /// <summary>
+    /// A restricted comment or internal note as its own document: the issue's breadcrumb with
+    /// <c>&gt; Comment</c>, then the comment as the issue document would show it.
+    /// </summary>
+    public static string RenderComment(string projectName, string issueKey, string issueSummary, JiraComment comment)
+    {
+        var md = new StringBuilder();
+        md.Append("# ").Line(Breadcrumb(projectName, issueKey, issueSummary) + " > Comment");
+        AppendComment(md, comment);
+        return md.ToString();
+    }
+
+    private static void AppendComment(StringBuilder md, JiraComment comment)
+    {
+        md.Append('\n')
+            .Line($"--- Comment by {OneLine(comment.AuthorName)}, {comment.Created.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} ---");
+        string body = Body(comment.Body);
+        if (body.Length > 0)
+            md.Line(body);
     }
 
     /// <summary>

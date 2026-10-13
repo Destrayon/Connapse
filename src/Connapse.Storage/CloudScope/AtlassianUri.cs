@@ -7,7 +7,14 @@ public enum JiraResourceKind { Issue, Comment, Attachment }
 public enum JiraRestrictionType { Group, Role }
 
 /// <summary>A group id, or a role named within one project.</summary>
-public sealed record JiraRestriction(JiraRestrictionType Type, string Value, string? ProjectId = null);
+public sealed record JiraRestriction(JiraRestrictionType Type, string Value, string? ProjectId = null)
+{
+    /// <summary>
+    /// A restriction Connapse could not interpret: the all-zero group, which no user is in, so the
+    /// document it governs is visible to nobody.
+    /// </summary>
+    public static readonly JiraRestriction DenyAll = new(JiraRestrictionType.Group, Guid.Empty.ToString("D"));
+}
 
 /// <summary>What a Jira document's URI says governs it.</summary>
 public sealed record JiraResource(
