@@ -16,15 +16,14 @@ using SourcesPage = Connapse.Web.Components.Pages.Sources;
 namespace Connapse.Web.Tests.Components;
 
 /// <summary>
-/// The New source dialog on an Atlassian site that passed for Jira: a site that passed for both
-/// products asks which one, a Jira-only site goes straight to its projects, and one source is
-/// created per project ticked, with the scope keys <c>ConnectorFactory</c> reads.
+/// The New source dialog on an Atlassian connection: it shows the picker of the connection's own
+/// product, with no product to choose, and one source is created per project ticked, with the
+/// scope keys <c>ConnectorFactory</c> reads.
 /// </summary>
 [Trait("Category", "Unit")]
 public class JiraProjectFormTests : IDisposable
 {
-    private const string BothCloudId = "11111111-2222-3333-4444-555555555555";
-    private const string JiraCloudId = "99999999-8888-7777-6666-555555555555";
+    private const string CloudId = "11111111-2222-3333-4444-555555555555";
 
     private readonly BunitContext ctx = new();
     private readonly StubHandler stub = new();
@@ -41,24 +40,22 @@ public class JiraProjectFormTests : IDisposable
 
     private static string Detail(string details, string name) => JsonDocument.Parse(details).RootElement.GetProperty(name).ToString();
 
-    // A connection reads one product: a site whose only product is Jira is a Jira connection.
-    private static Connection Site(string host, string cloudId, params string[] products) => new(
-        Guid.NewGuid(), host, ConnectionProvider.Atlassian,
-        products is ["jira"]
-            ? $$"""{"siteUrl":"https://{{host}}","cloudId":"{{cloudId}}","clientId":"client-1","product":"jira"}"""
-            : $$"""{"siteUrl":"https://{{host}}","cloudId":"{{cloudId}}","clientId":"client-1"}""",
+    /// <summary>A site's connection for one product; <c>null</c> writes no product, as a connection saved before Jira did.</summary>
+    private static Connection Site(string name, string? product) => new(
+        Guid.NewGuid(), name, ConnectionProvider.Atlassian,
+        product is null
+            ? $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}"""
+            : $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"{{product}}"}""",
         null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true,
         Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
             ConfirmedScopes: [AtlassianSiteScopes.JiraAttachment]));
 
-    private readonly Connection both = Site("acme.atlassian.net", BothCloudId, "confluence", "jira");
-    private readonly Connection jiraOnly = Site("globex.atlassian.net", JiraCloudId, "jira");
+    // One site, added twice: once as each product's connection.
+    private readonly Connection confluence = Site("acme.atlassian.net", "confluence");
+    private readonly Connection jira = Site("acme.atlassian.net (Jira)", "jira");
 
-    /// <summary>A site whose test passed before Jira was checked: no products listed, so Confluence only.</summary>
-    private readonly Connection untested = Site("initech.atlassian.net", BothCloudId) with
-    {
-        Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test"),
-    };
+    /// <summary>A connection saved before connections named their product: a Confluence one.</summary>
+    private readonly Connection legacy = Site("legacy.atlassian.net", null);
 
     public JiraProjectFormTests()
     {
@@ -72,8 +69,8 @@ public class JiraProjectFormTests : IDisposable
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(stub, disposeHandler: false));
 
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Connection>>([both, jiraOnly, untested]));
-        foreach (var site in new[] { both, jiraOnly, untested })
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([confluence, jira, legacy]));
+        foreach (var site in new[] { confluence, jira, legacy })
         {
             connections.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
             connections.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
@@ -138,17 +135,18 @@ public class JiraProjectFormTests : IDisposable
     [Fact]
     public void NewSource_ConfluenceConnection_ShowsSpacesWithoutAProductChoice()
     {
-        var cut = OpenDialog(both);
+        var cut = OpenDialog(confluence);
 
         cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
-        cut.FindAll("#atlassian-product-jira").Should().BeEmpty("a connection reads one product (#725)");
+        cut.FindAll("#atlassian-product").Should().BeEmpty("a connection reads one product (#725)");
+        cut.FindAll("input[name='atlassian-product']").Should().BeEmpty();
         cut.FindAll("#jira-projects").Should().BeEmpty();
     }
 
     [Fact]
-    public void NewSource_JiraConnectionWhoseLastTestFailed_StillShowsItsProducts()
+    public void NewSource_JiraConnectionWhoseLastTestFailed_StillShowsTheProjectPicker()
     {
-        var cut = OpenDialog(jiraOnly with
+        var cut = OpenDialog(jira with
         {
             Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "jira-admin", Message: "m", Origin: "test"),
         });
@@ -158,21 +156,48 @@ public class JiraProjectFormTests : IDisposable
     }
 
     [Fact]
-    public void NewSource_JiraOnlySite_ShowsProjectPicker()
+    public void NewSource_JiraConnection_ShowsProjectPickerWithoutAProductChoice()
     {
-        var cut = OpenDialog(jiraOnly);
+        var cut = OpenDialog(jira);
 
         cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
         cut.Markup.Should().Contain("Engineering").And.Contain("(ENG)").And.Contain("Operations");
-        cut.FindAll("#atlassian-product-jira").Should().BeEmpty("a site with one product has nothing to choose");
+        cut.FindAll("#atlassian-product").Should().BeEmpty("a connection reads one product (#725)");
         cut.FindAll("#confluence-spaces").Should().BeEmpty();
         cut.Find("#jira-attachments").HasAttribute("checked").Should().BeTrue();
     }
 
     [Fact]
+    public void NewSource_ConnectionList_NamesEachConnectionsProduct()
+    {
+        var cut = OpenDialog(confluence);
+
+        var options = cut.FindAll("#source-connection option").Select(o => o.TextContent.Trim()).ToList();
+        options.Should().Contain("Confluence · acme.atlassian.net")
+            .And.Contain("Jira · acme.atlassian.net (Jira)")
+            .And.Contain("Confluence · legacy.atlassian.net", "a connection without a product is a Confluence one");
+    }
+
+    [Fact]
+    public void NewSource_SwitchingToTheSitesJiraConnection_ShowsItsProjects_AndStartsOneJiraSetup()
+    {
+        var cut = OpenDialog(confluence);
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
+
+        cut.Find("#source-connection").Change(jira.Id.ToString());
+
+        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+        cut.FindAll("#confluence-spaces").Should().BeEmpty();
+        var started = SetupEvents().Where(e => e.Action == AtlassianSourceSetupEvents.Started).ToList();
+        started.Select(e => Detail(e.Details, "Product")).Should().Equal(["confluence", "jira"],
+            "each setup takes its product from the connection it opened on");
+        started.Select(e => Detail(e.Details, "Attempt")).Distinct().Should().HaveCount(2);
+    }
+
+    [Fact]
     public void JiraForm_CreatesOneSourcePerProject()
     {
-        var cut = OpenDialog(jiraOnly);
+        var cut = OpenDialog(jira);
         cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
 
         cut.Find("#project-10000").Change(true);
@@ -181,8 +206,8 @@ public class JiraProjectFormTests : IDisposable
         cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
 
         cut.WaitForAssertion(() => created.Should().HaveCount(2));
-        created.Select(r => r.Name).Should().BeEquivalentTo("globex.atlassian.net / Engineering", "globex.atlassian.net / Operations");
-        created.Should().OnlyContain(r => r.ConnectionId == jiraOnly.Id);
+        created.Select(r => r.Name).Should().BeEquivalentTo("acme.atlassian.net / Engineering", "acme.atlassian.net / Operations");
+        created.Should().OnlyContain(r => r.ConnectionId == jira.Id);
 
         using var doc = JsonDocument.Parse(created.Single(r => r.Name.EndsWith("Engineering")).ScopeJson);
         doc.RootElement.GetProperty("kind").GetString().Should().Be("jira-project");
@@ -193,19 +218,37 @@ public class JiraProjectFormTests : IDisposable
     }
 
     [Fact]
-    public void NewSource_PassingSiteWithoutProducts_OffersConfluenceOnly()
+    public void Create_ConnectionStoredForTheOtherProduct_IsRefusedAndCreatesNothing()
     {
-        var cut = OpenDialog(untested);
+        var cut = OpenDialog(jira);
+        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+        // The dialog opened on a Jira connection, but the stored connection now reads Confluence.
+        connections.GetAsync(jira.Id, Arg.Any<CancellationToken>())
+            .Returns(jira with { ConfigJson = confluence.ConfigJson });
 
-        cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
-        cut.FindAll("#atlassian-product-jira").Should().BeEmpty("a site last tested before Jira counts as Confluence only");
-        cut.FindAll("#jira-projects").Should().BeEmpty();
+        cut.Find("#project-10000").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#jira-projects").TextContent.Should().Contain(
+            "Connection 'acme.atlassian.net (Jira)' is a Confluence connection, so it can't hold a Jira source."));
+        created.Should().BeEmpty();
+        var failed = SetupEvents().Single(e => e.Action == AtlassianSourceSetupEvents.StepFailed).Details;
+        Detail(failed, "Reason").Should().Be("wrong_product");
     }
 
     [Fact]
-    public void Funnel_JiraOnlySite_IsOneJiraAttemptFromStartToCompletion()
+    public void NewSource_ConnectionWithoutAProduct_OffersConfluenceOnly()
     {
-        var cut = OpenDialog(jiraOnly);
+        var cut = OpenDialog(legacy);
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
+        cut.FindAll("#jira-projects").Should().BeEmpty("a connection saved before #725 is a Confluence connection");
+    }
+
+    [Fact]
+    public void Funnel_JiraConnection_IsOneJiraAttemptFromStartToCompletion()
+    {
+        var cut = OpenDialog(jira);
         cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
 
         cut.Find("#project-10000").Change(true);
@@ -224,7 +267,7 @@ public class JiraProjectFormTests : IDisposable
     [Fact]
     public void Funnel_ProjectNotChosen_RecordsTheFailedCreateStep()
     {
-        var cut = OpenDialog(jiraOnly);
+        var cut = OpenDialog(jira);
         cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
 
         cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();

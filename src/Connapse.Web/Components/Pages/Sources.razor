@@ -356,7 +356,7 @@
                                 aria-describedby="source-connection-help" @onchange="OnConnectionChanged">
                             @foreach (var connection in connections)
                             {
-                                <option value="@connection.Id">@connection.Name (@ProviderName(connection.Provider))</option>
+                                <option value="@connection.Id">@ConnectionLabel(connection)</option>
                             }
                         </select>
                         <div id="source-connection-help" class="form-text">
@@ -424,29 +424,10 @@
                             <div class="form-text ms-4">Comments from bots are left out. After adding, choose exceptions on the source's edit page.</div>
                         </fieldset>
                     }
-                    else if (selectedProvider is ConnectionProvider.Atlassian && confluenceForm is not null && jiraForm is not null)
+                    else if (selectedProvider is ConnectionProvider.Atlassian && ShownAtlassianSelection is not null)
                     {
-                        @* A site that passed for both products asks which one; one that passed for Jira
-                           alone goes straight to its projects. *@
-                        @if (SiteOffersBoth)
-                        {
-                            <fieldset class="mb-3" id="atlassian-product">
-                                <legend class="form-label fs-6 mb-1">Product</legend>
-                                <div class="form-check form-check-inline">
-                                    <input id="atlassian-product-confluence" type="radio" name="atlassian-product" class="form-check-input"
-                                           checked="@(atlassianProduct == AtlassianSiteScopes.ConfluenceProduct)"
-                                           @onchange="() => ChooseProductAsync(AtlassianSiteScopes.ConfluenceProduct)" />
-                                    <label for="atlassian-product-confluence" class="form-check-label">Confluence spaces</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input id="atlassian-product-jira" type="radio" name="atlassian-product" class="form-check-input"
-                                           checked="@(atlassianProduct == AtlassianSiteScopes.JiraProduct)"
-                                           @onchange="() => ChooseProductAsync(AtlassianSiteScopes.JiraProduct)" />
-                                    <label for="atlassian-product-jira" class="form-check-label">Jira projects</label>
-                                </div>
-                            </fieldset>
-                        }
-                        @if (atlassianProduct == AtlassianSiteScopes.JiraProduct)
+                        @* A connection reads one product, so the dialog shows that product's picker. *@
+                        @if (jiraForm is not null)
                         {
                             @* Each project ticked becomes its own source, named after the site and the project. *@
                             <JiraProjectForm ConnectionId="@form.ConnectionId" Selection="jiraForm" SiteName="@SelectedConnection?.Name"
@@ -721,23 +702,11 @@
     /// <summary>Project ids the chosen Atlassian connection already has a source for.</summary>
     private IReadOnlySet<string> jiraExisting = new HashSet<string>();
 
-    /// <summary>Which product's sources the dialog adds on an Atlassian site: <c>confluence</c> or <c>jira</c>.</summary>
-    private string atlassianProduct = AtlassianSiteScopes.ConfluenceProduct;
-
-    /// <summary>The selection of the product the dialog shows now, whose setup is the one being measured.</summary>
-    private AtlassianSourceSelection? ShownAtlassianSelection =>
-        atlassianProduct == AtlassianSiteScopes.JiraProduct ? jiraForm : confluenceForm;
-
-    /// <summary>The attempts whose setup_started is written, so switching products back and forth starts each once.</summary>
-    private readonly HashSet<Guid> startedSetups = [];
-
     /// <summary>
-    /// The chosen site passed for both products, so the dialog asks which. A site last tested before
-    /// Jira was lists no products and counts as Confluence only until it is tested again.
+    /// The picker the dialog shows on an Atlassian connection, of the connection's own product, whose
+    /// setup is the one being measured. Only that product's selection is made.
     /// </summary>
-    private bool SiteOffersBoth => SelectedConnection is { Provider: ConnectionProvider.Atlassian } site
-        && AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.ConfluenceProduct)
-        && AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.JiraProduct);
+    private AtlassianSourceSelection? ShownAtlassianSelection => (AtlassianSourceSelection?)jiraForm ?? confluenceForm;
     private bool creating;
     private string? createError;
     private string? createWarning;
@@ -884,6 +853,11 @@
         ConnectionProvider.Sftp => "SFTP",
         _ => provider.ToString(),
     };
+
+    /// <summary>A connection in the picker: an Atlassian site by its product, as <c>Jira · acme.atlassian.net</c>; others by their provider.</summary>
+    private static string ConnectionLabel(Connection connection) => connection.Provider == ConnectionProvider.Atlassian
+        ? AtlassianSiteStatus.Label(connection, connection.Name)
+        : $"{connection.Name} ({ProviderName(connection.Provider)})";
 
     /// <summary>Lists what the chosen GitHub connection's installation covers, for the repository suggestions.</summary>
     private async Task LoadGitHubSuggestionsAsync()
@@ -1197,18 +1171,19 @@
     /// <summary>A fresh space selection, and which spaces the chosen Atlassian connection already has sources for.</summary>
     private async Task ResetConfluenceAsync()
     {
-        confluenceForm = ConfluenceSpaceSelection.ForSite(SelectedConnection);
-        confluenceExisting = new HashSet<string>();
-        jiraForm = JiraProjectSelection.ForSite(SelectedConnection);
-        jiraExisting = new HashSet<string>();
         // A connection reads one product, so its picker is that product's.
-        atlassianProduct = SelectedConnection is { Provider: ConnectionProvider.Atlassian } site
-            ? AtlassianSiteStatus.ProductOf(site)
-            : AtlassianSiteScopes.ConfluenceProduct;
+        bool jira = SelectedConnection is { Provider: ConnectionProvider.Atlassian } site
+            && AtlassianSiteStatus.ProductOf(site) == AtlassianSiteScopes.JiraProduct;
+        confluenceForm = jira ? null : ConfluenceSpaceSelection.ForSite(SelectedConnection);
+        confluenceExisting = new HashSet<string>();
+        jiraForm = jira ? JiraProjectSelection.ForSite(SelectedConnection) : null;
+        jiraExisting = new HashSet<string>();
         if (SelectedConnection is not { Provider: ConnectionProvider.Atlassian } connection)
             return;
 
-        await RecordStartedAsync(connection.Id);
+        // Each selection is new, so its setup starts once; its product is the connection's.
+        if (ShownAtlassianSelection is { } opened)
+            await RecordSetupAsync(() => AtlassianSourceSetupEvents.StartedAsync(AuditLogger, opened, connection.Id));
         try
         {
             var onConnection = await SourceStore.ListByConnectionAsync(connection.Id);
@@ -1219,22 +1194,6 @@
         {
             // Offering every space is safe: a duplicate is skipped again when the sources are created.
         }
-    }
-
-    /// <summary>Shows the other product's picker on a site that passed for both, and starts measuring its setup.</summary>
-    private async Task ChooseProductAsync(string product)
-    {
-        atlassianProduct = product;
-        if (SelectedConnection is { Provider: ConnectionProvider.Atlassian } connection)
-            await RecordStartedAsync(connection.Id);
-    }
-
-    /// <summary>Writes setup_started for the shown product's selection, once per attempt.</summary>
-    private async Task RecordStartedAsync(Guid connectionId)
-    {
-        if (ShownAtlassianSelection is not { } opened || !startedSetups.Add(opened.Attempt))
-            return;
-        await RecordSetupAsync(() => AtlassianSourceSetupEvents.StartedAsync(AuditLogger, opened, connectionId));
     }
 
     /// <summary>Writes an Atlassian setup event; a failure to record it never reaches the dialog.</summary>
@@ -1274,6 +1233,14 @@
         {
             selection.ItemsError = $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.";
             await CreateFailed("incomplete_site");
+            return;
+        }
+
+        // A source's kind must match its connection's product, as the REST create requires.
+        if (AtlassianSourceScope.WrongProduct(connection, site.Product, selection.Product) is { } wrongProduct)
+        {
+            selection.ItemsError = wrongProduct;
+            await CreateFailed("wrong_product");
             return;
         }
 
@@ -1476,7 +1443,9 @@
 
         if (connection.Provider == ConnectionProvider.Atlassian)
         {
-            if (atlassianProduct == AtlassianSiteScopes.JiraProduct)
+            // Checked against the connection as stored now, not the copy the dialog opened with.
+            connection = await ConnectionStore.GetAsync(connection.Id) ?? connection;
+            if (jiraForm is not null)
                 await CreateAtlassianSourcesAsync<JiraProjectInfo, JiraProjectSelection>(connection, jiraForm);
             else
                 await CreateAtlassianSourcesAsync<ConfluenceSpaceInfo, ConfluenceSpaceSelection>(connection, confluenceForm);

@@ -2,6 +2,7 @@ using Bunit;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Web.Components.Connections;
 using Connapse.Web.Services;
 using FluentAssertions;
@@ -97,12 +98,25 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
-    public void ConnectionForm_ShowsConfluenceAndJiraScopeGroups()
+    public void NewConfluenceSite_ShowsOnlyConfluenceScopesAndSteps_AsBeforeJira()
     {
         var cut = ctx.Render<AtlassianConnectionForm>();
 
         cut.FindAll("#atlassian-scopes-confluence code").Select(c => c.TextContent)
             .Should().Equal(AtlassianSiteScopes.Confluence.Select(s => s.Name));
+        cut.FindAll("#atlassian-scopes-jira").Should().BeEmpty("a Confluence connection's credential holds Confluence scopes only");
+        cut.FindAll("[id^='atlassian-copy-jira']").Should().BeEmpty();
+        cut.Find("#atlassian-service-account-guide").TextContent.Should().NotContain("Jira");
+        cut.Find("#atlassian-service-account-guide").TextContent.Should().Contain("view access").And.Contain("admin group");
+        System.Text.RegularExpressions.Regex.Replace(cut.Find("#atlassian-site-intro").TextContent, @"\s+", " ").Trim().Should().Be(
+            "An Atlassian Cloud site, read as a service account. This service account reads your site for Atlassian sources and checks each user's access. The site is saved only once every check passes.");
+    }
+
+    [Fact]
+    public void NewJiraSite_ShowsOnlyJiraScopesAndItsOwnSteps()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Product, AtlassianProduct.Jira));
+
         var jira = cut.FindAll("#atlassian-scopes-jira li");
         jira.Select(li => li.QuerySelector("code")!.TextContent).Should().Equal(AtlassianSiteScopes.Jira.Select(s => s.Name));
         foreach (var (row, scope) in jira.Zip(AtlassianSiteScopes.Jira))
@@ -110,39 +124,63 @@ public class AtlassianConnectionFormTests : IDisposable
             row.TextContent.Should().Contain(scope.Reason);
             row.TextContent.Contains("Optional").Should().Be(scope.Optional, scope.Name);
         }
+        cut.FindAll("#atlassian-scopes-confluence").Should().BeEmpty("a Jira connection's credential holds Jira scopes only");
 
-        cut.Find("#atlassian-copy-jira-required").Click();
-        cut.Find("#atlassian-copy-jira-with-attachments").Click();
+        var guide = cut.Find("#atlassian-service-account-guide").TextContent;
+        guide.Should().Contain("Administer Jira").And.Contain("Browse projects").And.Contain("project role")
+            .And.NotContain("Confluence").And.NotContain("space");
+        cut.Find("#atlassian-site-intro").TextContent.Should().Contain("Jira");
+        cut.Markup.Should().Contain("The address in your browser when you open Jira");
+
         cut.Find("#atlassian-copy-required").Click();
-
+        cut.Find("#atlassian-copy-with-attachments").Click();
         var copied = ctx.JSInterop.Invocations.Where(i => i.Identifier == "connapse.copyToClipboard")
             .Select(i => ((string)i.Arguments[0]!).Split(' ')).ToList();
         copied[0].Should().Equal(AtlassianSiteScopes.Jira.Where(s => !s.Optional).Select(s => s.Name));
         copied[1].Should().Equal(AtlassianSiteScopes.Jira.Select(s => s.Name));
-        copied[2].Should().OnlyContain(s => s.EndsWith(":confluence"), "each group copies only its own product's scopes");
-        cut.Find("#atlassian-service-account-guide").TextContent.Should().Contain("Jira")
-            .And.Contain("project role");
+        AtlassianConnectionForm.RequiredJiraScopeList.Split(' ').Should().Equal(copied[0]);
     }
 
     [Fact]
-    public void CopyResult_ShowsBesideTheGroupWhoseButtonWasChosen()
+    public void NewJiraSite_CheckAndSave_TestsTheSiteForJiraOnly()
+    {
+        stub.AcceptCredentials = true;
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Product, AtlassianProduct.Jira));
+
+        FillAndSave(cut);
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-save-result"));
+        stub.Requests.Should().Contain(r => r.StartsWith("/ex/jira/", StringComparison.Ordinal))
+            .And.NotContain(r => r.StartsWith("/ex/confluence/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NewSite_ChoosingTheOtherProduct_DropsTheLastResult()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>();
+        FillAndSave(cut);
+        cut.WaitForAssertion(() => cut.Find("#atlassian-save-result"));
+
+        cut.Render(p => p.Add(f => f.Product, AtlassianProduct.Jira));
+
+        cut.FindAll("#atlassian-save-result").Should().BeEmpty("that result was the Confluence test's");
+        cut.Find("#atlassian-scopes-jira");
+    }
+
+    [Fact]
+    public void CopyResult_ShowsBesideTheCopyButtons()
     {
         ctx.JSInterop.Setup<bool>("connapse.copyToClipboard", _ => true).SetResult(true);
         var cut = ctx.Render<AtlassianConnectionForm>();
 
-        cut.Find("#atlassian-copy-jira-required").Click();
+        cut.Find("#atlassian-copy-required").Click();
 
-        cut.Find("#atlassian-copy-status-jira").TextContent.Should().Be("Copied.");
-        cut.Find("#atlassian-copy-status-confluence").TextContent.Should().BeEmpty();
-
-        cut.Find("#atlassian-scopes-confluence button").Click();
-
-        cut.Find("#atlassian-copy-status-confluence").TextContent.Should().Be("Copied.");
-        cut.Find("#atlassian-copy-status-jira").TextContent.Should().BeEmpty();
+        cut.Find("#atlassian-copy-status").TextContent.Should().Be("Copied.");
+        cut.Find("#atlassian-copy-status").GetAttribute("role").Should().Be("status");
     }
 
     [Fact]
-    public void SiteStatus_ShowsTheConnectionsOwnProduct()
+    public void ExistingJiraSite_ShowsOneStatusAndOnlyJiraScopes()
     {
         var site = AtlassianConnection(health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: "ok",
             Origin: "test", ConfirmedScopes: ["read:project:jira"])) with
@@ -152,10 +190,12 @@ public class AtlassianConnectionFormTests : IDisposable
 
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
 
-        cut.FindAll("#atlassian-site-product-confluence").Should().BeEmpty();
-        cut.Find("#atlassian-site-product-jira").TextContent.Should().Contain("Jira").And.Contain("Ready");
-        cut.Find("#atlassian-site-scopes").TextContent.Should().Contain("Confluence: 0 of 7 confirmed")
-            .And.Contain($"Jira: 1 of {AtlassianSiteScopes.Jira.Count} confirmed");
+        cut.FindAll("#atlassian-site-products").Should().BeEmpty("a connection reads one product, so it has one status");
+        cut.FindAll("#atlassian-site-details dt").Select(d => d.TextContent).Should().NotContain("Products");
+        cut.Find("#atlassian-site-status").TextContent.Should().Contain("Working");
+        cut.Find("#atlassian-site-scopes summary").TextContent.Should()
+            .Be($"Permissions Connapse needs (1 of {AtlassianSiteScopes.Jira.Count} confirmed by the last test)");
+        cut.FindAll("#atlassian-site-scopes code").Select(c => c.TextContent).Should().Equal(AtlassianSiteScopes.Jira.Select(s => s.Name));
     }
 
     [Fact]
@@ -488,8 +528,9 @@ public class AtlassianConnectionFormTests : IDisposable
         cut.Find("#atlassian-site-status").TextContent.Should().Contain("Working");
         cut.Find("#atlassian-site-last-success").TextContent.Should().Contain("2026-10-01 09:30 UTC");
         var scopes = cut.Find("#atlassian-site-scopes");
-        scopes.TextContent.Should().Contain("2 of 7 confirmed");
-        scopes.QuerySelectorAll("#atlassian-site-scopes-confluence li").Select(li => li.TextContent.Contains("Not confirmed"))
+        scopes.QuerySelector("summary")!.TextContent.Should().Be("Permissions Connapse needs (2 of 7 confirmed by the last test)");
+        cut.FindAll("#atlassian-site-products").Should().BeEmpty("a Confluence connection looks as it did before Jira");
+        scopes.QuerySelectorAll("li").Select(li => li.TextContent.Contains("Not confirmed"))
             .Should().Equal(false, false, true, true, true, true, true);
     }
 

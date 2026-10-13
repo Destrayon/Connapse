@@ -227,6 +227,33 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
     }
 
     [Fact]
+    public async Task OneSite_AddedAsBothConnections_EachHoldsItsOwnProductsSource()
+    {
+        const string host = "jira-api-both.atlassian.net";
+        Guid confluence = await CreateSiteAsync(host, product: "confluence");
+        Guid jira = await CreateSiteAsync(host);
+
+        var sites = await BodyAsync(await Admin.GetAsync("/api/v1/atlassian/sites"));
+        sites.EnumerateArray()
+            .Where(s => s.GetProperty("id").GetGuid() == confluence || s.GetProperty("id").GetGuid() == jira)
+            .Select(s => (s.GetProperty("name").GetString(), s.GetProperty("product").GetString()))
+            .Should().BeEquivalentTo([(host, "confluence"), ($"{host} (Jira)", "jira")]);
+
+        var space = await CreateSourceAsync(confluence, new { kind = "confluence-space", spaceId = "100" });
+        space.StatusCode.Should().Be(HttpStatusCode.Created, await space.Content.ReadAsStringAsync());
+        // Operations, not Engineering: a space and a project of one name on one site would share a source name.
+        var project = await CreateSourceAsync(jira, new { kind = "jira-project", projectId = "10001" });
+        project.StatusCode.Should().Be(HttpStatusCode.Created, await project.Content.ReadAsStringAsync());
+
+        using (var stored = JsonDocument.Parse(await StoredScopeAsync((await BodyAsync(space)).GetProperty("id").GetGuid())))
+            stored.RootElement.GetProperty("kind").GetString().Should().Be("confluence-space");
+        using (var stored = JsonDocument.Parse(await StoredScopeAsync((await BodyAsync(project)).GetProperty("id").GetGuid())))
+            stored.RootElement.GetProperty("kind").GetString().Should().Be("jira-project");
+        (await SourceCountAsync(confluence)).Should().Be(1);
+        (await SourceCountAsync(jira)).Should().Be(1);
+    }
+
+    [Fact]
     public async Task Patch_ProjectIdChange_Refused()
     {
         Guid site = await CreateSiteAsync("jira-api-patch.atlassian.net");

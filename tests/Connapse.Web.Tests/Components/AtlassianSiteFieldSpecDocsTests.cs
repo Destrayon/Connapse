@@ -101,20 +101,32 @@ public class AtlassianSiteStatusTests
     }
 
     [Fact]
-    public void ProductsOf_IsTheConnectionsOwnProduct_ReadyWhenItsLastCheckPassedOrWarned()
+    public void IsReady_OnlyForTheConnectionsOwnProduct_WhenItsLastCheckPassedOrWarned()
     {
-        AtlassianSiteStatus.ProductsOf(Site(null)).Select(p => p.Text).Should().Equal("Not checked yet");
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true))).Select(p => (p.Name, p.Ready)).Should().Equal(("Confluence", true));
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, warning: true, step: "admin"))).Single().Ready.Should().BeTrue();
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, step: "token"))).Single().Ready.Should().BeFalse();
+        AtlassianSiteStatus.IsReady(Site(null), AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse("not checked yet");
+        AtlassianSiteStatus.IsReady(Site(Check(ok: true)), AtlassianSiteScopes.ConfluenceProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: false, warning: true, step: "admin")), AtlassianSiteScopes.ConfluenceProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: false, step: "token")), AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: true)), AtlassianSiteScopes.JiraProduct).Should().BeFalse("a connection without a product is Confluence");
 
-        Connection jira = Site(Check(ok: true)) with
-        {
-            ConfigJson = """{"siteUrl":"https://acme.atlassian.net","cloudId":"11111111-2222-3333-4444-555555555555","clientId":"x","product":"jira"}""",
-        };
-        AtlassianSiteStatus.ProductsOf(jira).Select(p => (p.Name, p.Ready)).Should().Equal(("Jira", true));
+        Connection jira = Site(Check(ok: true)) with { ConfigJson = JiraConfig };
         AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.JiraProduct).Should().BeTrue();
         AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse();
+    }
+
+    private const string JiraConfig =
+        """{"siteUrl":"https://acme.atlassian.net","cloudId":"11111111-2222-3333-4444-555555555555","clientId":"x","product":"jira"}""";
+
+    [Fact]
+    public void Label_NamesTheConnectionsProduct()
+    {
+        Connection confluence = Site(null);
+        Connection jira = Site(null) with { Name = "acme.atlassian.net (Jira)", ConfigJson = JiraConfig };
+
+        AtlassianSiteStatus.ProductName(confluence).Should().Be("Confluence", "a connection without a product is Confluence");
+        AtlassianSiteStatus.ProductName(jira).Should().Be("Jira");
+        AtlassianSiteStatus.Label(confluence, "acme.atlassian.net").Should().Be("Confluence · acme.atlassian.net");
+        AtlassianSiteStatus.Label(jira, jira.Name).Should().Be("Jira · acme.atlassian.net (Jira)");
     }
 
     [Fact]
@@ -156,6 +168,22 @@ public class ConnectionsPageLifecycleTests
     public void AtlassianRows_ShowTheSiteStatus()
     {
         Markup.Should().Contain("AtlassianSiteStatus.Of(c)").And.Contain("Replace credentials");
+    }
+
+    [Fact]
+    public void AddConnection_OffersAConfluenceSiteAndAJiraSite()
+    {
+        Markup.Should().Contain("@bind=\"form.ProviderChoice\"")
+            .And.Contain("<option value=\"@ConnectionForm.ConfluenceSiteChoice\">Confluence site</option>")
+            .And.Contain("<option value=\"@ConnectionForm.JiraSiteChoice\">Jira site</option>")
+            .And.NotContain(">Atlassian site</option>");
+        Markup.Should().Contain("Product=\"@form.AtlassianProduct\"", "each add form shows its own product's scopes and steps");
+    }
+
+    [Fact]
+    public void AtlassianRows_NameTheProductBesideTheHost()
+    {
+        Markup.Should().Contain("AtlassianSiteStatus.Label(connection, form.AtlassianSiteHost ?? \"—\")");
     }
 
     [Fact]

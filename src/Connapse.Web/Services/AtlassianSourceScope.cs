@@ -114,6 +114,16 @@ public abstract class AtlassianSourceScope
         $"Connection '{connection.Name}' is a {actual} connection, so it can't hold a {wanted} source. "
         + $"Choose this site's {wanted} connection, or add one on the Connections page.";
 
+    /// <summary>
+    /// What the New source dialog says when a source of <paramref name="wantedProduct"/> (<c>confluence</c>
+    /// or <c>jira</c>) would go on a connection for <paramref name="actual"/>; null when they match.
+    /// </summary>
+    public static string? WrongProduct(Connection connection, AtlassianProduct actual, string wantedProduct) =>
+        AtlassianSite.ProductValue(actual) == wantedProduct
+            ? null
+            : WrongProduct(connection, actual,
+                wantedProduct == AtlassianSite.ProductValue(AtlassianProduct.Jira) ? AtlassianProduct.Jira : AtlassianProduct.Confluence);
+
     /// <summary>Whether a scope's <c>kind</c> value is a Jira project's; the one place that comparison is made.</summary>
     public static bool IsJiraKind(string? kind) => string.Equals(kind, JiraProjectSelection.Kind, StringComparison.OrdinalIgnoreCase);
 

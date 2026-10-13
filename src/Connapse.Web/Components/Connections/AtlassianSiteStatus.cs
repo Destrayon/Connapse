@@ -25,39 +25,27 @@ public sealed record AtlassianSiteStatus(string Text, string CssClass, string Ic
             new($"Last check failed: {AtlassianConnectionTester.StepLabel(h.Step)}", "text-danger", "bi-x-circle", false),
     };
 
-    /// <summary>
-    /// The connection's own product: ready when its last check passed or only warned. A connection
-    /// reads one product, so the list never names the other.
-    /// </summary>
-    public static IReadOnlyList<AtlassianProductStatus> ProductsOf(Connection site)
-    {
-        string product = ProductOf(site);
-        string name = AtlassianSiteScopes.DisplayName(product);
-        return site.Health switch
-        {
-            null => [new AtlassianProductStatus(product, name, false, "Not checked yet", "text-muted", "bi-question-circle")],
-            { Succeeded: true } or { Warning: true } =>
-                [new AtlassianProductStatus(product, name, true, "Ready", "text-success", "bi-check-circle")],
-            _ => [new AtlassianProductStatus(product, name, false, "Not available: the last test couldn't read it",
-                "text-muted", "bi-dash-circle")],
-        };
-    }
-
     /// <summary>The product a connection reads, as <c>confluence</c> or <c>jira</c>; a connection without one is Confluence.</summary>
     public static string ProductOf(Connection site) =>
         AtlassianSite.FromConfigJson(site.ConfigJson)?.Product == AtlassianProduct.Jira
             ? AtlassianSiteScopes.JiraProduct
             : AtlassianSiteScopes.ConfluenceProduct;
 
-    /// <summary>Whether sources of <paramref name="product"/> can be added on the site, as <see cref="ProductsOf"/> shows it.</summary>
+    /// <summary>The product a connection reads, as the page names it: Confluence or Jira.</summary>
+    public static string ProductName(Connection site) => AtlassianSiteScopes.DisplayName(ProductOf(site));
+
+    /// <summary>A connection as lists show it, its product first: <c>Confluence · acme.atlassian.net</c>.</summary>
+    public static string Label(Connection site, string name) => $"{ProductName(site)} · {name}";
+
+    /// <summary>
+    /// Whether sources of <paramref name="product"/> can be added on the site: it reads that product,
+    /// and its last check passed or only warned.
+    /// </summary>
     public static bool IsReady(Connection site, string product) =>
-        ProductsOf(site).Any(p => p.Ready && string.Equals(p.Product, product, StringComparison.OrdinalIgnoreCase));
+        string.Equals(ProductOf(site), product, StringComparison.OrdinalIgnoreCase)
+        && site.Health is { Succeeded: true } or { Warning: true };
 
     /// <summary>A check time as the page shows it: UTC, to the minute.</summary>
     public static string When(DateTime? utc) =>
         utc is { } at ? at.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) : "never";
 }
-
-/// <summary>One product of a saved site as the Connections page shows it.</summary>
-/// <param name="Ready">Sources of this product can be added.</param>
-public sealed record AtlassianProductStatus(string Product, string Name, bool Ready, string Text, string CssClass, string Icon);

@@ -61,7 +61,8 @@ public sealed record SetAtlassianSignInRequest(bool? SignInEnabled);
 
 /// <summary>
 /// A saved site as the REST API returns it: everything the Connections page shows, never the secret.
-/// <c>scopes</c> is included only for a single site.
+/// <c>scopes</c> is included only for a single site. <c>product</c> is what the connection reads:
+/// <c>confluence</c> or <c>jira</c>.
 /// </summary>
 public sealed record AtlassianSiteView(
     Guid Id,
@@ -69,6 +70,7 @@ public sealed record AtlassianSiteView(
     string? SiteUrl,
     string? CloudId,
     string? ClientId,
+    string Product,
     bool HasSecret,
     int SourceCount,
     bool SyncPaused,
@@ -537,6 +539,7 @@ public static class AtlassianEndpoints
             site?.SiteUrl,
             site?.CloudId,
             site?.ClientId,
+            AtlassianSite.ProductValue(site?.Product ?? AtlassianProduct.Confluence),
             connection.HasSecret,
             connection.SourceCount,
             syncPaused,
