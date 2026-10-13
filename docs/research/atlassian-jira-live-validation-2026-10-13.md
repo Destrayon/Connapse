@@ -11,6 +11,7 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 | 1 | Can a service account with client credentials read other users' groups and role actors? | **Yes** | The Jira site test passed its **Reading Jira groups and project roles** step, which calls `/user/groups` for another account and reads a space role's actors. |
 | — | Does **Jira Administration → App admin** on a service account grant Administer Jira? | **Yes**, without adding the account to `jira-admins-<site>` | The **Checking Jira access permissions** step passed (`permissions/check` for another account). On Jira's **Global permissions** page, `jira-admins-connapseos` had no members, so that page can't show the grant. |
 | — | Can a service account be added to a group and to space roles through the REST API? | **Yes** | The seed script's `POST /rest/api/3/group/user` and `POST /rest/api/3/project/ENG/role/{id}` calls for the service account succeeded with no manual step. |
+| — | Do restricted comments reach a linked member end to end? | **Yes**, for the owner's account | Searching as the site owner found each answer as result #1: the group-restricted comment (COBALT-41), the Developers comment (JUNIPER-88), the QA/Ops Team comment (SIGNOFF-ZEBRA-3, after the bulkfetch fix below), and the PDF tied to the group comment. The QA/Ops Team result shows that a role name containing `/` round-trips through the URI and the live role check. |
 
 ## Found and fixed while setting up
 
@@ -23,6 +24,8 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 - **The setup steps didn't match the live UI.** The gear opens **Jira admin settings**, and a space's settings are under **•••** next to its name → **Space settings**. Team-managed spaces have no "Browse spaces" permission. The guide, the Jira form and the error messages were corrected.
 
 ## Still open
+
+- **Searches as a second linked user outside the group and roles, and as an unlinked user.** The restricted answers must not appear for either, and nothing from ENG for the unlinked user.
 
 2. What a role restriction's `visibility.identifier` holds, and how team-managed space roles resolve.
 3. Whether a comment's author sees their own restricted comment.
