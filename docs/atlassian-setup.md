@@ -67,26 +67,28 @@ organization admin.**
    - Scopes can't be edited later. To change them, create a new credential, use **Replace credentials**
      on the connection in Connapse, then **Revoke** the old credential.
 
-**In Jira (gear icon → System). You must be a Jira admin.**
+**In Jira. You must be a Jira admin.** Jira's settings are behind the gear icon at the top right:
+choose **Jira admin settings**, and the sidebar opens on **System**. A space's own settings are behind
+**•••** next to the space's name at the top of the space → **Space settings**.
 
-3. Open **Settings** → **System** → **Global permissions** and check that the service account has both
-   of these:
-   - **Administer Jira**, normally through the site's Jira admins group (`jira-admins-<site>`, or
-     `jira-administrators` on older sites);
-   - **Browse users and groups**.
+3. Leave **Global permissions** as it is. It grants **Administer Jira** and **Browse users and groups**
+   to groups (`jira-admins-<site>`, `org-admins`, `jira-users-<site>`), and **App admin** from step 1
+   gives the service account admin rights without adding it to any of them, so **View Users** there
+   won't list it even when it works. Connapse's site check confirms it instead, at **Checking Jira
+   access permissions** (step 5). Only if that check fails, an organization admin adds the service
+   account to `jira-admins-<site>` in Atlassian Administration (**Directory** → **Groups** →
+   `jira-admins-<site>` → **Add group members**, or **Directory** → **Service accounts** → **•••** →
+   **Add to group**), and you test again.
+4. Check that the service account can browse every space you will index:
+   - **Company-managed spaces** on the default permission scheme grant **Browse spaces** (**Browse
+     projects**) to everyone with Jira access, so step 1 is enough.
+   - **A private team-managed space, or a custom permission scheme**, needs the service account added:
+     **•••** next to the space's name → **Space settings** → **Access**.
 
-   If either is missing, go to **Grant Permission** at the bottom of the page, choose the permission and
-   a group that contains the service account, then **Add**. An organization admin puts the service
-   account in a group in Atlassian Administration: **Directory** → **Service accounts** → **•••** →
-   **Add to group**. Trust the Global permissions page over the audit log, which can misreport grants.
-4. Check that the service account can browse every project you will index:
-   - **Company-managed projects** on the default permission scheme grant **Browse projects** (**Browse
-     spaces**) to everyone with Jira access, so step 1 is enough.
-   - **A custom permission scheme or a private team-managed project** needs the service account added:
-     **Project settings** (**Space settings**) → **Access**, or the scheme's **Browse projects** grant.
-
-   Then add the service account to every group and project role your team restricts comments to (step
-   2.4 explains why).
+   Then add the service account to every group and space role your team restricts comments to (step
+   2.4 explains why): groups under **Directory** → **Groups** in Atlassian Administration, space roles
+   under **Space settings** → **Access**. Jira creates a starter space when it's added to a site; leave
+   it alone unless you will index it.
 
 **In Connapse. You must be a Connapse admin.**
 
@@ -171,20 +173,19 @@ In [Atlassian Administration](https://admin.atlassian.com), as an organization a
    the **Viewer** role: open the space, choose **•••** next to its name in the sidebar → **Space
    settings** → **Users**, add the service account, and choose **Viewer**. On older sites without space
    roles the page is **Permissions**, where it needs **View**. Being an admin does not grant this.
-4. **For Jira**, a Jira admin checks the global permissions in Jira: open **Settings** (gear) →
-   **System** → **Global permissions** and check that the service account has **Administer Jira**
-   (normally through the site's Jira admins group, `jira-admins-<site>` or `jira-administrators`) and
-   **Browse users and groups**. Connapse needs them to ask Jira what each person may read, and the Jira
-   site's check in step 3 confirms them. If either is missing, choose **Grant Permission** at the bottom
-   of the page, pick the permission and a group that contains the service account, then **Add**. To put
-   the service account in a group, go to **Directory** → **Service accounts** → **•••** → **Add to
-   group** in Atlassian Administration.
+4. **For Jira**, the service account needs the **Administer Jira** and **Browse users and groups**
+   global permissions, so Connapse can ask Jira what each person may read. **App admin** on **Jira
+   Administration** (2.2) gives them without adding the account to any group, so Jira's **Global
+   permissions** page can't show it; the Jira site's check in step 3 (**Checking Jira access
+   permissions**) confirms it. If that check fails, add the service account to `jira-admins-<site>`:
+   **Directory** → **Groups** → `jira-admins-<site>` → **Add group members**, or **Directory** →
+   **Service accounts** → **•••** → **Add to group**.
 
    In every project you will index, the service account needs the **Browse projects** (**Browse
    spaces**) permission. Company-managed projects on the default permission scheme already grant it to
-   everyone with Jira access. A custom scheme or a private team-managed project needs the service account
-   added under **Project settings** (**Space settings**) → **Access**, or in the scheme's Browse projects
-   grant. Then add the service account to **every group and project role your team restricts comments
+   everyone with Jira access. A custom scheme or a private team-managed space needs the service account
+   added under **•••** next to the space's name → **Space settings** → **Access**, or in the scheme's
+   Browse spaces grant. Then add the service account to **every group and project role your team restricts comments
    to**: a comment restricted to a group or role the service account isn't in is never indexed, and
    Connapse can't tell it exists.
 5. Back on the service account, choose **Create credentials** → **OAuth 2.0** → **Next**, one credential
@@ -475,9 +476,10 @@ what other people may read in Jira.* while **Checking Jira access permissions**.
 **Likely cause:** the service account's **Jira Administration** row isn't **App admin**, or the
 Administer Jira global permission didn't reach it, so it can't ask Jira what another person may browse.
 **Fix:** in Atlassian Administration, under **Directory** → **Service accounts**, set **Jira** to
-**User** and **Jira Administration** to **App admin**. Then, as a Jira admin, open **Settings** →
-**System** → **Global permissions** and check that the service account has **Administer Jira**; if it
-doesn't, grant it there to a group the service account is in (step 2.4). Test again. If it already has
+**User** and **Jira Administration** to **App admin**, and test again. If it still fails, add the
+service account to the `jira-admins-<site>` group (**Directory** → **Groups** → `jira-admins-<site>` →
+**Add group members**), which holds Administer Jira on Jira's **Global permissions** page, and test
+again. If it already has
 Administer Jira, see [Missing scope](#missing-scope): the credential may lack `read:permission:jira`.
 
 ### Can't read Jira membership
@@ -487,12 +489,12 @@ Jira groups and project roles**.
 **Likely cause:** the service account lacks Administer Jira, or the credential lacks
 `read:group:jira` or `read:project-role:jira`. Connapse needs both to tell who may read a comment
 restricted to a group or a project role.
-**Fix:** set **Jira Administration** to **App admin** on the service account and check **Administer
-Jira** in Jira's **Global permissions** (step 2.4). If it has it, create a new credential with the Jira
+**Fix:** set **Jira Administration** to **App admin** on the service account, or add it to
+`jira-admins-<site>` (see [Not Jira administrator](#not-jira-administrator)). If it has it, create a new credential with the Jira
 scopes (step 2.5) and use **Replace credentials**. If **Details** says *Jira listed no project role
-Connapse could read*, the site has no project role yet: create one under **Settings** → **System** →
-**Project roles** (**Space roles**), add the service account to it in a project under **Project
-settings** (**Space settings**) → **Access**, and test again. On the test site, the seed script in
+Connapse could read*, the site has no project role yet: create one under the gear icon → **Jira admin settings** →
+**System** → **Space roles** (**Project roles**), add the service account to it in a space under **•••**
+next to the space's name → **Space settings** → **Access**, and test again. On the test site, the seed script in
 [Confluence test site](confluence-test-site.md#6-jira-optional) creates the roles.
 
 ### Linking app rejected
@@ -550,7 +552,7 @@ service account lost access to it.* or *… it was deleted, or the service accou
 **Likely cause:** someone removed the service account's **Browse projects** permission in the project,
 changed the project's permission scheme, or deleted or archived the project. The source's documents are
 hidden from search, not deleted, until the project can be read again.
-**Fix:** in the project, open **Project settings** (**Space settings**) → **Access** (or the permission
+**Fix:** in the space, open **•••** next to its name → **Space settings** → **Access** (or the permission
 scheme) and give the service account **Browse projects** (**Browse spaces**) again, then choose **Sync** on the source. If the project was
 deleted, delete the source.
 

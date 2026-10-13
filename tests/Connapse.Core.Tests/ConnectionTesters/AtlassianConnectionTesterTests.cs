@@ -173,7 +173,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Success.Should().BeFalse();
         result.Message.Should().Be(JiraSiteProbe.NotJiraAdministratorMessage);
         result.Message.Should().Contain("set Jira to User and Jira Administration to App admin")
-            .And.Contain("Settings > System > Global permissions").And.Contain("a group the service account is in")
+            .And.Contain("jira-admins-<site> group").And.Contain("Directory > Groups")
             .And.NotContain("admin role");
         result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
         result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NotJiraAdministrator);

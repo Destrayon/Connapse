@@ -236,14 +236,15 @@
                     <li>
                         On <strong>Select app roles</strong>, set <strong>Jira</strong> to <strong>User</strong> (access to Jira) and
                         <strong>Jira Administration</strong> to <strong>App admin</strong>, which gives the
-                        <strong>Administer Jira</strong> permission. Connapse needs it to ask what each person may read, and Check and save checks for it.
-                        Then, in Jira, open <strong>Settings</strong> &rarr; <strong>System</strong> &rarr; <strong>Global permissions</strong> and check
-                        that the service account has <strong>Administer Jira</strong> and <strong>Browse users and groups</strong>. If either is
-                        missing, grant it there to a group the service account is in.
+                        <strong>Administer Jira</strong> and <strong>Browse users and groups</strong> permissions. Connapse needs them to ask
+                        what each person may read, and Check and save checks for them. App admin doesn't add the account to any group, so
+                        Jira's <strong>Global permissions</strong> page won't list it. If the check fails, add the service account to the
+                        <strong>jira-admins-</strong><em>site</em> group under <strong>Directory</strong> &rarr; <strong>Groups</strong> and test again.
                     </li>
                     <li>
                         In every project you will index, give the service account (or a group it is in) the <strong>Browse projects</strong>
-                        permission, under <strong>Project settings</strong> &rarr; <strong>Access</strong> or the project's permission scheme.
+                        permission, under <strong>&bull;&bull;&bull;</strong> next to the project's name &rarr; <strong>Space settings</strong> &rarr; <strong>Access</strong>
+                        (Jira on newer sites calls projects spaces) or the project's permission scheme.
                         A company-managed project on the default permission scheme already grants it to everyone with Jira access.
                         A project it can't browse is not listed.
                     </li>

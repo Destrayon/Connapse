@@ -228,7 +228,7 @@ public class AtlassianSetupGuideDocsTests
 
         guide.Should().Contain("## Add Jira to an existing Confluence setup")
             .And.Contain("**Jira Administration** to **App admin**")
-            .And.Contain("**Settings** → **System** → **Global permissions**")
+            .And.Contain("**Jira admin settings**").And.Contain("`jira-admins-<site>`")
             .And.NotContain("Jira to its admin role")
             .And.NotContain("Jira admin role");
     }

@@ -128,8 +128,8 @@ public class AtlassianConnectionFormTests : IDisposable
 
         var guide = cut.Find("#atlassian-service-account-guide").TextContent;
         guide.Should().Contain("Administer Jira").And.Contain("Browse projects").And.Contain("project role")
-            .And.Contain("Jira Administration to App admin").And.Contain("Global permissions").And.NotContain("admin role")
-            .And.NotContain("Confluence").And.NotContain("space");
+            .And.Contain("Jira Administration to App admin").And.Contain("jira-admins-").And.NotContain("admin role")
+            .And.NotContain("Confluence").And.NotContain("Viewer");
         cut.Find("#atlassian-site-intro").TextContent.Should().Contain("Jira");
         cut.Markup.Should().Contain("The address in your browser when you open Jira");
 

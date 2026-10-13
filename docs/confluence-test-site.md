@@ -83,8 +83,8 @@ First set up the service account for Jira: steps 1 to 4 of [Add Jira to an exist
 
    The attachment is uploaded to an ENG issue, and the group-restricted comment links to its content URL (a link, not an embedded media node, because the REST API doesn't return the Media file ID an embedded node needs).
 4. Do the manual steps the script prints at the end. Each one says whether it happens in Atlassian Administration or in Jira: creating the group or the roles needs admin rights, and a service project needs a Service Management license. Re-run the script after doing them so it can add the comments it skipped.
-5. In Jira, open **Settings** → **System** → **Project roles** (**Space roles**) and confirm that **Developers** and **QA/Ops Team** exist. New sites may have only **Administrators**, so create any role that's missing and re-run the script.
-6. In the ENG project, open **Project settings** (**Space settings**) → **Access** and confirm the service account is in both roles. A new role has no permissions until it is added to the permission scheme, but comment visibility only needs membership.
+5. In Jira, open the gear icon at the top right → **Jira admin settings**; the sidebar opens on **System**. Choose **Space roles** (**Project roles** on sites that still say project) and confirm that **Developers** and **QA/Ops Team** exist. New sites may have only **Administrators**, so create any role that's missing and re-run the script.
+6. In the ENG space (under **Spaces** in Jira's sidebar), choose **•••** next to its name → **Space settings** → **Access** and confirm the service account is in both roles. A new role has no permissions until it is added to the permission scheme, but comment visibility only needs membership.
 7. If the site has Service Management: in the SUP project, choose **Invite team**, which adds people to the **Service Space Team** role, and invite the service account. No Atlassian page confirms a service account can be an agent; if the invite fails, skip the internal note question below.
 
 Then connect Connapse, after seeding so the site has projects and roles to check:
