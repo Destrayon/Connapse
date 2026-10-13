@@ -25,8 +25,10 @@ already exist are reused. Anything the API refuses is printed as a manual step a
 """
 
 import argparse
+import base64
 import json
 import os
+import re
 import sys
 import time
 from urllib.parse import quote
@@ -126,12 +128,45 @@ def tiny_pdf(text_lines):
     return pdf.encode("latin-1")
 
 
+# --- network rules -----------------------------------------------------------------------------
+
+_SITE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.atlassian\.net")
+
+# The email, the token and their Basic credential, never printed or raised; see scrub().
+_SECRETS = []
+
+
+def site_host(site):
+    """The site as a bare <name>.atlassian.net host, or None: no scheme, userinfo, port, path, query or fragment."""
+    host = site.lower()
+    return host if _SITE.fullmatch(host) else None
+
+
+def remember_secrets(email, token):
+    _SECRETS.extend(s for s in (email, token) if s)
+    if email and token:
+        _SECRETS.append(base64.b64encode(f"{email}:{token}".encode()).decode())
+
+
+def scrub(text):
+    """Text (or an exception) with every remembered secret taken out. Every print and error goes through it."""
+    text = str(text)
+    for secret in sorted(_SECRETS, key=len, reverse=True):
+        text = text.replace(secret, "[redacted]")
+    return text
+
+
+def say(*parts, **kw):
+    print(*(scrub(p) for p in parts), **kw)
+
+
 class Jira:
     def __init__(self, site, email, token, dry_run):
-        self.base = "https://" + site.removeprefix("https://").strip("/")
+        self.base = "https://" + site
         self.dry_run = dry_run
         self.fake_id = 0
         self.http = None
+        self.sleep = time.sleep
         if not dry_run:
             import requests
             self.http = requests.Session()
@@ -140,16 +175,20 @@ class Jira:
 
     def call(self, method, path, ok=(200, 201, 204), **kw):
         for attempt in range(6):
-            r = self.http.request(method, self.base + path, timeout=60, **kw)
-            if r.status_code == 429 or r.status_code >= 500:
-                time.sleep(float(r.headers.get("Retry-After", 2 ** attempt)))
+            # A redirect could lead off the site or onto plain HTTP: never followed.
+            r = self.http.request(method, self.base + path, timeout=60, allow_redirects=False, **kw)
+            if 300 <= r.status_code < 400:
+                raise RuntimeError(scrub(f"{method} {path} -> HTTP {r.status_code}: a redirect, which this script doesn't follow"))
+            # A write that failed with a 5xx may have happened anyway, so only reads retry one; a 429 was refused outright.
+            if r.status_code == 429 or (r.status_code >= 500 and method == "GET"):
+                self.sleep(float(r.headers.get("Retry-After", 2 ** attempt)))
                 continue
             if r.status_code not in ok:
                 # An HTML error page says nothing useful and floods the terminal: name it instead.
                 body = "an HTML page" if r.text.lstrip().startswith("<") else r.text[:300]
-                raise RuntimeError(f"{method} {path} -> HTTP {r.status_code}: {body}")
+                raise RuntimeError(scrub(f"{method} {path} -> HTTP {r.status_code}: {body}"))
             return r.json() if r.content and "json" in r.headers.get("Content-Type", "") else None
-        raise RuntimeError(f"{method} {path} kept failing; Atlassian may be rate limiting, try again later")
+        raise RuntimeError(scrub(f"{method} {path} kept failing; Atlassian may be rate limiting, try again later"))
 
     def read(self, method, path, default=None, **kw):
         """A lookup. A dry run makes none and answers `default`, as if nothing exists yet."""
@@ -163,7 +202,7 @@ class Jira:
             shown = kw.get("json")
             if "files" in kw:
                 shown = {"file": kw["files"]["file"][0]}
-            print(f"  [dry-run] {method} {path}" + (f" {json.dumps(shown, ensure_ascii=False)[:160]}" if shown is not None else ""))
+            say(f"  [dry-run] {method} {path}" + (f" {json.dumps(shown, ensure_ascii=False)[:160]}" if shown is not None else ""))
             return {"id": f"dry-{self.fake_id}", "key": f"{PROJECT_KEY}-{self.fake_id}", "dry": True}
         return self.call(method, path, **kw)
 
@@ -182,7 +221,11 @@ def push(args):
     token = os.environ.get("JIRA_API_TOKEN") or os.environ.get("CONFLUENCE_API_TOKEN")
     if not args.dry_run and (not email or not token):
         sys.exit("Set JIRA_EMAIL and JIRA_API_TOKEN (an API token for your own Atlassian account).")
-    j = Jira(args.site, email or "", token or "", args.dry_run)
+    site = site_host(args.site)
+    if site is None:
+        sys.exit("--site must be your site's bare host, such as acme.atlassian.net: no https://, path or port.")
+    remember_secrets(email, token)
+    j = Jira(site, email or "", token or "", args.dry_run)
     me = "dry-me" if args.dry_run else j.call("GET", "/rest/api/3/myself")["accountId"]
     sa, second = args.service_account_id, args.second_user_id
     manual = []  # (where it happens, what to do)
@@ -192,21 +235,21 @@ def push(args):
             return fn()
         except RuntimeError as e:
             if "already" in str(e).lower():
-                print(f"{label}: already done")
+                say(f"{label}: already done")
                 return None
             manual.append((where, f"{manual_text} ({e})"))
-            print(f"{label}: could not do through the API")
+            say(f"{label}: could not do through the API")
             return None
 
     # Project ----------------------------------------------------------------------------------
     project = j.read("GET", f"/rest/api/3/project/{PROJECT_KEY}", ok=(200, 404))
     if project and project.get("key") == PROJECT_KEY:
-        print(f"project {PROJECT_KEY}: exists")
+        say(f"project {PROJECT_KEY}: exists")
     else:
         project = j.write("POST", "/rest/api/3/project", json={
             "key": PROJECT_KEY, "name": PROJECT_NAME, "projectTypeKey": "software", "projectTemplateKey": PROJECT_TEMPLATE,
             "leadAccountId": me, "assigneeType": "PROJECT_LEAD", "description": "Synthetic issues for the Connapse Jira connector tests."})
-        print(f"project {PROJECT_KEY}: created")
+        say(f"project {PROJECT_KEY}: created")
         if not args.dry_run:
             project = j.call("GET", f"/rest/api/3/project/{PROJECT_KEY}")
     types = {t["name"].lower(): t["name"] for t in (project or {}).get("issueTypes", []) if not t.get("subtask")}
@@ -222,7 +265,7 @@ def push(args):
         if g["name"] == GROUP:
             group_id = g["groupId"]
     if group_id:
-        print(f"group {GROUP}: exists")
+        say(f"group {GROUP}: exists")
     else:
         def make_group():
             return j.write("POST", "/rest/api/3/group", json={"name": GROUP})["groupId"] if not args.dry_run else \
@@ -231,7 +274,7 @@ def push(args):
                            f"Create the group {GROUP} (Directory > Groups) and add yourself and the service account "
                            "(Directory > Service accounts > ... > Add to group)", where=ADMIN)
         if group_id:
-            print(f"group {GROUP}: created")
+            say(f"group {GROUP}: created")
     if group_id:
         members = j.read("GET", f"/rest/api/3/group/member?groupId={quote(group_id)}&maxResults=200", default={"values": []})
         have = {m["accountId"] for m in members.get("values", [])}
@@ -250,12 +293,12 @@ def push(args):
 
     def ensure_role(name, hint):
         if name in global_roles:
-            print(f"role {name}: exists")
+            say(f"role {name}: exists")
             return global_roles[name]
         made = attempt(f"role {name}", lambda: j.write("POST", "/rest/api/3/role", json={
             "name": name, "description": "Connapse test role"})["id"], hint)
         if made:
-            print(f"role {name}: created")
+            say(f"role {name}: created")
         return made
 
     role_ids = {
@@ -306,7 +349,7 @@ def push(args):
             continue
         keys[n] = made["key"]
         fresh.add(n)
-    print(f"issues: {len(fresh)} created, {len(ISSUES) - len(fresh)} already there")
+    say(f"issues: {len(fresh)} created, {len(ISSUES) - len(fresh)} already there")
 
     for blocker, blocked in LINKS:
         if blocker in fresh and blocked in fresh:
@@ -324,7 +367,7 @@ def push(args):
 
     def add_comment(issue_key, label, body, visibility=None, marker="", properties=None):
         if marker and comment_exists(issue_key, marker):
-            print(f"comment ({label}) on {issue_key}: exists")
+            say(f"comment ({label}) on {issue_key}: exists")
             return True
         payload = {"body": body}
         if visibility:
@@ -341,21 +384,21 @@ def push(args):
             else:
                 manual.append((JIRA, f"Add this comment to {issue_key}, visible only to {label}: \"{marker}\" ({e})"))
             return False
-        print(f"comment ({label}) on {issue_key}: added")
+        say(f"comment ({label}) on {issue_key}: added")
         return True
 
     def add_internal_note(issue_key):
         """A JSM internal note through the documented request comment call; the comment property as a fallback."""
         marker = "PRINT-ECHO-12"
         if comment_exists(issue_key, marker):
-            print(f"internal note on {issue_key}: exists")
+            say(f"internal note on {issue_key}: exists")
             return True
         try:
             j.write("POST", f"/rest/servicedeskapi/request/{issue_key}/comment", json={"body": INTERNAL_FACT, "public": False})
-            print(f"internal note on {issue_key}: added")
+            say(f"internal note on {issue_key}: added")
             return True
         except RuntimeError as e:
-            print(f"internal note on {issue_key}: the Service Management call failed ({str(e)[:120]}); trying a comment property")
+            say(f"internal note on {issue_key}: the Service Management call failed ({str(e)[:120]}); trying a comment property")
         return add_comment(issue_key, "agents only (internal)", adf(INTERNAL_FACT), marker=marker,
                            properties=[{"key": "sd.public.comment", "value": {"internal": True}}])
 
@@ -371,7 +414,7 @@ def push(args):
         have_attachment = next((a for a in fields.get("attachment", []) if a["filename"] == ATTACHMENT_FILE), None)
     if have_attachment:
         content_url = have_attachment["content"]
-        print(f"attachment {ATTACHMENT_FILE} on {attach_issue}: exists")
+        say(f"attachment {ATTACHMENT_FILE} on {attach_issue}: exists")
     else:
         pdf = tiny_pdf(["Burst compute budget 2026", "", ATTACHMENT_FACT])
         try:
@@ -379,7 +422,7 @@ def push(args):
                          headers={"X-Atlassian-Token": "no-check"}, files={"file": (ATTACHMENT_FILE, pdf, "application/pdf")})
             if not args.dry_run:
                 content_url = up[0]["content"]
-            print(f"attachment {ATTACHMENT_FILE} on {attach_issue}: uploaded")
+            say(f"attachment {ATTACHMENT_FILE} on {attach_issue}: uploaded")
         except RuntimeError as e:
             manual.append((JIRA, f"Attach {ATTACHMENT_FILE} (a PDF containing: \"{ATTACHMENT_FACT}\") to {attach_issue}, then link it in the group-restricted comment ({e})"))
 
@@ -409,7 +452,7 @@ def push(args):
             project_jsm = j.write("POST", "/rest/api/3/project", json={
                 "key": JSM_KEY, "name": JSM_NAME, "projectTypeKey": "service_desk", "projectTemplateKey": JSM_TEMPLATE,
                 "leadAccountId": me, "assigneeType": "PROJECT_LEAD"})
-            print(f"project {JSM_KEY}: created")
+            say(f"project {JSM_KEY}: created")
         elif args.dry_run:
             j.write("POST", "/rest/api/3/project", json={
                 "key": JSM_KEY, "name": JSM_NAME, "projectTypeKey": "service_desk", "projectTemplateKey": JSM_TEMPLATE,
@@ -417,7 +460,7 @@ def push(args):
         jsm_key = JSM_KEY
         if not args.dry_run:
             jsm_key = next((d["projectKey"] for d in desks.get("values", [])), JSM_KEY)
-            print(f"service project {jsm_key}: ready")
+            say(f"service project {jsm_key}: ready")
         jsm_project = j.read("GET", f"/rest/api/3/project/{jsm_key}", default={"issueTypes": []})
         jsm_types = [t["name"] for t in jsm_project.get("issueTypes", []) if not t.get("subtask")]
         jsm_issue = None if args.dry_run else next(iter(
@@ -436,10 +479,10 @@ def push(args):
                                  "and can read the internal note. If the invite fails, skip the internal note question."))
     except RuntimeError as e:
         if "/rest/servicedeskapi/servicedesk -> HTTP 403" in str(e) or "/rest/servicedeskapi/servicedesk -> HTTP 404" in str(e):
-            print("service project: skipped, this site doesn't have Jira Service Management (the internal note question needs it)")
+            say("service project: skipped, this site doesn't have Jira Service Management (the internal note question needs it)")
             no_jsm = True
         else:
-            print("service project: not created through the API")
+            say("service project: not created through the API")
             manual.append((JIRA, "Create a service project "
                                  f"({JSM_NAME}, key {JSM_KEY}) from Projects > Create project (or Spaces > Create space), invite the service "
                                  f"account with Invite team, create a request titled \"Print queue outage on the third floor\", and add an "
@@ -449,9 +492,9 @@ def push(args):
         manual.append((TERMINAL, "Re-run with --service-account-id so the account joins the group and the project roles."))
 
     if manual:
-        print("\nDo these by hand, in the place each one names:")
+        say("\nDo these by hand, in the place each one names:")
         for where, m in manual:
-            print(f" - [{where}] {m}")
+            say(f" - [{where}] {m}")
     print_expectations(attach_issue, jsm_done, no_jsm)
 
 
@@ -464,12 +507,12 @@ def print_expectations(attach_issue, jsm_done, no_jsm=False):
         ("What is the 2026 burst compute ceiling per quarter?", f"{ATTACHMENT_FILE}, linked from the {GROUP} comment (733 thousand dollars)", "found, if attachments are indexed", "not found", "not found"),
         ("Who is the vendor escalation contact for the print queue outage?", f"internal note on the {JSM_KEY} request (Priya Ramanathan, PRINT-ECHO-12)" + ("" if jsm_done else " (skip: this site has no Service Management)" if no_jsm else " (needs the manual steps above)"), "found, if internal comments are indexed", "not found", "not found"),
     ]
-    print("\nSearch in Connapse as each person once the sources finish syncing. \"You\" is the account that ran this script.\n")
-    print("| Question | Answer | You | Second person | Unlinked user |")
-    print("|---|---|---|---|---|")
+    say("\nSearch in Connapse as each person once the sources finish syncing. \"You\" is the account that ran this script.\n")
+    say("| Question | Answer | You | Second person | Unlinked user |")
+    say("|---|---|---|---|---|")
     for r in rows:
-        print("| " + " | ".join(r) + " |")
-    print("\nThe service account sees everything above except the internal note, unless it is a JSM agent.")
+        say("| " + " | ".join(r) + " |")
+    say("\nThe service account sees everything above except the internal note, unless it is a JSM agent.")
 
 
 def check(_args):
@@ -481,7 +524,77 @@ def check(_args):
     for fact, marker in ((GROUP_FACT, "COBALT-41"), (ROLE_FACT, "JUNIPER-88"), (QA_FACT, "SIGNOFF-ZEBRA-3"), (INTERNAL_FACT, "PRINT-ECHO-12")):
         assert marker in fact
     assert tiny_pdf(["a"]).startswith(b"%PDF-1.4")
-    print("ok")
+    check_network_rules()
+    say("ok")
+
+
+class _Answer:
+    def __init__(self, status, text="", headers=None):
+        self.status_code, self.text, self.headers = status, text, headers or {}
+        self.content = text.encode()
+
+    def json(self):
+        return json.loads(self.text)
+
+
+class _Session:
+    """Answers each request from a list, and records what was asked."""
+
+    def __init__(self, *answers):
+        self.answers, self.asked = list(answers), []
+
+    def request(self, method, url, **kw):
+        self.asked.append((method, url, kw))
+        return self.answers.pop(0)
+
+
+def check_network_rules():
+    """The site check, the redirect refusal, the retry rule and the secret scrub, against a stub session."""
+    assert site_host("acme.atlassian.net") == "acme.atlassian.net"
+    assert site_host("Acme-2.Atlassian.NET") == "acme-2.atlassian.net"
+    for bad in ("https://acme.atlassian.net", "acme.atlassian.net/", "user@acme.atlassian.net", "acme.atlassian.net:443",
+                "acme.atlassian.net?x=1", "acme.atlassian.net#x", "acme.atlassian.net.evil.com", "evil.com", "atlassian.net",
+                "-acme.atlassian.net", "a.b.atlassian.net", " acme.atlassian.net", "acme.atlassian.net\n"):
+        assert site_host(bad) is None, bad
+
+    email, token = "seed@example.com", "tok-SECRET-123"
+    basic = base64.b64encode(f"{email}:{token}".encode()).decode()
+    remember_secrets(email, token)
+    try:
+        j = Jira("acme.atlassian.net", email, token, dry_run=True)
+        j.sleep = lambda _s: None
+
+        j.http = _Session(_Answer(302, headers={"Location": "http://evil.com/"}))
+        try:
+            j.call("GET", "/rest/api/3/myself")
+            raise AssertionError("a redirect was followed")
+        except RuntimeError as e:
+            assert "302" in str(e)
+        assert len(j.http.asked) == 1 and j.http.asked[0][2].get("allow_redirects") is False
+
+        j.http = _Session(_Answer(502), _Answer(201, '{"id":"1"}', {"Content-Type": "application/json"}))
+        try:
+            j.call("POST", "/rest/api/3/issue", json={})
+            raise AssertionError("a POST was retried after a 5xx")
+        except RuntimeError:
+            pass
+        assert len(j.http.asked) == 1
+
+        j.http = _Session(_Answer(429), _Answer(201, '{"id":"1"}', {"Content-Type": "application/json"}))
+        assert j.call("PUT", "/rest/api/3/x") == {"id": "1"} and len(j.http.asked) == 2
+
+        j.http = _Session(_Answer(503), _Answer(200, '{"ok":true}', {"Content-Type": "application/json"}))
+        assert j.call("GET", "/rest/api/3/x") == {"ok": True} and len(j.http.asked) == 2
+
+        j.http = _Session(_Answer(401, f"bad {email} {token} Basic {basic}"))
+        try:
+            j.call("GET", "/rest/api/3/myself")
+            raise AssertionError("no error")
+        except RuntimeError as e:
+            assert email not in str(e) and token not in str(e) and basic not in str(e), str(e)
+        assert token not in scrub(RuntimeError(f"x {token}")) and email not in scrub(f"{email}")
+    finally:
+        _SECRETS.clear()
 
 
 def main():
@@ -494,7 +607,10 @@ def main():
     p.add_argument("--second-user-id", help="the second person's account ID; the script warns if they would see a restricted comment")
     p.add_argument("--dry-run", action="store_true", help="print the requests that would be made without calling Atlassian")
     args = ap.parse_args()
-    check(args) if args.cmd == "check" else push(args)
+    try:
+        check(args) if args.cmd == "check" else push(args)
+    except Exception as e:  # noqa: BLE001 - anything uncaught leaves through the scrub, never as a raw traceback
+        sys.exit(scrub(f"{type(e).__name__}: {e}"))
 
 
 if __name__ == "__main__":
