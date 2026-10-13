@@ -235,9 +235,9 @@ public class ProvidersPageTests
         Read("Pages", "Sources.razor").Should().Contain(
             "<h5 class=\"modal-title\" id=\"new-source-title\">New source</h5>");
         Read("Pages", "Sources.razor").Should().MatchRegex(
-            "id=\"new-source-title\">New source</h5> @\\* [^*]+\\*@ @if \\(selectedProvider is ConnectionProvider.Atlassian\\) \\{ <SetupGuideLink Id=\"confluence-setup-guide\"");
+            "id=\"new-source-title\">New source</h5> @\\* [^*]+\\*@ @if \\(selectedProvider is ConnectionProvider.Atlassian\\) \\{ <SetupGuideLink Id=\"atlassian-setup-guide\"");
         Read("Pages", "SourceEdit.razor").Should().Contain(
-            "<h1 class=\"h4 mb-0\">@source.Name</h1> @if (form.Confluence is not null) { <SetupGuideLink Id=\"confluence-setup-guide\"");
+            "<h1 class=\"h4 mb-0\">@source.Name</h1> @if (form.Attachments is { } guided) { <SetupGuideLink Id=\"atlassian-setup-guide\"");
         Read("Connections", "AtlassianConnectionForm.razor").Should().NotContain("<SetupGuideLink");
         Read("Sources", "ConfluenceSpaceForm.razor").Should().NotContain("<SetupGuideLink");
         Read("Shared", "SetupGuideLink.razor").Should().Contain("CssClass { get; set; } = \"ms-auto\"");

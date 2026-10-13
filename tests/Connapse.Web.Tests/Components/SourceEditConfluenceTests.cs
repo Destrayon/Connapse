@@ -167,7 +167,7 @@ public class SourceEditConfluenceTests : IDisposable
     {
         var cut = Render();
 
-        var guide = cut.Find("#confluence-setup-guide");
+        var guide = cut.Find("#atlassian-setup-guide");
         guide.GetAttribute("href").Should().Be(
             "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
         guide.PreviousElementSibling!.TagName.Should().Be("H1", "the link sits in the page's title row");

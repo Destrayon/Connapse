@@ -9,6 +9,8 @@
 @using Connapse.Web.Services
 @using Connapse.Web.Components.Sources
 @using Connapse.Storage.Connectors.Atlassian
+@using Connapse.Storage.ConnectionTesters
+@using Connapse.Web.Components.Connections
 @inject ISourceStore SourceStore
 @inject Connapse.Web.Services.AtlassianSiteService AtlassianSites
 @inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
@@ -327,7 +329,7 @@
                     @* In the title row, as on every provider surface; the close button keeps the far corner. *@
                     @if (selectedProvider is ConnectionProvider.Atlassian)
                     {
-                        <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
+                        <SetupGuideLink Id="atlassian-setup-guide" Href="@(ShownAtlassianSelection?.SetupGuideUrl ?? ConfluenceSpaceSelection.GuideUrl)" />
                     }
                     <button type="button" class="btn-close @(selectedProvider is ConnectionProvider.Atlassian ? "ms-3" : "")" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
                 </div>
@@ -422,12 +424,41 @@
                             <div class="form-text ms-4">Comments from bots are left out. After adding, choose exceptions on the source's edit page.</div>
                         </fieldset>
                     }
-                    else if (selectedProvider is ConnectionProvider.Atlassian && confluenceForm is not null)
+                    else if (selectedProvider is ConnectionProvider.Atlassian && confluenceForm is not null && jiraForm is not null)
                     {
+                        @* A site that passed for both products asks which one; one that passed for Jira
+                           alone goes straight to its projects. *@
+                        @if (SiteOffersBoth)
+                        {
+                            <fieldset class="mb-3" id="atlassian-product">
+                                <legend class="form-label fs-6 mb-1">Product</legend>
+                                <div class="form-check form-check-inline">
+                                    <input id="atlassian-product-confluence" type="radio" name="atlassian-product" class="form-check-input"
+                                           checked="@(atlassianProduct == AtlassianSiteScopes.ConfluenceProduct)"
+                                           @onchange="() => ChooseProductAsync(AtlassianSiteScopes.ConfluenceProduct)" />
+                                    <label for="atlassian-product-confluence" class="form-check-label">Confluence spaces</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input id="atlassian-product-jira" type="radio" name="atlassian-product" class="form-check-input"
+                                           checked="@(atlassianProduct == AtlassianSiteScopes.JiraProduct)"
+                                           @onchange="() => ChooseProductAsync(AtlassianSiteScopes.JiraProduct)" />
+                                    <label for="atlassian-product-jira" class="form-check-label">Jira projects</label>
+                                </div>
+                            </fieldset>
+                        }
+                        @if (atlassianProduct == AtlassianSiteScopes.JiraProduct)
+                        {
+                            @* Each project ticked becomes its own source, named after the site and the project. *@
+                            <JiraProjectForm ConnectionId="@form.ConnectionId" Selection="jiraForm" SiteName="@SelectedConnection?.Name"
+                                             ExistingProjectIds="jiraExisting" />
+                        }
+                        else
+                        {
                         @* An Atlassian connection is one site. Each space ticked becomes its own
                            source, named after the site and the space, so there is no name field. *@
                         <ConfluenceSpaceForm ConnectionId="@form.ConnectionId" Selection="confluenceForm" SiteName="@SelectedConnection?.Name"
                                              ExistingSpaceIds="confluenceExisting" />
+                        }
                     }
                     else
                     {
@@ -685,6 +716,28 @@
 
     /// <summary>Space ids the chosen Atlassian connection already has a source for.</summary>
     private IReadOnlySet<string> confluenceExisting = new HashSet<string>();
+    private JiraProjectSelection? jiraForm;
+
+    /// <summary>Project ids the chosen Atlassian connection already has a source for.</summary>
+    private IReadOnlySet<string> jiraExisting = new HashSet<string>();
+
+    /// <summary>Which product's sources the dialog adds on an Atlassian site: <c>confluence</c> or <c>jira</c>.</summary>
+    private string atlassianProduct = AtlassianSiteScopes.ConfluenceProduct;
+
+    /// <summary>The selection of the product the dialog shows now, whose setup is the one being measured.</summary>
+    private AtlassianSourceSelection? ShownAtlassianSelection =>
+        atlassianProduct == AtlassianSiteScopes.JiraProduct ? jiraForm : confluenceForm;
+
+    /// <summary>The attempts whose setup_started is written, so switching products back and forth starts each once.</summary>
+    private readonly HashSet<Guid> startedSetups = [];
+
+    /// <summary>
+    /// The chosen site passed for both products, so the dialog asks which. A site last tested before
+    /// Jira was lists no products and counts as Confluence only until it is tested again.
+    /// </summary>
+    private bool SiteOffersBoth => SelectedConnection is { Provider: ConnectionProvider.Atlassian } site
+        && AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.ConfluenceProduct)
+        && AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.JiraProduct);
     private bool creating;
     private string? createError;
     private string? createWarning;
@@ -1146,14 +1199,23 @@
     {
         confluenceForm = ConfluenceSpaceSelection.ForSite(SelectedConnection);
         confluenceExisting = new HashSet<string>();
+        jiraForm = JiraProjectSelection.ForSite(SelectedConnection);
+        jiraExisting = new HashSet<string>();
+        // Jira only when the site passed for Jira and not for Confluence; the choice is offered when it passed for both.
+        atlassianProduct = SelectedConnection is { Provider: ConnectionProvider.Atlassian } site
+            && AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.JiraProduct)
+            && !AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.ConfluenceProduct)
+                ? AtlassianSiteScopes.JiraProduct
+                : AtlassianSiteScopes.ConfluenceProduct;
         if (SelectedConnection is not { Provider: ConnectionProvider.Atlassian } connection)
             return;
 
-        var opened = confluenceForm;
-        await RecordSetupAsync(() => ConfluenceSourceSetupEvents.StartedAsync(AuditLogger, opened, connection.Id));
+        await RecordStartedAsync(connection.Id);
         try
         {
-            confluenceExisting = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
+            var onConnection = await SourceStore.ListByConnectionAsync(connection.Id);
+            confluenceExisting = ConfluenceSpaceSelection.SpaceIdsOf(onConnection);
+            jiraExisting = JiraProjectSelection.ProjectIdsOf(onConnection);
         }
         catch (Exception)
         {
@@ -1161,12 +1223,23 @@
         }
     }
 
-    /// <summary>
-    /// Creates one source per ticked space on an Atlassian site connection. Each is created on its
-    /// own, so a name clash on one still creates the others and says so. A space that already has
-    /// a source on the connection is skipped, matched on its id.
-    /// </summary>
-    /// <summary>Writes a Confluence setup event; a failure to record it never reaches the dialog.</summary>
+    /// <summary>Shows the other product's picker on a site that passed for both, and starts measuring its setup.</summary>
+    private async Task ChooseProductAsync(string product)
+    {
+        atlassianProduct = product;
+        if (SelectedConnection is { Provider: ConnectionProvider.Atlassian } connection)
+            await RecordStartedAsync(connection.Id);
+    }
+
+    /// <summary>Writes setup_started for the shown product's selection, once per attempt.</summary>
+    private async Task RecordStartedAsync(Guid connectionId)
+    {
+        if (ShownAtlassianSelection is not { } opened || !startedSetups.Add(opened.Attempt))
+            return;
+        await RecordSetupAsync(() => AtlassianSourceSetupEvents.StartedAsync(AuditLogger, opened, connectionId));
+    }
+
+    /// <summary>Writes an Atlassian setup event; a failure to record it never reaches the dialog.</summary>
     private async Task RecordSetupAsync(Func<Task> write)
     {
         try
@@ -1175,19 +1248,24 @@
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Could not record a Confluence source setup event");
+            Logger.LogWarning(ex, "Could not record an Atlassian source setup event");
         }
     }
 
-    private async Task CreateConfluenceSpacesAsync(Connection connection)
+    /// <summary>
+    /// Creates one source per ticked space or project, for either product: the ticked items are
+    /// checked again against the site as its service account, and one already a source is skipped.
+    /// </summary>
+    private async Task CreateAtlassianSourcesAsync<TItem, TSelection>(Connection connection, TSelection? selection)
+        where TItem : IAtlassianSourceItem
+        where TSelection : AtlassianSourceSelection<TItem, TSelection>, new()
     {
-        if (confluenceForm is null) return;
-        var selection = confluenceForm;
-        Task CreateFailed(string reason) => RecordSetupAsync(() => ConfluenceSourceSetupEvents.StepFailedAsync(
-            AuditLogger, selection, connection.Id, ConfluenceSourceSetupEvents.CreateStep, reason));
+        if (selection is null) return;
+        Task CreateFailed(string reason) => RecordSetupAsync(() => AtlassianSourceSetupEvents.StepFailedAsync(
+            AuditLogger, selection, connection.Id, AtlassianSourceSetupEvents.CreateStep, reason));
 
         // Every problem here is shown beside the field it is about, not at the top of the dialog.
-        if (confluenceForm.Validate() is not null)
+        if (selection.Validate() is not null)
         {
             await CreateFailed("invalid");
             return;
@@ -1196,7 +1274,7 @@
         var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
         if (site is null)
         {
-            confluenceForm.SpacesError = $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.";
+            selection.ItemsError = $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.";
             await CreateFailed("incomplete_site");
             return;
         }
@@ -1208,59 +1286,45 @@
         try
         {
             // Read again rather than trusting what the dialog loaded: another admin may have added one since.
-            var existing = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
-            // The dialog's list may be for another site or out of date: only spaces this connection has now are created.
-            var onSite = await AtlassianSites.ListSpacesAsync(connection.Id, includePersonal: true);
+            var existing = selection.ExistingIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
+            // The dialog's list may be for another site or out of date: only items this connection has now are created.
+            var onSite = await selection.ListOnSiteAsync(AtlassianSites, connection.Id, CancellationToken.None);
             if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
             {
-                confluenceForm.SpacesError = onSite.Error ?? "Could not check the chosen spaces against this site. Try again.";
+                selection.ItemsError = onSite.Error ?? selection.CouldNotCheckMessage;
                 await CreateFailed("unavailable");
                 return;
             }
 
-            var verified = confluenceForm.VerifiedAgainst(onSite.Spaces!, out var refused);
+            var verified = selection.VerifiedAgainst(onSite.Items!, out var refused);
             var requests = verified.ToRequests(connection.Id, new Uri(site.SiteUrl).Host, existing, out var skipped);
             if (refused.Count > 0 && requests.Count == 0 && skipped.Count == 0)
             {
-                confluenceForm.SpacesError = $"Nothing added. Not spaces on this site: {string.Join(", ", refused)}.";
+                selection.ItemsError = $"Nothing added. {selection.NotOnSiteLabel}: {string.Join(", ", refused)}.";
                 await CreateFailed("not_on_site");
                 return;
             }
 
-            foreach (var request in requests)
-            {
-                try
-                {
-                    var source = await SourceStore.CreateAsync(request);
-                    created.Add(source.Name);
-                    await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
-                        new { source.Name, source.ConnectionId });
-                }
-                catch (InvalidOperationException ex)
-                {
-                    // A duplicate name: this space already has a source of that name.
-                    Logger.LogInformation(ex, "Could not add Confluence source {Name}", LogSanitizer.Sanitize(request.Name));
-                    failed.Add($"{request.Name}: a source with this name already exists");
-                }
-            }
+            await CreateEachAsync(requests, created, failed);
 
             if (created.Count == 0)
             {
-                confluenceForm.SpacesError = ("Nothing added. "
+                selection.ItemsError = ("Nothing added. "
                     + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
-                    + (refused.Count > 0 ? $"Not spaces on this site: {string.Join(", ", refused)}. " : "")
+                    + (refused.Count > 0 ? $"{selection.NotOnSiteLabel}: {string.Join(", ", refused)}. " : "")
                     + string.Join(" ", failed)).TrimEnd();
                 await CreateFailed("nothing_added");
                 return;
             }
 
-            await RecordSetupAsync(() => ConfluenceSourceSetupEvents.CompletedAsync(
+            await RecordSetupAsync(() => AtlassianSourceSetupEvents.CompletedAsync(
                 AuditLogger, selection, connection.Id, created.Count, skipped.Count, refused.Count + failed.Count));
             form = null;
             confluenceForm = null;
+            jiraForm = null;
             Succeed($"Added {created.Count} {(created.Count == 1 ? "source" : "sources")}: {string.Join(", ", created)}. They sync on the next cycle, or press Sync."
                 + (skipped.Count > 0 ? $" Skipped, already a source: {string.Join(", ", skipped)}." : "")
-                + (refused.Count > 0 ? $" Not added, not spaces on this site: {string.Join(", ", refused)}." : "")
+                + (refused.Count > 0 ? $" Not added, {char.ToLowerInvariant(selection.NotOnSiteLabel[0])}{selection.NotOnSiteLabel[1..]}: {string.Join(", ", refused)}." : "")
                 + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
 
             await LoadAsync();
@@ -1269,15 +1333,39 @@
         {
             // An exception escaping a Blazor event handler tears down the circuit. Its text is for
             // the log: it can name internals that mean nothing to the person adding a source.
-            Logger.LogError(ex, "Adding Confluence spaces on connection {ConnectionId} ({Name}) failed after {Created} were created",
-                connection.Id, Connapse.Core.Utilities.LogSanitizer.Sanitize(connection.Name), created.Count);
-            if (confluenceForm is not null)
-                confluenceForm.SpacesError = ConfluenceSpaceSelection.AddFailedMessage(created);
+            Logger.LogError(ex, "Adding {Product} sources on connection {ConnectionId} ({Name}) failed after {Created} were created",
+                selection.Product, connection.Id, Connapse.Core.Utilities.LogSanitizer.Sanitize(connection.Name), created.Count);
+            if (form is not null)
+                selection.ItemsError = selection.FailureMessage(created);
             await CreateFailed("error");
         }
         finally
         {
             creating = false;
+        }
+    }
+
+    /// <summary>
+    /// Creates each request on its own, so a name clash on one still creates the others; the names
+    /// created and the failures, in words, are added to <paramref name="created"/> and <paramref name="failed"/>.
+    /// </summary>
+    private async Task CreateEachAsync(IReadOnlyList<CreateSourceRequest> requests, List<string> created, List<string> failed)
+    {
+        foreach (var request in requests)
+        {
+            try
+            {
+                var source = await SourceStore.CreateAsync(request);
+                created.Add(source.Name);
+                await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
+                    new { source.Name, source.ConnectionId });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // A duplicate name: this space or project already has a source of that name.
+                Logger.LogInformation(ex, "Could not add Atlassian source {Name}", LogSanitizer.Sanitize(request.Name));
+                failed.Add($"{request.Name}: a source with this name already exists");
+            }
         }
     }
 
@@ -1390,7 +1478,10 @@
 
         if (connection.Provider == ConnectionProvider.Atlassian)
         {
-            await CreateConfluenceSpacesAsync(connection);
+            if (atlassianProduct == AtlassianSiteScopes.JiraProduct)
+                await CreateAtlassianSourcesAsync<JiraProjectInfo, JiraProjectSelection>(connection, jiraForm);
+            else
+                await CreateAtlassianSourcesAsync<ConfluenceSpaceInfo, ConfluenceSpaceSelection>(connection, confluenceForm);
             return;
         }
 

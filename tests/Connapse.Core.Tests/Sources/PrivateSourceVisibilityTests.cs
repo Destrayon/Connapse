@@ -83,4 +83,15 @@ public class PrivateSourceVisibilityTests
     [InlineData("""{"kind":"Confluence-Space","spaceKey":"ENG"}""")]
     public void ConfluenceSpaceSource_IsHiddenFromNonAdmins(string scope) =>
         IsVisible(With(scope), new HashSet<string> { "atlassian://" }).Should().BeFalse();
+
+    [Fact]
+    public void SourceList_JiraSource_AdminOnly()
+    {
+        var jira = With("""{"kind":"jira-project","projectId":"10000","projectKey":"OPS"}""");
+
+        IsVisible(jira, new HashSet<string> { "atlassian://" }).Should().BeFalse(
+            "a project's name can be sensitive, so it is listed to administrators only, whatever its connection");
+        PrivateSourceVisibility.IsSearchableWhenHidden(jira).Should().BeTrue(
+            "every Jira hit is checked per user, so naming the project returns only what Jira allows");
+    }
 }

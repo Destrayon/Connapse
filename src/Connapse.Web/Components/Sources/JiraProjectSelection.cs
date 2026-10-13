@@ -9,14 +9,17 @@ namespace Connapse.Web.Components.Sources;
 /// project, as <see cref="ConfluenceSpaceSelection"/> makes one per space, so the scope keys
 /// written here are tested against the ones <c>ConnectorFactory</c> reads.
 /// </summary>
-public sealed class JiraProjectSelection : AtlassianSourceSelection
+public sealed class JiraProjectSelection : AtlassianSourceSelection<JiraProjectInfo, JiraProjectSelection>
 {
     public const string Kind = "jira-project";
 
-    /// <summary>Where the setup guide explains Atlassian sites; it has no Jira sources section yet.</summary>
-    public const string GuideUrl = Connapse.Storage.ConnectionTesters.AtlassianSiteTroubleshooting.GuideUrl;
+    /// <summary>Where the setup guide explains every field of this form.</summary>
+    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#5-jira-sources";
 
     public const string ProjectsLabel = "Projects";
+
+    /// <summary>The labels the form shows, which the setup guide must name.</summary>
+    public static readonly IReadOnlyList<string> FieldLabels = [ProjectsLabel, IncludeAttachmentsLabel, MaxAttachmentMbLabel];
 
     public const string NoProjectChosen = "Choose at least one project.";
 
@@ -54,29 +57,38 @@ public sealed class JiraProjectSelection : AtlassianSourceSelection
     /// <summary>Whether the site's last passing check confirmed <see cref="AttachmentScope"/>.</summary>
     public static bool AttachmentScopeConfirmed(ConnectionHealth? health) => ScopeConfirmed(health, AttachmentScope);
 
+    public override string Product => Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.JiraProduct;
+
+    public override string IdField => "projectId";
+
     public override string RequiredAttachmentScope => AttachmentScope;
 
     public override string FieldIdPrefix => "jira";
+
+    public override string SetupGuideUrl => GuideUrl;
 
     public override string ItemFixedNote => ProjectFixedNote;
 
     public override string AttachmentsShortHelp => IncludeAttachmentsShortHelp;
 
-    /// <summary>The projects the site offers, as last listed.</summary>
-    public IReadOnlyList<JiraProjectInfo> Available { get; set; } = [];
-
-    /// <summary>Ids of the projects ticked.</summary>
-    public HashSet<string> Selected { get; } = [];
-
     /// <summary>The problem with the project list, shown next to it; null when there is none.</summary>
-    public string? ProjectsError { get; set; }
+    public string? ProjectsError { get => ItemsError; set => ItemsError = value; }
 
-    /// <summary>Checks every field, setting each one's error; returns the first error, or null when all are valid.</summary>
-    public string? Validate()
+    protected override string NoItemChosen => NoProjectChosen;
+
+    public override string NotOnSiteLabel => "Not projects the service account can browse";
+
+    public override string CouldNotCheckMessage => "Could not check the chosen projects against this site. Try again.";
+
+    public override string FailureMessage(IReadOnlyCollection<string> created) => AddFailedMessage(created);
+
+    protected override string ScopeJsonFor(JiraProjectInfo project) => ScopeJson(project, IncludeAttachments, MaxAttachmentMb);
+
+    public override async Task<AtlassianListing<JiraProjectInfo>> ListOnSiteAsync(
+        AtlassianSiteService sites, Guid connectionId, CancellationToken ct)
     {
-        ProjectsError = Selected.Count == 0 ? NoProjectChosen : null;
-        ValidateMaxAttachmentMb();
-        return ProjectsError ?? MaxAttachmentMbError;
+        var listed = await sites.ListProjectsAsync(connectionId, ct);
+        return new(listed.Outcome, listed.Projects, listed.Error, listed.TroubleshootingUrl);
     }
 
     public static string ScopeJson(JiraProjectInfo project, bool includeAttachments, int maxAttachmentMb) =>
@@ -90,54 +102,6 @@ public sealed class JiraProjectSelection : AtlassianSourceSelection
             includeAttachments,
             maxAttachmentMb = StorableMaxAttachmentMb(maxAttachmentMb),
         });
-
-    /// <summary>
-    /// One create request per ticked project not already a source. Projects already sourced on the
-    /// connection (matched on id) are returned in <paramref name="skipped"/> instead.
-    /// </summary>
-    public IReadOnlyList<CreateSourceRequest> ToRequests(
-        Guid connectionId, string siteHost, IReadOnlySet<string> existingProjectIds, out IReadOnlyList<string> skipped)
-    {
-        var requests = new List<CreateSourceRequest>();
-        var skippedNames = new List<string>();
-
-        foreach (var project in Available.Where(p => Selected.Contains(p.Id)))
-        {
-            if (existingProjectIds.Contains(project.Id))
-            {
-                skippedNames.Add(project.Name);
-                continue;
-            }
-
-            requests.Add(new CreateSourceRequest(
-                SourceName(siteHost, project.Name), connectionId, ScopeJson(project, IncludeAttachments, MaxAttachmentMb)));
-        }
-
-        skipped = skippedNames;
-        return requests;
-    }
-
-    /// <summary>
-    /// A copy holding only the ticked projects the site really has, taken from <paramref name="onSite"/>
-    /// (a fresh listing as the service account) rather than from what the dialog showed. The names of
-    /// the ticked projects the site does not have are returned in <paramref name="refused"/>.
-    /// </summary>
-    public JiraProjectSelection VerifiedAgainst(IReadOnlyList<JiraProjectInfo> onSite, out IReadOnlyList<string> refused)
-    {
-        var verified = new JiraProjectSelection
-        {
-            IncludeAttachments = IncludeAttachments,
-            MaxAttachmentMb = MaxAttachmentMb,
-            Available = onSite.Where(p => Selected.Contains(p.Id)).ToList(),
-        };
-        verified.Selected.UnionWith(verified.Available.Select(p => p.Id));
-
-        refused = Selected
-            .Where(id => !verified.Selected.Contains(id))
-            .Select(id => Available.FirstOrDefault(p => p.Id == id)?.Name ?? id)
-            .ToList();
-        return verified;
-    }
 
     /// <summary>The project ids that already have a source, from the scopes of a connection's sources.</summary>
     public static HashSet<string> ProjectIdsOf(IEnumerable<Source> sources) => IdsOf(sources, "projectId");

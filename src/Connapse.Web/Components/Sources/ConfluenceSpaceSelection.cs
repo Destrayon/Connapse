@@ -9,7 +9,7 @@ namespace Connapse.Web.Components.Sources;
 /// Kept as a type of its own, like <c>GitHubRepositoryForm</c>, so the scope keys written here are
 /// tested against the ones <c>ConnectorFactory</c> reads.
 /// </summary>
-public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection
+public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection<ConfluenceSpaceInfo, ConfluenceSpaceSelection>
 {
     /// <summary>Where the setup guide explains every field of this form.</summary>
     public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources";
@@ -45,9 +45,6 @@ public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection
     /// <summary>The optional scope a site's credential needs before attachments can be read.</summary>
     public const string AttachmentScope = "read:attachment:confluence";
 
-    public const string AttachmentScopeHelp =
-        "Attachments need the " + AttachmentScope + " permission on the site's credential.";
-
     /// <summary>Shown when the site's last test did not confirm the attachment scope, so attachments start off.</summary>
     public const string AttachmentScopeUnconfirmedNote =
         "Off by default: the site's last connection test didn't confirm the " + AttachmentScope
@@ -67,32 +64,44 @@ public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection
     /// <summary>Whether the site's last passing check confirmed <see cref="AttachmentScope"/>.</summary>
     public static bool AttachmentScopeConfirmed(ConnectionHealth? health) => ScopeConfirmed(health, AttachmentScope);
 
+    public override string Product => Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.ConfluenceProduct;
+
+    public override string IdField => "spaceId";
+
     public override string RequiredAttachmentScope => AttachmentScope;
 
     public override string FieldIdPrefix => "confluence";
+
+    public override string SetupGuideUrl => GuideUrl;
 
     public override string ItemFixedNote => SpaceFixedNote;
 
     public override string AttachmentsShortHelp => IncludeAttachmentsShortHelp;
 
-    /// <summary>The spaces the site offers, as last listed.</summary>
-    public IReadOnlyList<ConfluenceSpaceInfo> Available { get; set; } = [];
-
-    /// <summary>Ids of the spaces ticked.</summary>
-    public HashSet<string> Selected { get; } = [];
-
     public bool IncludePersonal { get; set; }
 
     /// <summary>The problem with the space list, shown next to it; null when there is none.</summary>
-    public string? SpacesError { get; set; }
+    public string? SpacesError { get => ItemsError; set => ItemsError = value; }
 
-    /// <summary>Checks every field, setting each one's error; returns the first error, or null when all are valid.</summary>
-    public string? Validate()
+    protected override string NoItemChosen => NoSpaceChosen;
+
+    public override string NotOnSiteLabel => "Not spaces on this site";
+
+    public override string CouldNotCheckMessage => "Could not check the chosen spaces against this site. Try again.";
+
+    public override string FailureMessage(IReadOnlyCollection<string> created) => AddFailedMessage(created);
+
+    protected override string ScopeJsonFor(ConfluenceSpaceInfo space) => ScopeJson(space, IncludeAttachments, MaxAttachmentMb);
+
+    // Personal spaces too: whatever the dialog listed, a ticked space is checked against all of them.
+    public override async Task<AtlassianListing<ConfluenceSpaceInfo>> ListOnSiteAsync(
+        AtlassianSiteService sites, Guid connectionId, CancellationToken ct)
     {
-        SpacesError = Selected.Count == 0 ? NoSpaceChosen : null;
-        ValidateMaxAttachmentMb();
-        return SpacesError ?? MaxAttachmentMbError;
+        var listed = await sites.ListSpacesAsync(connectionId, includePersonal: true, ct);
+        return new(listed.Outcome, listed.Spaces, listed.Error, listed.TroubleshootingUrl);
     }
+
+    protected override void CopyOptionsTo(ConfluenceSpaceSelection copy) => copy.IncludePersonal = IncludePersonal;
 
     public static string ScopeJson(ConfluenceSpaceInfo space, bool includeAttachments, int maxAttachmentMb) =>
         JsonSerializer.Serialize(new
@@ -105,55 +114,6 @@ public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection
             includeAttachments,
             maxAttachmentMb = StorableMaxAttachmentMb(maxAttachmentMb),
         });
-
-    /// <summary>
-    /// One create request per ticked space not already a source. Spaces already sourced on the
-    /// connection (matched on id) are returned in <paramref name="skipped"/> instead.
-    /// </summary>
-    public IReadOnlyList<CreateSourceRequest> ToRequests(
-        Guid connectionId, string siteHost, IReadOnlySet<string> existingSpaceIds, out IReadOnlyList<string> skipped)
-    {
-        var requests = new List<CreateSourceRequest>();
-        var skippedNames = new List<string>();
-
-        foreach (var space in Available.Where(s => Selected.Contains(s.Id)))
-        {
-            if (existingSpaceIds.Contains(space.Id))
-            {
-                skippedNames.Add(space.Name);
-                continue;
-            }
-
-            requests.Add(new CreateSourceRequest(
-                SourceName(siteHost, space.Name), connectionId, ScopeJson(space, IncludeAttachments, MaxAttachmentMb)));
-        }
-
-        skipped = skippedNames;
-        return requests;
-    }
-
-    /// <summary>
-    /// A copy holding only the ticked spaces the site really has, taken from <paramref name="onSite"/>
-    /// (a fresh listing of the connection's own spaces) rather than from what the dialog showed.
-    /// The names of the ticked spaces the site does not have are returned in <paramref name="refused"/>.
-    /// </summary>
-    public ConfluenceSpaceSelection VerifiedAgainst(IReadOnlyList<ConfluenceSpaceInfo> onSite, out IReadOnlyList<string> refused)
-    {
-        var verified = new ConfluenceSpaceSelection
-        {
-            IncludePersonal = IncludePersonal,
-            IncludeAttachments = IncludeAttachments,
-            MaxAttachmentMb = MaxAttachmentMb,
-            Available = onSite.Where(s => Selected.Contains(s.Id)).ToList(),
-        };
-        verified.Selected.UnionWith(verified.Available.Select(s => s.Id));
-
-        refused = Selected
-            .Where(id => !verified.Selected.Contains(id))
-            .Select(id => Available.FirstOrDefault(s => s.Id == id)?.Name ?? id)
-            .ToList();
-        return verified;
-    }
 
     /// <summary>The space ids that already have a source, from the scopes of a connection's sources.</summary>
     public static HashSet<string> SpaceIdsOf(IEnumerable<Source> sources) => IdsOf(sources, "spaceId");
