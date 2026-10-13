@@ -564,10 +564,6 @@ public static class AtlassianEndpoints
             troubleshootingUrl = report.TroubleshootingUrl,
             detail = report.Detail,
             scopes = report.Scopes,
-            otherProducts = (report.OtherProducts ?? []).Select(n => new
-            {
-                name = n.Name, message = n.Message, stepLabel = n.StepLabel, troubleshootingUrl = n.TroubleshootingUrl,
-            }),
         };
     }
 }

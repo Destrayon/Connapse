@@ -1,6 +1,7 @@
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Connectors.Atlassian;
 
 namespace Connapse.Web.Components.Connections;
 
@@ -25,28 +26,28 @@ public sealed record AtlassianSiteStatus(string Text, string CssClass, string Ic
     };
 
     /// <summary>
-    /// Each product's state: ready when the last check that passed or only warned could read it.
-    /// A check saved before Jira was tested lists no products and tested only Confluence.
+    /// The connection's own product: ready when its last check passed or only warned. A connection
+    /// reads one product, so the list never names the other.
     /// </summary>
     public static IReadOnlyList<AtlassianProductStatus> ProductsOf(Connection site)
     {
-        ConnectionHealth? health = site.Health;
-        IReadOnlyList<string> ready = health?.Products
-            ?? (health is { Succeeded: true } or { Warning: true } ? [AtlassianSiteScopes.ConfluenceProduct] : []);
-        bool current = health is { Succeeded: true } or { Warning: true };
-
-        return [.. new[] { AtlassianSiteScopes.ConfluenceProduct, AtlassianSiteScopes.JiraProduct }.Select(product =>
+        string product = ProductOf(site);
+        string name = AtlassianSiteScopes.DisplayName(product);
+        return site.Health switch
         {
-            string name = AtlassianSiteScopes.DisplayName(product);
-            if (health is null)
-                return new AtlassianProductStatus(product, name, false, "Not checked yet", "text-muted", "bi-question-circle");
-            return ready.Contains(product, StringComparer.OrdinalIgnoreCase)
-                ? new AtlassianProductStatus(product, name, true, current ? "Ready" : "Ready at the last successful check",
-                    "text-success", "bi-check-circle")
-                : new AtlassianProductStatus(product, name, false, "Not available: the last test couldn't read it",
-                    "text-muted", "bi-dash-circle");
-        })];
+            null => [new AtlassianProductStatus(product, name, false, "Not checked yet", "text-muted", "bi-question-circle")],
+            { Succeeded: true } or { Warning: true } =>
+                [new AtlassianProductStatus(product, name, true, "Ready", "text-success", "bi-check-circle")],
+            _ => [new AtlassianProductStatus(product, name, false, "Not available: the last test couldn't read it",
+                "text-muted", "bi-dash-circle")],
+        };
     }
+
+    /// <summary>The product a connection reads, as <c>confluence</c> or <c>jira</c>; a connection without one is Confluence.</summary>
+    public static string ProductOf(Connection site) =>
+        AtlassianSite.FromConfigJson(site.ConfigJson)?.Product == AtlassianProduct.Jira
+            ? AtlassianSiteScopes.JiraProduct
+            : AtlassianSiteScopes.ConfluenceProduct;
 
     /// <summary>Whether sources of <paramref name="product"/> can be added on the site, as <see cref="ProductsOf"/> shows it.</summary>
     public static bool IsReady(Connection site, string product) =>

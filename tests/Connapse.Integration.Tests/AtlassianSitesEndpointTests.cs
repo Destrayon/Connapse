@@ -347,11 +347,8 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         string raw = await response.Content.ReadAsStringAsync();
         raw.Should().NotContain(Secret);
-        // This fake site has no Jira, which is a choice, not a fault: the report says so without a fix.
-        var jira = JsonDocument.Parse(raw).RootElement.GetProperty("test").GetProperty("otherProducts")[0];
-        jira.GetProperty("name").GetString().Should().Be("Jira");
-        jira.GetProperty("message").GetString().Should().Be("Not set up for this site.");
-        jira.GetProperty("troubleshootingUrl").ValueKind.Should().Be(JsonValueKind.Null);
+        // A Confluence connection's report names Confluence alone (#725).
+        JsonDocument.Parse(raw).RootElement.GetProperty("test").TryGetProperty("otherProducts", out _).Should().BeFalse();
 
         var connection = await FindAsync("passing.atlassian.net");
         connection.Should().NotBeNull();
@@ -379,6 +376,9 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 
     private async Task<Guid> CreateSiteAsync(string host, string? product = null)
     {
+        // A Jira connection's test reads Jira, so the fake site answers as a working Jira.
+        if (product == "jira")
+            new FakeJira(_api, _cloudId).MapSiteTest();
         var response = await CreateAsync(_fixture.AdminClient, host, product: product);
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

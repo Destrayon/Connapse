@@ -49,7 +49,7 @@ public class JiraProjectFormTests : IDisposable
             : $$"""{"siteUrl":"https://{{host}}","cloudId":"{{cloudId}}","clientId":"client-1"}""",
         null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true,
         Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
-            ConfirmedScopes: [AtlassianSiteScopes.JiraAttachment], Products: products));
+            ConfirmedScopes: [AtlassianSiteScopes.JiraAttachment]));
 
     private readonly Connection both = Site("acme.atlassian.net", BothCloudId, "confluence", "jira");
     private readonly Connection jiraOnly = Site("globex.atlassian.net", JiraCloudId, "jira");
@@ -57,7 +57,7 @@ public class JiraProjectFormTests : IDisposable
     /// <summary>A site whose test passed before Jira was checked: no products listed, so Confluence only.</summary>
     private readonly Connection untested = Site("initech.atlassian.net", BothCloudId) with
     {
-        Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test", Products: null),
+        Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test"),
     };
 
     public JiraProjectFormTests()
@@ -136,20 +136,25 @@ public class JiraProjectFormTests : IDisposable
     }
 
     [Fact]
-    public void NewSource_SiteWithBoth_ShowsProductChoice()
+    public void NewSource_ConfluenceConnection_ShowsSpacesWithoutAProductChoice()
     {
         var cut = OpenDialog(both);
 
         cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
-        cut.Find("#atlassian-product-confluence").HasAttribute("checked").Should().BeTrue("Confluence is chosen until Jira is");
+        cut.FindAll("#atlassian-product-jira").Should().BeEmpty("a connection reads one product (#725)");
         cut.FindAll("#jira-projects").Should().BeEmpty();
+    }
 
-        cut.Find("#atlassian-product-jira").Change(true);
+    [Fact]
+    public void NewSource_JiraConnectionWhoseLastTestFailed_StillShowsItsProducts()
+    {
+        var cut = OpenDialog(jiraOnly with
+        {
+            Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "jira-admin", Message: "m", Origin: "test"),
+        });
 
-        // The connection is Confluence's, so its credential lists no Jira projects (#725).
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("This is a Confluence connection; list its spaces instead."));
-        cut.FindAll(".jira-project-option").Should().BeEmpty();
-        cut.FindAll("#confluence-spaces").Should().BeEmpty();
+        cut.WaitForAssertion(() => cut.Find("#jira-projects"));
+        cut.FindAll("#confluence-spaces").Should().BeEmpty("a Jira connection is never offered Confluence spaces");
     }
 
     [Fact]
@@ -229,24 +234,6 @@ public class JiraProjectFormTests : IDisposable
         Detail(failed, "Step").Should().Be(AtlassianSourceSetupEvents.CreateStep);
         Detail(failed, "Reason").Should().Be("invalid");
         Detail(failed, "Product").Should().Be("jira");
-    }
-
-    [Fact]
-    public void Funnel_SiteWithBoth_StartsTheShownProductAndAJiraAttemptOnSwitching()
-    {
-        var cut = OpenDialog(both);
-        cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
-        cut.WaitForAssertion(() => SetupEvents().Should().Contain(e => e.Action == AtlassianSourceSetupEvents.Started));
-
-        cut.Find("#atlassian-product-jira").Change(true);
-        cut.Find("#atlassian-product-confluence").Change(true);
-        cut.Find("#atlassian-product-jira").Change(true);
-        // The connection is Confluence's, so the Jira attempt is refused rather than listed (#725).
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("This is a Confluence connection; list its spaces instead."));
-
-        var started = SetupEvents().Where(e => e.Action == AtlassianSourceSetupEvents.Started).ToList();
-        started.Select(e => Detail(e.Details, "Product")).Should().Equal(["confluence", "jira"], "each product's attempt starts once");
-        started.Select(e => Detail(e.Details, "Attempt")).Distinct().Should().HaveCount(2);
     }
 
     private sealed class StubHandler : HttpMessageHandler

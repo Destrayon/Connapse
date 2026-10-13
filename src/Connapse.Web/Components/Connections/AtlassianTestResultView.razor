@@ -20,21 +20,6 @@
             <a class="alert-link" href="@url" target="_blank" rel="noopener">@(url.EndsWith("#" + Connapse.Storage.ConnectionTesters.AtlassianSiteTroubleshooting.General, StringComparison.Ordinal) ? "Troubleshooting guide" : $"Troubleshooting: {report.StepLabel}")<span class="visually-hidden"> (opens in a new tab)</span></a>
         </div>
     }
-    @if (report.OtherProducts is { Count: > 0 } others)
-    {
-        <ul class="mb-0 mt-1 ps-3" id="@($"{Id}-products")">
-            @foreach (AtlassianProductNote other in others)
-            {
-                <li>
-                    <strong>@other.Name@(other.StepLabel is { } otherStep ? $" ({otherStep})" : ""):</strong> @other.Message
-                    @if (other.TroubleshootingUrl is { } otherUrl)
-                    {
-                        <a class="alert-link ms-1" href="@otherUrl" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> @other.Name (opens in a new tab)</span></a>
-                    }
-                </li>
-            }
-        </ul>
-    }
     @if (!report.Success)
     {
         <details class="mt-1" id="@($"{Id}-details")">

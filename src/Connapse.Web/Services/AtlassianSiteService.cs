@@ -85,8 +85,7 @@ public sealed record AtlassianTestReport(
     string? StepLabel,
     string? TroubleshootingUrl,
     string? Detail,
-    IReadOnlyList<string> Scopes,
-    IReadOnlyList<AtlassianProductNote>? OtherProducts = null)
+    IReadOnlyList<string> Scopes)
 {
     public static AtlassianTestReport From(ConnectionTestResult result)
     {
@@ -100,41 +99,9 @@ public sealed record AtlassianTestReport(
             step is null ? null : AtlassianConnectionTester.StepLabel(step),
             anchor is null ? null : AtlassianSiteTroubleshooting.UrlOf(anchor),
             result.Details?.GetValueOrDefault("detail") as string,
-            result.Details?.GetValueOrDefault("scopes") as string[] ?? [],
-            OtherProductsOf(result));
+            result.Details?.GetValueOrDefault("scopes") as string[] ?? []);
     }
-
-    // Each product that didn't pass, unless its message is the one the report already shows.
-    private static IReadOnlyList<AtlassianProductNote> OtherProductsOf(ConnectionTestResult result) =>
-        [.. new[] { AtlassianSiteScopes.ConfluenceProduct, AtlassianSiteScopes.JiraProduct }
-            .Where(p => result.Details?.GetValueOrDefault("product:" + p) is string message && message != result.Message)
-            .Select(p => NotSetUp(result, p)
-                ? new AtlassianProductNote(AtlassianSiteScopes.DisplayName(p), NotSetUpMessage, null, null)
-                : new AtlassianProductNote(
-                    AtlassianSiteScopes.DisplayName(p),
-                    (string)result.Details!["product:" + p],
-                    result.Details.GetValueOrDefault($"product:{p}:step") is string step ? AtlassianConnectionTester.StepLabel(step) : null,
-                    result.Details.GetValueOrDefault($"product:{p}:troubleshoot") is string anchor
-                        ? AtlassianSiteTroubleshooting.UrlOf(anchor)
-                        : null))];
-
-    public const string NotSetUpMessage = "Not set up for this site.";
-
-    /// <summary>
-    /// The site passed, and this product's credential couldn't read it at all: the product was never
-    /// set up, which is a choice, not a fault. A product that got further, or failed for a reason
-    /// that isn't about the credential (a rate limit, a timeout), still shows its problem.
-    /// </summary>
-    private static bool NotSetUp(ConnectionTestResult result, string product) =>
-        result.Success
-        && result.Details!.GetValueOrDefault($"product:{product}:step") is AtlassianConnectionTester.IdentityStep
-            or AtlassianConnectionTester.JiraIdentityStep
-        && result.Details.GetValueOrDefault($"product:{product}:troubleshoot") is AtlassianSiteTroubleshooting.CantReadConfluence
-            or AtlassianSiteTroubleshooting.CantReadJira;
 }
-
-/// <summary>A product the test reported on apart from the main message: why it isn't ready, and where to read more.</summary>
-public sealed record AtlassianProductNote(string Name, string Message, string? StepLabel, string? TroubleshootingUrl);
 
 /// <summary>
 /// What adding, resolving, re-testing and replacing the credentials of an Atlassian site mean,
@@ -190,7 +157,7 @@ public sealed class AtlassianSiteService(
             || string.IsNullOrWhiteSpace(clientSecret))
             return new AtlassianAddResult(AtlassianAddOutcome.MissingFields);
 
-        var result = await TestAsync("add", null, new AtlassianSiteTestRequest(siteUrl, clientId, clientSecret), ct);
+        var result = await TestAsync("add", null, new AtlassianSiteTestRequest(siteUrl, clientId, clientSecret, product), ct);
 
         if (!Saveable(result, saveAnyway)
             || !result.Details!.TryGetValue("cloudId", out object? cloudIdValue)
@@ -264,7 +231,7 @@ public sealed class AtlassianSiteService(
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return new AtlassianReplaceResult(AtlassianReplaceOutcome.MissingFields);
 
-        var result = await TestAsync("replace", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, clientId, clientSecret), ct);
+        var result = await TestAsync("replace", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, clientId, clientSecret, site.Product), ct);
         if (!Saveable(result, saveAnyway))
             return new AtlassianReplaceResult(AtlassianReplaceOutcome.TestFailed, Test: result);
 
@@ -432,7 +399,7 @@ public sealed class AtlassianSiteService(
         if (secret is null)
             return null;
 
-        var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret), ct);
+        var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret, site.Product), ct);
         await connections.RecordHealthAsync(connectionId, HealthOf(result), ct);
         return result;
     }
@@ -450,10 +417,7 @@ public sealed class AtlassianSiteService(
         Origin: "test",
         CredentialRejected: result.Details?.ContainsKey("rejected") ?? false,
         Warning: result.Details?.ContainsKey("warning") ?? false,
-        ConfirmedScopes: result.Success ? result.Details?.GetValueOrDefault("scopes") as string[] : null,
-        Products: result.Details?.GetValueOrDefault("products") is string products
-            ? products.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            : null);
+        ConfirmedScopes: result.Success ? result.Details?.GetValueOrDefault("scopes") as string[] : null);
 
     /// <summary>Runs the tester between the audit events that make setup measurable.</summary>
     private async Task<ConnectionTestResult> TestAsync(

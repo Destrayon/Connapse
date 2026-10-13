@@ -1398,12 +1398,11 @@ Returned by `/test`, inside `test` on a create or replace, and as the `422` body
 | `success` | `true` when every check passed |
 | `warning` | `true` when the only problem is a site with no page or no other user yet; `saveAnyway` can save past it |
 | `message` | What happened and what to do, as the page shows it |
-| `step` | The check that failed: `site`, `token`, `identity`, `spaces`, `content` (a scope a sync needs for comments, folders or changes is missing) or `admin`, or for Jira when no other product passed, `jira-identity`, `jira-projects`, `jira-content`, `jira-admin` or `jira-membership`; `null` on success |
+| `step` | The check that failed: `site`, `token`, `identity`, `spaces`, `content` (a scope a sync needs for comments, folders or changes is missing) or `admin`, or on a Jira connection `jira-identity`, `jira-projects`, `jira-content`, `jira-admin` or `jira-membership`; `null` on success |
 | `stepLabel` | That check in the page's words, for example "Signing in as the service account" |
 | `troubleshootingUrl` | The setup guide entry for the failure. A timeout, a rate limit or an answer Atlassian didn't finish links the guide's general Troubleshooting section, not a credential entry |
 | `detail` | Atlassian's own answer when it gave one, such as `HTTP 401 (Unauthorized)`; never a secret or token |
-| `scopes` | On success, the scopes the test confirmed the credential carries, for every product that passed. For Confluence: every required one, plus `read:attachment:confluence` when its probe passed. For Jira: the scopes its checks call (`read:user:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, `read:comment:jira`, `read:permission:jira`, `read:group:jira`, `read:project-role:jira`), `read:attachment:jira` when its probe passed, and any other Jira scope Atlassian lists as granted |
-| `otherProducts` | Each product (Confluence or Jira) that didn't pass, apart from the one `message` describes: `[{ name, message, stepLabel, troubleshootingUrl }]`. On a site that passes, a product the credential can't read at all reads `Not set up for this site.` with no `stepLabel` or `troubleshootingUrl` |
+| `scopes` | On success, the scopes the test confirmed the credential carries for the connection's product. For Confluence: every required one, plus `read:attachment:confluence` when its probe passed. For Jira: the scopes its checks call (`read:user:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, `read:comment:jira`, `read:permission:jira`, `read:group:jira`, `read:project-role:jira`), `read:attachment:jira` when its probe passed, and any other Jira scope Atlassian lists as granted |
 
 ### Atlassian Linking App
 

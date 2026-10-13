@@ -1201,12 +1201,10 @@
         confluenceExisting = new HashSet<string>();
         jiraForm = JiraProjectSelection.ForSite(SelectedConnection);
         jiraExisting = new HashSet<string>();
-        // Jira only when the site passed for Jira and not for Confluence; the choice is offered when it passed for both.
+        // A connection reads one product, so its picker is that product's.
         atlassianProduct = SelectedConnection is { Provider: ConnectionProvider.Atlassian } site
-            && AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.JiraProduct)
-            && !AtlassianSiteStatus.IsReady(site, AtlassianSiteScopes.ConfluenceProduct)
-                ? AtlassianSiteScopes.JiraProduct
-                : AtlassianSiteScopes.ConfluenceProduct;
+            ? AtlassianSiteStatus.ProductOf(site)
+            : AtlassianSiteScopes.ConfluenceProduct;
         if (SelectedConnection is not { Provider: ConnectionProvider.Atlassian } connection)
             return;
 

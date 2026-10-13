@@ -101,17 +101,20 @@ public class AtlassianSiteStatusTests
     }
 
     [Fact]
-    public void ProductsOf_ReadsWhichProductsTheLastTestCouldRead()
+    public void ProductsOf_IsTheConnectionsOwnProduct_ReadyWhenItsLastCheckPassedOrWarned()
     {
-        AtlassianSiteStatus.ProductsOf(Site(null)).Select(p => p.Text).Should().AllBe("Not checked yet");
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["confluence", "jira"] }))
-            .Select(p => p.Text).Should().Equal("Ready", "Ready");
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["jira"] }))
-            .Select(p => (p.Name, p.Ready)).Should().Equal(("Confluence", false), ("Jira", true));
-        // A check from before Jira was tested listed no products, and tested only Confluence.
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true))).Select(p => p.Ready).Should().Equal(true, false);
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, step: "token") with { Products = ["jira"] }))
-            .Last().Text.Should().Be("Ready at the last successful check");
+        AtlassianSiteStatus.ProductsOf(Site(null)).Select(p => p.Text).Should().Equal("Not checked yet");
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true))).Select(p => (p.Name, p.Ready)).Should().Equal(("Confluence", true));
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, warning: true, step: "admin"))).Single().Ready.Should().BeTrue();
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, step: "token"))).Single().Ready.Should().BeFalse();
+
+        Connection jira = Site(Check(ok: true)) with
+        {
+            ConfigJson = """{"siteUrl":"https://acme.atlassian.net","cloudId":"11111111-2222-3333-4444-555555555555","clientId":"x","product":"jira"}""",
+        };
+        AtlassianSiteStatus.ProductsOf(jira).Select(p => (p.Name, p.Ready)).Should().Equal(("Jira", true));
+        AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.JiraProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse();
     }
 
     [Fact]

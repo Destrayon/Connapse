@@ -125,65 +125,6 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
-    public void TestResult_JiraFailedPastItsFirstStep_SaysWhyWithItsStepAndTroubleshooting()
-    {
-        var result = ConnectionTestResult.CreateSuccess("Connected to https://acme.atlassian.net: found the site.",
-            new Dictionary<string, object>
-            {
-                ["products"] = "confluence",
-                ["product:jira"] = "The service account doesn't have the Administer Jira permission.",
-                ["product:jira:step"] = AtlassianConnectionTester.JiraAdminStep,
-                ["product:jira:troubleshoot"] = AtlassianSiteTroubleshooting.NotJiraAdministrator,
-            });
-
-        var cut = ctx.Render<AtlassianTestResultView>(p => p.Add(v => v.Result, result).Add(v => v.Id, "r"));
-
-        var note = cut.Find("#r-products li");
-        note.TextContent.Should().Contain("Jira (Checking Jira access permissions):").And.Contain("Administer Jira");
-        note.QuerySelector("a")!.GetAttribute("href").Should().EndWith("atlassian-setup.md#not-jira-administrator");
-    }
-
-    [Theory]
-    [InlineData("jira", "jira-identity", "cant-read-jira", "The credential can't read Jira on this site.")]
-    [InlineData("confluence", "identity", "cant-read-confluence", "The credential can't read Confluence on this site.")]
-    public void TestResult_SiteWithoutAProductAtAll_SaysItIsNotSetUp_WithNothingToFix(
-        string product, string step, string anchor, string message)
-    {
-        var result = ConnectionTestResult.CreateSuccess("Connected to https://acme.atlassian.net: found the site.",
-            new Dictionary<string, object>
-            {
-                ["products"] = product == "jira" ? "confluence" : "jira",
-                ["product:" + product] = message,
-                [$"product:{product}:step"] = step,
-                [$"product:{product}:troubleshoot"] = anchor,
-            });
-
-        var cut = ctx.Render<AtlassianTestResultView>(p => p.Add(v => v.Result, result).Add(v => v.Id, "r"));
-
-        var note = cut.Find("#r-products li");
-        note.TextContent.Should().Contain(AtlassianTestReport.NotSetUpMessage)
-            .And.NotContain("can't read").And.NotContain("test again");
-        note.QuerySelector("a").Should().BeNull("there is nothing to fix");
-    }
-
-    [Fact]
-    public void TestResult_ProductRateLimitedAtItsFirstStep_StillSaysWhy()
-    {
-        var result = ConnectionTestResult.CreateSuccess("Connected to https://acme.atlassian.net: found the site.",
-            new Dictionary<string, object>
-            {
-                ["products"] = "confluence",
-                ["product:jira"] = "Atlassian is rate limiting this site. Atlassian is limiting requests; wait, then test again.",
-                ["product:jira:step"] = AtlassianConnectionTester.JiraIdentityStep,
-                ["product:jira:troubleshoot"] = AtlassianSiteTroubleshooting.General,
-            });
-
-        var cut = ctx.Render<AtlassianTestResultView>(p => p.Add(v => v.Result, result).Add(v => v.Id, "r"));
-
-        cut.Find("#r-products li").TextContent.Should().Contain("rate limiting").And.NotContain(AtlassianTestReport.NotSetUpMessage);
-    }
-
-    [Fact]
     public void CopyResult_ShowsBesideTheGroupWhoseButtonWasChosen()
     {
         ctx.JSInterop.Setup<bool>("connapse.copyToClipboard", _ => true).SetResult(true);
@@ -201,14 +142,17 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
-    public void SiteStatus_ShowsPerProductState()
+    public void SiteStatus_ShowsTheConnectionsOwnProduct()
     {
         var site = AtlassianConnection(health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: "ok",
-            Origin: "test", Products: ["jira"], ConfirmedScopes: ["read:project:jira"]));
+            Origin: "test", ConfirmedScopes: ["read:project:jira"])) with
+        {
+            ConfigJson = $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"jira"}""",
+        };
 
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
 
-        cut.Find("#atlassian-site-product-confluence").TextContent.Should().Contain("Confluence").And.Contain("Not available");
+        cut.FindAll("#atlassian-site-product-confluence").Should().BeEmpty();
         cut.Find("#atlassian-site-product-jira").TextContent.Should().Contain("Jira").And.Contain("Ready");
         cut.Find("#atlassian-site-scopes").TextContent.Should().Contain("Confluence: 0 of 7 confirmed")
             .And.Contain($"Jira: 1 of {AtlassianSiteScopes.Jira.Count} confirmed");

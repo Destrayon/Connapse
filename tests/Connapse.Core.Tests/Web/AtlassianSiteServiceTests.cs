@@ -67,6 +67,11 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         $$"""{"siteUrl":"https://{{name}}","cloudId":"{{CloudId}}","clientId":"{{clientId}}"}""",
         null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true, SourceCount: 3);
 
+    private static Connection JiraSite() => new(
+        Guid.NewGuid(), "acme.atlassian.net (Jira)", ConnectionProvider.Atlassian,
+        $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"jira"}""",
+        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true, SourceCount: 1);
+
     [Fact]
     public async Task Add_WhenAStepFails_AuditsTheStartAndTheFailedStepWithItsDuration_AndNoSecret()
     {
@@ -99,25 +104,63 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Health_SavesProducts()
+    public async Task Add_Jira_TestsJiraOnly_AndConfirmsJirasScopes()
     {
-        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
+        new FakeJira(_api, CloudId).MapSiteTest();
+        // The site's Confluence refuses this credential: a Jira connection never asks it.
+        _api.Map(Root + "/rest/api/user/current", _ => new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden));
 
+        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
+
+        added.Outcome.Should().Be(AtlassianAddOutcome.Created);
+        _api.Calls.Keys.Should().NotContain(k => k.StartsWith("/ex/confluence/"));
         await _store.Received(1).RecordHealthAsync(added.Connection!.Id,
-            Arg.Is<ConnectionHealth>(h => h.Products != null && h.Products.SequenceEqual(new[] { "confluence" })),
+            Arg.Is<ConnectionHealth>(h => h.Succeeded && h.ConfirmedScopes!.Count > 0 && h.ConfirmedScopes.All(s => s.EndsWith(":jira"))),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Health_SiteSavedPastAWarning_KeepsItsProducts()
+    public async Task Add_Confluence_WhenOnlyJiraWorks_IsNotSaved()
     {
-        _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
+        new FakeJira(_api, CloudId).MapSiteTest();
+        _api.Map(Root + "/rest/api/user/current", _ => new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden));
 
-        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, saveAnyway: true);
+        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
 
-        await _store.Received(1).RecordHealthAsync(added.Connection!.Id,
-            Arg.Is<ConnectionHealth>(h => h.Warning && h.Products != null && h.Products.SequenceEqual(new[] { "confluence" })),
-            Arg.Any<CancellationToken>());
+        added.Outcome.Should().Be(AtlassianAddOutcome.TestFailed);
+        added.Test!.Details!["step"].Should().Be(AtlassianConnectionTester.IdentityStep);
+        _api.Calls.Keys.Should().NotContain(k => k.StartsWith("/ex/jira/"));
+        await _store.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
+    }
+
+    [Fact]
+    public async Task Retest_JiraConnection_TestsJira()
+    {
+        new FakeJira(_api, CloudId).MapSiteTest();
+        Connection site = JiraSite();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+
+        var result = await _sites.RetestAsync(site.Id);
+
+        result!.Success.Should().BeTrue();
+        result.Message.Should().Contain("read Jira");
+        _api.Calls.Keys.Should().NotContain(k => k.StartsWith("/ex/confluence/"));
+    }
+
+    [Fact]
+    public async Task Replace_JiraConnection_TestsTheNewCredentialAgainstJira()
+    {
+        var jira = new FakeJira(_api, CloudId).MapSiteTest();
+        jira.Answer("/myself", System.Net.HttpStatusCode.Forbidden);
+        Connection site = JiraSite();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+
+        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, "client-2", "new-secret", null);
+
+        replaced.Outcome.Should().Be(AtlassianReplaceOutcome.TestFailed);
+        replaced.Test!.Details!["step"].Should().Be(AtlassianConnectionTester.JiraIdentityStep);
+        await _store.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
     }
 
     [Fact]
@@ -149,6 +192,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     [Fact]
     public async Task Add_SameSiteBothProducts_Allowed()
     {
+        new FakeJira(_api, CloudId).MapSiteTest();
         var confluence = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
         var jira = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
 
@@ -165,6 +209,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     [Fact]
     public async Task Add_SameSiteSameProduct_Duplicate()
     {
+        new FakeJira(_api, CloudId).MapSiteTest();
         var first = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
         // Renamed, so only the site and product can tell it is the same connection.
         _saved[0] = _saved[0] with { Name = "Our Jira" };
