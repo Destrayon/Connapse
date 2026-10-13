@@ -1262,6 +1262,15 @@
             return;
         }
 
+        // The rule the REST create applies: the site's last test must still have passed for Jira.
+        if (selection.Product == AtlassianSiteScopes.JiraProduct
+            && JiraSourceScope.NotReady(connection) is { } notReady)
+        {
+            selection.ItemsError = notReady;
+            await CreateFailed("not_ready");
+            return;
+        }
+
         creating = true;
         var created = new List<string>();
         var failed = new List<string>();

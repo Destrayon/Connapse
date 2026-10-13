@@ -269,6 +269,23 @@ public class JiraProjectFormTests : IDisposable
     }
 
     [Fact]
+    public void Create_JiraReadinessLostAfterThePickerOpened_IsRefusedWithTheApiMessage()
+    {
+        var cut = OpenDialog(jira);
+        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+        // Tested again since the dialog opened, and the Jira probe failed this time.
+        connections.GetAsync(jira.Id, Arg.Any<CancellationToken>())
+            .Returns(jira with { Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "jira-admin", Message: "m", Origin: "test") });
+
+        cut.Find("#project-10000").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#jira-projects").TextContent.Should().Contain(JiraSourceScope.JiraNotReady));
+        created.Should().BeEmpty();
+        Detail(SetupEvents().Single(e => e.Action == AtlassianSourceSetupEvents.StepFailed).Details, "Reason").Should().Be("not_ready");
+    }
+
+    [Fact]
     public void NewSource_ConnectionWithoutAProduct_OffersConfluenceOnly()
     {
         var cut = OpenDialog(legacy);
