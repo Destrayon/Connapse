@@ -159,10 +159,21 @@ public sealed partial class JiraProjectConnector(
         // A fresh start keeps only what this cycle fetched: a record from before the resync is not
         // trusted, even for an issue that is still listed but that bulkfetch did not return.
         IReadOnlySet<string> keep = cursor is null ? fetched.Keys.ToHashSet(StringComparer.Ordinal) : listed;
+        // The cursor this cycle was given is the last one the sync engine took up: a tombstone
+        // recorded by that cycle or before has been listed, and its URI rewritten to deny-all.
+        long? takenUpMs = previous?.WatermarkMs;
         foreach (var issue in fetched.Values)
+        {
+            issue.Tombstones = Tombstones(_store.Load(issue.Id), issue, takenUpMs, startedMs);
             _store.Save(issue);
+        }
         foreach (string id in _store.Ids().Where(id => !keep.Contains(id)).ToList())
             _store.Delete(id);
+        foreach (string id in _store.Ids().Where(id => !fetched.ContainsKey(id)).ToList())
+        {
+            if (_store.Load(id) is { } unfetched && unfetched.Tombstones.RemoveAll(t => TakenUp(t, takenUpMs)) > 0)
+                _store.Save(unfetched);
+        }
         _store.SaveState(state);
 
         var files = Listing(null, out int skipped);
@@ -181,6 +192,67 @@ public sealed partial class JiraProjectConnector(
         return new SyncDelta(
             files, [], next.Serialize(), RequiresFullResync: false, IsFullListing: true, Notice: notice);
     }
+
+    /// <summary>
+    /// The tombstones an issue's new record carries: those of its last record not yet taken up,
+    /// and one for each restricted comment, internal note, or attachment tied to one, that the
+    /// last record listed and Jira's answer now leaves out. A comment hidden from the service
+    /// account vanishes this way, and without a tombstone a withheld deletion would leave it
+    /// searchable under the restriction it had.
+    /// </summary>
+    private List<JiraStoredTombstone> Tombstones(JiraStoredIssue? last, JiraStoredIssue now, long? takenUpMs, long startedMs)
+    {
+        if (last is null)
+            return [];
+
+        var commentIds = now.Comments.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+        var attachmentIds = now.Attachments.Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
+        // One that is back in Jira's answer is listed as itself again.
+        var tombstones = last.Tombstones
+            .Where(t => !TakenUp(t, takenUpMs)
+                && !(t.AttachmentFileName is null ? commentIds : attachmentIds).Contains(t.Id))
+            .ToList();
+
+        foreach (var comment in last.Comments.Where(c => JiraIssueStateStore.IsId(c.Id) && !commentIds.Contains(c.Id)))
+        {
+            var route = Route(comment, config.ProjectId);
+            if (!route.Separate)
+                continue;
+            tombstones.Add(new JiraStoredTombstone
+            {
+                Id = comment.Id,
+                Internal = route.Internal,
+                SizeBytes = comment.Updated.ToUnixTimeMilliseconds(),
+                LastModified = comment.Updated,
+                ContentType = "text/markdown",
+                RecordedMs = startedMs,
+            });
+        }
+
+        if (config.IncludeAttachments)
+        {
+            foreach (var attachment in last.Attachments.Where(a => JiraIssueStateStore.IsId(a.Id)
+                && a.RestrictingCommentId is not null && !attachmentIds.Contains(a.Id) && IsIndexable(a)))
+            {
+                var tying = last.Comments.FirstOrDefault(c => c.Id == attachment.RestrictingCommentId);
+                tombstones.Add(new JiraStoredTombstone
+                {
+                    Id = attachment.Id,
+                    AttachmentFileName = attachment.FileName,
+                    Internal = tying is not null && Route(tying, config.ProjectId).Internal,
+                    SizeBytes = attachment.Size,
+                    LastModified = attachment.Created,
+                    ContentType = attachment.MediaType,
+                    RecordedMs = startedMs,
+                });
+            }
+        }
+
+        return [.. tombstones.DistinctBy(t => (t.AttachmentFileName is null, t.Id))];
+    }
+
+    private static bool TakenUp(JiraStoredTombstone tombstone, long? takenUpMs) =>
+        takenUpMs is { } ms && ms >= tombstone.RecordedMs;
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) =>
         Task.FromResult(Listing(prefix, out _));
@@ -743,6 +815,9 @@ public sealed partial class JiraProjectConnector(
             files.AddRange(issue.Comments
                 .Where(c => JiraIssueStateStore.IsId(c.Id) && Route(c, config.ProjectId).Separate)
                 .Select(c => ToCommentFile(issue, c, state)));
+            files.AddRange(issue.Tombstones
+                .Where(t => JiraIssueStateStore.IsId(t.Id))
+                .Select(t => ToTombstoneFile(issue, t, state)));
 
             if (!config.IncludeAttachments)
                 continue;
@@ -761,8 +836,38 @@ public sealed partial class JiraProjectConnector(
         [
             .. files
                 .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal))
+                .DistinctBy(f => f.Path, StringComparer.Ordinal)
                 .OrderBy(f => f.Path, StringComparer.Ordinal),
         ];
+    }
+
+    /// <summary>
+    /// A vanished restricted document under its last signature, so the sync engine only rewrites
+    /// its URI, to deny-all. It is never read: its path names nothing the store holds.
+    /// </summary>
+    private ConnectorFile ToTombstoneFile(JiraStoredIssue issue, JiraStoredTombstone tombstone, JiraSyncState state)
+    {
+        string projectName = string.IsNullOrWhiteSpace(state.ProjectName) ? config.ProjectKey : state.ProjectName;
+        string cloudId = config.Site.CloudId;
+        bool attachment = tombstone.AttachmentFileName is not null;
+
+        return new ConnectorFile(
+            Path: attachment
+                ? $"/issues/{issue.Id}/attachments/{tombstone.Id}/{AtlassianFileNames.SafeFileName(tombstone.AttachmentFileName!)}"
+                : CommentPathFor(issue.Id, tombstone.Id),
+            SizeBytes: tombstone.SizeBytes,
+            LastModified: tombstone.LastModified.UtcDateTime,
+            ContentType: tombstone.ContentType,
+            ResourceUri: attachment
+                ? AtlassianUri.ForJiraAttachment(cloudId, issue.Id, tombstone.Id, tombstone.Internal, JiraRestriction.DenyAll)
+                : AtlassianUri.ForJiraComment(cloudId, issue.Id, tombstone.Id, tombstone.Internal, JiraRestriction.DenyAll),
+            Metadata: new Dictionary<string, string>
+            {
+                ["jira:issueKey"] = issue.Key,
+                ["jira:breadcrumb"] = JiraRecordRenderer.Breadcrumb(projectName, issue.Key, issue.Summary),
+                ["jira:visibility"] = tombstone.Internal ? "internal,restricted" : "restricted",
+            },
+            Strategy: null);
     }
 
     /// <summary>

@@ -34,6 +34,23 @@ internal sealed class JiraStoredAttachment
     public bool DenyAll { get; set; }
 }
 
+/// <summary>
+/// A restricted comment, internal note, or attachment tied to one, that Jira's answer for its issue
+/// left out. It is listed with a deny-all URI, under its last signature, until a cycle after the
+/// one that recorded it has been taken up: a deletion the sync engine withholds then leaves a
+/// document nobody can see, not one under a restriction Jira no longer applies.
+/// </summary>
+internal sealed class JiraStoredTombstone
+{
+    public string Id { get; set; } = "";
+    public string? AttachmentFileName { get; set; }   // null for a comment
+    public bool Internal { get; set; }
+    public long SizeBytes { get; set; }
+    public DateTimeOffset LastModified { get; set; }
+    public string? ContentType { get; set; }
+    public long RecordedMs { get; set; }               // the start of the cycle that recorded it
+}
+
 /// <summary>What the last fetch said about one issue.</summary>
 internal sealed class JiraStoredIssue
 {
@@ -43,6 +60,7 @@ internal sealed class JiraStoredIssue
     public DateTimeOffset Updated { get; set; }
     public List<JiraStoredComment> Comments { get; set; } = [];
     public List<JiraStoredAttachment> Attachments { get; set; } = [];
+    public List<JiraStoredTombstone> Tombstones { get; set; } = [];
     public DateTimeOffset? CommentsReadAt { get; set; }
 }
 

@@ -848,6 +848,95 @@ public sealed class JiraProjectConnectorTests : IDisposable
         unknown.Which.Should().NotBeOfType<FileNotFoundException>("an unknown project is retried, not taken as gone");
     }
 
+    // ── Vanished restricted documents ──────────────────────────────────────
+
+    [Fact]
+    public async Task Sync_RestrictedCommentVanishes_ListedOnceMoreAsDenyAllThenDropped()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Internal note", T0.AddMinutes(1), JsdPublic: false));
+        var first = await _connector.GetChangesAsync(null);
+
+        // Restricted to a group the service account is not in: Jira's answer leaves both out.
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Comments.Clear();
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        var group = Doc(second, CommentPath("20001", "2"));
+        group.Should().NotBeNull("a vanished restricted comment is listed once more so its URI denies everyone");
+        group!.ResourceUri.Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, JiraRestriction.DenyAll));
+        group.SizeBytes.Should().Be(Size(first, CommentPath("20001", "2")), "the same signature only rewrites the URI");
+        group.LastModified.Should().Be(Doc(first, CommentPath("20001", "2"))!.LastModified);
+        Doc(second, CommentPath("20001", "4"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "4", true, JiraRestriction.DenyAll));
+        (await _connector.ExistsAsync(CommentPath("20001", "2"))).Should().BeFalse();
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "2")))
+            .Should().ThrowAsync<FileNotFoundException>();
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+
+        third.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    [Fact]
+    public async Task Sync_TombstoneCycleNotCommitted_ListedAgain()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Comments.Clear();
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        await _connector.GetChangesAsync(first.NextCursor);
+
+        // The engine kept the old cursor (it withheld deletions): the tombstone's listing was not taken up.
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var again = await _connector.GetChangesAsync(first.NextCursor);
+
+        Doc(again, CommentPath("20001", "2"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, JiraRestriction.DenyAll));
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Contain(CommentPath("20001", "2"));
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var later = await _connector.GetChangesAsync(again.NextCursor);
+        later.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    [Fact]
+    public async Task Sync_FreshStart_RestrictedAttachmentsVanish_ListedOnceMoreAsDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        _jira.Attach(issue, Attachment("30002", "logs.txt"));
+        _jira.Attach(issue, Attachment("30003", "public.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Internal note", T0, JsdPublic: false, RenderedBody: LinkTo("30002")));
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+
+        issue.Comments.Clear();
+        issue.Attachments.Clear();
+        var second = await _connector.GetChangesAsync(null);
+
+        var secret = Doc(second, AttachmentPath("20001", "30001", "secret.txt"));
+        secret!.ResourceUri.Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        secret.SizeBytes.Should().Be(Size(first, AttachmentPath("20001", "30001", "secret.txt")));
+        secret.LastModified.Should().Be(AttachedAt.UtcDateTime);
+        Doc(second, AttachmentPath("20001", "30002", "logs.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", true, JiraRestriction.DenyAll));
+        Doc(second, AttachmentPath("20001", "30003", "public.txt")).Should().BeNull("an unrestricted attachment needs no tombstone");
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(AttachmentPath("20001", "30001", "secret.txt")))
+            .Should().ThrowAsync<FileNotFoundException>();
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+        third.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
     // ── Attachments ────────────────────────────────────────────────────────
 
     private static readonly DateTimeOffset AttachedAt = new(2026, 9, 30, 8, 0, 0, TimeSpan.Zero);
