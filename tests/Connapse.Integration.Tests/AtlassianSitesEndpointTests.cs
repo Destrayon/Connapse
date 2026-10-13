@@ -221,7 +221,9 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         body.GetProperty("siteUrl").GetString().Should().Be("https://detail.atlassian.net");
         body.GetProperty("health").GetProperty("succeeded").GetBoolean().Should().BeTrue();
         body.GetProperty("health").GetProperty("lastSucceededAt").ValueKind.Should().Be(JsonValueKind.String);
-        body.GetProperty("scopes").GetArrayLength().Should().Be(7);
+        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("product").GetString())
+            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.All.Select(s => s.Product));
+        body.GetProperty("scopes").EnumerateArray().Count(s => s.GetProperty("product").GetString() == "confluence").Should().Be(7);
     }
 
     [Fact]
@@ -343,6 +345,11 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         string raw = await response.Content.ReadAsStringAsync();
         raw.Should().NotContain(Secret);
+        // This fake site has no Jira, which is a choice, not a fault: the report says so without a fix.
+        var jira = JsonDocument.Parse(raw).RootElement.GetProperty("test").GetProperty("otherProducts")[0];
+        jira.GetProperty("name").GetString().Should().Be("Jira");
+        jira.GetProperty("message").GetString().Should().Be("Not set up for this site.");
+        jira.GetProperty("troubleshootingUrl").ValueKind.Should().Be(JsonValueKind.Null);
 
         var connection = await FindAsync("passing.atlassian.net");
         connection.Should().NotBeNull();

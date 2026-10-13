@@ -24,7 +24,35 @@ public sealed record AtlassianSiteStatus(string Text, string CssClass, string Ic
             new($"Last check failed: {AtlassianConnectionTester.StepLabel(h.Step)}", "text-danger", "bi-x-circle", false),
     };
 
+    /// <summary>
+    /// Each product's state: ready when the last check that passed or only warned could read it.
+    /// A check saved before Jira was tested lists no products and tested only Confluence.
+    /// </summary>
+    public static IReadOnlyList<AtlassianProductStatus> ProductsOf(Connection site)
+    {
+        ConnectionHealth? health = site.Health;
+        IReadOnlyList<string> ready = health?.Products
+            ?? (health is { Succeeded: true } or { Warning: true } ? [AtlassianSiteScopes.ConfluenceProduct] : []);
+        bool current = health is { Succeeded: true } or { Warning: true };
+
+        return [.. new[] { AtlassianSiteScopes.ConfluenceProduct, AtlassianSiteScopes.JiraProduct }.Select(product =>
+        {
+            string name = AtlassianSiteScopes.DisplayName(product);
+            if (health is null)
+                return new AtlassianProductStatus(product, name, false, "Not checked yet", "text-muted", "bi-question-circle");
+            return ready.Contains(product, StringComparer.OrdinalIgnoreCase)
+                ? new AtlassianProductStatus(product, name, true, current ? "Ready" : "Ready at the last successful check",
+                    "text-success", "bi-check-circle")
+                : new AtlassianProductStatus(product, name, false, "Not available: the last test couldn't read it",
+                    "text-muted", "bi-dash-circle");
+        })];
+    }
+
     /// <summary>A check time as the page shows it: UTC, to the minute.</summary>
     public static string When(DateTime? utc) =>
         utc is { } at ? at.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) : "never";
 }
+
+/// <summary>One product of a saved site as the Connections page shows it.</summary>
+/// <param name="Ready">Sources of this product can be added.</param>
+public sealed record AtlassianProductStatus(string Product, string Name, bool Ready, string Text, string CssClass, string Icon);

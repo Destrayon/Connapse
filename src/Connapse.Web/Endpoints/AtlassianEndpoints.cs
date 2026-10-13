@@ -315,7 +315,7 @@ public static class AtlassianEndpoints
 
             return Results.Ok(SiteView(connection, await admin.IsPausedAsync(connectionId, ct)) with
             {
-                Scopes = AtlassianSiteScopes.All.Select(s => new { name = s.Name, reason = s.Reason, optional = s.Optional }),
+                Scopes = AtlassianSiteScopes.All.Select(s => new { name = s.Name, reason = s.Reason, optional = s.Optional, product = s.Product }),
             });
         }).RequireAuthorization("RequireAdmin");
 
@@ -533,6 +533,10 @@ public static class AtlassianEndpoints
             troubleshootingUrl = report.TroubleshootingUrl,
             detail = report.Detail,
             scopes = report.Scopes,
+            otherProducts = (report.OtherProducts ?? []).Select(n => new
+            {
+                name = n.Name, message = n.Message, stepLabel = n.StepLabel, troubleshootingUrl = n.TroubleshootingUrl,
+            }),
         };
     }
 }

@@ -29,6 +29,9 @@ public class AtlassianSetupGuideDocsTests
         "### Not Confluence Administrator",
         "### Missing scope",
         "### Site has no pages or no other users yet",
+        "### Can't read Jira",
+        "### Not Jira administrator",
+        "### Can't read Jira membership",
         "### Linking app rejected",
         "### Sign-in failed",
         "### Space can no longer be read",
@@ -172,6 +175,18 @@ public class AtlassianSetupGuideDocsTests
         reason.Should().Be("find what changed since the last sync and look up people");
         guide.Should().Contain("| `read:content-details:confluence` | Finding what changed since the last sync and looking up people |")
             .And.NotContain("Reading page restrictions");
+    }
+
+    [Fact]
+    public void SetupGuide_JiraStep_NamesTheScopesThePermissionAndTheCommentGroups()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain(Connapse.Web.Components.Connections.AtlassianConnectionForm.RequiredJiraScopeList)
+            .And.Contain("`read:attachment:jira`")
+            .And.Contain("**Administer Jira**")
+            .And.Contain("every group and project role your team restricts comments to")
+            .And.Contain("is never indexed, and Connapse can't tell it exists");
     }
 
     [Fact]

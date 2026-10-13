@@ -32,7 +32,8 @@ public class AtlassianSiteFieldSpecDocsTests
             "2-service-account", "3-site-connection",
             "site-not-found", "client-id-or-secret-rejected", "cant-read-confluence",
             "no-confluence-access-or-no-spaces", "not-confluence-administrator", "missing-scope",
-            "site-has-no-pages-or-no-other-users-yet", "troubleshooting");
+            "site-has-no-pages-or-no-other-users-yet", "cant-read-jira", "not-jira-administrator", "cant-read-jira-membership",
+            "troubleshooting");
         AtlassianSiteFieldSpecs.All.Select(f => f.GuideUrl.Split('#')[1]).Should().BeSubsetOf(AtlassianSiteFieldSpecs.GuideAnchors);
     }
 
@@ -97,6 +98,20 @@ public class AtlassianSiteStatusTests
         AtlassianSiteStatus.Of(Site(Check(ok: true))).Text.Should().Be("Working");
         AtlassianSiteStatus.Of(Site(Check(ok: false, warning: true, step: "admin"))).Text.Should().Contain("not confirmed");
         AtlassianSiteStatus.Of(Site(Check(ok: false, step: "spaces"))).Text.Should().Be("Last check failed: Listing spaces");
+    }
+
+    [Fact]
+    public void ProductsOf_ReadsWhichProductsTheLastTestCouldRead()
+    {
+        AtlassianSiteStatus.ProductsOf(Site(null)).Select(p => p.Text).Should().AllBe("Not checked yet");
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["confluence", "jira"] }))
+            .Select(p => p.Text).Should().Equal("Ready", "Ready");
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["jira"] }))
+            .Select(p => (p.Name, p.Ready)).Should().Equal(("Confluence", false), ("Jira", true));
+        // A check from before Jira was tested listed no products, and tested only Confluence.
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true))).Select(p => p.Ready).Should().Equal(true, false);
+        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, step: "token") with { Products = ["jira"] }))
+            .Last().Text.Should().Be("Ready at the last successful check");
     }
 
     [Fact]
