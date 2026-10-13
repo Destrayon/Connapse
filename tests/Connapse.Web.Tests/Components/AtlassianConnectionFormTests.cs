@@ -127,9 +127,9 @@ public class AtlassianConnectionFormTests : IDisposable
         cut.FindAll("#atlassian-scopes-confluence").Should().BeEmpty("a Jira connection's credential holds Jira scopes only");
 
         var guide = cut.Find("#atlassian-service-account-guide").TextContent;
-        guide.Should().Contain("Administer Jira").And.Contain("Browse projects").And.Contain("project role")
+        guide.Should().Contain("Administer Jira").And.Contain("Browse Projects").And.Contain("Private").And.Contain("project role")
             .And.Contain("Jira Administration to App admin").And.Contain("jira-admins-").And.NotContain("admin role")
-            .And.NotContain("Confluence").And.NotContain("Viewer");
+            .And.NotContain("Confluence");
         cut.Find("#atlassian-site-intro").TextContent.Should().Contain("Jira");
         cut.Markup.Should().Contain("The address in your browser when you open Jira");
 

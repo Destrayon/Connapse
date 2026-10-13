@@ -242,11 +242,11 @@
                         <strong>jira-admins-</strong><em>site</em> group under <strong>Directory</strong> &rarr; <strong>Groups</strong> and test again.
                     </li>
                     <li>
-                        In every project you will index, give the service account (or a group it is in) the <strong>Browse projects</strong>
-                        permission, under <strong>&bull;&bull;&bull;</strong> next to the project's name &rarr; <strong>Space settings</strong> &rarr; <strong>Access</strong>
-                        (Jira on newer sites calls projects spaces) or the project's permission scheme.
-                        A company-managed project on the default permission scheme already grants it to everyone with Jira access.
-                        A project it can't browse is not listed.
+                        The service account must be able to see every project you will index (Jira on newer sites calls projects spaces).
+                        A team-managed space set to <strong>Open</strong> or <strong>Limited</strong> under <strong>&bull;&bull;&bull;</strong> next to its
+                        name &rarr; <strong>Space settings</strong> &rarr; <strong>Access</strong> already lets it; a <strong>Private</strong> one needs it added as
+                        <strong>Viewer</strong>. A company-managed project on the default permission scheme already grants <strong>Browse Projects</strong>
+                        to everyone with Jira access. A project it can't see is not listed.
                     </li>
                     <li>
                         Add the service account to every group and project role your team restricts comments to. A comment

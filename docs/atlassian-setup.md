@@ -79,11 +79,15 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
    account to `jira-admins-<site>` in Atlassian Administration (**Directory** → **Groups** →
    `jira-admins-<site>` → **Add group members**, or **Directory** → **Service accounts** → **•••** →
    **Add to group**), and you test again.
-4. Check that the service account can browse every space you will index:
-   - **Company-managed spaces** on the default permission scheme grant **Browse spaces** (**Browse
-     projects**) to everyone with Jira access, so step 1 is enough.
-   - **A private team-managed space, or a custom permission scheme**, needs the service account added:
-     **•••** next to the space's name → **Space settings** → **Access**.
+4. Check that the service account can see every space you will index. A space it can't see isn't
+   listed when you add a source, so you can also skip this and add it if a space is missing.
+   - **Team-managed spaces** have no permission by that name; access comes from the space's access
+     setting under **•••** next to the space's name → **Space settings** → **Access**. **Open** or
+     **Limited** lets everyone with Jira access see the space, so step 1 is enough. **Private** needs the
+     service account added there, as **Viewer** or higher.
+   - **Company-managed spaces** use a permission scheme: gear icon → **Jira admin settings** → **Work
+     items** → **Permission schemes** → the space's scheme → **Browse Spaces** (**Browse Projects**). The
+     default scheme grants it to everyone with Jira access, so step 1 is enough.
 
    Then add the service account to every group and space role your team restricts comments to (step
    2.4 explains why): groups under **Directory** → **Groups** in Atlassian Administration, space roles
@@ -181,11 +185,17 @@ In [Atlassian Administration](https://admin.atlassian.com), as an organization a
    **Directory** → **Groups** → `jira-admins-<site>` → **Add group members**, or **Directory** →
    **Service accounts** → **•••** → **Add to group**.
 
-   In every project you will index, the service account needs the **Browse projects** (**Browse
-   spaces**) permission. Company-managed projects on the default permission scheme already grant it to
-   everyone with Jira access. A custom scheme or a private team-managed space needs the service account
-   added under **•••** next to the space's name → **Space settings** → **Access**, or in the scheme's
-   Browse spaces grant. Then add the service account to **every group and project role your team restricts comments
+   The service account must be able to see every space (project) you will index:
+
+   - **Team-managed spaces** have no permission by that name; access comes from the space's access
+     setting under **•••** next to the space's name → **Space settings** → **Access**. **Open** or
+     **Limited** lets everyone with Jira access see the space, so step 1 is enough. **Private** needs the
+     service account added there, as **Viewer** or higher.
+   - **Company-managed spaces** use a permission scheme: gear icon → **Jira admin settings** → **Work
+     items** → **Permission schemes** → the space's scheme → **Browse Spaces** (**Browse Projects**). The
+     default scheme grants it to everyone with Jira access, so step 1 is enough.
+
+   Then add the service account to **every group and project role your team restricts comments
    to**: a comment restricted to a group or role the service account isn't in is never indexed, and
    Connapse can't tell it exists.
 5. Back on the service account, choose **Create credentials** → **OAuth 2.0** → **Next**, one credential
@@ -451,8 +461,7 @@ whether another person can browse a project, so it needs at least one page or pr
 account can see and one other user.
 **Fix:** choose **Save anyway** to save the site now; it is marked with a warning until the check can
 run, and its spaces or projects can already be added as sources. Then, for Confluence, create a page in
-a space the service account can view; for Jira, create a project or give the service account **Browse
-projects** (**Browse spaces**) in one (step 2.4). If the site has only one user, invite one more with
+a space the service account can view; for Jira, create a space or let the service account see one (step 2.4). If the site has only one user, invite one more with
 access to that product. Then choose **Test connection**. On a Jira site with projects but no project
 role the service account can read, the test fails at **Reading Jira groups and project roles** instead:
 see [Can't read Jira membership](#cant-read-jira-membership).
@@ -549,11 +558,11 @@ role again (step 2.3), then choose **Sync** on the source. If the space was dele
 **Symptom:** a Jira source on the Sources page failed with *Jira project … can no longer be read: the
 service account lost access to it.* or *… it was deleted, or the service account can no longer see it.*
 **Details** shows HTTP 403 or 404.
-**Likely cause:** someone removed the service account's **Browse projects** permission in the project,
-changed the project's permission scheme, or deleted or archived the project. The source's documents are
+**Likely cause:** someone made the space private or removed the service account from it, changed its
+permission scheme, or deleted or archived the project. The source's documents are
 hidden from search, not deleted, until the project can be read again.
 **Fix:** in the space, open **•••** next to its name → **Space settings** → **Access** (or the permission
-scheme) and give the service account **Browse projects** (**Browse spaces**) again, then choose **Sync** on the source. If the project was
+scheme) and let the service account see the space again (step 2.4), then choose **Sync** on the source. If the project was
 deleted, delete the source.
 
 ### Attachments skipped
