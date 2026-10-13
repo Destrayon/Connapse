@@ -11,7 +11,8 @@ Connapse reads Confluence Cloud in two parts, set up once each:
   credential. Connapse reads the site as this account and asks Confluence, as this account, what each
   linked person may read.
 
-Each site becomes a **connection**, and each Confluence space you choose becomes a **source**.
+Each site becomes a **connection** per product, a Confluence site and a Jira site, and each Confluence
+space or Jira project you choose becomes a **source**.
 Confluence content appears in search only for people who have linked their Atlassian account under
 **Profile → Integrations**, and only the pages Confluence lets them read. People who have not linked
 an account see no Confluence results at all.
@@ -74,42 +75,41 @@ Then link your own account under **Profile → Integrations → Atlassian** to c
 
 ## 2. Service account
 
-**What it is:** the account Connapse reads the site as. It needs Confluence's admin role, to ask what
-each person may read, and view access to every space you index.
+**What it is:** the account Connapse reads the site as. For Confluence it needs Confluence's admin role,
+to ask what each person may read, and view access to every space you index. For Jira it needs Jira's
+admin role and permission to browse every project you index.
+
+**One service account and one credential can serve both products: add the site twice, once as each
+connection.** A Confluence site and a Jira site are separate connections on the Connections page (step 3),
+each tested for its own product only. Give the service account the roles and access below for each
+product you will index, and create one credential that holds both scope groups, or one credential per
+product if you prefer.
 
 In [Atlassian Administration](https://admin.atlassian.com):
 
 1. Go to **Directory** → **Service accounts** → **Create a service account**. Name it with 6 to 30
    letters or digits, for example `connapse`.
-2. On **Select app roles**, set **Confluence** to its admin role. If you will index Jira, set **Jira**
-   to its admin role too (step 4 explains why). Leave every other app at **None**.
-   Connapse needs Confluence admin rights to check other people's access, and the site check in step 3
-   confirms them. You can change the role later under **Directory** → **Service accounts**, or add the
-   account to the site's Confluence admin group under **Directory** → **Groups**.
-3. In **every space you will index**, give the service account (or a group it is in) the **Viewer**
-   role: open the space, choose **•••** next to its name in the sidebar → **Space settings** →
-   **Users**, add the service account, and choose **Viewer**. On older sites without space roles the
-   page is **Permissions**, where it needs **View**. Being an admin does not grant this.
-4. **Only if you will index Jira**, give the service account Jira access and the **Administer Jira**
-   global permission: under **Directory** → **Service accounts**, choose the service account and set
-   **Jira** to its admin role, which holds Administer Jira. Connapse needs it to ask Jira what each person
-   may read, and the site check in step 3 confirms it. Then add the service account to **every group and
-   project role your team restricts comments to**: a comment restricted to a group or role the service
-   account isn't in is never indexed, and Connapse can't tell it exists.
-
-   When you create the credential in step 5, add the Jira scopes as well (**Copy required Jira scopes**
-   on the site form copies these 25), so one credential holds both groups. If the credential already
-   exists, create a new one with both groups and use **Replace credentials** on the site:
-
-   ```
-   read:project:jira read:issue:jira read:issue-details:jira read:comment:jira read:permission:jira read:group:jira read:project-role:jira read:issue-security-level:jira read:user:jira read:application-role:jira read:avatar:jira read:audit-log:jira read:comment.property:jira read:field:jira read:field-configuration:jira read:issue-meta:jira read:issue-type:jira read:issue-type-hierarchy:jira read:issue.changelog:jira read:issue.vote:jira read:project-category:jira read:project-version:jira read:project.component:jira read:project.property:jira read:status:jira
-   ```
-
-   Only if a Jira source will include attachments, also add `read:attachment:jira`. Atlassian marks the
-   Jira scopes Beta; they are the granular scopes the Jira calls Connapse makes require.
+2. On **Select app roles**, set **Confluence** to its admin role if you will index Confluence, and
+   **Jira** to its admin role if you will index Jira (step 4 explains why). Leave every other app at
+   **None**. Connapse needs Confluence admin rights to check other people's access, and the Confluence
+   site's check in step 3 confirms them. You can change the role later under **Directory** → **Service
+   accounts**, or add the account to the site's Confluence admin group under **Directory** → **Groups**.
+3. **For Confluence**, in **every space you will index**, give the service account (or a group it is in)
+   the **Viewer** role: open the space, choose **•••** next to its name in the sidebar → **Space
+   settings** → **Users**, add the service account, and choose **Viewer**. On older sites without space
+   roles the page is **Permissions**, where it needs **View**. Being an admin does not grant this.
+4. **For Jira**, give the service account Jira access and the **Administer Jira** global permission:
+   under **Directory** → **Service accounts**, choose the service account and set **Jira** to its admin
+   role, which holds Administer Jira. Connapse needs it to ask Jira what each person may read, and the
+   Jira site's check in step 3 confirms it. In every project you will index, give the service account the
+   **Browse projects** permission. Then add the service account to **every group and project role your
+   team restricts comments to**: a comment restricted to a group or role the service account isn't in is
+   never indexed, and Connapse can't tell it exists.
 5. Back on the service account, choose **Create credentials** → **OAuth 2.0**. On **Select scopes**,
-   paste the required scopes into the scope search box (**Copy required scopes** on the site form copies
-   them). The list narrows to exactly these six; tick each one:
+   paste each product's required scopes into the scope search box and tick each one. The **Copy required
+   scopes** button on each site form (step 3) copies that product's list.
+
+   **Confluence**: the list narrows to exactly these six.
 
    ```
    read:space:confluence read:page:confluence read:comment:confluence read:folder:confluence read:content-details:confluence read:content.permission:confluence
@@ -129,6 +129,17 @@ In [Atlassian Administration](https://admin.atlassian.com):
    | `read:content-details:confluence` | Finding what changed since the last sync and looking up people |
    | `read:content.permission:confluence` | Checking what each person may read |
 
+   **Jira**: these 25.
+
+   ```
+   read:project:jira read:issue:jira read:issue-details:jira read:comment:jira read:permission:jira read:group:jira read:project-role:jira read:issue-security-level:jira read:user:jira read:application-role:jira read:avatar:jira read:audit-log:jira read:comment.property:jira read:field:jira read:field-configuration:jira read:issue-meta:jira read:issue-type:jira read:issue-type-hierarchy:jira read:issue.changelog:jira read:issue.vote:jira read:project-category:jira read:project-version:jira read:project.component:jira read:project.property:jira read:status:jira
+   ```
+
+   Only if a Jira source will include attachments, also add `read:attachment:jira`. Atlassian marks the
+   Jira scopes Beta; they are the granular scopes the Jira calls Connapse makes require.
+
+   If a credential already exists for one product, create a new one with both groups and use **Replace
+   credentials** on that site's connection, or create a second credential for the other product.
 6. Create the credential, then copy the **client ID** and **secret**. The secret is shown only once.
 
 **Pages with view restrictions that don't include the service account are never indexed.** To index
@@ -136,45 +147,68 @@ one, add the service account (or one of its groups) to the page's restrictions.
 
 ## 3. Site connection
 
-On **Connections → Add connection**, choose **Atlassian site**, or follow **Connections page** from the
-provider page.
+Each product of a site is its own connection: a **Confluence site** and a **Jira site**. To index both
+products of one site, add it twice, once as each, with the same client ID and secret if one credential
+holds both scope groups. Each connection is tested for its own product only, keeps its own status, and
+holds only its own product's sources.
+
+Both use the same fields:
 
 | Field | Required | Where to get it |
 |-------|----------|-----------------|
-| Site URL | Yes | The address in your browser when you open Confluence, such as `https://acme.atlassian.net` |
+| Site URL | Yes | The address in your browser when you open Confluence or Jira, such as `https://acme.atlassian.net` |
 | Client ID | Yes | The service account's OAuth 2.0 credential, from step 2: one string of letters and digits, with no spaces |
 | Client secret | Yes | One long string of characters, shown once when the credential is created in step 2. Stored encrypted and never shown again |
 
 **Look up site** shows the site's **Cloud ID**, Atlassian's permanent identifier for the site, so you
 can confirm it's the right one before entering the credential.
 
+A failure names the check, says what to do, and links to its entry under
+[Troubleshooting](#troubleshooting); **Details** shows Atlassian's own answer. If the test fails, the
+secret is kept for your next attempt. A brand-new site with no pages, projects or other users can be
+saved with **Save anyway**.
+
+### Add a Confluence site
+
+On **Connections → Add connection**, choose **Confluence site**, or follow **Connections page** from the
+provider page. The form lists the Confluence scopes and the steps for Confluence only.
+
 **Check and save** runs six checks in order: **Finding the site**, **Signing in as the service
 account**, **Reading Confluence**, **Listing spaces**, **Reading comments, folders and changes** (one
 small read for each of `read:comment:confluence`, `read:folder:confluence` and
 `read:content-details:confluence`, so a credential missing one fails here rather than at the first
 sync), and **Checking access permissions** (the admin role). The optional `read:attachment:confluence`
-is tried too: the test records whether it is there but never fails without it. Jira is then checked the
-same way: **Reading Jira**, **Listing Jira projects**, **Reading issues and comments**, **Checking Jira
-access permissions** (Administer Jira) and **Reading Jira groups and project roles**. The site is saved
-when every check of Confluence or of Jira passes, named after its host, and shows which products are
-ready; the result says why the other one isn't. A failure names the check, says
-what to do, and links to its entry under [Troubleshooting](#troubleshooting); **Details** shows
-Atlassian's own answer. If the test fails, the secret is kept for your next attempt. A brand-new site
-with no pages or no other users can be saved with **Save anyway**.
+is tried too: the test records whether it is there but never fails without it. The site is saved when
+every check passes, named after its host.
 
-A saved site shows its status and when it was last checked. **Test connection** checks it again
-without entering the secret. **Replace credentials** tests a new client ID and secret and switches to
-them only if the test passes, so the site's sources keep working. A site whose credential stops
-working is marked **Needs new credentials**. Deleting a site requires typing its name, and is refused
-while any source uses it: the refusal lists each of those sources, linked to its page. Deleting a site
-leaves the service account and its credential in Atlassian. To revoke the credential, open Atlassian
-Administration → **Directory** → **Service accounts**, choose the service account, and delete its
-OAuth 2.0 credential.
+### Add a Jira site
+
+On **Connections → Add connection**, choose **Jira site**. The form lists the Jira scopes and the steps
+for Jira only.
+
+**Check and save** runs **Finding the site**, **Signing in as the service account**, then **Reading
+Jira**, **Listing Jira projects**, **Reading issues and comments**, **Checking Jira access permissions**
+(Administer Jira) and **Reading Jira groups and project roles**. The optional `read:attachment:jira` is
+tried too, and never fails the test. The site is saved when every check passes, named after its host
+with **(Jira)** added, for example `acme.atlassian.net (Jira)`, so it stands apart from the site's
+Confluence connection. A site has at most one connection of each product.
+
+### A saved site
+
+The Connections list names each site's product beside its host, for example **Confluence ·
+acme.atlassian.net**. A saved site shows its status and when it was last checked. **Test connection**
+checks it again without entering the secret. **Replace credentials** tests a new client ID and secret
+and switches to them only if the test passes, so the site's sources keep working. A site whose
+credential stops working is marked **Needs new credentials**. Deleting a site requires typing its name,
+and is refused while any source uses it: the refusal lists each of those sources, linked to its page.
+Deleting a site leaves the service account and its credential in Atlassian. To revoke the credential,
+open Atlassian Administration → **Directory** → **Service accounts**, choose the service account, and
+delete its OAuth 2.0 credential.
 
 ## 4. Confluence sources
 
-On **Sources → New source**, choose the site's connection. The dialog lists the site's spaces that the
-service account can view.
+On **Sources → New source**, choose the site's Confluence connection. The dialog lists the site's spaces
+that the service account can view.
 
 | Field | Default | Notes |
 |-------|---------|-------|
@@ -209,16 +243,15 @@ out follows the same default.
 
 ## 5. Jira sources
 
-A site whose last **Test connection** passed for Jira (the Connections page shows **Jira: Ready**) can
-have Jira sources. On **Sources → New source**, choose the site's connection. If the site passed for
-both Confluence and Jira, choose **Jira projects**; a site that passed for Jira alone goes straight to
-its projects. A site last tested before Connapse checked Jira counts as Confluence only: test it again
-on the Connections page to offer its projects.
+Jira sources go on the site's Jira connection (step 3), once its last **Test connection** passed. On
+**Sources → New source**, choose that connection, listed as **Jira · acme.atlassian.net (Jira)**: the
+dialog goes straight to its projects. A Confluence connection is never offered projects, and a Jira
+connection never spaces.
 
 | Field | Default | Notes |
 |-------|---------|-------|
 | Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name>`. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't browse: give it the **Browse projects** permission in that project |
-| Include attachments | On if the site's last test confirmed `read:attachment:jira`, otherwise Off | Indexes files attached to issues, when Connapse can read their file type. Needs the optional `read:attachment:jira` scope (step 2.4) |
+| Include attachments | On if the site's last test confirmed `read:attachment:jira`, otherwise Off | Indexes files attached to issues, when Connapse can read their file type. Needs the optional `read:attachment:jira` scope (step 2.5) |
 | Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
 
 **What a Jira source indexes.** Each issue is one document: its summary, description, fields and the
@@ -307,7 +340,7 @@ scope* while **Listing Jira projects**, *The credential is missing the read:issu
 (or `read:issue:jira`, or `read:comment:jira`) while **Reading issues and comments**, or *The credential
 is missing the read:permission:jira scope* or *The service account can't list Jira users…* while
 **Checking Jira access permissions**.
-**Likely cause:** the credential was created without one of the scopes in steps 2.4 and 2.5; listing Jira
+**Likely cause:** the credential was created without one of the scopes in step 2.5; listing Jira
 users also needs the **Browse users and groups** global permission, which Jira's admin role includes. For attachments, it
 is the optional `read:attachment:confluence`, or `read:attachment:jira` for Jira.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
@@ -335,11 +368,9 @@ projects**, or a Jira source that failed with *Atlassian refused the service acc
 with a new token. Check that the service account has Jira access on this site…* The site is not marked
 **Needs new credentials**, because Atlassian accepted the credential itself.
 **Likely cause:** the service account has no Jira access on this site, or the credential was created
-without the Jira scopes. A site whose Confluence checks pass and whose credential can't read Jira at all
-shows **Jira: Not set up for this site.** instead: Jira is optional, and there is nothing to fix unless
-you want to index it.
+without the Jira scopes.
 **Fix:** set Jira to its admin role on the service account (step 2.4). If it already has it, create a
-new credential with both scope groups (steps 2.4 and 2.5) and use **Replace credentials**.
+new credential with the Jira scopes (step 2.5) and use **Replace credentials**.
 
 ### Not Jira administrator
 
@@ -358,8 +389,8 @@ Jira groups and project roles**.
 **Likely cause:** the service account lacks Administer Jira, or the credential lacks
 `read:group:jira` or `read:project-role:jira`. Connapse needs both to tell who may read a comment
 restricted to a group or a project role.
-**Fix:** give the service account the Jira admin role (step 2.4), create a new credential with both
-scope groups (step 2.5), and use **Replace credentials**.
+**Fix:** give the service account the Jira admin role (step 2.4), create a new credential with the
+Jira scopes (step 2.5), and use **Replace credentials**.
 
 ### Linking app rejected
 
@@ -442,7 +473,7 @@ next sync.
 
 ## Removing Atlassian
 
-1. Delete the Confluence sources, then the site connections.
+1. Delete the Confluence and Jira sources, then the site's Confluence and Jira connections.
 2. Delete the service account's credential, or the service account, in Atlassian Administration.
 3. Delete the linking app in the developer console if nothing else uses it.
 
