@@ -45,13 +45,41 @@ public sealed class JiraPermissionCheckerTests : IDisposable
 
     private Task<bool[]> CheckAsync(params JiraResource[] resources) => CheckAsync(Account, resources);
 
-    private Task<bool[]> CheckAsync(string account, params JiraResource[] resources) =>
-        _checker.CanSeeAsync(CloudId, account, resources, Sites(), default);
+    /// <summary>
+    /// Checks the resources. A comment whose live read no test has mapped is answered as Jira
+    /// agreeing with its URI, so tests about browse and membership need not map one.
+    /// </summary>
+    private Task<bool[]> CheckAsync(string account, params JiraResource[] resources)
+    {
+        foreach (var r in resources.Where(r => r.Kind == JiraResourceKind.Comment && !_jira.HasLiveComment(r.IssueId, r.ChildId!)))
+            _jira.LiveComment(r.IssueId, r.ChildId!, VisibilityOf(r.Restriction), r.Internal ? false : null);
+        return _checker.CanSeeAsync(CloudId, account, resources, Sites(), default);
+    }
+
+    /// <summary>Jira's visibility object for a restriction, as a comment carrying it reads.</summary>
+    private static object? VisibilityOf(JiraRestriction? restriction) => restriction switch
+    {
+        null => null,
+        { Type: JiraRestrictionType.Group } => new { type = "group", value = "some-group", identifier = restriction.Value },
+        _ => new { type = "role", value = restriction.Value, identifier = restriction.Value },
+    };
 
     private static JiraResource Issue(string id) => new(CloudId, id, JiraResourceKind.Issue, null, false, null);
 
-    private static JiraResource Comment(string issue, bool internalNote = false, JiraRestriction? restriction = null) =>
-        new(CloudId, issue, JiraResourceKind.Comment, "77", internalNote, restriction);
+    private readonly Dictionary<string, string> _commentIds = [];
+
+    /// <summary>A comment document; each distinct internal flag and restriction is its own comment id, from 77 up.</summary>
+    private JiraResource Comment(string issue, bool internalNote = false, JiraRestriction? restriction = null, string? id = null)
+    {
+        string shape = $"{internalNote}|{restriction}";
+        if (id is null && !_commentIds.TryGetValue(shape, out id))
+            _commentIds[shape] = id = (77 + _commentIds.Count).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return new(CloudId, issue, JiraResourceKind.Comment, id, internalNote, restriction);
+    }
+
+    private int CommentReads => _api.Calls.Where(c => c.Key.Contains("/comment/", StringComparison.Ordinal)).Sum(c => c.Value);
+
+    private const string LiveKeyPrefix = $"atl:jira:{CloudId}:comment:";
 
     private static JiraRestriction Group(string groupId) => new(JiraRestrictionType.Group, groupId);
 
@@ -475,5 +503,215 @@ public sealed class JiraPermissionCheckerTests : IDisposable
         await FluentActions.Awaiting(() => _checker.CanSeeAsync(CloudId, Account, [Issue("10001")], Sites(), cts.Token))
             .Should().ThrowAsync<OperationCanceledException>();
         _cache.TtlOf(Key("BROWSE_PROJECTS", "10001")).Should().BeNull();
+    }
+
+    // ── Restricted comments: Jira's live visibility must still be the URI's ──────────
+
+    [Fact]
+    public async Task Check_LiveRestrictionUnchanged_Allowed()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.Role(Project, "10002", "Developers", FakeJira.UserActor(Account));
+        _jira.LiveComment("10001", "501", new { type = "group", value = "engineering", identifier = GroupA.ToUpperInvariant() });
+        _jira.LiveComment("10001", "502", new { type = "role", value = "Developers" });
+
+        (await CheckAsync(Comment("10001", restriction: Group(GroupA), id: "501"), Comment("10001", restriction: Role("Developers"), id: "502")))
+            .Should().Equal(true, true);
+
+        Calls("/issue/10001/comment/501").Should().Be(1);
+        Calls("/issue/10001/comment/502").Should().Be(1);
+        _cache.TtlOf(LiveKeyPrefix + "10001:501").Should().Be(JiraPermissionChecker.LiveCommentTtl);
+        JiraPermissionChecker.LiveCommentTtl.Should().Be(TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
+    public async Task Check_LiveGroupChanged_Denied()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA), ("support", GroupB));
+        _jira.LiveComment("10001", "501", new { type = "group", value = "support", identifier = GroupB });
+
+        (await CheckAsync(Comment("10001", restriction: Group(GroupA), id: "501"))).Should().Equal(false);
+        _cache.TtlOf(LiveKeyPrefix + "10001:501").Should().Be(JiraPermissionChecker.LiveCommentTtl, "Jira's answer was definite");
+    }
+
+    [Fact]
+    public async Task Check_LiveRoleRenamedOrGroupNowRole_Denied()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.Role(Project, "10002", "Developers", FakeJira.UserActor(Account));
+        _jira.LiveComment("10001", "501", new { type = "role", value = "Administrators" });
+        _jira.LiveComment("10001", "502", new { type = "role", value = "Developers" });
+
+        (await CheckAsync(Comment("10001", restriction: Role("Developers"), id: "501"), Comment("10001", restriction: Group(GroupA), id: "502")))
+            .Should().Equal(false, false);
+    }
+
+    [Fact]
+    public async Task Check_LiveNowPublic_Denied()
+    {
+        // A public comment lives in the issue document, so its own document is no longer the one to show.
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveComment("10001", "501");
+
+        (await CheckAsync(Comment("10001", restriction: Group(GroupA), id: "501"))).Should().Equal(false);
+    }
+
+    [Theory]
+    [InlineData(true, true)]   // an internal note made public to customers
+    [InlineData(false, false)] // a group comment now an internal note too
+    public async Task Check_LiveInternalFlagChanged_Denied(bool uriInternal, bool liveJsdPublic)
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Agent(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA }, liveJsdPublic);
+
+        (await CheckAsync(Comment("10001", internalNote: uriInternal, restriction: Group(GroupA), id: "501"))).Should().Equal(false);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task Check_LiveReadFails_DeniedAndCachedBriefly(HttpStatusCode status)
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveCommentFails("10001", "501", status);
+
+        (await CheckAsync(Issue("10001"), Comment("10001", restriction: Group(GroupA), id: "501"))).Should().Equal(true, false);
+        _cache.TtlOf(LiveKeyPrefix + "10001:501").Should().Be(JiraPermissionChecker.FailureTtl);
+    }
+
+    [Fact]
+    public async Task Check_LiveReadTimesOut_Denied()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA });
+        _api.Map(_jira.Root + "/issue/10001/comment/501", _ => throw new TaskCanceledException("timed out", new TimeoutException()));
+
+        (await CheckAsync(Comment("10001", restriction: Group(GroupA), id: "501"))).Should().Equal(false);
+        _cache.TtlOf(LiveKeyPrefix + "10001:501").Should().Be(JiraPermissionChecker.FailureTtl);
+    }
+
+    [Theory]
+    [InlineData("""not json""")]
+    [InlineData("""[]""")]
+    [InlineData("""{"id":"999","visibility":{"type":"group","identifier":"6e87dc72-4f1f-421f-9382-2fee8b652487"}}""")]
+    [InlineData("""{"id":"501","visibility":"group"}""")]
+    [InlineData("""{"id":"501","visibility":{"type":"project","identifier":"6e87dc72-4f1f-421f-9382-2fee8b652487"}}""")]
+    [InlineData("""{"id":"501","visibility":{"type":"group"}}""")]
+    public async Task Check_LiveAnswerUnreadable_Denied(string json)
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveComment("10001", "501");
+        _api.Map(_jira.Root + "/issue/10001/comment/501", _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        (await CheckAsync(Comment("10001", restriction: Group(GroupA), id: "501"))).Should().Equal(false);
+    }
+
+    [Fact]
+    public async Task Check_LiveRouteCached_SharedAcrossUsers()
+    {
+        const string other = "557058:other";
+        _jira.Browse(Account, "10001");
+        _jira.Browse(other, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.Groups(other, ("engineering", GroupA));
+        _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA });
+        JiraResource comment = Comment("10001", restriction: Group(GroupA), id: "501");
+
+        (await CheckAsync(comment)).Should().Equal(true);
+        (await CheckAsync(comment)).Should().Equal(true);
+        (await CheckAsync(other, comment)).Should().Equal(true);
+
+        Calls("/issue/10001/comment/501").Should().Be(1, "the live route does not depend on who searches");
+    }
+
+    [Fact]
+    public async Task Check_LiveReadFailureCached_NotRetriedAtOnce()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        _jira.LiveCommentFails("10001", "501", HttpStatusCode.InternalServerError);
+        JiraResource comment = Comment("10001", restriction: Group(GroupA), id: "501");
+
+        (await CheckAsync(comment)).Should().Equal(false);
+        _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA });
+        (await CheckAsync(comment)).Should().Equal(false);
+
+        Calls("/issue/10001/comment/501").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Check_IssuesAndAttachments_NoCommentRead()
+    {
+        _jira.Browse(Account, "10001", "10002");
+        _jira.Groups(Account, ("engineering", GroupA));
+
+        (await CheckAsync(
+                Issue("10001"), Issue("10002"),
+                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30001", false, Group(GroupA)),
+                new JiraResource(CloudId, "10001", JiraResourceKind.Attachment, "30002", false, null)))
+            .Should().Equal(true, true, true, true);
+
+        CommentReads.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Check_CommentDeniedByBrowse_NoCommentRead()
+    {
+        _jira.Groups(Account, ("engineering", GroupA));
+
+        (await CheckAsync(Comment("10001", restriction: Group(GroupA)))).Should().Equal(false);
+
+        CommentReads.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Check_ManyComments_ReadConcurrentlyAndEachOnce()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        var resources = new List<JiraResource>();
+        for (int i = 0; i < 25; i++)
+        {
+            string id = (600 + i).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _jira.LiveComment("10001", id, new { type = "group", identifier = GroupA });
+            resources.Add(Comment("10001", restriction: Group(GroupA), id: id));
+        }
+        resources.Add(resources[0]);
+
+        (await CheckAsync([.. resources])).Should().HaveCount(26).And.OnlyContain(allowed => allowed);
+
+        CommentReads.Should().Be(25);
+    }
+
+    [Fact]
+    public async Task Check_CallerCancelledDuringCommentRead_Throws()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+        using var cts = new CancellationTokenSource();
+        _api.Map(_jira.Root + "/issue/10001/comment/501", _ =>
+        {
+            cts.Cancel();
+            return FakeAtlassianApi.Json(new { id = "501", visibility = new { type = "group", identifier = GroupA } });
+        });
+
+        await FluentActions.Awaiting(() => _checker.CanSeeAsync(
+                CloudId, Account, [Comment("10001", restriction: Group(GroupA), id: "501")], Sites(), cts.Token))
+            .Should().ThrowAsync<OperationCanceledException>();
+        _cache.TtlOf(LiveKeyPrefix + "10001:501").Should().BeNull();
     }
 }

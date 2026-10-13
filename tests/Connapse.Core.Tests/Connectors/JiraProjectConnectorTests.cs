@@ -1395,6 +1395,41 @@ public sealed class JiraProjectConnectorTests : IDisposable
         file.ResourceUri.Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
     }
 
+    [Theory]
+    [InlineData("removed")]
+    [InlineData("made public")]
+    [InlineData("link dropped")]
+    public async Task Sync_TyingCommentNoLongerTies_AttachmentStaysDenyAll(string change)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        _jira.Attach(issue, Attachment("30002", "public.txt"));
+        var tying = new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(tying);
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        Doc(first, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+
+        issue.Comments.Clear();
+        if (change == "made public")
+            issue.Comments.Add(tying with { Visibility = null });
+        else if (change == "link dropped")
+            issue.Comments.Add(tying with { RenderedBody = "<p>no file</p>" });
+        _jira.ServeComments(issue);
+        var second = await _connector.GetChangesAsync(null);
+        var third = await _connector.GetChangesAsync(null);
+
+        // The comment's restriction may only have moved out of Connapse's sight: the file stays hidden.
+        foreach (var delta in new[] { second, third })
+        {
+            Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+            Doc(delta, AttachmentPath("20001", "30002", "public.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, null), "no restricted comment ever tied it");
+        }
+    }
+
     [Fact]
     public async Task Sync_RenderedReadNotFound_AnotherCommentStillTies()
     {

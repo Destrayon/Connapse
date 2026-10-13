@@ -164,7 +164,9 @@ public sealed partial class JiraProjectConnector(
         long? takenUpMs = previous?.WatermarkMs;
         foreach (var issue in fetched.Values)
         {
-            issue.Tombstones = Tombstones(_store.Load(issue.Id), issue, takenUpMs, startedMs);
+            var last = _store.Load(issue.Id);
+            KeepTiesHidden(last, issue);
+            issue.Tombstones = Tombstones(last, issue, takenUpMs, startedMs);
             _store.Save(issue);
         }
         foreach (string id in _store.Ids().Where(id => !keep.Contains(id)).ToList())
@@ -249,6 +251,29 @@ public sealed partial class JiraProjectConnector(
         }
 
         return [.. tombstones.DistinctBy(t => (t.AttachmentFileName is null, t.Id))];
+    }
+
+    /// <summary>
+    /// An attachment a restricted comment tied (or made deny-all) in the last record, and that no
+    /// restricted comment ties now, stays deny-all instead of becoming unrestricted. Its comment may
+    /// have been made public, deleted, edited to drop the link, or hidden from the service account,
+    /// and Connapse cannot tell those apart; only a file no restricted comment ever tied is listed
+    /// unrestricted. The stored tie is kept, so the next cycle keeps it hidden too.
+    /// </summary>
+    private void KeepTiesHidden(JiraStoredIssue? last, JiraStoredIssue now)
+    {
+        if (last is null || !config.IncludeAttachments)
+            return;
+
+        var before = last.Attachments.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        foreach (var attachment in now.Attachments.Where(a => a.RestrictingCommentId is null))
+        {
+            if (before.TryGetValue(attachment.Id, out var was) && (was.RestrictingCommentId is not null || was.DenyAll))
+            {
+                attachment.RestrictingCommentId = was.RestrictingCommentId;
+                attachment.DenyAll = true;
+            }
+        }
     }
 
     private static bool TakenUp(JiraStoredTombstone tombstone, long? takenUpMs) =>
@@ -913,7 +938,7 @@ public sealed partial class JiraProjectConnector(
     {
         string cloudId = config.Site.CloudId;
         if (attachment.RestrictingCommentId is not { } commentId)
-            return AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, false, null);
+            return AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, false, attachment.DenyAll ? JiraRestriction.DenyAll : null);
 
         var comment = issue.Comments.FirstOrDefault(c => c.Id == commentId);
         var route = comment is null ? default : Route(comment, config.ProjectId);
@@ -1026,6 +1051,19 @@ public sealed partial class JiraProjectConnector(
             "role" => (true, isInternal, new JiraRestriction(JiraRestrictionType.Role, c.VisibilityIdentifier, projectId), false),
             _ => (true, isInternal, null, true),
         };
+    }
+
+    /// <summary>
+    /// Where a comment goes by <see cref="Route"/>, from Jira's answer to <c>GET issue/{id}/comment/{commentId}</c>.
+    /// Null when the answer is not an object for that comment; a malformed field throws <see cref="JsonException"/>.
+    /// </summary>
+    internal static (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll)? RouteOfLive(
+        JsonElement answer, string commentId, string projectId)
+    {
+        if (answer.ValueKind != JsonValueKind.Object)
+            return null;
+        var comment = answer.Deserialize<CommentResponse>(Json);
+        return comment is not null && comment.Id == commentId ? Route(ToStored(comment), projectId) : null;
     }
 
     internal static string PathFor(string issueId) => $"/issues/{issueId}.md";

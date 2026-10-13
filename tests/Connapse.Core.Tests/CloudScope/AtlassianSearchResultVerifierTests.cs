@@ -241,6 +241,52 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_JiraCommentLiveRestrictionChanged_Dropped()
+    {
+        const string groupA = "6e87dc72-4f1f-421f-9382-2fee8b652487", groupB = "0b5e1b8e-56b0-4a35-9b8a-3a6b3c0c9f11";
+        var jira = new FakeJira(_api, CloudId).MapEnforcement();
+        jira.Browse(Account, "10001");
+        jira.Agent(Account, "10001");
+        jira.Groups(Account, ("engineering", groupA), ("support", groupB));
+        jira.LiveComment("10001", "51", new { type = "group", identifier = groupA });
+        jira.LiveComment("10001", "52", new { type = "group", identifier = groupB });
+        jira.LiveComment("10001", "53", jsdPublic: false);
+        var a = new JiraRestriction(JiraRestrictionType.Group, groupA);
+        SearchHit[] hits =
+        [
+            Hit("same", AtlassianUri.ForJiraComment(CloudId, "10001", "51", false, a)),
+            Hit("moved", AtlassianUri.ForJiraComment(CloudId, "10001", "52", false, a)),
+            Hit("note", AtlassianUri.ForJiraComment(CloudId, "10001", "53", true, null)),
+        ];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("same", "note");
+    }
+
+    [Fact]
+    public async Task Verify_JiraCommentReadOutlastsBudget_Denied()
+    {
+        const string groupA = "6e87dc72-4f1f-421f-9382-2fee8b652487";
+        var jira = new FakeJira(_api, CloudId).MapEnforcement();
+        jira.Browse(Account, "10001");
+        jira.Groups(Account, ("engineering", groupA));
+        jira.LiveComment("10001", "51", new { type = "group", identifier = groupA });
+        var slow = new StallingHandler(_api, uri => uri.AbsolutePath.Contains("/comment/", StringComparison.Ordinal));
+        SearchHit[] hits =
+        [
+            Hit("i1", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("c1", AtlassianUri.ForJiraComment(CloudId, "10001", "51", false, new JiraRestriction(JiraRestrictionType.Group, groupA))),
+            Hit("x", null),
+        ];
+
+        var started = DateTime.UtcNow;
+        var result = await NewVerifier(slow, new AtlassianVerifierSettings { BudgetMs = 300 }).VerifyAsync(hits, _user, 10);
+
+        // The site's checks share one call, so the stalled comment read takes its issue down with it.
+        Ids(result).Should().Equal("x");
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task Verify_JiraHitBesideConfluenceHit_OnlyConfluenceIsAdmitted()
     {
         Allow("1", true);
@@ -451,12 +497,12 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
     }
 
-    /// <summary>Passes token requests through; holds every other request until it is cancelled.</summary>
-    private sealed class StallingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    /// <summary>Passes token requests through; holds every other request (or those <paramref name="stall"/> picks) until it is cancelled.</summary>
+    private sealed class StallingHandler(HttpMessageHandler inner, Func<Uri, bool>? stall = null) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (request.RequestUri!.Host != "auth.atlassian.com")
+            if (request.RequestUri!.Host != "auth.atlassian.com" && (stall is null || stall(request.RequestUri)))
                 await Task.Delay(Timeout.Infinite, ct);
             return await base.SendAsync(request, ct);
         }

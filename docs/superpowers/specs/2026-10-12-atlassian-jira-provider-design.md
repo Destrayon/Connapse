@@ -162,11 +162,16 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
    - `GET /rest/api/3/project/{projectId}/role` maps the role name to an id within the issue's project. Zero or several matches deny.
    - `GET /rest/api/3/project/{projectId}/role/{roleId}` lists user actors (`accountId`) and group actors (`groupId`).
    - The user passes if their account or one of their groups is an actor.
-4. **Combine:**
+4. **Live comment check.**
+   - A restricted comment's or internal note's URI carries the visibility it had at the last sync, so a restriction tightened in Jira would otherwise be enforced only after the next sync, or later when syncs are rate limited or failing.
+   - So each comment hit that passed the checks above is read again as the service account, `GET /rest/api/3/issue/{issueId}/comment/{commentId}`, and routed by the connector's own rule. It is admitted only if Jira still gives it exactly the URI's internal flag and restriction.
+   - A comment now public, restricted differently, deleted or unreadable (404, 403, any other non-200, an unparseable answer, a timeout) is denied. A public comment is shown through the issue document, which follows the next sync.
+   - Up to 10 reads run at once, within the search's budget.
+5. **Combine:**
    - Issue: browse.
-   - Restricted comment: browse **and** membership.
-   - Internal note: browse **and** agent, **and** membership if it also has `visibility`.
-   - Attachment: browse, **and** its comment's rule if it is tied to one.
+   - Restricted comment: browse **and** membership **and** the live check.
+   - Internal note: browse **and** agent **and** the live check, **and** membership if it also has `visibility`.
+   - Attachment: browse, **and** its comment's rule if it is tied to one. An attachment's URI does not name its comment, so it is not re-checked live. Instead, once a restricted comment has tied it, the sync keeps it deny-all if no restricted comment ties it any more; only a file no restricted comment ever tied is listed unrestricted.
 
 **Account guard.** `JiraPermissionChecker` refuses to send any request whose `accountId` is null, empty, whitespace or `anonymous`. Without `accountId`, Jira evaluates the calling service account, which fails fully open.
 
@@ -178,6 +183,7 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
 | A user's groups | `(jira, cloudId, accountId)` | 5 minutes |
 | Role name to id per project | `(jira, cloudId, projectId)` | 5 minutes |
 | Role actors | `(jira, cloudId, projectId, roleId)` | 5 minutes |
+| A comment's live visibility (not per user) | `(jira, cloudId, issueId, commentId)` | 1 minute |
 | Any failure | — | 30 seconds, as deny |
 
 Every key includes the product. Confluence's existing key gains it too, so ids can't collide.

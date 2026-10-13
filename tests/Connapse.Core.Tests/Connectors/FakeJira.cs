@@ -129,6 +129,29 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
         api.MapJson(Root + $"/project/{projectId}/role/{roleId}", new { id = long.TryParse(roleId, out long n) ? n : 0, name, actors });
     }
 
+    private readonly HashSet<(string IssueId, string CommentId)> _liveComments = [];
+
+    /// <summary>
+    /// Answers <c>GET issue/{issueId}/comment/{commentId}</c> with the comment as Jira has it now:
+    /// <paramref name="visibility"/> as Jira's visibility object, <paramref name="jsdPublic"/> when set.
+    /// </summary>
+    public void LiveComment(string issueId, string commentId, object? visibility = null, bool? jsdPublic = null)
+    {
+        _liveComments.Add((issueId, commentId));
+        api.Map(Root + $"/issue/{issueId}/comment/{commentId}", _ => FakeAtlassianApi.Json(
+            Comment(new FakeJiraComment(commentId, "Ada", "Restricted remark", DateTimeOffset.UnixEpoch, null, visibility, jsdPublic))));
+    }
+
+    /// <summary>Answers the comment's read with a bare status.</summary>
+    public void LiveCommentFails(string issueId, string commentId, HttpStatusCode status)
+    {
+        _liveComments.Add((issueId, commentId));
+        Answer($"/issue/{issueId}/comment/{commentId}", status);
+    }
+
+    /// <summary>Whether <see cref="LiveComment"/> or <see cref="LiveCommentFails"/> has mapped the comment.</summary>
+    public bool HasLiveComment(string issueId, string commentId) => _liveComments.Contains((issueId, commentId));
+
     public static object UserActor(string accountId) =>
         new { type = "atlassian-user-role-actor", actorUser = new { accountId } };
 
