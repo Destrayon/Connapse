@@ -234,14 +234,17 @@
                         this site can serve Jira too.
                     </li>
                     <li>
-                        On <strong>Select app roles</strong>, set <strong>Jira</strong> to its admin role, which gives the
+                        On <strong>Select app roles</strong>, set <strong>Jira</strong> to <strong>User</strong> (access to Jira) and
+                        <strong>Jira Administration</strong> to <strong>App admin</strong>, which gives the
                         <strong>Administer Jira</strong> permission. Connapse needs it to ask what each person may read, and Check and save checks for it.
-                        If it reports the account doesn't have it, change its Jira role here, under
-                        <strong>Directory</strong> &rarr; <strong>Service accounts</strong>.
+                        Then, in Jira, open <strong>Settings</strong> &rarr; <strong>System</strong> &rarr; <strong>Global permissions</strong> and check
+                        that the service account has <strong>Administer Jira</strong> and <strong>Browse users and groups</strong>. If either is
+                        missing, grant it there to a group the service account is in.
                     </li>
                     <li>
                         In every project you will index, give the service account (or a group it is in) the <strong>Browse projects</strong>
-                        permission, under <strong>Project settings</strong> &rarr; <strong>People</strong> or the project's permission scheme.
+                        permission, under <strong>Project settings</strong> &rarr; <strong>Access</strong> or the project's permission scheme.
+                        A company-managed project on the default permission scheme already grants it to everyone with Jira access.
                         A project it can't browse is not listed.
                     </li>
                     <li>
@@ -254,7 +257,8 @@
                         box: the list narrows to exactly these @RequiredScopes.Count, so tick each one. Only if a source will include
                         attachments, choose <strong>Copy with the attachments permission</strong> instead, which adds
                         <code>@Connapse.Web.Components.Sources.JiraProjectSelection.AttachmentScope</code>; you can add it later when a source needs it.
-                        One credential can hold the scopes of both products, so the same one may serve this site's other connection.
+                        Make this a credential for Jira only, separate from the one this site's other connection uses. Its scopes can't
+                        be changed later: to change them, create a new credential, use <strong>Replace credentials</strong>, then revoke the old one.
                         Create it, then copy the client ID and secret: the secret is shown only once.
                     </li>
                 </ol>

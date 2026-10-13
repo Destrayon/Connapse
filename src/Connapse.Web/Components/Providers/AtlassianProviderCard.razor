@@ -145,8 +145,9 @@
 
 <p class="small text-muted mt-3" id="atlassian-sites-elsewhere">
     <span class="bi-info-circle me-1" aria-hidden="true"></span>
-    Atlassian sites are added on the <a href="/connections?new=atlassian">Connections page</a>,
-    each with the service account Connapse reads it as. Then add a source on the site to choose what to index.
+    Atlassian sites are added on the <a href="/connections">Connections page</a>, as a Confluence site
+    or a Jira site, each with the service account Connapse reads it as. Then add a source on the site to
+    choose what to index.
 </p>
 
 @code {
@@ -197,7 +198,8 @@
     private static readonly RenderFragment NextSteps =
         @<span class="ms-1" id="atlassian-app-next-steps">
             <a href="/profile/integrations">Link your own account</a> to try it, then
-            <a href="/connections?new=atlassian">add an Atlassian site</a>.
+            add a <a href="/connections?new=confluence">Confluence site</a> or a
+            <a href="/connections?new=jira">Jira site</a>.
         </span>;
 
     private static RenderFragment AlertExtra(string? troubleshootingUrl, string? detail) =>
@@ -325,8 +327,11 @@
         </button>
         @* The next step, as GitHub's card offers "Add a GitHub connection". While the setup is
            open, Check and save is the one primary action. *@
-        <a id="atlassian-add-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=atlassian">
-            <span class="bi-plug me-1" aria-hidden="true"></span> Add an Atlassian site
+        <a id="atlassian-add-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=confluence">
+            <span class="bi-plug me-1" aria-hidden="true"></span> Add a Confluence site
+        </a>
+        <a id="atlassian-add-jira-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=jira">
+            <span class="bi-plug me-1" aria-hidden="true"></span> Add a Jira site
         </a>
         @* Placed as GitHub's: at the right of the row, set apart from the other actions by a divider. *@
         <div class="ms-auto" id="atlassian-app-remove">

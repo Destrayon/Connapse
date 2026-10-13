@@ -1648,15 +1648,26 @@
     /// <summary>A new Atlassian site: its own form saves it, so the generic name and buttons step aside.</summary>
     private bool NewAtlassianSite => isNew && editing is not null && form.Provider == ConnectionProvider.Atlassian;
 
-    /// <summary>Arriving from the Atlassian provider page (<c>?new=atlassian</c>): opens a new site.</summary>
+    /// <summary>
+    /// Arriving from the Atlassian provider page: <c>?new=confluence</c> or <c>?new=jira</c> opens a
+    /// new site of that product. <c>?new=atlassian</c>, from older links, opens a Confluence site.
+    /// </summary>
     private async Task OpenAtlassianFromQueryAsync()
     {
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
-        if (editing is not null || !(query.TryGetValue("new", out var kind) && kind.ToString() == "atlassian"))
+        if (editing is not null || !query.TryGetValue("new", out var kind))
+            return;
+        string? choice = kind.ToString() switch
+        {
+            "atlassian" or "confluence" => ConnectionForm.ConfluenceSiteChoice,
+            "jira" => ConnectionForm.JiraSiteChoice,
+            _ => null,
+        };
+        if (choice is null)
             return;
 
         await StartCreate();
-        form.Provider = ConnectionProvider.Atlassian;
+        form.ProviderChoice = choice;
     }
 
     /// <summary>Opened from a source that needs a permission the site's credential lacks.</summary>

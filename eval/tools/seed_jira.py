@@ -39,6 +39,10 @@ JSM_KEY = "SUP"
 JSM_NAME = "Support"
 JSM_TEMPLATE = "com.atlassian.servicedesk:itil-v2-service-desk-project"
 GROUP = "connapse-restricted-readers"
+# Where a manual step happens, printed in front of it.
+ADMIN = "Atlassian Administration"
+JIRA = "Jira"
+TERMINAL = "terminal"
 ROLE_DEVELOPERS = "Developers"
 ROLE_QA = "QA/Ops Team"
 
@@ -179,16 +183,16 @@ def push(args):
     j = Jira(args.site, email or "", token or "", args.dry_run)
     me = "dry-me" if args.dry_run else j.call("GET", "/rest/api/3/myself")["accountId"]
     sa, second = args.service_account_id, args.second_user_id
-    manual = []
+    manual = []  # (where it happens, what to do)
 
-    def attempt(label, fn, manual_text):
+    def attempt(label, fn, manual_text, where=JIRA):
         try:
             return fn()
         except RuntimeError as e:
             if "already" in str(e).lower():
                 print(f"{label}: already done")
                 return None
-            manual.append(f"{manual_text} ({e})")
+            manual.append((where, f"{manual_text} ({e})"))
             print(f"{label}: could not do through the API")
             return None
 
@@ -207,7 +211,7 @@ def push(args):
     task_type = types.get("task") or types.get("story") or next(iter(types.values()), "Task")
     epic_type = types.get("epic")
     if not args.dry_run and not epic_type:
-        manual.append(f"Project {PROJECT_KEY} has no Epic issue type; the three issues meant to sit under the epic are created without a parent.")
+        manual.append((JIRA, f"Project {PROJECT_KEY} has no Epic issue type; the three issues meant to sit under the epic are created without a parent."))
 
     # Group -------------------------------------------------------------------------------------
     group_id = None
@@ -222,7 +226,8 @@ def push(args):
             return j.write("POST", "/rest/api/3/group", json={"name": GROUP})["groupId"] if not args.dry_run else \
                 j.write("POST", "/rest/api/3/group", json={"name": GROUP}) and "dry-group"
         group_id = attempt(f"group {GROUP}", make_group,
-                           f"Create the group {GROUP} (Atlassian Administration > Directory > Groups) and add yourself and the service account")
+                           f"Create the group {GROUP} (Directory > Groups) and add yourself and the service account "
+                           "(Directory > Service accounts > ... > Add to group)", where=ADMIN)
         if group_id:
             print(f"group {GROUP}: created")
     if group_id:
@@ -232,9 +237,11 @@ def push(args):
             if who and who not in have:
                 attempt(f"group member ({label})",
                         lambda who=who: j.write("POST", f"/rest/api/3/group/user?groupId={quote(group_id)}", json={"accountId": who}),
-                        f"Add {label} to the group {GROUP}")
+                        f"Add {label} to the group {GROUP}"
+                        + (" (Directory > Service accounts > ... > Add to group)" if who == sa else " (Directory > Groups)"),
+                        where=ADMIN)
         if second and second in have:
-            manual.append(f"The second user is in {GROUP}; remove them, or the group-restricted comment will not be hidden from them.")
+            manual.append((ADMIN, f"The second user is in {GROUP}; remove them (Directory > Groups), or the group-restricted comment will not be hidden from them."))
 
     # Project roles ----------------------------------------------------------------------------
     global_roles = {r["name"]: r["id"] for r in j.read("GET", "/rest/api/3/role", default=[])}
@@ -250,8 +257,8 @@ def push(args):
         return made
 
     role_ids = {
-        ROLE_DEVELOPERS: ensure_role(ROLE_DEVELOPERS, f"Create the project role {ROLE_DEVELOPERS} (Jira settings > System > Project roles)"),
-        ROLE_QA: ensure_role(ROLE_QA, f"Create the project role {ROLE_QA} (Jira settings > System > Project roles)"),
+        ROLE_DEVELOPERS: ensure_role(ROLE_DEVELOPERS, f"Create the project role {ROLE_DEVELOPERS} (Settings > System > Project roles, or Space roles)"),
+        ROLE_QA: ensure_role(ROLE_QA, f"Create the project role {ROLE_QA} (Settings > System > Project roles, or Space roles)"),
     }
     for name, role_id in role_ids.items():
         if not role_id:
@@ -260,9 +267,9 @@ def push(args):
             if who:
                 attempt(f"role {name} ({label})",
                         lambda who=who, role_id=role_id: j.write("POST", f"/rest/api/3/project/{PROJECT_KEY}/role/{role_id}", json={"user": [who]}),
-                        f"Add {label} to the {name} role of project {PROJECT_KEY} (Project settings > People)")
+                        f"Add {label} to the {name} role of project {PROJECT_KEY} (Project settings > Access, or Space settings > Access)")
         if second:
-            manual.append(f"Make sure the second user is not an actor of the {name} role in {PROJECT_KEY}.")
+            manual.append((JIRA, f"Make sure the second user is not in the {name} role in {PROJECT_KEY} (Project settings > Access)."))
 
     # Issues -----------------------------------------------------------------------------------
     existing = {}
@@ -289,11 +296,11 @@ def push(args):
             if 0 in keys:
                 fields["parent"] = {"key": keys[0]}
             else:
-                manual.append(f"Once the epic '{ISSUES[0][0]}' exists, set it as the parent of '{summary}'.")
+                manual.append((JIRA, f"Once the epic '{ISSUES[0][0]}' exists, set it as the parent of '{summary}'."))
         try:
             made = j.write("POST", "/rest/api/3/issue", json={"fields": fields})
         except RuntimeError as e:
-            manual.append(f"Create issue '{summary}' in {PROJECT_KEY}: {e}")
+            manual.append((JIRA, f"Create issue '{summary}' in {PROJECT_KEY}: {e}"))
             continue
         keys[n] = made["key"]
         fresh.add(n)
@@ -325,10 +332,25 @@ def push(args):
         try:
             j.write("POST", f"/rest/api/3/issue/{issue_key}/comment", json=payload)
         except RuntimeError as e:
-            manual.append(f"Add this comment to {issue_key}, visible only to {label}: \"{marker}\" ({e})")
+            manual.append((JIRA, f"Add this comment to {issue_key}, visible only to {label}: \"{marker}\" ({e})"))
             return False
         print(f"comment ({label}) on {issue_key}: added")
         return True
+
+    def add_internal_note(issue_key):
+        """A JSM internal note through the documented request comment call; the comment property as a fallback."""
+        marker = "PRINT-ECHO-12"
+        if comment_exists(issue_key, marker):
+            print(f"internal note on {issue_key}: exists")
+            return True
+        try:
+            j.write("POST", f"/rest/servicedeskapi/request/{issue_key}/comment", json={"body": INTERNAL_FACT, "public": False})
+            print(f"internal note on {issue_key}: added")
+            return True
+        except RuntimeError as e:
+            print(f"internal note on {issue_key}: the Service Management call failed ({str(e)[:120]}); trying a comment property")
+        return add_comment(issue_key, "agents only (internal)", adf(INTERNAL_FACT), marker=marker,
+                           properties=[{"key": "sd.public.comment", "value": {"internal": True}}])
 
     def key_of(n):
         return keys.get(n, f"{PROJECT_KEY}-?")
@@ -352,24 +374,24 @@ def push(args):
                 content_url = up[0]["content"]
             print(f"attachment {ATTACHMENT_FILE} on {attach_issue}: uploaded")
         except RuntimeError as e:
-            manual.append(f"Attach {ATTACHMENT_FILE} (a PDF containing: \"{ATTACHMENT_FACT}\") to {attach_issue}, then link it in the group-restricted comment ({e})")
+            manual.append((JIRA, f"Attach {ATTACHMENT_FILE} (a PDF containing: \"{ATTACHMENT_FACT}\") to {attach_issue}, then link it in the group-restricted comment ({e})"))
 
     if group_id:
         add_comment(attach_issue, f"the group {GROUP}",
                     adf(GROUP_FACT, [{"type": "text", "text": "Budget details: "}, link_node(ATTACHMENT_FILE, content_url)]),
                     {"type": "group", "identifier": group_id}, marker="COBALT-41")
     else:
-        manual.append(f"Once {GROUP} exists, comment on {attach_issue} restricted to it: \"{GROUP_FACT}\" with a link to {ATTACHMENT_FILE}")
+        manual.append((JIRA, f"Once {GROUP} exists, comment on {attach_issue} restricted to it: \"{GROUP_FACT}\" with a link to {ATTACHMENT_FILE}"))
     if role_ids[ROLE_DEVELOPERS]:
         add_comment(key_of(8), f"the role {ROLE_DEVELOPERS}", adf(ROLE_FACT),
                     {"type": "role", "value": ROLE_DEVELOPERS}, marker="JUNIPER-88")
     else:
-        manual.append(f"Comment on {key_of(8)} restricted to the {ROLE_DEVELOPERS} role: \"{ROLE_FACT}\"")
+        manual.append((JIRA, f"Comment on {key_of(8)} restricted to the {ROLE_DEVELOPERS} role: \"{ROLE_FACT}\""))
     if role_ids[ROLE_QA]:
         add_comment(key_of(9), f"the role {ROLE_QA}", adf(QA_FACT),
                     {"type": "role", "value": ROLE_QA}, marker="SIGNOFF-ZEBRA-3")
     else:
-        manual.append(f"Comment on {key_of(9)} restricted to the {ROLE_QA} role: \"{QA_FACT}\"")
+        manual.append((JIRA, f"Comment on {key_of(9)} restricted to the {ROLE_QA} role: \"{QA_FACT}\""))
 
     # Jira Service Management -------------------------------------------------------------------
     jsm_done = False
@@ -400,24 +422,24 @@ def push(args):
                 "description": adf("Several people report that nothing prints from the third floor.")}})["key"]
             if args.dry_run:
                 jsm_issue = f"{jsm_key}-1"
-        jsm_done = add_comment(jsm_issue, "agents only (internal)", adf(INTERNAL_FACT), marker="PRINT-ECHO-12",
-                               properties=[{"key": "sd.public.comment", "value": {"internal": True}}])
-        manual.append(f"Give the service account the Jira Service Management agent product access on {jsm_key} (Project settings > People), "
-                      "so it can see the internal note's issue.")
+        jsm_done = add_internal_note(jsm_issue)
+        if not args.dry_run:
+            manual.append((JIRA, f"In the {jsm_key} service project, choose Invite team and invite the service account, so it is an agent "
+                                 "and can read the internal note. If the invite fails, skip the internal note question."))
     except RuntimeError as e:
         print("service project: not created through the API")
-        manual.append("This site may not have Jira Service Management. If it does: create a service project "
-                      f"({JSM_NAME}, key {JSM_KEY}) from Projects > Create project, add the service account as an agent, create a request "
-                      f"titled \"Print queue outage on the third floor\", and add an internal note: \"{INTERNAL_FACT}\" "
-                      f"(API said: {e})")
+        manual.append((JIRA, "This site may not have Jira Service Management. If it does: create a service project "
+                             f"({JSM_NAME}, key {JSM_KEY}) from Projects > Create project (or Spaces > Create space), invite the service "
+                             f"account with Invite team, create a request titled \"Print queue outage on the third floor\", and add an "
+                             f"internal note: \"{INTERNAL_FACT}\" (API said: {e})"))
 
     if not sa:
-        manual.append("Re-run with --service-account-id so the account joins the group and the project roles.")
+        manual.append((TERMINAL, "Re-run with --service-account-id so the account joins the group and the project roles."))
 
     if manual:
-        print("\nDo these by hand in Jira:")
-        for m in manual:
-            print(" -", m)
+        print("\nDo these by hand, in the place each one names:")
+        for where, m in manual:
+            print(f" - [{where}] {m}")
     print_expectations(attach_issue, jsm_done)
 
 
