@@ -173,16 +173,21 @@ public sealed class AtlassianApiClient(
             using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
             JsonElement root = doc.RootElement;
 
+            // A page without its array, or one that starts somewhere other than asked, is not the
+            // page asked for: read as the end, or stepped past, it would drop items silently.
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(arrayProperty, out var array) || array.ValueKind != JsonValueKind.Array)
+                throw new AtlassianMalformedResponseException($"Atlassian returned a page with no {arrayProperty} array.");
+            if (root.TryGetProperty("startAt", out var answeredStart)
+                && !(answeredStart.ValueKind == JsonValueKind.Number && answeredStart.TryGetInt32(out int answered) && answered == startAt))
+                throw new AtlassianMalformedResponseException($"Atlassian answered a request for the page at {startAt} with another page.");
+
             int count = 0;
-            if (root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty(arrayProperty, out var array) && array.ValueKind == JsonValueKind.Array)
+            foreach (JsonElement element in array.EnumerateArray())
             {
-                foreach (JsonElement element in array.EnumerateArray())
-                {
-                    count++;
-                    if (item(element) is { } mapped)
-                        yield return mapped;
-                }
+                count++;
+                if (item(element) is { } mapped)
+                    yield return mapped;
             }
 
             bool isLast = root.ValueKind == JsonValueKind.Object

@@ -215,6 +215,13 @@ public sealed class JiraProjectConnectorTests : IDisposable
         files.Single(f => f.Path == "/issues/20001.md").Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 First");
     }
 
+    private void BulkFetchAnswersWithIssueError(object issueError) =>
+        _api.Map(_jira.Root + "/issue/bulkfetch", _ => FakeAtlassianApi.Json(new
+        {
+            issues = new[] { new { id = "20001", key = "ENG-1", fields = new { summary = "First", updated = FakeJira.Time(T0), attachment = Array.Empty<object>(), comment = new { total = 0 } } } },
+            issueErrors = new[] { issueError },
+        }));
+
     [Fact]
     public async Task Sync_FreshStart_IssueBulkFetchDidNotReturn_HasNoRecord()
     {
@@ -222,16 +229,68 @@ public sealed class JiraProjectConnectorTests : IDisposable
         Issue("20002", "ENG-2", "Second");
         await _connector.GetChangesAsync(null);
 
-        // Listed, but bulkfetch reports it in issueErrors: its record from before the resync is not kept.
-        _api.Map(_jira.Root + "/issue/bulkfetch", _ => FakeAtlassianApi.Json(new
-        {
-            issues = new[] { new { id = "20001", key = "ENG-1", fields = new { summary = "First", updated = FakeJira.Time(T0), attachment = Array.Empty<object>(), comment = new { total = 0 } } } },
-            issueErrors = new[] { new { issueIdsOrKeys = new[] { "20002" }, status = 500 } },
-        }));
+        // Listed, but bulkfetch reports it gone (404): its record from before the resync is not kept.
+        BulkFetchAnswersWithIssueError(new { issueIdsOrKeys = new[] { "20002" }, status = 404 });
         var second = await _connector.GetChangesAsync(null);
 
         second.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
         (await _connector.ExistsAsync("/issues/20002.md")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Sync_IssueBulkFetchError404_IssueDropsOut()
+    {
+        Issue("20001", "ENG-1", "First");
+        var second = Issue("20002", "ENG-2", "Second");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        second.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        BulkFetchAnswersWithIssueError(new { issueIdsOrKeys = new[] { "20002" }, status = 404 });
+        var delta = await _connector.GetChangesAsync(first.NextCursor);
+
+        delta.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    public static TheoryData<object> FailedIssueErrors => new()
+    {
+        new { issueIdsOrKeys = new[] { "20002" }, status = 500 },
+        new { issueIdsOrKeys = new[] { "20002" }, status = 403 },
+        new { issueIdsOrKeys = new[] { "20002" } },
+    };
+
+    [Theory]
+    [MemberData(nameof(FailedIssueErrors))]
+    public async Task Sync_FreshStart_IssueBulkFetchErrorNot404_UnavailableAndStoreUntouched(object issueError)
+    {
+        var edited = Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        await _connector.GetChangesAsync(null);
+
+        edited.Summary = "First, edited";
+        BulkFetchAnswersWithIssueError(issueError);
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(null))
+            .Should().ThrowAsync<AtlassianUnavailableException>();
+
+        var files = await _connector.ListFilesAsync();
+        files.Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", "/issues/20002.md");
+        files.Single(f => f.Path == "/issues/20001.md").Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 First");
+    }
+
+    [Fact]
+    public async Task Sync_IssueBulkFetchError500_UnavailableAndStoreUntouched()
+    {
+        Issue("20001", "ENG-1", "First");
+        var second = Issue("20002", "ENG-2", "Second");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        second.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        BulkFetchAnswersWithIssueError(new { issueIdsOrKeys = new[] { "20002" }, status = 500 });
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor))
+            .Should().ThrowAsync<AtlassianUnavailableException>();
+
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", "/issues/20002.md");
     }
 
     [Theory]
@@ -759,6 +818,125 @@ public sealed class JiraProjectConnectorTests : IDisposable
             .Should().ThrowAsync<FileNotFoundException>();
     }
 
+    [Fact]
+    public async Task Read_RestrictedCommentIssueMovedToOtherProject_FileNotFound()
+    {
+        // The role name is the same in both projects, so the comment's own route still matches.
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Role secret", T0,
+            Visibility: new { type = "role", value = "Developers", identifier = "Developers" }));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.ProjectId = "10001";
+
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "3")))
+            .Should().ThrowAsync<FileNotFoundException>();
+    }
+
+    [Fact]
+    public async Task Read_RestrictedCommentIssueProjectUnknown_FailsWithoutContent()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        _api.Map(_jira.Root + "/issue/20001", _ => FakeAtlassianApi.Json(new { id = "20001", fields = new { } }));
+        var unknown = await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "2")))
+            .Should().ThrowAsync<IOException>();
+        unknown.Which.Should().NotBeOfType<FileNotFoundException>("an unknown project is retried, not taken as gone");
+    }
+
+    // ── Vanished restricted documents ──────────────────────────────────────
+
+    [Fact]
+    public async Task Sync_RestrictedCommentVanishes_ListedOnceMoreAsDenyAllThenDropped()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Internal note", T0.AddMinutes(1), JsdPublic: false));
+        var first = await _connector.GetChangesAsync(null);
+
+        // Restricted to a group the service account is not in: Jira's answer leaves both out.
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Comments.Clear();
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        var group = Doc(second, CommentPath("20001", "2"));
+        group.Should().NotBeNull("a vanished restricted comment is listed once more so its URI denies everyone");
+        group!.ResourceUri.Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, JiraRestriction.DenyAll));
+        group.SizeBytes.Should().Be(Size(first, CommentPath("20001", "2")), "the same signature only rewrites the URI");
+        group.LastModified.Should().Be(Doc(first, CommentPath("20001", "2"))!.LastModified);
+        Doc(second, CommentPath("20001", "4"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "4", true, JiraRestriction.DenyAll));
+        (await _connector.ExistsAsync(CommentPath("20001", "2"))).Should().BeFalse();
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "2")))
+            .Should().ThrowAsync<FileNotFoundException>();
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+
+        third.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    [Fact]
+    public async Task Sync_TombstoneCycleNotCommitted_ListedAgain()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Comments.Clear();
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        await _connector.GetChangesAsync(first.NextCursor);
+
+        // The engine kept the old cursor (it withheld deletions): the tombstone's listing was not taken up.
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var again = await _connector.GetChangesAsync(first.NextCursor);
+
+        Doc(again, CommentPath("20001", "2"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraComment(CloudId, "20001", "2", false, JiraRestriction.DenyAll));
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Contain(CommentPath("20001", "2"));
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var later = await _connector.GetChangesAsync(again.NextCursor);
+        later.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    [Fact]
+    public async Task Sync_FreshStart_RestrictedAttachmentsVanish_ListedOnceMoreAsDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        _jira.Attach(issue, Attachment("30002", "logs.txt"));
+        _jira.Attach(issue, Attachment("30003", "public.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Internal note", T0, JsdPublic: false, RenderedBody: LinkTo("30002")));
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+
+        issue.Comments.Clear();
+        issue.Attachments.Clear();
+        var second = await _connector.GetChangesAsync(null);
+
+        var secret = Doc(second, AttachmentPath("20001", "30001", "secret.txt"));
+        secret!.ResourceUri.Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        secret.SizeBytes.Should().Be(Size(first, AttachmentPath("20001", "30001", "secret.txt")));
+        secret.LastModified.Should().Be(AttachedAt.UtcDateTime);
+        Doc(second, AttachmentPath("20001", "30002", "logs.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", true, JiraRestriction.DenyAll));
+        Doc(second, AttachmentPath("20001", "30003", "public.txt")).Should().BeNull("an unrestricted attachment needs no tombstone");
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(AttachmentPath("20001", "30001", "secret.txt")))
+            .Should().ThrowAsync<FileNotFoundException>();
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+        third.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
     // ── Attachments ────────────────────────────────────────────────────────
 
     private static readonly DateTimeOffset AttachedAt = new(2026, 9, 30, 8, 0, 0, TimeSpan.Zero);
@@ -816,9 +994,9 @@ public sealed class JiraProjectConnectorTests : IDisposable
 
         var group = new JiraRestriction(JiraRestrictionType.Group, GroupA);
         Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
-            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, group));
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, group, "2"));
         Doc(delta, AttachmentPath("20001", "30002", "diagram.txt"))!.ResourceUri
-            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, group));
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, group, "2"));
         Doc(delta, AttachmentPath("20001", "30003", "public.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30003", false, null));
         _jira.RenderedReads.Should().Equal(new[] { "2" }, "only restricted comments are read rendered");
@@ -835,7 +1013,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var delta = await _connector.GetChangesAsync(null);
 
         Doc(delta, AttachmentPath("20001", "30001", "logs.txt"))!.ResourceUri
-            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", true, null));
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", true, null, "4"));
     }
 
     /// <summary>
@@ -871,8 +1049,8 @@ public sealed class JiraProjectConnectorTests : IDisposable
             [CommentPath("20001", "3")] = new(CloudId, "20001", JiraResourceKind.Comment, "3", false, role),
             [CommentPath("20001", "4")] = new(CloudId, "20001", JiraResourceKind.Comment, "4", true, null),
             [CommentPath("20001", "5")] = new(CloudId, "20001", JiraResourceKind.Comment, "5", false, JiraRestriction.DenyAll),
-            [AttachmentPath("20001", "30001", "group.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30001", false, group),
-            [AttachmentPath("20001", "30002", "role.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30002", false, role),
+            [AttachmentPath("20001", "30001", "group.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30001", false, group, "2"),
+            [AttachmentPath("20001", "30002", "role.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30002", false, role, "3"),
             [AttachmentPath("20001", "30003", "denied.txt")] =
                 new(CloudId, "20001", JiraResourceKind.Attachment, "30003", false, JiraRestriction.DenyAll),
             [AttachmentPath("20001", "30004", "public.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30004", false, null),
@@ -910,8 +1088,8 @@ public sealed class JiraProjectConnectorTests : IDisposable
         Doc(delta, AttachmentPath("20001", "30002", "unreadable.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, JiraRestriction.DenyAll));
         Doc(delta, AttachmentPath("20001", "30003", "same.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30003", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)),
-            "two comments with the same restriction agree");
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30003", false, JiraRestriction.DenyAll),
+            "the URI can name one governing comment for the live check, so even two that agree deny");
     }
 
     [Fact]
@@ -962,7 +1140,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         delta.IsFullListing.Should().BeTrue();
         delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", CommentPath("20001", "2"));
         delta.Notice.Should().BeNull("nothing is skipped when attachments are off");
-        _jira.RenderedReads.Should().BeEmpty();
+        _jira.RenderedReads.Should().Equal(new[] { "2" }, "ties are kept with attachments off, so turning them on loses no restriction");
         (await off.ExistsAsync(AttachmentPath("20001", "30001", "notes.txt"))).Should().BeFalse();
     }
 
@@ -1046,7 +1224,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var delta = await _connector.GetChangesAsync(null);
 
         Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
     }
 
     [Theory]
@@ -1094,8 +1272,9 @@ public sealed class JiraProjectConnectorTests : IDisposable
         // The media reference in group A's comment may be 30001, which group B's comment also links.
         Doc(delta, AttachmentPath("20001", "30001", "other.txt"))!.ResourceUri
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
-        Doc(delta, AttachmentPath("20001", "30002", "same.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+        // The comment that links 30002 also shows a file Connapse can't name, so its tie can't be verified.
+        Doc(delta, AttachmentPath("20001", "30002", "same.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, JiraRestriction.DenyAll));
     }
 
     [Fact]
@@ -1217,11 +1396,430 @@ public sealed class JiraProjectConnectorTests : IDisposable
         file.ResourceUri.Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
     }
 
+    [Theory]
+    [InlineData("removed")]
+    [InlineData("made public")]
+    [InlineData("link dropped")]
+    public async Task Sync_TyingCommentNoLongerTies_AttachmentStaysDenyAll(string change)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        _jira.Attach(issue, Attachment("30002", "public.txt"));
+        var tying = new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(tying);
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        Doc(first, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+
+        issue.Comments.Clear();
+        if (change == "made public")
+            issue.Comments.Add(tying with { Visibility = null });
+        else if (change == "link dropped")
+            issue.Comments.Add(tying with { RenderedBody = "<p>no file</p>" });
+        _jira.ServeComments(issue);
+        var second = await _connector.GetChangesAsync(null);
+        var third = await _connector.GetChangesAsync(null);
+
+        // Removed, the comment's restriction may only have moved out of Connapse's sight, and with the
+        // link dropped nothing says what governs the file: it stays hidden. Made public, Jira has
+        // lifted the restriction, and the file follows the issue.
+        var expected = change == "made public"
+            ? AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, null, "2")
+            : AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll);
+        foreach (var delta in new[] { second, third })
+        {
+            Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(expected);
+            Doc(delta, AttachmentPath("20001", "30002", "public.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, null), "no restricted comment ever tied it");
+        }
+    }
+
     [Fact]
-    public async Task Sync_RenderedReadNotFound_AnotherCommentStillTies()
+    public async Task Sync_OneOfTwoTyingCommentsHidden_AttachmentStaysDenyAllNeverTheSurvivorsTie()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "shared.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "B", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        Doc(first, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+
+        // Comment A is now hidden from the service account: Jira's answer leaves it out.
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        var second = await _connector.GetChangesAsync(null);
+        var third = await _connector.GetChangesAsync(null);
+
+        foreach (var delta in new[] { second, third })
+            Doc(delta, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        new JiraIssueStateStore(_root).Load("20001")!.Attachments.Single().TiedBy.Should().Equal("2", "3");
+    }
+
+    [Fact]
+    public async Task Sync_AttachmentsOffWhileTyingCommentHidden_DenyAllWhenTurnedBackOn()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        // Attachments off for a cycle that fetches the issue: its record is written afresh.
+        issue.Updated = issue.Updated.AddMinutes(1);
+        var off = await Connector(includeAttachments: false).GetChangesAsync(null);
+        off.Upserted.Should().NotContain(f => f.Path.Contains("/attachments/"));
+
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        issue.Updated = issue.Updated.AddMinutes(1);
+        var on = await Connector().GetChangesAsync(null);
+
+        Doc(on, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Sync_FreshStartAfterTieVanished_StillDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        issue.Updated = _clock.GetUtcNow();
+        var incremental = await _connector.GetChangesAsync(first.NextCursor);
+        Doc(incremental, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+
+        // A resync rebuilds the store from what Jira returns now, which no longer shows comment A.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var fresh = await _connector.GetChangesAsync(null);
+        var again = await _connector.GetChangesAsync(null);
+
+        foreach (var delta in new[] { fresh, again })
+            Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Sync_TwoAgreeingTyingComments_DenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "shared.txt"));
+        _jira.Attach(issue, Attachment("30002", "single.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA),
+            RenderedBody: LinkTo("30001") + LinkTo("30002")));
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Also A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        // Search re-checks one comment per attachment; a second one could tighten unseen.
+        Doc(delta, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        Doc(delta, AttachmentPath("20001", "30002", "single.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+
+        var again = await _connector.GetChangesAsync(null);
+        Doc(again, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll), "two ties never release");
+    }
+
+    [Fact]
+    public async Task Sync_UntieableReferencePersists_StaysDenyAll()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");
         _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA),
+            RenderedBody: LinkTo("30001") + "<img data-media-services-id=\"9f1c\">"));
+        _jira.ServeComments(issue);
+
+        foreach (int _ in Enumerable.Range(0, 3))
+        {
+            var delta = await _connector.GetChangesAsync(null);
+            Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        }
+    }
+
+    [Fact]
+    public async Task Sync_TyingCommentHidden_StaysDenyAllAcrossSyncs()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        foreach (int _ in Enumerable.Range(0, 3))
+        {
+            var delta = await _connector.GetChangesAsync(null);
+            Doc(delta, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        }
+        new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"].TiedBy.Should().Equal("2");
+    }
+
+    [Theory]
+    [InlineData("attachment omitted")]
+    [InlineData("attachment field missing")]
+    [InlineData("issue out of the listing")]
+    public async Task Sync_RestrictedAttachmentAwayAndBack_CommentStillHidden_DenyAll(string away)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var file = issue.Attachments.Single();
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        Doc(first, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+
+        // The tying comment is hidden from the service account while the file is out of sight.
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        if (away == "attachment omitted")
+            issue.Attachments.Remove(file);
+        else if (away == "attachment field missing")
+            _jira.OmitAttachmentField = true;
+        else
+            issue.ProjectId = "10099";
+        await _connector.GetChangesAsync(null);
+        if (away == "issue out of the listing")
+            new JiraIssueStateStore(_root).Load("20001").Should().BeNull("the issue's own record is gone");
+
+        if (away == "attachment omitted")
+            issue.Attachments.Add(file);
+        _jira.OmitAttachmentField = false;
+        issue.ProjectId = ProjectId;
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Sync_StickyDenyAll_SurvivesTheIssueLeavingTheListing()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "shared.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        var b = new FakeJiraComment("3", "Cy", "B", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(b);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.ProjectId = "10099";
+        await _connector.GetChangesAsync(null);
+        issue.ProjectId = ProjectId;
+        issue.Comments.Remove(b); // only group A's comment links it now
+        _jira.ServeComments(issue);
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    /// <summary>Turns the store into what the code before the attachment history wrote: no history file, no TiedBy.</summary>
+    private void MakeLegacy()
+    {
+        File.Delete(Path.Combine(_root, "attachment-history.json"));
+        var store = new JiraIssueStateStore(_root);
+        foreach (string id in store.Ids().ToList())
+        {
+            var record = store.Load(id)!;
+            foreach (var attachment in record.Attachments)
+                attachment.TiedBy = [];
+            store.Save(record);
+        }
+    }
+
+    [Theory]
+    [InlineData("attachment omitted")]
+    [InlineData("issue out of the listing")]
+    public async Task Upgrade_LegacyTiedAttachmentAwayThenBack_CommentHidden_DenyAll(string away)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var file = issue.Attachments.Single();
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+
+        // The first sync after the upgrade doesn't see the file, and the comment is hidden meanwhile.
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        if (away == "attachment omitted")
+            issue.Attachments.Remove(file);
+        else
+            issue.ProjectId = "10099";
+        await _connector.GetChangesAsync(null);
+        File.Exists(Path.Combine(_root, "attachment-history.json")).Should().BeTrue();
+
+        if (away == "attachment omitted")
+            issue.Attachments.Add(file);
+        issue.ProjectId = ProjectId;
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacyDenyAllWithOneReadableComment_StaysDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "shared.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        var b = new FakeJiraComment("3", "Cy", "B", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(b);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+        var legacy = new JiraIssueStateStore(_root).Load("20001")!.Attachments.Single();
+        legacy.DenyAll.Should().BeTrue();
+        legacy.RestrictingCommentId.Should().Be("2");
+
+        issue.Comments.Remove(b);
+        _jira.ServeComments(issue);
+        var after = await _connector.GetChangesAsync(null);
+
+        // A legacy record names only its first tie, not whatever made it deny-all (here group B's
+        // comment, hidden now), so comment 2 reading back settled proves nothing.
+        Doc(after, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        var entry = new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"];
+        entry.Unresolvable.Should().BeTrue();
+        entry.DenyAll.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacyDenyAllNamingNoComment_NewSingleTie_StaysDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+        var store = new JiraIssueStateStore(_root);
+        var record = store.Load("20001")!;
+        record.Attachments.Single().DenyAll = true; // deny-all, with no comment recorded
+        store.Save(record);
+
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        foreach (int _ in Enumerable.Range(0, 2))
+        {
+            var delta = await _connector.GetChangesAsync(null);
+            Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        }
+        new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"].Unresolvable.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacySingleTieReadableAgain_Released()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+
+        var after = await _connector.GetChangesAsync(null);
+
+        Doc(after, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+        var entry = new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"];
+        entry.TiedBy.Should().Equal("2");
+        entry.Unresolvable.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacyAttachmentTombstone_SeedsStickyDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var file = issue.Attachments.Single();
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        issue.Attachments.Remove(file);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        issue.Updated = _clock.GetUtcNow();
+        var vanished = await _connector.GetChangesAsync(first.NextCursor); // the file is a tombstone now
+        new JiraIssueStateStore(_root).Load("20001")!.Tombstones.Should().ContainSingle(t => t.Id == "30001");
+        MakeLegacy();
+
+        issue.Comments.Remove(a);
+        issue.Attachments.Add(file);
+        _jira.ServeComments(issue);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        issue.Updated = _clock.GetUtcNow();
+        var back = await _connector.GetChangesAsync(vanished.NextCursor);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+
+        // A new comment ties it alone: the seeded entry names no governing comment, so it never releases.
+        issue.Comments.Add(new FakeJiraComment("7", "Gil", "New", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        _jira.ServeComments(issue);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        issue.Updated = _clock.GetUtcNow();
+        var tiedAgain = await _connector.GetChangesAsync(back.NextCursor);
+        Doc(tiedAgain, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        new JiraIssueStateStore(_root).LoadAttachmentHistory()["30001"].Unresolvable.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Sync_HiddenTyingCommentReturns_TieRestored()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+    }
+
+    [Fact]
+    public async Task Sync_RenderedReadNotFound_AnotherCommentStillTies()
+    {
+        // Comment 2 vanished between the page read and its rendered read: what it linked is unknown,
+        // so the surviving tie to group A must not govern the file alone.
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        _jira.Attach(issue, Attachment("30002", "other.txt"));
         issue.Comments.Add(new FakeJiraComment("2", "Bob", "Deleted", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001")));
         issue.Comments.Add(new FakeJiraComment("3", "Cy", "Kept", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
         _jira.ServeComments(issue);
@@ -1229,8 +1827,41 @@ public sealed class JiraProjectConnectorTests : IDisposable
 
         var delta = await _connector.GetChangesAsync(null);
 
-        Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA)));
+        Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        Doc(delta, AttachmentPath("20001", "30002", "other.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, JiraRestriction.DenyAll));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Sync_RenderedReadNotFoundNoHistory_DeniedUntilReverified(bool internalNote)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "linked.txt"));
+        _jira.Attach(issue, Attachment("30002", "unlinked.txt"));
+        var vanishing = internalNote
+            ? new FakeJiraComment("2", "Di", "Internal", T0, JsdPublic: false, RenderedBody: LinkTo("30001"))
+            : new FakeJiraComment("2", "Bob", "Secret", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(vanishing);
+        _jira.ServeComments(issue);
+        _jira.Answer("/issue/20001/comment/2", System.Net.HttpStatusCode.NotFound);
+
+        var first = await _connector.GetChangesAsync(null);
+
+        foreach (var (id, name) in new[] { ("30001", "linked.txt"), ("30002", "unlinked.txt") })
+            Doc(first, AttachmentPath("20001", id, name))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", id, internalNote, JiraRestriction.DenyAll));
+
+        // Readable again next cycle, with the same restriction: the file it links takes its tie
+        // back. The file it doesn't link has nothing to govern it, so it stays hidden.
+        _jira.ServeComments(issue);
+        var second = await _connector.GetChangesAsync(null);
+        Doc(second, AttachmentPath("20001", "30001", "linked.txt"))!.ResourceUri.Should().Be(AtlassianUri.ForJiraAttachment(
+            CloudId, "20001", "30001", internalNote, internalNote ? null : new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+        Doc(second, AttachmentPath("20001", "30002", "unlinked.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", internalNote, JiraRestriction.DenyAll));
     }
 
     [Fact]

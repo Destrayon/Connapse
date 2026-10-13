@@ -234,7 +234,7 @@ public static class SourcesEndpoints
 
             // A Confluence source keeps its space; what it reads from it is checked as on creation.
             // A Jira source, known by its stored kind, keeps its project the same way.
-            if (!string.IsNullOrWhiteSpace(request.ScopeJson)
+            if (request.ScopeJson is not null
                 && await sourceStore.GetAsync(sourceId, ct) is { ConnectionId: Guid connectionId } current
                 && await connectionStore.GetAsync(connectionId, ct) is { Provider: ConnectionProvider.Atlassian })
             {

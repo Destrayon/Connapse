@@ -10,17 +10,21 @@ namespace Connapse.Storage.CloudScope;
 /// Asks Jira, as the site's service account, which of a set of Jira documents an Atlassian account
 /// may see. Every document needs browse on its issue; an internal note also needs
 /// <c>SERVICEDESK_AGENT</c>; a restricted comment also needs membership of its group (by id) or
-/// project role. Both permissions come from one bulk <c>permissions/check</c>. Only an explicit yes
-/// admits: an id missing from Jira's answer, and every failure to get an answer, is a denial.
+/// project role. Both permissions come from one bulk <c>permissions/check</c>. A comment or internal
+/// note, and an attachment tied to one, is then read live, and admitted only while Jira still
+/// gives the comment the visibility the URI carries. Only an explicit yes admits: an id missing from Jira's answer, and every failure to
+/// get an answer, is a denial.
 /// </summary>
 /// <remarks>
-/// Definite answers are cached for <see cref="AllowTtl"/>, failures for <see cref="FailureTtl"/>.
+/// Definite answers are cached for <see cref="AllowTtl"/> (a comment's live visibility for
+/// <see cref="LiveCommentTtl"/>), failures for <see cref="FailureTtl"/>.
 /// Cancellation is never cached and always propagates.
 /// </remarks>
 public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermissionChecker> logger)
 {
     public static readonly TimeSpan AllowTtl = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan FailureTtl = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan LiveCommentTtl = TimeSpan.FromMinutes(1);
 
     private const string Browse = "BROWSE_PROJECTS";
     private const string Agent = "SERVICEDESK_AGENT";
@@ -121,8 +125,186 @@ public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermis
                 verdicts[i] = member;
             }
         }
+
+        // A comment document's URI is only as fresh as the last sync. Jira must still give the
+        // comment exactly the visibility the URI carries: tightened since, the URI would admit
+        // people Jira now hides it from; made public, it now lives in the issue document. An
+        // attachment tied to a restricted comment is held to that comment the same way.
+        var comments = candidates.Where(i => verdicts[i] && IsGovernedByComment(resources[i])).ToList();
+        if (comments.Count > 0)
+        {
+            var live = await LiveRoutesAsync(cloudId, comments.Select(i => resources[i]), ClientAsync, ct);
+            foreach (int i in comments)
+            {
+                JiraResource r = resources[i];
+                verdicts[i] = GoverningComment(r) is { } commentId && live.TryGetValue((r.IssueId, commentId), out LiveComment? now)
+                    && now is not null && Matches(now, r);
+            }
+
+            // A role names a role of one project, and the URI's is the project the issue was in at
+            // the last sync. Moved since, the same role name in its new project is a different rule.
+            var roleComments = comments.Where(i => verdicts[i] && resources[i].Restriction is { Type: JiraRestrictionType.Role }).ToList();
+            if (roleComments.Count > 0)
+            {
+                var projects = await LiveProjectsAsync(cloudId, roleComments.Select(i => resources[i].IssueId), ClientAsync, ct);
+                foreach (int i in roleComments)
+                    verdicts[i] = projects.GetValueOrDefault(resources[i].IssueId) is { } projectId
+                        && projectId == resources[i].Restriction!.ProjectId;
+            }
+        }
         return verdicts;
     }
+
+    // What the cache holds for an issue's live project: null denies.
+    private sealed record LiveProject(string? Id);
+
+    /// <summary>
+    /// Each issue's live project id, read as the service account with <c>?fields=project</c>, at
+    /// most <see cref="LiveReadParallelism"/> at a time. Null for one Jira gave no usable answer
+    /// about. Cached per issue, not per user, like a comment's live route.
+    /// </summary>
+    private async Task<Dictionary<string, string?>> LiveProjectsAsync(
+        string cloudId, IEnumerable<string> issueIds, Func<Task<AtlassianApiClient?>> clientAsync, CancellationToken ct)
+    {
+        var projects = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var uncached = new List<string>();
+        foreach (string issueId in issueIds.Distinct(StringComparer.Ordinal))
+        {
+            if (cache.TryGetValue(ProjectKey(cloudId, issueId), out LiveProject? known) && known is not null)
+                projects[issueId] = known.Id;
+            else
+                uncached.Add(issueId);
+        }
+        if (uncached.Count == 0)
+            return projects;
+
+        AtlassianApiClient? client = await clientAsync();
+        using var gate = new SemaphoreSlim(LiveReadParallelism);
+        var answers = await Task.WhenAll(uncached.Select(async issueId =>
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                LiveProject? project = await ReadAsync(cloudId, "issue project", () => Task.FromResult(client),
+                    $"rest/api/3/issue/{issueId}?fields=project", root =>
+                    {
+                        if (root.ValueKind != JsonValueKind.Object
+                            || !root.TryGetProperty("fields", out var fields) || fields.ValueKind != JsonValueKind.Object
+                            || !fields.TryGetProperty("project", out var project) || project.ValueKind != JsonValueKind.Object
+                            || !project.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String
+                            || !IsId(id.GetString()!))
+                            throw new JsonException("issue read answered without a project id");
+                        return new LiveProject(id.GetString());
+                    }, ct);
+                cache.Set(ProjectKey(cloudId, issueId), new LiveProject(project?.Id), project is null ? FailureTtl : LiveCommentTtl);
+                return (issueId, project?.Id);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+        foreach (var (issueId, projectId) in answers)
+            projects[issueId] = projectId;
+        return projects;
+    }
+
+    private static string ProjectKey(string cloudId, string issueId) => $"atl:jira:{cloudId}:issue-project:{issueId}";
+
+    /// <summary>Where a comment Jira answers now would be routed, as <see cref="JiraProjectConnector.Route"/> decides.</summary>
+    private sealed record LiveComment(bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll);
+
+    // What the cache holds for a comment: a null route denies it.
+    private sealed record LiveAnswer(LiveComment? Route);
+
+    private const int LiveReadParallelism = 10;
+
+    /// <summary>
+    /// Each comment's live route, read as the service account, at most <see cref="LiveReadParallelism"/>
+    /// at a time. Null for one Jira gave no usable answer about. Cached per comment, not per user:
+    /// the answer does not depend on who searches.
+    /// </summary>
+    private async Task<Dictionary<(string IssueId, string CommentId), LiveComment?>> LiveRoutesAsync(
+        string cloudId, IEnumerable<JiraResource> comments, Func<Task<AtlassianApiClient?>> clientAsync, CancellationToken ct)
+    {
+        var keys = comments.Select(r => (r.IssueId, CommentId: GoverningComment(r)!)).Where(k => IsId(k.CommentId)).Distinct().ToList();
+        var routes = new Dictionary<(string, string), LiveComment?>();
+        var uncached = new List<(string IssueId, string CommentId)>();
+        foreach (var key in keys)
+        {
+            if (cache.TryGetValue(LiveKey(cloudId, key.IssueId, key.CommentId), out LiveAnswer? known) && known is not null)
+                routes[key] = known.Route;
+            else
+                uncached.Add(key);
+        }
+        if (uncached.Count == 0)
+            return routes;
+
+        // Looked up once here, so the concurrent reads below never race over the site lookup.
+        AtlassianApiClient? client = await clientAsync();
+        using var gate = new SemaphoreSlim(LiveReadParallelism);
+        var answers = await Task.WhenAll(uncached.Select(async key =>
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                LiveComment? route = await ReadAsync(cloudId, "comment", () => Task.FromResult(client),
+                    $"rest/api/3/issue/{key.IssueId}/comment/{key.CommentId}", root =>
+                    {
+                        // The project id only fills in a role restriction; Matches puts the URI's in its place.
+                        var r = JiraProjectConnector.RouteOfLive(root, key.CommentId, "")
+                            ?? throw new JsonException("comment read answered with something other than that comment");
+                        return new LiveComment(r.Separate, r.Internal, r.Restriction, r.DenyAll);
+                    }, ct);
+                cache.Set(LiveKey(cloudId, key.IssueId, key.CommentId), new LiveAnswer(route), route is null ? FailureTtl : LiveCommentTtl);
+                return (key, route);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+        foreach (var (key, route) in answers)
+            routes[key] = route;
+        return routes;
+    }
+
+    /// <summary>
+    /// Whether Jira's live route is the one the URI carries: still a separate document, not deny-all,
+    /// with the same internal flag and restriction. A role restriction is compared within the URI's
+    /// project, which the membership check already used; the comment's answer does not name one.
+    /// </summary>
+    private static bool Matches(LiveComment live, JiraResource uri)
+    {
+        // An attachment released because its comment went public is admitted while it stays public.
+        if (uri is { Kind: JiraResourceKind.Attachment, Internal: false, Restriction: null })
+            return !live.Separate && !live.Internal && live.Restriction is null && !live.DenyAll;
+        if (!live.Separate || live.DenyAll || live.Internal != uri.Internal)
+            return false;
+        JiraRestriction? restriction = live.Restriction is { Type: JiraRestrictionType.Role } role
+            ? role with { ProjectId = uri.Restriction?.ProjectId }
+            : live.Restriction;
+        return Equals(restriction, uri.Restriction);
+    }
+
+    /// <summary>
+    /// A comment document, or an attachment carrying a comment's internal flag or restriction. One
+    /// whose URI does not name that comment cannot be re-checked, so <see cref="GoverningComment"/>
+    /// gives null and it is denied.
+    /// </summary>
+    private static bool IsGovernedByComment(JiraResource r) =>
+        r.Kind == JiraResourceKind.Comment
+        || (r.Kind == JiraResourceKind.Attachment && (r.CommentId is not null || r.Internal || r.Restriction is not null));
+
+    private static string? GoverningComment(JiraResource r) => r.Kind switch
+    {
+        JiraResourceKind.Comment => r.ChildId,
+        JiraResourceKind.Attachment => r.CommentId,
+        _ => null,
+    };
+
+    private static string LiveKey(string cloudId, string issueId, string commentId) =>
+        $"atl:jira:{cloudId}:comment:{issueId}:{commentId}";
 
     private async Task<Dictionary<(string, string), bool>> PermissionsAsync(
         string cloudId, string accountId, List<string> browseIds, List<string> agentIds,

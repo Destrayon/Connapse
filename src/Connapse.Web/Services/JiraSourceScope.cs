@@ -38,7 +38,14 @@ public sealed class JiraSourceScope : AtlassianSourceScope
     public static Task<Result> ResolveAsync(
         string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore, CancellationToken ct) =>
         ResolveAsync<JiraProjectInfo, JiraProjectSelection>(scopeJson, connection, sites, sourceStore, Texts, AtlassianProduct.Jira,
-            AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.JiraProduct) ? null : JiraNotReady, ct);
+            NotReady(connection), ct);
+
+    /// <summary>
+    /// Why no Jira source may be added on <paramref name="connection"/> now, or null when one may.
+    /// The API and the New source dialog both ask this, against the connection as stored.
+    /// </summary>
+    public static string? NotReady(Connection connection) =>
+        AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.JiraProduct) ? null : JiraNotReady;
 
     /// <summary>
     /// A changed scope for an existing Jira source. Its project is fixed, as a Confluence source's

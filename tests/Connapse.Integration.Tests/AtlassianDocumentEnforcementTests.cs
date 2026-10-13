@@ -447,6 +447,9 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         jira.Agent(AllowedAccount, "30001");
         jira.Groups(AllowedAccount, ("engineering", JiraGroup));
         jira.Browse(DeniedAccount, "30001");
+        // Jira still gives each comment the visibility its URI carries.
+        jira.LiveComment("30001", "501", new { type = "group", identifier = JiraGroup });
+        jira.LiveComment("30001", "502", jsdPublic: false);
 
         await sp.GetRequiredService<IConnectionStore>().CreateAsync(new CreateConnectionRequest(
             $"atl-{_cloudId}", ConnectionProvider.Atlassian,
@@ -496,6 +499,22 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var names = await SearchJiraAsync(AllowedAccount);
 
         names.Should().Contain(["jira-issue.md", "jira-group-comment.md", "jira-internal-note.md", "upload.md"]);
+    }
+
+    [Fact]
+    public async Task Search_JiraCommentRestrictionChangedInJira_DeniedToTheOldGroup()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid containerId = await SeedJiraAsync(scope.ServiceProvider,
+            ("jira-regrouped-comment.md", AtlassianUri.ForJiraComment(_cloudId, "30001", "504", false,
+                new JiraRestriction(JiraRestrictionType.Group, JiraGroup))));
+        // Restricted to another group in Jira since the last sync; the URI still names the old one.
+        new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId)
+            .LiveComment("30001", "504", new { type = "group", identifier = "0b5e1b8e-56b0-4a35-9b8a-3a6b3c0c9f11" });
+
+        var names = await SearchAsync(containerId, AllowedAccount);
+
+        names.Should().Contain(["jira-issue.md", "jira-group-comment.md"]).And.NotContain("jira-regrouped-comment.md");
     }
 
     [Fact]
@@ -577,9 +596,11 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
             ("jira-role-comment.md", uris["/issues/30001/comments/503.md"]),
             ("jira-role-attachment.txt", uris["/issues/30001/attachments/40001/qa.txt"]),
             ("jira-open-attachment.txt", uris["/issues/30001/attachments/40002/open.txt"]));
-        new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId)
-            .Role(Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "10007", "QA/Ops Team",
-                Connapse.Core.Tests.Connectors.FakeJira.UserActor(AllowedAccount));
+        var jira = new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId);
+        jira.Role(Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "10007", "QA/Ops Team",
+            Connapse.Core.Tests.Connectors.FakeJira.UserActor(AllowedAccount));
+        jira.LiveComment("30001", "503", new { type = "role", value = "QA/Ops Team" });
+        jira.LiveIssueProject("30001", Connapse.Core.Tests.Connectors.FakeJira.ProjectId);
         return await SearchAsync(containerId, atlassianAccount);
     }
 

@@ -14,6 +14,9 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
 {
     public string Product => AtlassianSiteScopes.JiraProduct;
 
+    /// <summary>How many browsable projects the issue search spans when the first project has no issue.</summary>
+    private const int MaxProjectsSearched = 50;
+
     internal const string CantReadJiraMessage =
         "The credential can't read Jira on this site. Check that the service account has Jira access and that its credential "
         + "has the Jira scopes listed in the setup steps, then test again.";
@@ -21,6 +24,11 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
     internal const string NoProjectsMessage =
         "The service account can't see any Jira project yet, so Connapse can't check the rest of Jira. You can save anyway; "
         + "the check runs again when you next test. Or give it Browse projects in a project and test again.";
+
+    internal const string NoIssuesMessage =
+        "The service account can't see any Jira issue yet, so Connapse couldn't check that it can read issues and comments. "
+        + "You can save anyway; the check runs again when you next test. Or give it Browse projects in a project that has "
+        + "issues and test again.";
 
     internal const string NoOtherUserMessage =
         "The site has no Jira user other than the service account, so Connapse can't confirm it may check what other people "
@@ -72,11 +80,14 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
 
         run.Enter(JiraProjectsStep);
         string? projectId;
+        List<long> browsable;
         try
         {
+            // Up to 50, for the issue search below when the first project has none.
             using var projects = await api.GetJsonAsync<JsonDocument>(
-                "rest/api/3/project/search?maxResults=1&action=browse&status=live", linked);
+                $"rest/api/3/project/search?maxResults={MaxProjectsSearched}&action=browse&status=live", linked);
             projectId = FirstIdIn(projects.RootElement, "values");
+            browsable = NumericIdsIn(projects.RootElement, "values", MaxProjectsSearched);
         }
         catch (Exception ex) when (IsRefusal(ex))
         {
@@ -97,16 +108,17 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         // One read per call a sync makes, each the kind of call the connector makes, so a credential
         // missing a scope fails here and not at sync.
         run.Enter(JiraContentStep);
-        string? issueId;
-        // A GET, as the sync searches: Atlassian requires more scopes for the POST form of this endpoint.
-        string jql = Uri.EscapeDataString($"project = {project} ORDER BY updated DESC");
-        var (searched, searchFailure) = await ReadJsonAsync(
-            () => api.GetAsync($"rest/api/3/search/jql?jql={jql}&maxResults=1&fields=id", linked),
-            AtlassianSiteScopes.JiraIssueDetails, run, linked);
+        var (issueId, searchFailure) = await FirstIssueAsync(api, $"project = {project}", run, linked);
         if (searchFailure is not null)
             return searchFailure;
-        using (JsonDocument answer = searched!)
-            issueId = FirstIdIn(answer.RootElement, "issues");
+        // The first project may have no issue the account can see; another it browses may.
+        if (issueId is null && browsable.Any(id => id != project))
+        {
+            (issueId, searchFailure) = await FirstIssueAsync(
+                api, $"project in ({string.Join(',', browsable.Prepend(project).Distinct().Take(MaxProjectsSearched))})", run, linked);
+            if (searchFailure is not null)
+                return searchFailure;
+        }
 
         if (issueId is not null)
         {
@@ -217,13 +229,15 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
             return run.Fail(CantReadMembershipMessage, detail: Describe(ex));
         }
 
-        // What the probes proved, and anything else Atlassian says it granted.
-        var proven = new HashSet<string>(AtlassianSiteScopes.JiraProvenByTest, StringComparer.OrdinalIgnoreCase);
+        // Nothing proves the issue and comment scopes: saved anyway, they are not counted as confirmed.
         if (issueId is null)
         {
-            proven.Remove(AtlassianSiteScopes.JiraIssue);
-            proven.Remove(AtlassianSiteScopes.JiraComment);
+            run.Enter(JiraContentStep);
+            return run.Warn(NoIssuesMessage);
         }
+
+        // What the probes proved, and anything else Atlassian says it granted.
+        var proven = new HashSet<string>(AtlassianSiteScopes.JiraProvenByTest, StringComparer.OrdinalIgnoreCase);
         if (attachmentsConfirmed)
             proven.Add(AtlassianSiteScopes.JiraAttachment);
         IReadOnlyList<string> confirmed = AtlassianSiteScopes.Jira.Select(s => s.Name)
@@ -233,6 +247,23 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         return run.Pass(
             "read Jira, listed projects, read issues and comments, and confirmed it can check who may read each issue and comment",
             confirmed);
+    }
+
+    /// <summary>
+    /// The most recently updated issue matching <paramref name="filter"/>, or null when there is none.
+    /// A GET, as the sync searches: Atlassian requires more scopes for the POST form of this endpoint.
+    /// </summary>
+    private static async Task<(string? IssueId, ProductProbeResult? Failure)> FirstIssueAsync(
+        AtlassianApiClient api, string filter, ProductSteps run, CancellationToken ct)
+    {
+        string jql = Uri.EscapeDataString($"{filter} ORDER BY updated DESC");
+        var (searched, failure) = await ReadJsonAsync(
+            () => api.GetAsync($"rest/api/3/search/jql?jql={jql}&maxResults=1&fields=id", ct),
+            AtlassianSiteScopes.JiraIssueDetails, run, ct);
+        if (failure is not null)
+            return (null, failure);
+        using JsonDocument answer = searched!;
+        return (FirstIdIn(answer.RootElement, "issues"), null);
     }
 
     /// <summary>
@@ -269,6 +300,25 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
 
     private static bool HasArray(JsonElement obj, string name) =>
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array;
+
+    /// <summary>The numeric ids of the first <paramref name="max"/> items of the <paramref name="list"/> array; others are skipped.</summary>
+    private static List<long> NumericIdsIn(JsonElement root, string list, int max)
+    {
+        var ids = new List<long>();
+        if (!HasArray(root, list))
+            return ids;
+
+        foreach (var item in root.GetProperty(list).EnumerateArray().Take(max))
+        {
+            string? text = item.ValueKind == JsonValueKind.Object && item.TryGetProperty("id", out var id)
+                ? id.ValueKind == JsonValueKind.String ? id.GetString() : id.ToString()
+                : null;
+            if (long.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long value))
+                ids.Add(value);
+        }
+
+        return ids;
+    }
 
     /// <summary>The id of the first item of the <paramref name="list"/> array, as text.</summary>
     private static string? FirstIdIn(JsonElement root, string list)

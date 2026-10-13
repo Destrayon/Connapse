@@ -347,6 +347,57 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         _jira.Searches.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Test_JiraFirstProjectHasNoIssue_SearchesAcrossBrowsableProjects()
+    {
+        _jira.MapSiteTest();
+        var projects = Enumerable.Range(0, 60).Select(i => new { id = (10000 + i).ToString(), key = "P" + i }).ToArray();
+        _api.MapJson(_jira.Root + "/project/search", new { values = projects, total = 60, isLast = false });
+        _api.Map(_jira.Root + "/search/jql", request =>
+        {
+            string query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            _jira.Searches.Add($"{request.Method} {query}");
+            return FakeAtlassianApi.Json(query.Contains("project in (", StringComparison.Ordinal)
+                ? new { issues = new object[] { new { id = FakeJira.IssueId } } }
+                : new { issues = Array.Empty<object>() });
+        });
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Success.Should().BeTrue();
+        _jira.Searches.Should().HaveCount(2).And.OnlyContain(s => s.StartsWith("GET ", StringComparison.Ordinal));
+        string across = _jira.Searches[1];
+        across.Should().Contain("ORDER BY updated DESC").And.Contain("maxResults=1");
+        string ids = System.Text.RegularExpressions.Regex.Match(across, @"project in \(([0-9,]+)\)").Groups[1].Value;
+        ids.Split(',').Should().HaveCount(50).And.StartWith("10000");
+        _api.Requests.Should().Contain(u => u.AbsolutePath.EndsWith("/project/search") && u.Query.Contains("maxResults=50"));
+        ((string[])result.Details!["scopes"]).Should().Contain(AtlassianSiteScopes.JiraIssue).And.Contain(AtlassianSiteScopes.JiraComment);
+    }
+
+    [Fact]
+    public async Task Test_JiraNoIssueInAnyProject_WarnsIssuesAndCommentsUnchecked()
+    {
+        _jira.MapSiteTest();
+        _api.MapJson(_jira.Root + "/project/search", new { values = new[] { new { id = "10000", key = "ENG" }, new { id = "10001", key = "OPS" } }, total = 2, isLast = true });
+        _api.Map(_jira.Root + "/search/jql", request =>
+        {
+            _jira.Searches.Add($"{request.Method} {Uri.UnescapeDataString(request.RequestUri!.Query)}");
+            return FakeAtlassianApi.Json(new { issues = Array.Empty<object>() });
+        });
+
+        var result = await _tester.TestConnectionAsync(_jiraRequest);
+
+        result.Success.Should().BeFalse();
+        result.Details!["warning"].Should().Be(true);
+        result.Message.Should().Be(JiraSiteProbe.NoIssuesMessage);
+        result.Details.Should().NotContainKey("scopes", "read:issue:jira and read:comment:jira were not confirmed");
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NothingToCheckYet);
+        result.Details["step"].Should().Be(AtlassianConnectionTester.JiraContentStep);
+        _jira.Searches.Should().HaveCount(2).And.OnlyContain(s => s.StartsWith("GET ", StringComparison.Ordinal));
+        _jira.PermissionChecks.Should().NotBeEmpty("the rest of the test still runs");
+        _api.Calls.Should().NotContainKey(_jira.Root + "/issue/bulkfetch");
+    }
+
     [Theory]
     [InlineData("/search/jql", "read:issue-details:jira")]
     [InlineData("/issue/bulkfetch", "read:issue:jira")]

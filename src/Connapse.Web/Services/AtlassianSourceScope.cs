@@ -21,6 +21,9 @@ public abstract class AtlassianSourceScope
 
     public enum Outcome { Valid, Invalid, Duplicate, Unavailable }
 
+    public const string EmptyScopeError =
+        "\"scopeJson\" is empty. Leave it out to keep the source's scope, or send a JSON object with the settings to change.";
+
     /// <summary>The checked scope and default name, or what is wrong and with which field.</summary>
     public sealed record Result(Outcome Outcome, string? ScopeJson = null, string? DefaultName = null, string? Error = null, string? Field = null)
     {
@@ -190,6 +193,9 @@ public abstract class AtlassianSourceScope
     /// </summary>
     private protected static Result Update(string currentScopeJson, string? newScopeJson, string idField, ScopeTexts texts)
     {
+        // The store writes an empty scope as {}, which would drop the source's kind and id.
+        if (string.IsNullOrWhiteSpace(newScopeJson))
+            return Result.Fail(Outcome.Invalid, "scopeJson", EmptyScopeError);
         if (Read(newScopeJson, idField, texts.IdError) is not { } parsed)
             return Result.Fail(Outcome.Invalid, "scopeJson", "The scope must be a JSON object.");
         if (parsed.Error is not null)

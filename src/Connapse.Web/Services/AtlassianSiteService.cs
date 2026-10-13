@@ -337,7 +337,8 @@ public sealed class AtlassianSiteService(
         {
             return (AtlassianSpacesOutcome.Unavailable, null, ex.Message, AtlassianSyncErrors.TroubleshootingUrl(ex.Message));
         }
-        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException
+            or AtlassianMalformedResponseException)
         {
             // A refusal is the service account's access; anything else says nothing about it.
             bool refused = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound };
