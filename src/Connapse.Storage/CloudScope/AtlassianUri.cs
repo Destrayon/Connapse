@@ -107,7 +107,7 @@ public static partial class AtlassianUri
     /// <summary>
     /// Reads a Jira document's address. Rejects shapes no document has: an issue carrying a marker or
     /// restriction, a comment with neither (only restricted comments are separate documents), and a
-    /// role name that is blank once unescaped.
+    /// role name that is blank once unescaped or not escaped in canonical form.
     /// </summary>
     public static bool TryParseJira(string? uri, out JiraResource resource)
     {
@@ -128,8 +128,11 @@ public static partial class AtlassianUri
         }
         else if (match.Groups["role"].Success)
         {
-            string name = Uri.UnescapeDataString(match.Groups["role"].Value);
-            if (string.IsNullOrWhiteSpace(name))
+            // Only the exact form ForJiraChild writes: a stray or malformed escape, a lowercase
+            // one, or an escaped character that needs none would let two URIs name one role.
+            string segment = match.Groups["role"].Value;
+            string name = Uri.UnescapeDataString(segment);
+            if (string.IsNullOrWhiteSpace(name) || !string.Equals(Uri.EscapeDataString(name), segment, StringComparison.Ordinal))
                 return false;
             restriction = new JiraRestriction(JiraRestrictionType.Role, name, match.Groups["project"].Value);
         }

@@ -183,6 +183,30 @@ public sealed class AtlassianUriTests
         AtlassianUri.TryParseJira("atlassian://" + Cloud + suffix, out _).Should().BeFalse();
 
     [Theory]
+    [InlineData("%GG")]
+    [InlineData("%")]
+    [InlineData("%2")]
+    [InlineData("%FF")]
+    [InlineData("Dev%")]
+    [InlineData("QA%2fOps%20Team")]
+    [InlineData("D%c3%a9veloppeurs")]
+    [InlineData("Dev%65lopers")]
+    [InlineData("%C3")]
+    public void JiraUri_NonCanonicalRoleEscape_Rejected(string role) =>
+        AtlassianUri.TryParseJira($"atlassian://{Cloud}/jira/issue/1/comment/2/role/10200/{role}", out _).Should().BeFalse();
+
+    [Theory]
+    [InlineData("QA/Ops Team", "QA%2FOps%20Team")]
+    [InlineData("Développeurs", "D%C3%A9veloppeurs")]
+    public void JiraUri_CanonicalRoleEscape_Accepted(string name, string segment)
+    {
+        JiraResource resource = Parse($"atlassian://{Cloud}/jira/issue/1/comment/2/role/10200/{segment}");
+
+        resource.Restriction.Should().Be(new JiraRestriction(JiraRestrictionType.Role, name, "10200"));
+        AtlassianUri.ForJiraComment(Cloud, "1", "2", false, resource.Restriction).Should().EndWith("/role/10200/" + segment);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("s3://bucket/x")]
