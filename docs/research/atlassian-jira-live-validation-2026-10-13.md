@@ -12,6 +12,9 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 | — | Does **Jira Administration → App admin** on a service account grant Administer Jira? | **Yes**, without adding the account to `jira-admins-<site>` | The **Checking Jira access permissions** step passed (`permissions/check` for another account). On Jira's **Global permissions** page, `jira-admins-connapseos` had no members, so that page can't show the grant. |
 | — | Can a service account be added to a group and to space roles through the REST API? | **Yes** | The seed script's `POST /rest/api/3/group/user` and `POST /rest/api/3/project/ENG/role/{id}` calls for the service account succeeded with no manual step. |
 | — | Do restricted comments reach a linked member end to end? | **Yes**, for the owner's account | Searching as the site owner found each answer as result #1: the group-restricted comment (COBALT-41), the Developers comment (JUNIPER-88), the QA/Ops Team comment (SIGNOFF-ZEBRA-3, after the bulkfetch fix below), and the PDF tied to the group comment. The QA/Ops Team result shows that a role name containing `/` round-trips through the URI and the live role check. |
+| — | Are restricted comments hidden from a linked user outside the group and roles? | **Yes** | As a second linked Connapse user with access to ENG but in neither role nor the group, the four restricted answers (COBALT-41, JUNIPER-88, SIGNOFF-ZEBRA-3, the PDF) did not appear; ordinary ENG issues did. SIGNOFF-ZEBRA-3, result #1 for the owner, vanished for this user. |
+| — | Does an unlinked user see nothing from Jira? | **Yes** | The owner unlinked the second user's Atlassian account and searched; nothing from ENG appeared. |
+| — | Is an attachment tied to its restricted comment through the rendered body's link? | **Yes**, for a content-URL link | The group comment's `renderedBody` linked `/rest/api/3/attachment/content/10000`. The PDF took the group restriction: found by the owner, hidden from the second user. Embedded media nodes are still unverified. |
 
 ## Found and fixed while setting up
 
@@ -25,7 +28,6 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 
 ## Still open
 
-- **Searches as a second linked user outside the group and roles, and as an unlinked user.** The restricted answers must not appear for either, and nothing from ENG for the unlinked user.
 
 2. What a role restriction's `visibility.identifier` holds, and how team-managed space roles resolve.
 3. Whether a comment's author sees their own restricted comment.
@@ -34,6 +36,6 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 6. Whether `SERVICEDESK_AGENT` denies a portal customer.
 7. The rate-limit headers on Jira client-credentials traffic.
 - From the Phase 8 review: whether the 1,000-issue cap counts per request or per permission entry, and whether a site without Service Management rejects the `SERVICEDESK_AGENT` key.
-- From the Phase 9 review: the real `renderedBody` form of an attachment link inside a restricted comment.
+- From the Phase 9 review: the `renderedBody` form of an attachment *embedded* in a restricted comment (a linked one is confirmed above).
 
 Items 2–5 need the seed script's restricted comments in a company-managed space (ENG).
