@@ -372,9 +372,14 @@ public class SourceSyncService(
         }
         else
         {
+            // Counted before the upserts claim their rows, as a full listing's guard counts what was
+            // indexed: this cycle's additions must not dilute its deletions.
+            int indexedBefore = delta.DeletedPaths.Count == 0
+                ? 0
+                : await context.Documents.CountAsync(d => d.SourceId == source.Id, ct);
             (upserted, inFlight) = await EnqueueAllAsync(source, supported, context, sp, ct);
             (deleted, withheld) = await DeleteDeltaPathsAsync(
-                source, delta.DeletedPaths, sourceStore, context, sp, applyWithheldDeletions, ct);
+                source, delta.DeletedPaths, indexedBefore, sourceStore, context, sp, applyWithheldDeletions, ct);
 
             // As for a full listing: the cursor stays, so the deletions come back to be approved.
             // A connector whose store moved past that cursor answers the next cycle in full.
@@ -846,13 +851,13 @@ public class SourceSyncService(
 
     /// <summary>
     /// Applies a delta's deletions under the same guard as a full listing's vanished set, counted
-    /// against the source's indexed documents: a connector that misread its remote must not be
+    /// against <paramref name="indexed"/>, the source's documents before this cycle's upserts: a connector that misread its remote must not be
     /// able to empty the source a delta at a time either. Withheld, the count is recorded for an
     /// administrator to approve, and an approval applies a set no larger than the one shown.
     /// Nothing to delete leaves a pending approval as it is.
     /// </summary>
     private async Task<(int Deleted, int Withheld)> DeleteDeltaPathsAsync(
-        Source source, IReadOnlyList<string> paths, ISourceStore sourceStore, KnowledgeDbContext context,
+        Source source, IReadOnlyList<string> paths, int indexed, ISourceStore sourceStore, KnowledgeDbContext context,
         IServiceProvider sp, bool applyWithheldDeletions, CancellationToken ct)
     {
         if (paths.Count == 0) return (0, 0);
@@ -860,7 +865,6 @@ public class SourceSyncService(
         int present = (await LoadByPathsAsync(context, source.Id, paths, ct)).Count;
         if (present == 0) return (0, 0);
 
-        int indexed = await context.Documents.CountAsync(d => d.SourceId == source.Id, ct);
         int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
         bool withhold = approved is null
             ? DeletionGuard.ShouldWithhold(present, indexed)

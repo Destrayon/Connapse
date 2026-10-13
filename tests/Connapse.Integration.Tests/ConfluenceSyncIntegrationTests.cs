@@ -448,6 +448,44 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
             .Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
     }
 
+    /// <summary>
+    /// Pages added in the same cycle do not dilute the guard: an incremental delta withholds the
+    /// deletions a reconcile of the same change would, both counted against the documents indexed
+    /// before the cycle.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MixedCycle_AdditionsDoNotDiluteTheDeletionGuard(bool incremental)
+    {
+        _attachments.ReconcileInterval = incremental ? TimeSpan.FromDays(7) : TimeSpan.Zero;
+        SeedSpace();
+        for (int i = 1; i <= 12; i++)
+        {
+            _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+                (500 + i).ToString(), "101", $"file{i}.txt", System.Text.Encoding.UTF8.GetBytes("attached text"),
+                new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero)));
+        }
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        // Twelve of fifteen documents go, while 150 new pages arrive: 12 of 165 would pass the guard.
+        for (int i = 1; i <= 12; i++)
+            _api.Confluence.RemoveAttachment((500 + i).ToString());
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        for (int i = 1; i <= 150; i++)
+            _api.Confluence.Upsert(new FakeConfluencePage((1000 + i).ToString(), SpaceId, $"New {i}", VersionAt: _clock.GetUtcNow().AddMinutes(-1)));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.WithheldDeletions.Should().Be(12, "12 of the 15 documents indexed before the cycle is over the guard");
+        second.Deleted.Should().Be(0);
+        queue.Jobs.Should().HaveCount(150, "the additions still apply");
+    }
+
     [Fact]
     public async Task SecondSync_Unchanged_EnqueuesNothing()
     {
