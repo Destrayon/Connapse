@@ -159,12 +159,16 @@ public sealed partial class ConfluenceSpaceConnector(
             // and when the space's name or the source's attachment settings changed, which change
             // documents no change query names. A reconcile that was deferred or failed, or whose
             // deletions were withheld, left the cursor as it was, so the next cycle runs it again.
+            // A cursor that is not the one the last delta carried means that delta was never taken
+            // up, while the store already moved past it: only a full listing reports again what it held.
             listingKey = ListingKey(state.SpaceName);
             reconcile = fresh
                 || previous!.Watermark is null
                 || previous.LastReconcileAt is not { } reconciled
                 || started - reconciled >= ReconcileInterval
-                || previous.ListingKey != listingKey;
+                || previous.ListingKey != listingKey
+                || previous.CycleId is null
+                || previous.CycleId != state.LastCycleId;
 
             if (reconcile)
             {
@@ -229,6 +233,11 @@ public sealed partial class ConfluenceSpaceConnector(
 
         // The documents as the last cycle left them, which an incremental cycle's delta is the difference from.
         var before = reconcile ? null : Documents(out _);
+        // Before anything else is written: a crash partway, or a delta the engine never takes up,
+        // leaves the store marked ahead of every cursor but the one this cycle returns.
+        string cycleId = Guid.NewGuid().ToString("N");
+        _store.MarkCycle(cycleId);
+        state.LastCycleId = cycleId;
         Save(listed, stored, state);
         state.Watermark = started;
         _store.SaveState(state);
@@ -241,7 +250,7 @@ public sealed partial class ConfluenceSpaceConnector(
             : null;
         string? notice = string.Join(" ", new[] { skippedNote, stopped }.Where(n => n is not null));
 
-        string next = new ConfluenceCursor(started, reconcile ? started : previous!.LastReconcileAt, listingKey).Serialize();
+        string next = new ConfluenceCursor(started, reconcile ? started : previous!.LastReconcileAt, listingKey, cycleId).Serialize();
         if (before is null)
         {
             return new SyncDelta(
@@ -1190,7 +1199,9 @@ public sealed partial class ConfluenceSpaceConnector(
     /// <summary>The cursor: when the last complete listing started, which the next change query counts back from.</summary>
     /// <param name="LastReconcileAt">When the last full listing ran; a cursor without one reconciles next.</param>
     /// <param name="ListingKey">What that listing's documents depended on beyond their pages; a change reconciles next.</param>
-    private sealed record ConfluenceCursor(DateTimeOffset? Watermark, DateTimeOffset? LastReconcileAt = null, string? ListingKey = null)
+    /// <param name="CycleId">The cycle whose delta carried this cursor; one the store did not last emit reconciles next.</param>
+    private sealed record ConfluenceCursor(
+        DateTimeOffset? Watermark, DateTimeOffset? LastReconcileAt = null, string? ListingKey = null, string? CycleId = null)
     {
         public string Serialize() => JsonSerializer.Serialize(this, Json);
 

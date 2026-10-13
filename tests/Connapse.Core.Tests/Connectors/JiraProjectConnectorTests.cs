@@ -635,6 +635,58 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_IncrementalDeltaNotTakenUp_RetryWithTheOldCursorReconciles()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Was secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        DateTimeOffset edited = _clock.GetUtcNow().AddMinutes(-1);
+        issue.Comments[0] = issue.Comments[0] with { Updated = edited, Visibility = null };
+        issue.Updated = edited;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+        second.IsFullListing.Should().BeFalse();
+        second.DeletedPaths.Should().Equal(CommentPath("20001", "1"));
+
+        // The engine never applied that delta, and retries with the cursor it had.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var retry = await _connector.GetChangesAsync(first.NextCursor);
+
+        retry.IsFullListing.Should().BeTrue("the store is ahead of the cursor it was given, so only a full listing is safe");
+        retry.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+        Size(retry, "/issues/20001.md").Should().Be(Size(second, "/issues/20001.md"));
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        (await _connector.GetChangesAsync(retry.NextCursor)).IsFullListing.Should().BeFalse("the retry's delta was taken up");
+    }
+
+    [Fact]
+    public async Task Sync_RichTextFieldAddedWithinTheCacheHour_IssueReSignedWhenTheListRefreshes()
+    {
+        var connector = Connector(reconcileInterval: TimeSpan.FromHours(3));
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        var first = await connector.GetChangesAsync(null);
+
+        // Created and filled in while the cached field list does not know it yet.
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        _jira.AddField("customfield_10050", "Root cause", textarea: true);
+        issue.Fields["customfield_10050"] = FakeJira.Adf("Expired certificate");
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        var second = await connector.GetChangesAsync(first.NextCursor);
+        Doc(second, "/issues/20001.md").Should().NotBeNull();
+        (await ReadAsync("/issues/20001.md")).Should().NotContain("Expired certificate");
+
+        // The list refreshes; the issue does not change again.
+        _clock.Advance(TimeSpan.FromMinutes(50));
+        var third = await connector.GetChangesAsync(second.NextCursor);
+
+        third.IsFullListing.Should().BeTrue("a changed field list changes how every issue renders");
+        Size(third, "/issues/20001.md").Should().NotBe(Size(second, "/issues/20001.md"), "the issue must be ingested again");
+        (await ReadAsync("/issues/20001.md")).Should().Contain("Root cause").And.Contain("Expired certificate");
+    }
+
+    [Fact]
     public async Task Sync_SweepInIncrementalCycle_UpsertsSweptIssues()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");

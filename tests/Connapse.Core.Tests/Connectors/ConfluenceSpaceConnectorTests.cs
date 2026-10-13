@@ -179,6 +179,35 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task GetChanges_IncrementalDeltaNotTakenUp_RetryReconcilesWithTheCorrectedUri()
+    {
+        var connector = NewConnector(reconcileInterval: TimeSpan.FromDays(7));
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Restricted"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "notes.txt"));
+        var first = await connector.GetChangesAsync(null);
+
+        // Moved to page 2 with no change hit: only the sweep sees it.
+        _api.Confluence.AddAttachment(Attachment("501", "2", "notes.txt"));
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var swept = await connector.GetChangesAsync(first.NextCursor);
+        swept.IsFullListing.Should().BeFalse();
+        swept.Upserted.Single(f => f.Path == "/attachments/501/notes.txt").ResourceUri
+            .Should().Be(AtlassianUri.ForAttachment(CloudId, "2", "501"));
+
+        // The engine never applied that delta, and retries with the cursor it had.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var retry = await connector.GetChangesAsync(first.NextCursor);
+
+        retry.IsFullListing.Should().BeTrue("the store is ahead of the cursor it was given, so only a full listing is safe");
+        retry.Upserted.Single(f => f.Path == "/attachments/501/notes.txt").ResourceUri
+            .Should().Be(AtlassianUri.ForAttachment(CloudId, "2", "501"), "the correction must not be lost");
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        (await connector.GetChangesAsync(retry.NextCursor)).IsFullListing.Should().BeFalse("the retry's delta was taken up");
+    }
+
+    [Fact]
     public async Task GetChanges_DeletedAndMovedOutPages_RemovedOnlyAtTheReconcile()
     {
         _api.Confluence.AddSpace("4002", "OPS", "Operations");

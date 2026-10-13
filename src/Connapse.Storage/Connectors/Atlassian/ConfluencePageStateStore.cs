@@ -58,6 +58,9 @@ internal sealed class ConfluenceSyncState
 
     /// <summary>Which page each stored attachment belongs to, so a read can find it from its path.</summary>
     public Dictionary<string, string> AttachmentPages { get; set; } = [];
+
+    /// <summary>The cycle id of the last delta returned; written before that cycle changes anything else.</summary>
+    public string? LastCycleId { get; set; }
 }
 
 /// <summary>
@@ -112,6 +115,14 @@ internal sealed class ConfluencePageStateStore(string root)
     }
 
     public void SaveState(ConfluenceSyncState state) => WriteAtomically(StatePath, state);
+
+    /// <summary>Records <paramref name="cycleId"/> as the last emitted cycle, leaving the rest of the stored state as it is.</summary>
+    public void MarkCycle(string cycleId)
+    {
+        var state = LoadState();
+        state.LastCycleId = cycleId;
+        SaveState(state);
+    }
 
     /// <summary>Confluence content ids are digits; anything else never reaches a file name.</summary>
     public static bool IsContentId(string? id) =>

@@ -157,13 +157,20 @@ public sealed partial class JiraProjectConnector(
             // and when the project's name or the source's attachment settings changed, which change
             // documents of issues no change query returns. A reconcile that was deferred or failed,
             // or whose deletions were withheld, left the cursor as it was, so the next cycle runs it again.
+            // A cursor that is not the one the last delta carried means that delta was never taken
+            // up, while the store already moved past it: only a full listing reports again what it held.
             listingKey = ListingKey(state);
             reconcile = everything
                 || previous!.LastReconcileAt is not { } reconciled
                 || now - reconciled >= ReconcileInterval
-                || previous.ListingKey != listingKey;
+                || previous.ListingKey != listingKey
+                || previous.CycleId is null
+                || previous.CycleId != state.LastCycleId;
+            string fieldsBefore = FieldsFingerprint(state);
             if (reconcile || state.FieldsReadAt is not { } fieldsRead || now - fieldsRead >= FieldListTtl)
                 await ReadFieldsAsync(state, now, ct);
+            // The fields an issue renders are in its signature, so a changed list re-signs every issue.
+            reconcile |= FieldsFingerprint(state) != fieldsBefore;
 
             HashSet<string> changed;
             if (reconcile)
@@ -231,6 +238,11 @@ public sealed partial class JiraProjectConnector(
             KeepTiesHidden(last, issue, history);
             issue.Tombstones = Tombstones(last, issue, takenUpMs, startedMs);
         }
+        // Before anything else is written: a crash partway, or a delta the engine never takes up,
+        // leaves the store marked ahead of every cursor but the one this cycle returns.
+        string cycleId = Guid.NewGuid().ToString("N");
+        _store.MarkCycle(cycleId);
+        state.LastCycleId = cycleId;
         _store.SaveAttachmentHistory(history);
         foreach (var issue in fetched.Values)
             _store.Save(issue);
@@ -263,7 +275,7 @@ public sealed partial class JiraProjectConnector(
             : sweepDone
                 ? new JiraCursor(startedMs, sweepStartedAt)
                 : new JiraCursor(startedMs, previous?.LastCommentSweepAt, sweepStartedAt, sweptThrough);
-        next = next with { LastReconcileAt = lastReconcileAt, ListingKey = listingKey };
+        next = next with { LastReconcileAt = lastReconcileAt, ListingKey = listingKey, CycleId = cycleId };
 
         if (reconcile)
         {
@@ -323,6 +335,13 @@ public sealed partial class JiraProjectConnector(
         var match = IssueIdPattern().Match(path);
         return match.Success ? match.Groups["id"].Value : null;
     }
+
+    /// <summary>The rich-text fields an issue document renders, ids and names in id order; empty when there are none.</summary>
+    private static string FieldsFingerprint(JiraSyncState state) =>
+        string.Join('\u001e', state.RichTextFieldIds
+            .Where(IsFieldId)
+            .Order(StringComparer.Ordinal)
+            .Select(id => id + "=" + state.FieldNames.GetValueOrDefault(id, id)));
 
     /// <summary>A short hash of what every document's listing depends on beyond its own issue.</summary>
     private string ListingKey(JiraSyncState state)
@@ -1234,7 +1253,7 @@ public sealed partial class JiraProjectConnector(
         return new ConnectorFile(
             Path: PathFor(issue.Id),
             // Not a size: the change signature the sync engine compares, with the time below.
-            SizeBytes: Signature(issue, projectName),
+            SizeBytes: Signature(issue, projectName, FieldsFingerprint(state)),
             LastModified: issue.Updated.UtcDateTime,
             ContentType: "text/markdown",
             ResourceUri: AtlassianUri.ForJiraIssue(config.Site.CloudId, issue.Id),
@@ -1295,12 +1314,17 @@ public sealed partial class JiraProjectConnector(
     /// 42 bits of milliseconds last until 2109, so the value stays positive. The hash catches what
     /// changes the document without moving the issue's own updated time: a renamed project, a
     /// re-keyed issue, or a comment edited or restricted.
+    /// <paramref name="fieldsFingerprint"/> covers the rich-text fields the document renders, so a
+    /// field the cached list learns of later re-ingests the issue; empty adds nothing, which keeps
+    /// the signatures of a site without such fields as they were.
     /// </summary>
-    internal static long Signature(JiraStoredIssue issue, string projectName)
+    internal static long Signature(JiraStoredIssue issue, string projectName, string fieldsFingerprint = "")
     {
         var parts = new List<string> { issue.Key, projectName };
         foreach (var comment in issue.Comments.Where(c => c.IsPublic).OrderBy(c => c.Id, StringComparer.Ordinal))
             parts.Add($"{comment.Id}@{comment.Updated.ToUnixTimeMilliseconds()}");
+        if (fieldsFingerprint.Length > 0)
+            parts.Add(fieldsFingerprint);
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001f', parts)));
         long ms = Math.Clamp(issue.Updated.ToUnixTimeMilliseconds(), 0, (1L << 42) - 1);
@@ -1485,9 +1509,10 @@ public sealed partial class JiraProjectConnector(
 /// </summary>
 /// <param name="LastReconcileAt">When the last full listing ran; a cursor without one reconciles next.</param>
 /// <param name="ListingKey">What that listing's documents depended on beyond their issues; a change reconciles next.</param>
+/// <param name="CycleId">The cycle whose delta carried this cursor; one the store did not last emit reconciles next.</param>
 internal sealed record JiraCursor(
     long? WatermarkMs, DateTimeOffset? LastCommentSweepAt, DateTimeOffset? SweepStartedAt = null, string? SweptThrough = null,
-    DateTimeOffset? LastReconcileAt = null, string? ListingKey = null)
+    DateTimeOffset? LastReconcileAt = null, string? ListingKey = null, string? CycleId = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

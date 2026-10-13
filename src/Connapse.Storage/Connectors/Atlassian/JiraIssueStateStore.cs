@@ -120,6 +120,9 @@ internal sealed class JiraSyncState
     public List<string> RichTextFieldIds { get; set; } = [];        // from GET /field, refreshed hourly and on each reconcile
     public Dictionary<string, string> FieldNames { get; set; } = [];
     public DateTimeOffset? FieldsReadAt { get; set; }                // when GET /field was last read
+
+    /// <summary>The cycle id of the last delta returned; written before that cycle changes anything else.</summary>
+    public string? LastCycleId { get; set; }
 }
 
 /// <summary>
@@ -173,6 +176,14 @@ internal sealed class JiraIssueStateStore(string root)
     }
 
     public void SaveState(JiraSyncState state) => WriteAtomically(StatePath, state);
+
+    /// <summary>Records <paramref name="cycleId"/> as the last emitted cycle, leaving the rest of the stored state as it is.</summary>
+    public void MarkCycle(string cycleId)
+    {
+        var state = LoadState();
+        state.LastCycleId = cycleId;
+        SaveState(state);
+    }
 
     /// <summary>The history format this code writes. A file of an older one, or none, is seeded again from the issue records.</summary>
     public const int AttachmentHistoryVersion = 1;
