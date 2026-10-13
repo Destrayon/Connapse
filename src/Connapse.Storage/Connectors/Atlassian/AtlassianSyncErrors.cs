@@ -30,6 +30,10 @@ public static class AtlassianSyncErrors
         "Confluence on this site didn't answer properly, so nothing changed this cycle. Connapse tries again on the "
         + "next sync. If it keeps failing, check that this server can reach api.atlassian.com over HTTPS.";
 
+    public const string JiraUnavailable =
+        "Jira on this site didn't answer properly, so nothing changed this cycle. Connapse tries again on the "
+        + "next sync. If it keeps failing, check that this server can reach api.atlassian.com over HTTPS.";
+
     /// <summary>
     /// True only when Atlassian's token endpoint refused the client ID or secret. A redirect or a
     /// token answer without a token also fails at the token step, but says nothing about the
@@ -54,6 +58,19 @@ public static class AtlassianSyncErrors
               + "hidden from search until then.";
     }
 
+    /// <summary>A Jira project that answered 403 (access taken away) or 404 (deleted, or no longer visible).</summary>
+    public static string JiraProjectUnreadable(string projectKey, int status)
+    {
+        string key = LogSanitizer.Sanitize(projectKey);
+        return status == 404
+            ? $"Jira project {key} can no longer be read: it was deleted, or the service account can no longer see it. "
+              + "If the project still exists, give the service account the Browse projects permission in it, then sync "
+              + "again; if it was deleted, delete this source. Its documents are hidden from search until then."
+            : $"Jira project {key} can no longer be read: the service account lost access to it. Give the service "
+              + "account the Browse projects permission in the project, then sync again. Its documents are hidden "
+              + "from search until then.";
+    }
+
     /// <summary>
     /// The troubleshooting entry for a recorded sync error or notice. An error this class did not
     /// write gets the guide's Troubleshooting section as a whole.
@@ -68,7 +85,7 @@ public static class AtlassianSyncErrors
         if (message.StartsWith(FreshTokenRefused, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.CantReadConfluence;
         if (message.StartsWith(TokenRedirected, StringComparison.Ordinal) || message.StartsWith(NoAccessToken, StringComparison.Ordinal)
-            || message.StartsWith(Unavailable, StringComparison.Ordinal))
+            || message.StartsWith(Unavailable, StringComparison.Ordinal) || message.StartsWith(JiraUnavailable, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.Unreachable;
         if (message.Contains(ConfluenceSpaceConnector.AttachmentScopeNotice, StringComparison.Ordinal))
             return AtlassianSiteTroubleshooting.MissingScope;

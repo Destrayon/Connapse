@@ -117,7 +117,11 @@ internal static partial class JiraRecordRenderer
             md.Append("- ").Line(string.Join(" · ", present));
     }
 
-    /// <summary>Each issue link as <c>{type.outward|inward} {key} {summary}</c>, by which side the other issue is on.</summary>
+    /// <summary>
+    /// Each issue link as <c>{type.outward|inward} {key}</c>, by which side the other issue is on.
+    /// Never the other issue's summary: it can be in another project or under a security level this
+    /// issue's readers lack, and its text would be indexed under this issue's address.
+    /// </summary>
     private static IEnumerable<string> Links(JsonElement fields)
     {
         if (Prop(fields, "issuelinks") is not { ValueKind: JsonValueKind.Array } links)
@@ -134,10 +138,8 @@ internal static partial class JiraRecordRenderer
         }
     }
 
-    private static string? IssueRef(JsonElement issue) =>
-        Str(issue, "key") is { } key
-            ? $"{key} {Str(Prop(issue, "fields") ?? default, "summary")}".TrimEnd()
-            : null;
+    /// <summary>The other issue's key only; see <see cref="Links"/> for why its summary is left out.</summary>
+    private static string? IssueRef(JsonElement issue) => Str(issue, "key");
 
     private static string? Name(JsonElement fields, string field) => Str(Prop(fields, field) ?? default, "name");
 
