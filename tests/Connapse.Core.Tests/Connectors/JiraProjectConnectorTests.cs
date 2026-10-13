@@ -818,6 +818,36 @@ public sealed class JiraProjectConnectorTests : IDisposable
             .Should().ThrowAsync<FileNotFoundException>();
     }
 
+    [Fact]
+    public async Task Read_RestrictedCommentIssueMovedToOtherProject_FileNotFound()
+    {
+        // The role name is the same in both projects, so the comment's own route still matches.
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Role secret", T0,
+            Visibility: new { type = "role", value = "Developers", identifier = "Developers" }));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.ProjectId = "10001";
+
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "3")))
+            .Should().ThrowAsync<FileNotFoundException>();
+    }
+
+    [Fact]
+    public async Task Read_RestrictedCommentIssueProjectUnknown_FailsWithoutContent()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        _api.Map(_jira.Root + "/issue/20001", _ => FakeAtlassianApi.Json(new { id = "20001", fields = new { } }));
+        var unknown = await FluentActions.Awaiting(() => _connector.ReadFileAsync(CommentPath("20001", "2")))
+            .Should().ThrowAsync<IOException>();
+        unknown.Which.Should().NotBeOfType<FileNotFoundException>("an unknown project is retried, not taken as gone");
+    }
+
     // ── Attachments ────────────────────────────────────────────────────────
 
     private static readonly DateTimeOffset AttachedAt = new(2026, 9, 30, 8, 0, 0, TimeSpan.Zero);

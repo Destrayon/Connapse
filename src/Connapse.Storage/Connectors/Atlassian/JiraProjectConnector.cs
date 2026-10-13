@@ -214,15 +214,7 @@ public sealed partial class JiraProjectConnector(
         }
 
         // Moved out between the listing and this read: not this source's to index any more.
-        string? projectId = issue.TryGetProperty("fields", out var f) && f.ValueKind == JsonValueKind.Object
-            && f.TryGetProperty("project", out var p) && p.ValueKind == JsonValueKind.Object
-            && p.TryGetProperty("id", out var pid) && pid.ValueKind == JsonValueKind.String
-                ? pid.GetString()
-                : null;
-        if (projectId is null)
-            throw new IOException($"Jira issue {stored.Id} came back without its project; it will be retried.");
-        if (projectId != config.ProjectId)
-            throw new FileNotFoundException($"Jira issue {stored.Id} is no longer in this project.");
+        EnsureInProject(stored.Id, issue);
 
         var comments = new List<JiraComment>();
         await foreach (var comment in CommentsAsync(stored.Id, ct))
@@ -260,10 +252,41 @@ public sealed partial class JiraProjectConnector(
         if (!live.Separate || live != Route(stored, config.ProjectId))
             throw new FileNotFoundException($"Jira comment {stored.Id} on issue {issue.Id} has changed visibility since it was listed.");
 
+        // A role restriction names a role of this project: an issue moved since the listing keeps
+        // its comment's role name, but under the other project's role it is a different rule.
+        JsonElement parent;
+        try
+        {
+            parent = await api.GetJsonAsync<JsonElement>($"rest/api/3/issue/{issue.Id}?fields=project", ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            throw new FileNotFoundException($"Jira issue {issue.Id} no longer exists.", ex);
+        }
+        EnsureInProject(issue.Id, parent);
+
         var state = _store.LoadState();
         string projectName = string.IsNullOrWhiteSpace(state.ProjectName) ? config.ProjectKey : state.ProjectName;
         string markdown = JiraRecordRenderer.RenderComment(projectName, issue.Key, issue.Summary, ToRendered(comment));
         return new MemoryStream(Encoding.UTF8.GetBytes(markdown));
+    }
+
+    /// <summary>
+    /// Throws unless the issue read is in this source's project: not found when it is in another,
+    /// and a retryable failure when its project cannot be read, so nothing is indexed on a guess.
+    /// </summary>
+    private void EnsureInProject(string issueId, JsonElement issue)
+    {
+        string? projectId = issue.ValueKind == JsonValueKind.Object
+            && issue.TryGetProperty("fields", out var f) && f.ValueKind == JsonValueKind.Object
+            && f.TryGetProperty("project", out var p) && p.ValueKind == JsonValueKind.Object
+            && p.TryGetProperty("id", out var pid) && pid.ValueKind == JsonValueKind.String
+                ? pid.GetString()
+                : null;
+        if (projectId is null)
+            throw new IOException($"Jira issue {issueId} came back without its project; it will be retried.");
+        if (projectId != config.ProjectId)
+            throw new FileNotFoundException($"Jira issue {issueId} is no longer in this project.");
     }
 
     /// <summary>
