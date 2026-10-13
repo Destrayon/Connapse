@@ -550,6 +550,58 @@ public sealed class AtlassianApiClientTests : IDisposable
     }
 
     [Fact]
+    public async Task PageByOffset_PageStartsElsewhere_Throws()
+    {
+        // Asked for startAt=2, answered from 0: the page is not the one asked for.
+        _api.Map(JiraRoot + "/rest/api/3/issue/K-1/comment", _ =>
+            FakeAtlassianApi.Json(new { startAt = 0, maxResults = 2, total = 4, comments = new[] { new { id = "c1" }, new { id = "c2" } } }));
+
+        var ids = new List<string>();
+        Func<Task> act = async () =>
+        {
+            await foreach (string id in NewJiraClient().PageByOffsetAsync(
+                "rest/api/3/issue/K-1/comment", "comments", e => e.GetProperty("id").GetString(), 2, default))
+                ids.Add(id);
+        };
+
+        await act.Should().ThrowAsync<AtlassianMalformedResponseException>();
+        ids.Should().Equal("c1", "c2");
+    }
+
+    [Theory]
+    [InlineData("""{"startAt":0,"total":3}""")]
+    [InlineData("""{"startAt":0,"total":3,"comments":null}""")]
+    [InlineData("""{"startAt":0,"total":3,"comments":{"id":"c1"}}""")]
+    [InlineData("""[]""")]
+    public async Task PageByOffset_ArrayMissingOrNotArray_Throws(string body)
+    {
+        _api.Map(JiraRoot + "/rest/api/3/issue/K-1/comment", _ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") });
+
+        Func<Task> act = async () =>
+        {
+            await foreach (string _ in NewJiraClient().PageByOffsetAsync(
+                "rest/api/3/issue/K-1/comment", "comments", e => e.GetProperty("id").GetString(), 2, default)) { }
+        };
+
+        await act.Should().ThrowAsync<AtlassianMalformedResponseException>();
+    }
+
+    [Fact]
+    public async Task PageByOffset_EmptyArray_EndsWithoutError()
+    {
+        _api.Map(JiraRoot + "/rest/api/3/issue/K-1/comment", _ =>
+            FakeAtlassianApi.Json(new { startAt = 0, maxResults = 2, total = 0, comments = Array.Empty<object>() }));
+
+        var ids = new List<string>();
+        await foreach (string id in NewJiraClient().PageByOffsetAsync(
+            "rest/api/3/issue/K-1/comment", "comments", e => e.GetProperty("id").GetString(), 2, default))
+            ids.Add(id);
+
+        ids.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task PageByOffset_NonPositivePageSize_Throws()
     {
         Func<Task> act = async () =>
