@@ -897,6 +897,8 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
 
         result.Success.Should().BeFalse();
         result.Message.Should().Contain("rate limiting");
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.IdentityStep);
+        result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
     }
 
     [Theory]
