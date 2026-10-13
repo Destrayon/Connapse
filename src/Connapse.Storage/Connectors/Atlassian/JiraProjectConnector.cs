@@ -865,13 +865,16 @@ public sealed partial class JiraProjectConnector(
         if (item?.Fields?.Updated is not { } updated)
             return;
 
-        // An entry without an attachment id is a malformed answer, not one attachment fewer: left
-        // out, the file would read as deleted. An answer without the field says nothing about the
+        // An entry without an attachment id, a file name, a size or a creation time is a malformed
+        // answer, not one attachment fewer: left out, or listed changed, the file would read as
+        // deleted or replaced. An answer without the field says nothing about the
         // attachments, so the files last recorded stand, and the tie pass below decides them afresh.
-        if (item.Fields.Attachment?.Any(a => a is null || !JiraIssueStateStore.IsId(a.Id)) == true)
-            throw new AtlassianMalformedResponseException($"Jira returned an attachment of issue {item.Id} without a valid id.");
+        if (item.Fields.Attachment?.Any(a => a is null || !JiraIssueStateStore.IsId(a.Id)
+                || string.IsNullOrWhiteSpace(a.Filename) || a.Size is null || a.Created is null) == true)
+            throw new AtlassianMalformedResponseException(
+                $"Jira returned an attachment of issue {item.Id} without a valid id, file name, size and creation time.");
         var attachments = item.Fields.Attachment is { } answered
-            ? answered.Where(a => !string.IsNullOrWhiteSpace(a.Filename))
+            ? answered
                 .Select(a => new JiraStoredAttachment
                 {
                     Id = a.Id!,
@@ -907,8 +910,9 @@ public sealed partial class JiraProjectConnector(
         {
             await foreach (var comment in CommentsAsync(issue.Id, ct))
             {
-                if (!JiraIssueStateStore.IsId(comment.Id))
-                    throw new AtlassianMalformedResponseException($"Jira returned a comment of issue {issue.Id} without a valid id.");
+                // Its time is its document's signature, and the issue's.
+                if (!JiraIssueStateStore.IsId(comment.Id) || (comment.Updated ?? comment.Created) is null)
+                    throw new AtlassianMalformedResponseException($"Jira returned a comment of issue {issue.Id} without a valid id and time.");
                 issue.Comments.Add(ToStored(comment));
             }
         }

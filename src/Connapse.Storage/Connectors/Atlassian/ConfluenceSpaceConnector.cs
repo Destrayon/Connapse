@@ -332,8 +332,8 @@ public sealed partial class ConfluenceSpaceConnector(
                 continue;
             }
 
-            if (page.Id != id || page.Version is not { Number: > 0 })
-                throw new AtlassianMalformedResponseException($"Confluence returned {kind} {id} without a valid id and version.");
+            if (page.Id != id || page.Title is null || page.Version is not { Number: > 0, CreatedAt: not null })
+                throw new AtlassianMalformedResponseException($"Confluence returned {kind} {id} without a valid id, title and version.");
             if ((page.Status is { } status && status != "current") || (page.SpaceId is { } spaceId && spaceId != config.SpaceId))
                 continue;
 
@@ -508,8 +508,9 @@ public sealed partial class ConfluenceSpaceConnector(
                 }
             }
 
-            if (item is null || !ConfluencePageStateStore.IsContentId(item.Id) || item.Version is not { Number: > 0 })
-                throw new AtlassianMalformedResponseException("Confluence returned a listing entry without a valid id and version.");
+            if (item is null || !ConfluencePageStateStore.IsContentId(item.Id) || item.Title is null
+                || item.Version is not { Number: > 0, CreatedAt: not null })
+                throw new AtlassianMalformedResponseException("Confluence returned a listing entry without a valid id, title and version.");
 
             items.Add(item);
         }
@@ -860,9 +861,7 @@ public sealed partial class ConfluenceSpaceConnector(
         await foreach (var item in api.PageAsync($"api/v2/{endpoint}/{page.Id}/attachments?limit=250", ReadAttachments, ct))
         {
             // Confluence ids attachments "att" plus digits; the digits are what addresses carry.
-            string? id = AttachmentId(item.Id);
-            if (id is null || string.IsNullOrWhiteSpace(item.Title))
-                continue;
+            string id = AttachmentId(item.Id)!;
 
             attachments.Add(new ConfluenceStoredAttachment
             {
@@ -882,12 +881,16 @@ public sealed partial class ConfluenceSpaceConnector(
     /// One page of a page's attachment list. A page without its results array, or an entry that is
     /// not an object with an attachment id, throws: read as the end of the list, or skipped, it would
     /// replace the stored list with part of it, and the missing attachments would read as deleted.
+    /// So does an entry without a title, a size or a version, every one of which its document
+    /// depends on: a size of zero is a size, and is skipped as unindexable later.
     /// </summary>
     private static List<AttachmentResponse> ReadAttachments(JsonElement root) =>
         [.. ResultsArray(root, "attachment list").EnumerateArray().Select(e =>
-            (e.ValueKind == JsonValueKind.Object ? e.Deserialize<AttachmentResponse>(Json) : null) is { } item && AttachmentId(item.Id) is not null
+            (e.ValueKind == JsonValueKind.Object ? e.Deserialize<AttachmentResponse>(Json) : null) is { } item
+            && AttachmentId(item.Id) is not null && !string.IsNullOrWhiteSpace(item.Title) && item.FileSize is not null
+            && item.Version is { Number: > 0, CreatedAt: not null }
                 ? item
-                : throw new AtlassianMalformedResponseException("Confluence returned an attachment list entry without a valid id."))];
+                : throw new AtlassianMalformedResponseException("Confluence returned an attachment list entry without a valid id, title, size and version."))];
 
     // ── Documents ──────────────────────────────────────────────────────────
 

@@ -220,11 +220,19 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         """{"results":["att501"]}""",
         """{"results":[{"title":"no id.txt"}]}""",
         """{"results":[{"id":"501x","title":"bad id.txt"}]}""",
+        // A valid id with a field missing that the document depends on.
+        """{"results":[{"id":"att501","fileSize":13,"version":{"number":1,"createdAt":"2026-09-15T00:00:00Z"}}]}""",
+        """{"results":[{"id":"att501","title":"  ","fileSize":13,"version":{"number":1,"createdAt":"2026-09-15T00:00:00Z"}}]}""",
+        """{"results":[{"id":"att501","title":"a.txt","version":{"number":1,"createdAt":"2026-09-15T00:00:00Z"}}]}""",
+        """{"results":[{"id":"att501","title":"a.txt","fileSize":null,"version":{"number":1,"createdAt":"2026-09-15T00:00:00Z"}}]}""",
+        """{"results":[{"id":"att501","title":"a.txt","fileSize":13}]}""",
+        """{"results":[{"id":"att501","title":"a.txt","fileSize":13,"version":{"number":0,"createdAt":"2026-09-15T00:00:00Z"}}]}""",
+        """{"results":[{"id":"att501","title":"a.txt","fileSize":13,"version":{"number":1}}]}""",
     ];
 
-    private async Task<(ConfluenceSpaceConnector Connector, string Cursor)> TwoAttachmentsSweepDueAsync()
+    private async Task<(ConfluenceSpaceConnector Connector, string Cursor)> TwoAttachmentsSweepDueAsync(bool reconcile = false)
     {
-        var connector = NewConnector(reconcileInterval: TimeSpan.FromDays(7));
+        var connector = NewConnector(reconcileInterval: reconcile ? TimeSpan.Zero : TimeSpan.FromDays(7));
         _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
         _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
         _api.Confluence.AddAttachment(Attachment("502", "1", "b.txt"));
@@ -233,7 +241,7 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         return (connector, cursor);
     }
 
-    private async Task NoDeletionAfterTheMalformedListAsync(ConfluenceSpaceConnector connector, string cursor)
+    private async Task NoDeletionAfterTheMalformedListAsync(ConfluenceSpaceConnector connector, string cursor, bool reconcile = false)
     {
         string[] both = ["/attachments/501/a.txt", "/attachments/502/b.txt", "/pages/1.md"];
         string record = await File.ReadAllTextAsync(Path.Combine(_root, "pages", "1.json"));
@@ -247,10 +255,49 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         _api.Intercept = null;
         _clock.Advance(TimeSpan.FromMinutes(5));
         var next = await connector.GetChangesAsync(cursor);
-        next.IsFullListing.Should().BeFalse();
+        next.IsFullListing.Should().Be(reconcile);
         next.DeletedPaths.Should().BeEmpty();
         _api.Confluence.AttachmentListings["1"].Should().BeGreaterThan(1);
         (await connector.ListFilesAsync()).Select(f => f.Path).Should().BeEquivalentTo(both);
+    }
+
+    [Theory]
+    [MemberData(nameof(MalformedResultPages))]
+    public async Task GetChanges_MalformedAttachmentListFirstPageReconcile_NothingDroppedAndTheListKept(string body)
+    {
+        var (connector, cursor) = await TwoAttachmentsSweepDueAsync(reconcile: true);
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/pages/1/attachments", StringComparison.Ordinal) ? Raw(body) : null;
+
+        await NoDeletionAfterTheMalformedListAsync(connector, cursor, reconcile: true);
+    }
+
+    [Theory]
+    [MemberData(nameof(MalformedResultPages))]
+    public async Task GetChanges_MalformedAttachmentListContinuationReconcile_NothingDroppedAndTheListKept(string body)
+    {
+        _api.Confluence.MaxPageSize = 1;
+        var (connector, cursor) = await TwoAttachmentsSweepDueAsync(reconcile: true);
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/pages/1/attachments", StringComparison.Ordinal)
+            && uri.Query.Contains("cursor=", StringComparison.Ordinal) ? Raw(body) : null;
+
+        await NoDeletionAfterTheMalformedListAsync(connector, cursor, reconcile: true);
+    }
+
+    [Theory]
+    [InlineData("""{"results":[{"id":"7","version":{"number":2,"createdAt":"2026-10-01T12:00:00Z"}}]}""")]
+    [InlineData("""{"results":[{"id":"7","title":null,"version":{"number":2,"createdAt":"2026-10-01T12:00:00Z"}}]}""")]
+    [InlineData("""{"results":[{"id":"7","title":"Seven","version":{"number":2}}]}""")]
+    public async Task GetChanges_PageListingEntryMissingAField_UnavailableAndTheStoreKept(string body)
+    {
+        var connector = NewConnector(reconcileInterval: TimeSpan.Zero);
+        _api.Confluence.Upsert(new FakeConfluencePage("7", SpaceId, "Seven"));
+        string cursor = (await connector.GetChangesAsync(null)).NextCursor!;
+        string record = await File.ReadAllTextAsync(Path.Combine(_root, "pages", "7.json"));
+
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal) ? Raw(body) : null;
+        await FluentActions.Awaiting(() => connector.GetChangesAsync(cursor)).Should().ThrowAsync<AtlassianUnavailableException>();
+
+        (await File.ReadAllTextAsync(Path.Combine(_root, "pages", "7.json"))).Should().Be(record);
     }
 
     [Theory]
@@ -1054,19 +1101,30 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
     }
 
     [Fact]
-    public async Task GetChanges_AttachmentListedWithoutASize_IsSkippedAndCounted()
+    public async Task GetChanges_AttachmentListedWithASizeOfZero_IsSkippedAndCounted()
     {
         _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
-        _api.Confluence.AddAttachment(Attachment("501", "1", "unsized.txt") with { OmitSize = true });
         _api.Confluence.AddAttachment(Attachment("502", "1", "zero.txt") with { DeclaredSize = 0 });
 
         var delta = await _connector.GetChangesAsync(null);
 
         delta.Upserted.Select(f => f.Path).Should().Equal("/pages/1.md");
         delta.Notice.Should().Be(
-            "2 attachments were skipped: larger than 25 MB, or a file type Connapse can't read. "
+            "1 attachment was skipped: larger than 25 MB, or a file type Connapse can't read. "
             + "To include larger files, raise Max attachment size on the source.");
-        (await _connector.ExistsAsync("/attachments/501/unsized.txt")).Should().BeFalse();
+        (await _connector.ExistsAsync("/attachments/502/zero.txt")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentListedWithoutASize_IsAMalformedAnswer()
+    {
+        // Without a size the entry cannot be told from one that lost its fields, and dropping it
+        // would delete a document already indexed for it.
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "unsized.txt") with { OmitSize = true });
+
+        (await FluentActions.Awaiting(() => _connector.GetChangesAsync(null)).Should().ThrowAsync<AtlassianUnavailableException>())
+            .WithInnerException<AtlassianMalformedResponseException>();
     }
 
     [Fact]

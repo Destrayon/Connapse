@@ -736,6 +736,61 @@ public sealed class JiraProjectConnectorTests : IDisposable
         (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Contain(AttachmentPath("20001", "30001", "notes.txt"));
     }
 
+    public static TheoryData<string, bool> IncompleteAttachmentEntries => new()
+    {
+        { """{"id":"30001","mimeType":"text/plain","size":13,"created":"2026-09-30T08:00:00.000+0000"}""", false },
+        { """{"id":"30001","filename":" ","size":13,"created":"2026-09-30T08:00:00.000+0000"}""", false },
+        { """{"id":"30001","filename":"notes.txt","created":"2026-09-30T08:00:00.000+0000"}""", false },
+        { """{"id":"30001","filename":"notes.txt","size":null,"created":"2026-09-30T08:00:00.000+0000"}""", false },
+        { """{"id":"30001","filename":"notes.txt","size":13}""", false },
+        { """{"id":"30001","mimeType":"text/plain","size":13,"created":"2026-09-30T08:00:00.000+0000"}""", true },
+        { """{"id":"30001","filename":"notes.txt","created":"2026-09-30T08:00:00.000+0000"}""", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(IncompleteAttachmentEntries))]
+    public async Task Sync_BulkFetchAttachmentEntryMissingAField_UnavailableAndNothingDeleted(string entry, bool reconcile)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        var first = await _connector.GetChangesAsync(null);
+        string record = await File.ReadAllTextAsync(Path.Combine(_root, "issues", "20001.json"));
+
+        _clock.Advance(reconcile ? JiraProjectConfig.DefaultReconcileInterval : TimeSpan.FromMinutes(10));
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        string body = $$$"""
+            {"issues":[{"id":"20001","key":"ENG-1","fields":{"summary":"Login fails","updated":"{{{FakeJira.Time(issue.Updated)}}}","attachment":[{{{entry}}}]}}],"issueErrors":[]}
+            """;
+        _api.Map(_jira.Root + "/issue/bulkfetch", _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        (await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor)).Should().ThrowAsync<AtlassianUnavailableException>())
+            .WithInnerException<AtlassianMalformedResponseException>();
+        (await File.ReadAllTextAsync(Path.Combine(_root, "issues", "20001.json"))).Should().Be(record, "the stored record is kept");
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Contain(AttachmentPath("20001", "30001", "notes.txt"));
+    }
+
+    [Theory]
+    [InlineData("""{"comments":[{"id":"2","visibility":{"type":"group","identifier":"6e87dc72-4f1f-421f-9382-2fee8b652487"}}],"startAt":0,"maxResults":100,"total":1}""")]
+    public async Task Sync_CommentEntryWithoutItsTimes_UnavailableAndNothingDeleted(string body)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/issue/20001/comment", StringComparison.Ordinal)
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") }
+            : null;
+
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor)).Should().ThrowAsync<AtlassianUnavailableException>();
+        (await _connector.ListFilesAsync()).Single(f => f.Path == CommentPath("20001", "2")).SizeBytes
+            .Should().Be(T0.ToUnixTimeMilliseconds(), "the comment keeps its signature");
+    }
+
     [Fact]
     public async Task Sync_BulkFetchWithoutTheAttachmentFieldIncremental_AttachmentsKeptNotDeleted()
     {

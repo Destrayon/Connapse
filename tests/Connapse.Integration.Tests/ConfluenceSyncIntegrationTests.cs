@@ -401,6 +401,53 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         (await sources.GetAsync(source.Id))!.SyncCursor.Should().Contain("lastReconcileAt");
     }
 
+    /// <summary>
+    /// The deletion guard covers an incremental delta too: one that would delete more than it
+    /// allows is withheld with the cursor kept, and an approval applies it at the reconcile the
+    /// kept cursor brings.
+    /// </summary>
+    [Fact]
+    public async Task IncrementalCycle_DeletingMoreThanTheGuardAllows_IsWithheldUntilApproved()
+    {
+        _attachments.ReconcileInterval = TimeSpan.FromDays(7);
+        SeedSpace();
+        for (int i = 1; i <= 12; i++)
+        {
+            _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+                (500 + i).ToString(), "101", $"file{i}.txt", System.Text.Encoding.UTF8.GetBytes("attached text"),
+                new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero)));
+        }
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(15);
+
+        // Every attachment answered gone by the sweep: twelve deletions in one incremental delta.
+        for (int i = 1; i <= 12; i++)
+            _api.Confluence.RemoveAttachment((500 + i).ToString());
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.WithheldDeletions.Should().Be(12);
+        second.Deleted.Should().Be(0);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(15);
+        var held = (await sources.GetAsync(source.Id))!;
+        held.SyncCursor.Should().Be(synced.SyncCursor, "a withheld delta is not taken up");
+        held.WithheldDeletions.Should().Be(12);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var approved = await service.SyncSourceAsync(held, connection, CancellationToken.None, applyWithheldDeletions: true);
+
+        approved.Error.Should().BeNull();
+        approved.Deleted.Should().Be(12);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+    }
+
     [Fact]
     public async Task SecondSync_Unchanged_EnqueuesNothing()
     {
