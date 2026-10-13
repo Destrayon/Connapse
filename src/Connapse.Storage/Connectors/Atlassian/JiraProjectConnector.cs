@@ -761,6 +761,7 @@ public sealed partial class JiraProjectConnector(
     /// any comment does, an attachment keeps its tie only if every such comment has the tie's
     /// restriction; every other attachment becomes deny-all. If such a comment is deny-all, or its
     /// restriction changed since the page read, every attachment of the issue becomes deny-all.
+    /// A restricted comment whose rendered read finds it gone counts as such a comment too.
     /// </summary>
     private async Task TieAttachmentsAsync(JiraStoredIssue issue, CancellationToken ct)
     {
@@ -784,7 +785,10 @@ public sealed partial class JiraProjectConnector(
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
             {
-                // Deleted since the page read: it no longer hides anything.
+                // Gone since the page read: deleted, or hidden from the service account. What it
+                // linked is unknown, so it may have shown any of the issue's files.
+                untieableCommentIds.Add(comment.Id);
+                untieableUnsettled = true;
                 continue;
             }
 

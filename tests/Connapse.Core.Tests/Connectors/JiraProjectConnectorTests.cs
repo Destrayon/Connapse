@@ -1710,8 +1710,11 @@ public sealed class JiraProjectConnectorTests : IDisposable
     [Fact]
     public async Task Sync_RenderedReadNotFound_AnotherCommentStillTies()
     {
+        // Comment 2 vanished between the page read and its rendered read: what it linked is unknown,
+        // so the surviving tie to group A must not govern the file alone.
         var issue = Issue("20001", "ENG-1", "Login fails");
         _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        _jira.Attach(issue, Attachment("30002", "other.txt"));
         issue.Comments.Add(new FakeJiraComment("2", "Bob", "Deleted", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001")));
         issue.Comments.Add(new FakeJiraComment("3", "Cy", "Kept", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
         _jira.ServeComments(issue);
@@ -1719,8 +1722,39 @@ public sealed class JiraProjectConnectorTests : IDisposable
 
         var delta = await _connector.GetChangesAsync(null);
 
-        Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri.Should().Be(
-            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "3"));
+        Doc(delta, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+        Doc(delta, AttachmentPath("20001", "30002", "other.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, JiraRestriction.DenyAll));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Sync_RenderedReadNotFoundNoHistory_EveryAttachmentStickyDenyAll(bool internalNote)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "linked.txt"));
+        _jira.Attach(issue, Attachment("30002", "unlinked.txt"));
+        var vanishing = internalNote
+            ? new FakeJiraComment("2", "Di", "Internal", T0, JsdPublic: false, RenderedBody: LinkTo("30001"))
+            : new FakeJiraComment("2", "Bob", "Secret", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(vanishing);
+        _jira.ServeComments(issue);
+        _jira.Answer("/issue/20001/comment/2", System.Net.HttpStatusCode.NotFound);
+
+        var first = await _connector.GetChangesAsync(null);
+
+        foreach (var (id, name) in new[] { ("30001", "linked.txt"), ("30002", "unlinked.txt") })
+            Doc(first, AttachmentPath("20001", id, name))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", id, internalNote, JiraRestriction.DenyAll));
+
+        // Readable again next cycle: the deny-all is for good.
+        _jira.ServeComments(issue);
+        var second = await _connector.GetChangesAsync(null);
+        foreach (var (id, name) in new[] { ("30001", "linked.txt"), ("30002", "unlinked.txt") })
+            Doc(second, AttachmentPath("20001", id, name))!.ResourceUri
+                .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", id, internalNote, JiraRestriction.DenyAll));
     }
 
     [Fact]
