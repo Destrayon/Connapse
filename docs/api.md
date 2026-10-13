@@ -1389,7 +1389,7 @@ Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connect
 | `sourceCount` | How many sources use the site |
 | `syncPaused` | `true` when the site has sources and every one is disabled |
 | `health` | The last check, or `null` before one: `{ checkedAt, succeeded, warning, step, stepLabel, message, origin, credentialRejected, lastSucceededAt, confirmedScopes }`. `origin` is `test` or `sync`; `credentialRejected: true` is what the page shows as **Needs new credentials** |
-| `scopes` | Single site only: `[{ name, reason, optional, product }]`, every scope the credential needs and why. `product` is `confluence` or `jira` |
+| `scopes` | Single site only: `[{ name, reason, optional, product }]`, every scope the connection's credential needs and why: its own product's only. `product` is `confluence` or `jira` |
 
 #### Atlassian test report
 

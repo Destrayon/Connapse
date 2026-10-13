@@ -181,6 +181,13 @@ public class ConnectionsPageLifecycleTests
     }
 
     [Fact]
+    public void ProviderList_IsLockedWhileAnAtlassianCheckRuns()
+    {
+        Markup.Should().Contain("@bind=\"form.ProviderChoice\" disabled=\"@(!isNew || atlassianChecking)\"")
+            .And.Contain("CheckingChanged=\"@((bool checking) => atlassianChecking = checking)\"");
+    }
+
+    [Fact]
     public void AtlassianRows_NameTheProductBesideTheHost()
     {
         Markup.Should().Contain("AtlassianSiteStatus.Label(connection, form.AtlassianSiteHost ?? \"—\")");

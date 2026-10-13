@@ -244,13 +244,13 @@ out follows the same default.
 ## 5. Jira sources
 
 Jira sources go on the site's Jira connection (step 3), once its last **Test connection** passed. On
-**Sources → New source**, choose that connection, listed as **Jira · acme.atlassian.net (Jira)**: the
+**Sources → New source**, choose that connection, listed as **Jira · acme.atlassian.net**: the
 dialog goes straight to its projects. A Confluence connection is never offered projects, and a Jira
 connection never spaces.
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name>`. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't browse: give it the **Browse projects** permission in that project |
+| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name> (Jira)`, so a Confluence space of the same name on the site keeps its own name. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't browse: give it the **Browse projects** permission in that project |
 | Include attachments | On if the site's last test confirmed `read:attachment:jira`, otherwise Off | Indexes files attached to issues, when Connapse can read their file type. Needs the optional `read:attachment:jira` scope (step 2.5) |
 | Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
 

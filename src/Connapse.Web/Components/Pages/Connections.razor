@@ -582,7 +582,7 @@
 
         <div class="col-12" style="max-width:32rem">
             <label class="form-label" for="connection-provider">Provider</label>
-            <select id="connection-provider" class="form-select" @bind="form.ProviderChoice" disabled="@(!isNew)">
+            <select id="connection-provider" class="form-select" @bind="form.ProviderChoice" disabled="@(!isNew || atlassianChecking)">
                 <option value="@ConnectionProvider.S3">Amazon S3</option>
                 <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
@@ -985,6 +985,7 @@
             <AtlassianConnectionForm Existing="@(isNew ? null : editing)" Product="@form.AtlassianProduct" OnCreated="AtlassianSiteCreatedAsync"
                                      OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit"
                                      ReplacingChanged="@((bool open) => atlassianReplacing = open)"
+                                     CheckingChanged="@((bool checking) => atlassianChecking = checking)"
                                      StartReplacing="@atlassianStartReplacing" />
         }
         else
@@ -1487,6 +1488,9 @@
 
     /// <summary>Whether an Atlassian site's Replace credentials section is open, which then holds the primary action.</summary>
     private bool atlassianReplacing;
+
+    /// <summary>Whether a new Atlassian site's Check and save is running, which locks the provider list.</summary>
+    private bool atlassianChecking;
     private string? statusMessage;
     private bool statusSuccess;
     private string? testMessage;

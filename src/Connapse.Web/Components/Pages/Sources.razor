@@ -854,9 +854,13 @@
         _ => provider.ToString(),
     };
 
-    /// <summary>A connection in the picker: an Atlassian site by its product, as <c>Jira · acme.atlassian.net</c>; others by their provider.</summary>
+    /// <summary>
+    /// A connection in the picker: an Atlassian site by its product and host, as <c>Jira · acme.atlassian.net</c>,
+    /// so the product is named once; others by name and provider.
+    /// </summary>
     private static string ConnectionLabel(Connection connection) => connection.Provider == ConnectionProvider.Atlassian
-        ? AtlassianSiteStatus.Label(connection, connection.Name)
+        ? AtlassianSiteStatus.Label(connection,
+            AtlassianSite.FromConfigJson(connection.ConfigJson) is { } site ? new Uri(site.SiteUrl).Host : connection.Name)
         : $"{connection.Name} ({ProviderName(connection.Provider)})";
 
     /// <summary>Lists what the chosen GitHub connection's installation covers, for the repository suggestions.</summary>
@@ -1228,6 +1232,20 @@
             return;
         }
 
+        // Checked against the connection as stored now, not the copy the dialog opened with.
+        try
+        {
+            connection = await ConnectionStore.GetAsync(connection.Id) ?? connection;
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit.
+            Logger.LogWarning(ex, "Could not read Atlassian connection {ConnectionId} again before adding sources", connection.Id);
+            selection.ItemsError = selection.CouldNotCheckMessage;
+            await CreateFailed("unavailable");
+            return;
+        }
+
         var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
         if (site is null)
         {
@@ -1443,8 +1461,6 @@
 
         if (connection.Provider == ConnectionProvider.Atlassian)
         {
-            // Checked against the connection as stored now, not the copy the dialog opened with.
-            connection = await ConnectionStore.GetAsync(connection.Id) ?? connection;
             if (jiraForm is not null)
                 await CreateAtlassianSourcesAsync<JiraProjectInfo, JiraProjectSelection>(connection, jiraForm);
             else

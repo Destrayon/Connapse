@@ -168,6 +168,21 @@ public class AtlassianConnectionFormTests : IDisposable
     }
 
     [Fact]
+    public async Task CheckAndSave_ReportsWhileTheCheckRuns_SoThePageCanLockTheProduct()
+    {
+        stub.Hold();
+        var reported = new List<bool>();
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.CheckingChanged, (bool checking) => reported.Add(checking)));
+
+        FillAndSave(cut);
+        await stub.Waiting.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        reported.Should().Equal([true], "the check is running");
+
+        stub.Release();
+        cut.WaitForAssertion(() => reported.Should().Equal(true, false));
+    }
+
+    [Fact]
     public void CopyResult_ShowsBesideTheCopyButtons()
     {
         ctx.JSInterop.Setup<bool>("connapse.copyToClipboard", _ => true).SetResult(true);

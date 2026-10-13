@@ -223,9 +223,23 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         body.GetProperty("siteUrl").GetString().Should().Be("https://detail.atlassian.net");
         body.GetProperty("health").GetProperty("succeeded").GetBoolean().Should().BeTrue();
         body.GetProperty("health").GetProperty("lastSucceededAt").ValueKind.Should().Be(JsonValueKind.String);
-        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("product").GetString())
-            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.All.Select(s => s.Product));
-        body.GetProperty("scopes").EnumerateArray().Count(s => s.GetProperty("product").GetString() == "confluence").Should().Be(7);
+        body.GetProperty("product").GetString().Should().Be("confluence");
+        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("name").GetString())
+            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.Confluence.Select(s => s.Name),
+                "a Confluence connection's credential needs Confluence scopes only");
+    }
+
+    [Fact]
+    public async Task Get_JiraConnection_ListsOnlyTheJiraScopes()
+    {
+        Guid id = await CreateSiteAsync("detail-jira.atlassian.net", product: "jira");
+
+        var body = await (await _fixture.AdminClient.GetAsync($"{Sites}/{id}")).Content.ReadFromJsonAsync<JsonElement>();
+
+        body.GetProperty("product").GetString().Should().Be("jira");
+        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("name").GetString())
+            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.Jira.Select(s => s.Name));
+        body.GetProperty("scopes").EnumerateArray().Should().OnlyContain(s => s.GetProperty("product").GetString() == "jira");
     }
 
     [Fact]

@@ -41,11 +41,11 @@ public class JiraProjectFormTests : IDisposable
     private static string Detail(string details, string name) => JsonDocument.Parse(details).RootElement.GetProperty(name).ToString();
 
     /// <summary>A site's connection for one product; <c>null</c> writes no product, as a connection saved before Jira did.</summary>
-    private static Connection Site(string name, string? product) => new(
+    private static Connection Site(string name, string? product, string host = "acme.atlassian.net") => new(
         Guid.NewGuid(), name, ConnectionProvider.Atlassian,
         product is null
-            ? $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}"""
-            : $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"{{product}}"}""",
+            ? $$"""{"siteUrl":"https://{{host}}","cloudId":"{{CloudId}}","clientId":"client-1"}"""
+            : $$"""{"siteUrl":"https://{{host}}","cloudId":"{{CloudId}}","clientId":"client-1","product":"{{product}}"}""",
         null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true,
         Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
             ConfirmedScopes: [AtlassianSiteScopes.JiraAttachment]));
@@ -55,7 +55,7 @@ public class JiraProjectFormTests : IDisposable
     private readonly Connection jira = Site("acme.atlassian.net (Jira)", "jira");
 
     /// <summary>A connection saved before connections named their product: a Confluence one.</summary>
-    private readonly Connection legacy = Site("legacy.atlassian.net", null);
+    private readonly Connection legacy = Site("legacy.atlassian.net", null, host: "legacy.atlassian.net");
 
     public JiraProjectFormTests()
     {
@@ -174,7 +174,7 @@ public class JiraProjectFormTests : IDisposable
 
         var options = cut.FindAll("#source-connection option").Select(o => o.TextContent.Trim()).ToList();
         options.Should().Contain("Confluence · acme.atlassian.net")
-            .And.Contain("Jira · acme.atlassian.net (Jira)")
+            .And.Contain("Jira · acme.atlassian.net", "the product is named once, then the site's host")
             .And.Contain("Confluence · legacy.atlassian.net", "a connection without a product is a Confluence one");
     }
 
@@ -206,15 +206,47 @@ public class JiraProjectFormTests : IDisposable
         cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
 
         cut.WaitForAssertion(() => created.Should().HaveCount(2));
-        created.Select(r => r.Name).Should().BeEquivalentTo("acme.atlassian.net / Engineering", "acme.atlassian.net / Operations");
+        created.Select(r => r.Name).Should().BeEquivalentTo("acme.atlassian.net / Engineering (Jira)", "acme.atlassian.net / Operations (Jira)");
         created.Should().OnlyContain(r => r.ConnectionId == jira.Id);
 
-        using var doc = JsonDocument.Parse(created.Single(r => r.Name.EndsWith("Engineering")).ScopeJson);
+        using var doc = JsonDocument.Parse(created.Single(r => r.Name.Contains("Engineering")).ScopeJson);
         doc.RootElement.GetProperty("kind").GetString().Should().Be("jira-project");
         doc.RootElement.GetProperty("projectId").GetString().Should().Be("10000");
         doc.RootElement.GetProperty("projectKey").GetString().Should().Be("ENG");
         doc.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeTrue();
         doc.RootElement.GetProperty("maxAttachmentMb").GetInt32().Should().Be(40);
+    }
+
+    [Fact]
+    public void SourceName_LongJiraProject_KeepsTheJiraSuffix_AndConfluenceNamesAreUnchanged()
+    {
+        string longName = new('x', 200);
+
+        Connapse.Web.Components.Sources.AtlassianSourceSelection.SourceName("acme.atlassian.net", longName,
+                Connapse.Web.Components.Sources.JiraProjectSelection.SourceNameSuffix)
+            .Should().HaveLength(128).And.EndWith("… (Jira)");
+        Connapse.Web.Components.Sources.AtlassianSourceSelection.SourceName("acme.atlassian.net", longName)
+            .Should().HaveLength(128).And.EndWith("x…");
+        Connapse.Web.Components.Sources.AtlassianSourceSelection.SourceName("acme.atlassian.net", "Wiki")
+            .Should().Be("acme.atlassian.net / Wiki");
+    }
+
+    [Fact]
+    public void Create_ConnectionCantBeReadAgain_SaysSoInTheDialog_AndCreatesNothing()
+    {
+        var cut = OpenDialog(jira);
+        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+        connections.GetAsync(jira.Id, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Connection?>(new InvalidOperationException("database down")));
+
+        cut.Find("#project-10000").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#jira-projects").TextContent.Should().Contain(
+            new Connapse.Web.Components.Sources.JiraProjectSelection().CouldNotCheckMessage));
+        cut.Markup.Should().NotContain("database down");
+        created.Should().BeEmpty();
+        Detail(SetupEvents().Single(e => e.Action == AtlassianSourceSetupEvents.StepFailed).Details, "Reason").Should().Be("unavailable");
     }
 
     [Fact]

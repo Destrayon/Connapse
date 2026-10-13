@@ -323,9 +323,11 @@ public static class AtlassianEndpoints
             if (connection is not { Provider: ConnectionProvider.Atlassian })
                 return Results.NotFound(new { error = "No such Atlassian site." });
 
-            return Results.Ok(SiteView(connection, await admin.IsPausedAsync(connectionId, ct)) with
+            // A connection's credential needs its own product's scopes only.
+            AtlassianSiteView view = SiteView(connection, await admin.IsPausedAsync(connectionId, ct));
+            return Results.Ok(view with
             {
-                Scopes = AtlassianSiteScopes.All.Select(s => new { name = s.Name, reason = s.Reason, optional = s.Optional, product = s.Product }),
+                Scopes = AtlassianSiteScopes.Of(view.Product).Select(s => new { name = s.Name, reason = s.Reason, optional = s.Optional, product = s.Product }),
             });
         }).RequireAuthorization("RequireAdmin");
 

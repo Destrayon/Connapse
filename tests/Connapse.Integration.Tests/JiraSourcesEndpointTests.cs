@@ -128,7 +128,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
 
         response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         var body = await BodyAsync(response);
-        body.GetProperty("name").GetString().Should().Be("jira-api-create.atlassian.net / Engineering");
+        body.GetProperty("name").GetString().Should().Be("jira-api-create.atlassian.net / Engineering (Jira)");
 
         using var scope = JsonDocument.Parse(await StoredScopeAsync(body.GetProperty("id").GetGuid()));
         scope.RootElement.GetProperty("kind").GetString().Should().Be("jira-project");
@@ -241,13 +241,17 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
 
         var space = await CreateSourceAsync(confluence, new { kind = "confluence-space", spaceId = "100" });
         space.StatusCode.Should().Be(HttpStatusCode.Created, await space.Content.ReadAsStringAsync());
-        // Operations, not Engineering: a space and a project of one name on one site would share a source name.
-        var project = await CreateSourceAsync(jira, new { kind = "jira-project", projectId = "10001" });
+        // The space and the project are both Engineering: the Jira source's name says Jira, so they don't collide.
+        var project = await CreateSourceAsync(jira, new { kind = "jira-project", projectId = "10000" });
         project.StatusCode.Should().Be(HttpStatusCode.Created, await project.Content.ReadAsStringAsync());
+        var spaceBody = await BodyAsync(space);
+        var projectBody = await BodyAsync(project);
+        spaceBody.GetProperty("name").GetString().Should().Be($"{host} / Engineering");
+        projectBody.GetProperty("name").GetString().Should().Be($"{host} / Engineering (Jira)");
 
-        using (var stored = JsonDocument.Parse(await StoredScopeAsync((await BodyAsync(space)).GetProperty("id").GetGuid())))
+        using (var stored = JsonDocument.Parse(await StoredScopeAsync(spaceBody.GetProperty("id").GetGuid())))
             stored.RootElement.GetProperty("kind").GetString().Should().Be("confluence-space");
-        using (var stored = JsonDocument.Parse(await StoredScopeAsync((await BodyAsync(project)).GetProperty("id").GetGuid())))
+        using (var stored = JsonDocument.Parse(await StoredScopeAsync(projectBody.GetProperty("id").GetGuid())))
             stored.RootElement.GetProperty("kind").GetString().Should().Be("jira-project");
         (await SourceCountAsync(confluence)).Should().Be(1);
         (await SourceCountAsync(jira)).Should().Be(1);

@@ -417,6 +417,12 @@
 
     [Parameter] public EventCallback OnCancel { get; set; }
 
+    /// <summary>
+    /// Raised when Check and save starts and when it ends, so the page can lock the product choice:
+    /// a switch mid-check would land one product's result or connection under the other's form.
+    /// </summary>
+    [Parameter] public EventCallback<bool> CheckingChanged { get; set; }
+
     /// <summary>Raised when the Replace credentials section opens or closes, so the page can keep one primary action.</summary>
     [Parameter] public EventCallback<bool> ReplacingChanged { get; set; }
 
@@ -639,6 +645,7 @@
         string submittedSecret = kept!.Value;
 
         busy = true;
+        await CheckingChanged.InvokeAsync(true);
         saveCts?.Dispose();
         saveCts = new CancellationTokenSource();
         CancellationToken ct = saveCts.Token;
@@ -677,6 +684,7 @@
         finally
         {
             busy = false;
+            await CheckingChanged.InvokeAsync(false);
         }
     }
 
@@ -833,8 +841,8 @@
         $"Enter the address as https://your-site.atlassian.net, the address in your browser when you open {AtlassianSiteScopes.DisplayName(ShownProduct)}.";
 
     /// <summary>
-    /// The scopes every site needs, space separated: all but the attachment permission, which is
-    /// asked for only when a source turns attachments on.
+    /// The scopes a Confluence site needs, space separated: all but the attachment permission, which
+    /// is asked for only when a source turns attachments on. The form copies its own product's list.
     /// </summary>
     public static string RequiredScopeList => string.Join(' ', AtlassianSiteScopes.Confluence.Where(s => !s.Optional).Select(s => s.Name));
 
