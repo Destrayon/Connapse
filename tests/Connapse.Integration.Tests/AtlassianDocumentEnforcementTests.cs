@@ -600,6 +600,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         jira.Role(Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "10007", "QA/Ops Team",
             Connapse.Core.Tests.Connectors.FakeJira.UserActor(AllowedAccount));
         jira.LiveComment("30001", "503", new { type = "role", value = "QA/Ops Team" });
+        jira.LiveIssueProject("30001", Connapse.Core.Tests.Connectors.FakeJira.ProjectId);
         return await SearchAsync(containerId, atlassianAccount);
     }
 

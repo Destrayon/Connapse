@@ -53,6 +53,8 @@ public sealed class JiraPermissionCheckerTests : IDisposable
     {
         foreach (var r in resources.Where(r => r.Kind == JiraResourceKind.Comment && !_jira.HasLiveComment(r.IssueId, r.ChildId!)))
             _jira.LiveComment(r.IssueId, r.ChildId!, VisibilityOf(r.Restriction), r.Internal ? false : null);
+        foreach (var r in resources.Where(r => r.Restriction is { Type: JiraRestrictionType.Role, ProjectId: not null } && !_jira.HasLiveIssue(r.IssueId)))
+            _jira.LiveIssueProject(r.IssueId, r.Restriction!.ProjectId!);
         return _checker.CanSeeAsync(CloudId, account, resources, Sites(), default);
     }
 
@@ -695,6 +697,99 @@ public sealed class JiraPermissionCheckerTests : IDisposable
         (await CheckAsync([.. resources])).Should().HaveCount(26).And.OnlyContain(allowed => allowed);
 
         CommentReads.Should().Be(25);
+    }
+
+    // ── Role-restricted comments: the issue must still be in the role's project ──────────
+
+    private void RoleMember()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Role(Project, "10002", "Developers", FakeJira.UserActor(Account));
+        _jira.LiveComment("10001", "501", new { type = "role", value = "Developers" });
+    }
+
+    private const string IssueKey = $"atl:jira:{CloudId}:issue-project:10001";
+
+    [Fact]
+    public async Task Check_RoleCommentIssueInSameProject_Allowed()
+    {
+        RoleMember();
+        _jira.LiveIssueProject("10001", Project);
+
+        (await CheckAsync(Comment("10001", restriction: Role("Developers"), id: "501"))).Should().Equal(true);
+
+        Calls("/issue/10001").Should().Be(1);
+        _api.Requests.Should().Contain(u => u.AbsolutePath.EndsWith("/issue/10001") && u.Query == "?fields=project");
+        _cache.TtlOf(IssueKey).Should().Be(JiraPermissionChecker.LiveCommentTtl);
+    }
+
+    [Fact]
+    public async Task Check_RoleCommentIssueMovedToOtherProject_Denied()
+    {
+        // Same role name in the new project, but a different rule: the URI's role is the old project's.
+        RoleMember();
+        _jira.LiveIssueProject("10001", "10099");
+
+        (await CheckAsync(Comment("10001", restriction: Role("Developers"), id: "501"))).Should().Equal(false);
+        _cache.TtlOf(IssueKey).Should().Be(JiraPermissionChecker.LiveCommentTtl, "Jira's answer was definite");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task Check_RoleCommentIssueReadFails_DeniedAndCachedBriefly(HttpStatusCode status)
+    {
+        RoleMember();
+        _jira.LiveIssueFails("10001", status);
+
+        (await CheckAsync(Issue("10001"), Comment("10001", restriction: Role("Developers"), id: "501"))).Should().Equal(true, false);
+        _cache.TtlOf(IssueKey).Should().Be(JiraPermissionChecker.FailureTtl);
+    }
+
+    [Theory]
+    [InlineData("""not json""")]
+    [InlineData("""{"id":"10001","fields":{}}""")]
+    [InlineData("""{"id":"10001","fields":{"project":{"id":10000}}}""")]
+    [InlineData("""{"id":"10001","fields":{"project":"10000"}}""")]
+    [InlineData("""[]""")]
+    public async Task Check_RoleCommentIssueAnswerUnreadable_Denied(string json)
+    {
+        RoleMember();
+        _jira.LiveIssueProject("10001", Project);
+        _api.Map(_jira.Root + "/issue/10001", _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        (await CheckAsync(Comment("10001", restriction: Role("Developers"), id: "501"))).Should().Equal(false);
+    }
+
+    [Fact]
+    public async Task Check_RoleCommentIssueProject_CachedOnRepeat()
+    {
+        RoleMember();
+        _jira.LiveComment("10001", "502", new { type = "role", value = "Developers" });
+        _jira.LiveIssueProject("10001", Project);
+
+        (await CheckAsync(Comment("10001", restriction: Role("Developers"), id: "501"),
+            Comment("10001", restriction: Role("Developers"), id: "502"))).Should().Equal(true, true);
+        (await CheckAsync(Comment("10001", restriction: Role("Developers"), id: "501"))).Should().Equal(true);
+
+        Calls("/issue/10001").Should().Be(1, "one read per issue, then the cache");
+    }
+
+    [Fact]
+    public async Task Check_GroupInternalAndIssueHits_NoIssueProjectRead()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.Agent(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA));
+
+        (await CheckAsync(Issue("10001"), Comment("10001", restriction: Group(GroupA)), Comment("10001", internalNote: true)))
+            .Should().Equal(true, true, true);
+
+        Calls("/issue/10001").Should().Be(0);
     }
 
     [Fact]

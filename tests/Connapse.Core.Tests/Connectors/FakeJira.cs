@@ -149,6 +149,25 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
         Answer($"/issue/{issueId}/comment/{commentId}", status);
     }
 
+    private readonly HashSet<string> _liveIssues = [];
+
+    /// <summary>Answers <c>GET issue/{issueId}?fields=project</c> with the project the issue is in now.</summary>
+    public void LiveIssueProject(string issueId, string projectId)
+    {
+        _liveIssues.Add(issueId);
+        api.MapJson(Root + $"/issue/{issueId}", new { id = issueId, fields = new { project = new { id = projectId, key = "P" + projectId } } });
+    }
+
+    /// <summary>Answers the issue's read with a bare status.</summary>
+    public void LiveIssueFails(string issueId, HttpStatusCode status)
+    {
+        _liveIssues.Add(issueId);
+        Answer($"/issue/{issueId}", status);
+    }
+
+    /// <summary>Whether <see cref="LiveIssueProject"/> or <see cref="LiveIssueFails"/> has mapped the issue.</summary>
+    public bool HasLiveIssue(string issueId) => _liveIssues.Contains(issueId);
+
     /// <summary>Whether <see cref="LiveComment"/> or <see cref="LiveCommentFails"/> has mapped the comment.</summary>
     public bool HasLiveComment(string issueId, string commentId) => _liveComments.Contains((issueId, commentId));
 

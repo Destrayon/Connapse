@@ -166,6 +166,7 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
    - A restricted comment's or internal note's URI carries the visibility it had at the last sync, so a restriction tightened in Jira would otherwise be enforced only after the next sync, or later when syncs are rate limited or failing.
    - So each comment hit that passed the checks above is read again as the service account, `GET /rest/api/3/issue/{issueId}/comment/{commentId}`, and routed by the connector's own rule. It is admitted only if Jira still gives it exactly the URI's internal flag and restriction.
    - A comment now public, restricted differently, deleted or unreadable (404, 403, any other non-200, an unparseable answer, a timeout) is denied. A public comment is shown through the issue document, which follows the next sync.
+   - A role-restricted comment also needs its issue to be in the role's project still: `GET /rest/api/3/issue/{issueId}?fields=project` must answer the URI's project id. An issue moved to another project is denied until the next sync, because the same role name there is a different rule.
    - Up to 10 reads run at once, within the search's budget.
 5. **Combine:**
    - Issue: browse.
@@ -184,6 +185,7 @@ Sync runs inside the existing 5-minute `SourceSyncService` loop. The connector r
 | Role name to id per project | `(jira, cloudId, projectId)` | 5 minutes |
 | Role actors | `(jira, cloudId, projectId, roleId)` | 5 minutes |
 | A comment's live visibility (not per user) | `(jira, cloudId, issueId, commentId)` | 1 minute |
+| An issue's live project (not per user) | `(jira, cloudId, issueId)` | 1 minute |
 | Any failure | — | 30 seconds, as deny |
 
 Every key includes the product. Confluence's existing key gains it too, so ids can't collide.

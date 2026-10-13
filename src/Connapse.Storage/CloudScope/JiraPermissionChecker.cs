@@ -139,9 +139,76 @@ public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermis
                 verdicts[i] = r.ChildId is { } commentId && live.TryGetValue((r.IssueId, commentId), out LiveComment? now)
                     && now is not null && Matches(now, r);
             }
+
+            // A role names a role of one project, and the URI's is the project the issue was in at
+            // the last sync. Moved since, the same role name in its new project is a different rule.
+            var roleComments = comments.Where(i => verdicts[i] && resources[i].Restriction is { Type: JiraRestrictionType.Role }).ToList();
+            if (roleComments.Count > 0)
+            {
+                var projects = await LiveProjectsAsync(cloudId, roleComments.Select(i => resources[i].IssueId), ClientAsync, ct);
+                foreach (int i in roleComments)
+                    verdicts[i] = projects.GetValueOrDefault(resources[i].IssueId) is { } projectId
+                        && projectId == resources[i].Restriction!.ProjectId;
+            }
         }
         return verdicts;
     }
+
+    // What the cache holds for an issue's live project: null denies.
+    private sealed record LiveProject(string? Id);
+
+    /// <summary>
+    /// Each issue's live project id, read as the service account with <c>?fields=project</c>, at
+    /// most <see cref="LiveReadParallelism"/> at a time. Null for one Jira gave no usable answer
+    /// about. Cached per issue, not per user, like a comment's live route.
+    /// </summary>
+    private async Task<Dictionary<string, string?>> LiveProjectsAsync(
+        string cloudId, IEnumerable<string> issueIds, Func<Task<AtlassianApiClient?>> clientAsync, CancellationToken ct)
+    {
+        var projects = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var uncached = new List<string>();
+        foreach (string issueId in issueIds.Distinct(StringComparer.Ordinal))
+        {
+            if (cache.TryGetValue(ProjectKey(cloudId, issueId), out LiveProject? known) && known is not null)
+                projects[issueId] = known.Id;
+            else
+                uncached.Add(issueId);
+        }
+        if (uncached.Count == 0)
+            return projects;
+
+        AtlassianApiClient? client = await clientAsync();
+        using var gate = new SemaphoreSlim(LiveReadParallelism);
+        var answers = await Task.WhenAll(uncached.Select(async issueId =>
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                LiveProject? project = await ReadAsync(cloudId, "issue project", () => Task.FromResult(client),
+                    $"rest/api/3/issue/{issueId}?fields=project", root =>
+                    {
+                        if (root.ValueKind != JsonValueKind.Object
+                            || !root.TryGetProperty("fields", out var fields) || fields.ValueKind != JsonValueKind.Object
+                            || !fields.TryGetProperty("project", out var project) || project.ValueKind != JsonValueKind.Object
+                            || !project.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String
+                            || !IsId(id.GetString()!))
+                            throw new JsonException("issue read answered without a project id");
+                        return new LiveProject(id.GetString());
+                    }, ct);
+                cache.Set(ProjectKey(cloudId, issueId), new LiveProject(project?.Id), project is null ? FailureTtl : LiveCommentTtl);
+                return (issueId, project?.Id);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+        foreach (var (issueId, projectId) in answers)
+            projects[issueId] = projectId;
+        return projects;
+    }
+
+    private static string ProjectKey(string cloudId, string issueId) => $"atl:jira:{cloudId}:issue-project:{issueId}";
 
     /// <summary>Where a comment Jira answers now would be routed, as <see cref="JiraProjectConnector.Route"/> decides.</summary>
     private sealed record LiveComment(bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll);
