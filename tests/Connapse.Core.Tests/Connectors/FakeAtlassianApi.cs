@@ -32,6 +32,9 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     /// <summary>The bearer token, if any, each request to the media host carried.</summary>
     public List<string?> MediaAuthorization { get; } = [];
 
+    /// <summary>Answers the media host before Confluence does; null falls through to Confluence's media.</summary>
+    public Func<Uri, HttpResponseMessage?>? Media { get; set; }
+
     /// <summary>The bearer token each non-token request carried.</summary>
     public List<string?> BearerTokens { get; } = [];
 
@@ -129,7 +132,7 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
             if (uri.Host == FakeConfluence.MediaHost)
             {
                 MediaAuthorization.Add(token);
-                return Confluence.AnswerMedia(uri);
+                return Media?.Invoke(uri) ?? Confluence.AnswerMedia(uri);
             }
 
             // A site's tenant_info answers anyone, with no token.

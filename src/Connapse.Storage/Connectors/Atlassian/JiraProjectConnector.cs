@@ -56,6 +56,11 @@ public sealed partial class JiraProjectConnector(
     /// </summary>
     internal static bool SweepEnabled = true;
 
+    /// <summary>The download failure when Atlassian refuses attachment reads with a token that reads issues.</summary>
+    public const string AttachmentScopeNotice =
+        "Attachments were skipped: the site's credential lacks the read:attachment:jira permission. "
+        + "Add it to the credential, or turn off Include attachments.";
+
     private static readonly TimeSpan SweepInterval = TimeSpan.FromHours(24);
 
     private const int BulkFetchSize = 100;
@@ -149,13 +154,20 @@ public sealed partial class JiraProjectConnector(
             _store.Delete(id);
         _store.SaveState(state);
 
+        var files = Listing(null, out int skipped);
+        string? notice = skipped > 0
+            ? $"{skipped} attachment{(skipped == 1 ? " was" : "s were")} {ConfluenceSpaceConnector.SkippedAttachmentsPhrase} "
+              + $"{config.MaxAttachmentMb} MB, or a file type Connapse can't read. To include larger files, raise "
+              + "Max attachment size on the source."
+            : null;
+
         return new SyncDelta(
-            Listing(null), [], new JiraCursor(startedMs, sweep ? now : previous?.LastCommentSweepAt).Serialize(),
-            RequiresFullResync: false, IsFullListing: true);
+            files, [], new JiraCursor(startedMs, sweep ? now : previous?.LastCommentSweepAt).Serialize(),
+            RequiresFullResync: false, IsFullListing: true, Notice: notice);
     }
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) =>
-        Task.FromResult(Listing(prefix));
+        Task.FromResult(Listing(prefix, out _));
 
     /// <summary>
     /// Fetches the issue with its rich-text fields and every comment, and renders it with only the
@@ -163,6 +175,9 @@ public sealed partial class JiraProjectConnector(
     /// </summary>
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {
+        if (FindAttachment(path) is { } attachment)
+            return await DownloadAttachmentAsync(attachment, ct);
+
         if (FindComment(path) is { } separate)
             return await ReadCommentAsync(separate.Issue, separate.Comment, ct);
 
@@ -235,8 +250,52 @@ public sealed partial class JiraProjectConnector(
         return new MemoryStream(Encoding.UTF8.GetBytes(markdown));
     }
 
+    /// <summary>
+    /// Streams an attachment, never more than the size cap: the listed size is Jira's word, and the
+    /// pipeline copies a download into memory whole. Failures that a retry cannot fix are
+    /// permanent: a redirect off Atlassian's hosts, a missing attachment scope, or more bytes than
+    /// the cap allows. A 404 is the attachment gone.
+    /// </summary>
+    private async Task<Stream> DownloadAttachmentAsync(JiraStoredAttachment attachment, CancellationToken ct)
+    {
+        Stream download;
+        try
+        {
+            // Jira answers with a redirect to Atlassian's media service, which the client follows
+            // only onto Atlassian's own hosts.
+            download = await api.DownloadAsync($"rest/api/3/attachment/content/{attachment.Id}", ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            throw new FileNotFoundException($"Jira attachment {attachment.Id} no longer exists.", ex);
+        }
+        catch (AtlassianRedirectRefusedException ex)
+        {
+            throw new PermanentIngestionException(
+                $"Jira attachment {attachment.Id} could not be downloaded: {ex.Message}", ex);
+        }
+        catch (Exception ex) when (IsAttachmentScopeRefusal(ex))
+        {
+            // A retry is refused the same way until the credential gains the scope.
+            throw new PermanentIngestionException($"Jira attachment {attachment.Id} was not downloaded. {AttachmentScopeNotice}", ex);
+        }
+
+        return new SizeCappedStream(
+            download,
+            config.MaxAttachmentMb * 1024L * 1024L,
+            $"Jira attachment {attachment.Id} is larger than the {config.MaxAttachmentMb} MB cap.");
+    }
+
+    /// <summary>
+    /// A refusal of an attachment read that is not the credential itself being refused: a 401 with
+    /// a freshly issued token or a 403. A token endpoint refusal is the site's problem and propagates.
+    /// </summary>
+    private static bool IsAttachmentScopeRefusal(Exception ex) =>
+        ex is AtlassianAuthException { TokenRefused: false }
+        || ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized };
+
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default) =>
-        Task.FromResult(Find(path) is not null || FindComment(path) is not null);
+        Task.FromResult(Find(path) is not null || FindComment(path) is not null || FindAttachment(path) is not null);
 
     /// <summary>Returned unchanged: a document's path is already the id-based form this connector reads.</summary>
     public string ResolveJobPath(string relativePath) => relativePath;
@@ -400,11 +459,134 @@ public sealed partial class JiraProjectConnector(
                     }
                 }
 
+                if (config.IncludeAttachments && issue.Attachments.Count > 0)
+                    await TieAttachmentsAsync(issue, ct);
+
                 fetched[issue.Id] = issue;
             }
         }
 
         return fetched;
+    }
+
+    /// <summary>
+    /// Ties each attachment linked from a restricted comment to that comment, so its document takes
+    /// the comment's restriction: a file added in a restricted comment is hidden by Jira from
+    /// those the comment is hidden from. Each restricted comment is read again with its rendered
+    /// HTML, where an attachment appears as a link carrying its id. The first comment to link an
+    /// attachment ties it; a later one with another restriction, a comment Connapse cannot
+    /// interpret, or one whose restriction changed since the page read makes it deny-all.
+    /// A comment that shows a file Connapse cannot name by id (a media-service reference, or an
+    /// attachment address of an unknown form) may show any of the issue's attachments. So when
+    /// any comment does, an attachment keeps its tie only if every such comment has the tie's
+    /// restriction; every other attachment becomes deny-all. If such a comment is deny-all, or its
+    /// restriction changed since the page read, every attachment of the issue becomes deny-all.
+    /// </summary>
+    private async Task TieAttachmentsAsync(JiraStoredIssue issue, CancellationToken ct)
+    {
+        var attachments = issue.Attachments.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        var routes = new Dictionary<string, (bool Separate, bool Internal, JiraRestriction? Restriction, bool DenyAll)>(StringComparer.Ordinal);
+        var untieableCommentIds = new List<string>();
+        bool untieableUnsettled = false;
+
+        foreach (var comment in issue.Comments)
+        {
+            var route = Route(comment, config.ProjectId);
+            if (!route.Separate)
+                continue;
+            routes[comment.Id] = route;
+
+            CommentResponse live;
+            try
+            {
+                live = await api.GetJsonAsync<CommentResponse>(
+                    $"rest/api/3/issue/{issue.Id}/comment/{comment.Id}?expand=renderedBody", ct);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+            {
+                // Deleted since the page read: it no longer hides anything.
+                continue;
+            }
+
+            // Without the rendered body there is no telling what the comment links.
+            string html = live.RenderedBody
+                ?? throw new AtlassianMalformedResponseException($"Jira returned comment {comment.Id} without its rendered body.");
+            bool changed = Route(ToStored(live), config.ProjectId) != route;
+
+            foreach (string id in LinkedAttachmentIds(html))
+            {
+                if (!attachments.TryGetValue(id, out var attachment))
+                    continue;
+
+                if (attachment.RestrictingCommentId is null)
+                    attachment.RestrictingCommentId = comment.Id;
+                else if (routes[attachment.RestrictingCommentId] != route)
+                    attachment.DenyAll = true;
+
+                if (changed || route.DenyAll)
+                    attachment.DenyAll = true;
+            }
+
+            if (HasUntieableReference(html))
+            {
+                untieableCommentIds.Add(comment.Id);
+                // Its restriction is not known for certain, so no tie can be compared against it.
+                untieableUnsettled |= changed || route.DenyAll;
+            }
+        }
+
+        if (untieableCommentIds.Count == 0)
+            return;
+
+        // An internal note among them comes first, so untied attachments keep the internal mark.
+        string untiedOwner = untieableCommentIds.FirstOrDefault(id => routes[id].Internal) ?? untieableCommentIds[0];
+        foreach (var attachment in issue.Attachments)
+        {
+            if (attachment.RestrictingCommentId is null)
+            {
+                attachment.RestrictingCommentId = untiedOwner;
+                attachment.DenyAll = true;
+            }
+            else if (untieableUnsettled)
+            {
+                if (routes[untiedOwner].Internal)
+                    attachment.RestrictingCommentId = untiedOwner;
+                attachment.DenyAll = true;
+            }
+            else if (untieableCommentIds.Any(id => routes[id] != routes[attachment.RestrictingCommentId]))
+            {
+                attachment.DenyAll = true;
+            }
+        }
+    }
+
+    /// <summary>The attachment ids a comment's rendered HTML links to, by any of Jira's attachment addresses.</summary>
+    internal static IEnumerable<string> LinkedAttachmentIds(string html) =>
+        ApiLinkPattern().Matches(html)
+            .Concat(SecureLinkPattern().Matches(html))
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether the HTML shows a file Connapse cannot name by attachment id: any <c>data-media-*</c>
+    /// or <c>data-attachment-*</c> attribute, or a <c>src</c> or <c>href</c> that points at a media service, a blob, or an
+    /// attachment or thumbnail address none of the id patterns reads.
+    /// </summary>
+    internal static bool HasUntieableReference(string html)
+    {
+        if (MediaAttributePattern().IsMatch(html))
+            return true;
+
+        foreach (Match link in LinkAttributePattern().Matches(html))
+        {
+            string url = link.Groups["url"].Value;
+            if (ApiLinkPattern().IsMatch(url) || SecureLinkPattern().IsMatch(url))
+                continue;
+            if (UntieableUrlPattern().IsMatch(url))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -432,24 +614,99 @@ public sealed partial class JiraProjectConnector(
 
     // ── Documents ──────────────────────────────────────────────────────────
 
-    private IReadOnlyList<ConnectorFile> Listing(string? prefix)
+    /// <summary>
+    /// Every stored issue, its restricted comments, and with attachments on, every attachment within
+    /// the size cap that has a parser. <paramref name="skipped"/> counts the attachments left out.
+    /// </summary>
+    private IReadOnlyList<ConnectorFile> Listing(string? prefix, out int skipped)
     {
         string? normalized = string.IsNullOrEmpty(prefix) ? null : "/" + prefix.Trim('/') + "/";
         var state = _store.LoadState();
+        var files = new List<ConnectorFile>();
+        skipped = 0;
+
+        foreach (var issue in _store.Ids().Select(_store.Load).OfType<JiraStoredIssue>())
+        {
+            files.Add(ToConnectorFile(issue, state));
+            files.AddRange(issue.Comments
+                .Where(c => JiraIssueStateStore.IsId(c.Id) && Route(c, config.ProjectId).Separate)
+                .Select(c => ToCommentFile(issue, c, state)));
+
+            if (!config.IncludeAttachments)
+                continue;
+
+            foreach (var attachment in issue.Attachments.Where(a => JiraIssueStateStore.IsId(a.Id)))
+            {
+                // An empty file has nothing to index, and is neither too large nor unreadable.
+                if (IsIndexable(attachment))
+                    files.Add(ToAttachmentFile(issue, attachment, state));
+                else if (attachment.Size > 0)
+                    skipped++;
+            }
+        }
 
         return
         [
-            .. _store.Ids()
-                .Select(_store.Load)
-                .OfType<JiraStoredIssue>()
-                .SelectMany(issue => issue.Comments
-                    .Where(c => JiraIssueStateStore.IsId(c.Id) && Route(c, config.ProjectId).Separate)
-                    .Select(c => ToCommentFile(issue, c, state))
-                    .Prepend(ToConnectorFile(issue, state)))
+            .. files
                 .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal))
                 .OrderBy(f => f.Path, StringComparer.Ordinal),
         ];
     }
+
+    /// <summary>
+    /// Within the cap and parseable. A size Jira did not report (or reported as zero or less) is
+    /// not taken as small: the attachment is skipped.
+    /// </summary>
+    private bool IsIndexable(JiraStoredAttachment attachment) =>
+        attachment.Size > 0
+        && attachment.Size <= config.MaxAttachmentMb * 1024L * 1024L
+        && fileTypes is not null
+        && fileTypes.IsSupported(AtlassianFileNames.SafeFileName(attachment.FileName));
+
+    /// <summary>
+    /// An attachment as a document: its real size and creation time are the signature (a Jira
+    /// attachment is never edited, only replaced). Its URI is the issue's, or, when the attachment
+    /// was linked from a restricted comment, carries that comment's restriction.
+    /// </summary>
+    private ConnectorFile ToAttachmentFile(JiraStoredIssue issue, JiraStoredAttachment attachment, JiraSyncState state)
+    {
+        string projectName = string.IsNullOrWhiteSpace(state.ProjectName) ? config.ProjectKey : state.ProjectName;
+
+        return new ConnectorFile(
+            Path: AttachmentPathFor(issue.Id, attachment),
+            SizeBytes: attachment.Size,
+            LastModified: attachment.Created.UtcDateTime,
+            ContentType: attachment.MediaType,
+            ResourceUri: AttachmentUri(issue, attachment),
+            Metadata: new Dictionary<string, string>
+            {
+                ["jira:issueKey"] = issue.Key,
+                ["jira:breadcrumb"] = JiraRecordRenderer.Breadcrumb(projectName, issue.Key, issue.Summary)
+                    + " > " + AtlassianFileNames.SafeFileName(attachment.FileName),
+                ["jira:url"] = $"{config.Site.SiteUrl}/browse/{Uri.EscapeDataString(issue.Key)}",
+            },
+            Strategy: null);
+    }
+
+    /// <summary>
+    /// The URI of an attachment: the tying comment's internal flag and restriction, deny-all when
+    /// the tie says so or the tying comment is no longer a restricted one on record.
+    /// </summary>
+    private string AttachmentUri(JiraStoredIssue issue, JiraStoredAttachment attachment)
+    {
+        string cloudId = config.Site.CloudId;
+        if (attachment.RestrictingCommentId is not { } commentId)
+            return AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, false, null);
+
+        var comment = issue.Comments.FirstOrDefault(c => c.Id == commentId);
+        var route = comment is null ? default : Route(comment, config.ProjectId);
+        bool denyAll = attachment.DenyAll || !route.Separate || route.DenyAll;
+        return AtlassianUri.ForJiraAttachment(
+            cloudId, issue.Id, attachment.Id, route.Internal, denyAll ? JiraRestriction.DenyAll : route.Restriction);
+    }
+
+    internal static string AttachmentPathFor(string issueId, JiraStoredAttachment attachment) =>
+        $"/issues/{issueId}/attachments/{attachment.Id}/{AtlassianFileNames.SafeFileName(attachment.FileName)}";
 
     private ConnectorFile ToConnectorFile(JiraStoredIssue issue, JiraSyncState state)
     {
@@ -564,6 +821,26 @@ public sealed partial class JiraProjectConnector(
     [GeneratedRegex(@"^/issues/(?<id>[0-9]{1,19})/comments/(?<comment>[0-9]{1,19})\.md\z", RegexOptions.CultureInvariant)]
     private static partial Regex CommentPathPattern();
 
+    [GeneratedRegex(@"^/issues/(?<id>[0-9]{1,19})/attachments/(?<att>[0-9]{1,19})/(?<name>[^/]+)\z", RegexOptions.CultureInvariant)]
+    private static partial Regex AttachmentPathPattern();
+
+    // ASCII digits only: \d would also match other scripts' digits, which are not ids.
+    [GeneratedRegex(@"/rest/api/(?:2|3|latest)/attachment/(?:content|thumbnail)/([0-9]{1,19})(?![0-9])", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex ApiLinkPattern();
+
+    [GeneratedRegex(@"/secure/(?:attachment|thumbnail)/([0-9]{1,19})/", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex SecureLinkPattern();
+
+    [GeneratedRegex(@"\sdata-(?:media|attachment)-[a-z0-9-]*\s*=", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex MediaAttributePattern();
+
+    [GeneratedRegex(@"\s(?:src|href)\s*=\s*(?:""(?<url>[^""]*)""|'(?<url>[^']*)'|(?<url>[^\s>]+))", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex LinkAttributePattern();
+
+    // A media service host or path, a blob, or any attachment or thumbnail address.
+    [GeneratedRegex(@"media\.atlassian\.com|/media/|^\s*blob:|attachment|thumbnail", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex UntieableUrlPattern();
+
     [GeneratedRegex(@"^customfield_[0-9]{1,19}\z", RegexOptions.CultureInvariant)]
     private static partial Regex FieldIdPattern();
 
@@ -575,6 +852,23 @@ public sealed partial class JiraProjectConnector(
     {
         var match = PathPattern().Match(path ?? "");
         return match.Success ? _store.Load(match.Groups["id"].Value) : null;
+    }
+
+    /// <summary>
+    /// The stored attachment an attachment path names, or null unless it is one the listing would
+    /// emit now: same file name, attachments on, within the cap, and parseable.
+    /// </summary>
+    private JiraStoredAttachment? FindAttachment(string path)
+    {
+        var match = AttachmentPathPattern().Match(path ?? "");
+        if (!match.Success || !config.IncludeAttachments || _store.Load(match.Groups["id"].Value) is not { } issue)
+            return null;
+
+        string id = match.Groups["att"].Value;
+        var attachment = issue.Attachments.FirstOrDefault(a => a.Id == id);
+        return attachment is not null && AttachmentPathFor(issue.Id, attachment) == path && IsIndexable(attachment)
+            ? attachment
+            : null;
     }
 
     /// <summary>The stored issue and comment a comment path names, when that comment is a separate document.</summary>
@@ -626,7 +920,8 @@ public sealed partial class JiraProjectConnector(
         [property: JsonConverter(typeof(JiraTimeConverter))] DateTimeOffset? Created,
         [property: JsonConverter(typeof(JiraTimeConverter))] DateTimeOffset? Updated,
         CommentVisibility? Visibility,
-        bool? JsdPublic);
+        bool? JsdPublic,
+        string? RenderedBody = null);
 
     /// <summary>Jira's timestamps, whose offset has no colon; a value that is not one reads as null.</summary>
     private sealed class JiraTimeConverter : JsonConverter<DateTimeOffset?>
