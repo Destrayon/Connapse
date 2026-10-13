@@ -33,6 +33,7 @@ public record Connection(
 /// <param name="Warning">The check could not finish for a reason that is not a fault (a site with no pages yet).</param>
 /// <param name="LastSucceededAt">The last check that passed, carried forward by the store across failures.</param>
 /// <param name="ConfirmedScopes">The permissions the last passing check confirmed the credential has.</param>
+/// <param name="Products">The products (<c>confluence</c>, <c>jira</c>) the last check that passed or only warned could read.</param>
 public record ConnectionHealth(
     DateTime CheckedAt,
     bool Succeeded,
@@ -42,7 +43,8 @@ public record ConnectionHealth(
     bool CredentialRejected = false,
     bool Warning = false,
     DateTime? LastSucceededAt = null,
-    IReadOnlyList<string>? ConfirmedScopes = null);
+    IReadOnlyList<string>? ConfirmedScopes = null,
+    IReadOnlyList<string>? Products = null);
 
 public record CreateConnectionRequest(
     string Name,
