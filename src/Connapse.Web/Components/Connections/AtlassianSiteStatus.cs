@@ -48,6 +48,10 @@ public sealed record AtlassianSiteStatus(string Text, string CssClass, string Ic
         })];
     }
 
+    /// <summary>Whether sources of <paramref name="product"/> can be added on the site, as <see cref="ProductsOf"/> shows it.</summary>
+    public static bool IsReady(Connection site, string product) =>
+        ProductsOf(site).Any(p => p.Ready && string.Equals(p.Product, product, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>A check time as the page shows it: UTC, to the minute.</summary>
     public static string When(DateTime? utc) =>
         utc is { } at ? at.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) : "never";

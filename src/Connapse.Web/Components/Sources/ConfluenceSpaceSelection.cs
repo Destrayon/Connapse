@@ -9,21 +9,13 @@ namespace Connapse.Web.Components.Sources;
 /// Kept as a type of its own, like <c>GitHubRepositoryForm</c>, so the scope keys written here are
 /// tested against the ones <c>ConnectorFactory</c> reads.
 /// </summary>
-public sealed class ConfluenceSpaceSelection
+public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection
 {
-    public const int DefaultMaxAttachmentMb = 25;
-    public const int MinAttachmentMb = 1;
-    public const int MaxAttachmentMbLimit = Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling;
-    private const int MaxSourceName = 128;
-
     /// <summary>Where the setup guide explains every field of this form.</summary>
     public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources";
 
     public const string SpacesLabel = "Spaces";
     public const string IncludePersonalLabel = "Include personal spaces";
-    public const string AttachmentsLabel = "Attachments";
-    public const string IncludeAttachmentsLabel = "Include attachments";
-    public const string MaxAttachmentMbLabel = "Max attachment size (MB)";
 
     /// <summary>The labels the form shows, which the setup guide must name.</summary>
     public static readonly IReadOnlyList<string> FieldLabels =
@@ -39,8 +31,6 @@ public sealed class ConfluenceSpaceSelection
 
     public const string IncludeAttachmentsHelp = IncludeAttachmentsShortHelp + " Comments and blog posts are always included.";
 
-    public static string MaxAttachmentMbHelp => $"{MinAttachmentMb} to {MaxAttachmentMbLimit} MB. Larger attachments are skipped.";
-
     /// <summary>
     /// What the dialog says when adding spaces failed unexpectedly. The exception goes to the log,
     /// not here; any source made before the failure is named, since trying again skips it.
@@ -54,12 +44,6 @@ public sealed class ConfluenceSpaceSelection
 
     /// <summary>The optional scope a site's credential needs before attachments can be read.</summary>
     public const string AttachmentScope = "read:attachment:confluence";
-
-    /// <summary>Where the setup guide explains adding a missing scope to a site's credential.</summary>
-    public const string MissingScopeGuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope";
-
-    /// <summary>The site on the Connections page with Replace credentials open, where a missing permission is added.</summary>
-    public static string ReplaceCredentialsUrl(Guid connectionId) => $"/connections?edit={connectionId}&replace=1";
 
     public const string AttachmentScopeHelp =
         "Attachments need the " + AttachmentScope + " permission on the site's credential.";
@@ -81,20 +65,15 @@ public sealed class ConfluenceSpaceSelection
     }
 
     /// <summary>Whether the site's last passing check confirmed <see cref="AttachmentScope"/>.</summary>
-    public static bool AttachmentScopeConfirmed(ConnectionHealth? health) =>
-        health?.ConfirmedScopes?.Contains(AttachmentScope, StringComparer.OrdinalIgnoreCase) ?? false;
+    public static bool AttachmentScopeConfirmed(ConnectionHealth? health) => ScopeConfirmed(health, AttachmentScope);
 
-    /// <summary>The site's last test did not confirm the attachment scope; the form says so.</summary>
-    public bool AttachmentScopeUnconfirmed { get; init; }
+    public override string RequiredAttachmentScope => AttachmentScope;
 
-    /// <summary>The id every setup event of this selection carries, from opening the dialog to the sources created.</summary>
-    public Guid Attempt { get; } = Guid.NewGuid();
+    public override string FieldIdPrefix => "confluence";
 
-    /// <summary>When this selection began, as <see cref="System.Diagnostics.Stopwatch.GetTimestamp"/>, for the time to a created source.</summary>
-    public long StartedTimestamp { get; } = System.Diagnostics.Stopwatch.GetTimestamp();
+    public override string ItemFixedNote => SpaceFixedNote;
 
-    public static string AttachmentRangeError =>
-        $"Max attachment size must be between {MinAttachmentMb} and {MaxAttachmentMbLimit} MB.";
+    public override string AttachmentsShortHelp => IncludeAttachmentsShortHelp;
 
     /// <summary>The spaces the site offers, as last listed.</summary>
     public IReadOnlyList<ConfluenceSpaceInfo> Available { get; set; } = [];
@@ -104,24 +83,8 @@ public sealed class ConfluenceSpaceSelection
 
     public bool IncludePersonal { get; set; }
 
-    public bool IncludeAttachments { get; set; } = true;
-
-    public int MaxAttachmentMb { get; set; } = DefaultMaxAttachmentMb;
-
     /// <summary>The problem with the space list, shown next to it; null when there is none.</summary>
     public string? SpacesError { get; set; }
-
-    /// <summary>The problem with the max attachment size, shown next to it; null when there is none.</summary>
-    public string? MaxAttachmentMbError { get; set; }
-
-    /// <summary>Checks the max attachment size alone, as when the field loses focus.</summary>
-    public bool ValidateMaxAttachmentMb()
-    {
-        MaxAttachmentMbError = IncludeAttachments && MaxAttachmentMb is < MinAttachmentMb or > MaxAttachmentMbLimit
-            ? AttachmentRangeError
-            : null;
-        return MaxAttachmentMbError is null;
-    }
 
     /// <summary>Checks every field, setting each one's error; returns the first error, or null when all are valid.</summary>
     public string? Validate()
@@ -130,14 +93,6 @@ public sealed class ConfluenceSpaceSelection
         ValidateMaxAttachmentMb();
         return SpacesError ?? MaxAttachmentMbError;
     }
-
-    /// <summary>
-    /// The size to store. With attachments off the field is disabled and unchecked, so a value
-    /// left out of range there is replaced by the default rather than stored: the connector
-    /// refuses a source whose cap is not positive, whether or not attachments are on.
-    /// </summary>
-    public static int StorableMaxAttachmentMb(int maxAttachmentMb, int fallback = DefaultMaxAttachmentMb) =>
-        maxAttachmentMb is >= MinAttachmentMb and <= MaxAttachmentMbLimit ? maxAttachmentMb : fallback;
 
     public static string ScopeJson(ConfluenceSpaceInfo space, bool includeAttachments, int maxAttachmentMb) =>
         JsonSerializer.Serialize(new
@@ -150,12 +105,6 @@ public sealed class ConfluenceSpaceSelection
             includeAttachments,
             maxAttachmentMb = StorableMaxAttachmentMb(maxAttachmentMb),
         });
-
-    public static string SourceName(string siteHost, string spaceName)
-    {
-        string name = $"{siteHost} / {spaceName}";
-        return name.Length <= MaxSourceName ? name : name[..(MaxSourceName - 1)] + "…";
-    }
 
     /// <summary>
     /// One create request per ticked space not already a source. Spaces already sourced on the
@@ -207,32 +156,5 @@ public sealed class ConfluenceSpaceSelection
     }
 
     /// <summary>The space ids that already have a source, from the scopes of a connection's sources.</summary>
-    public static HashSet<string> SpaceIdsOf(IEnumerable<Source> sources)
-    {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var source in sources)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(source.ScopeJson);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object
-                    && doc.RootElement.TryGetProperty("spaceId", out var id))
-                {
-                    string? value = id.ValueKind switch
-                    {
-                        JsonValueKind.String => id.GetString(),
-                        JsonValueKind.Number => id.GetRawText(),
-                        _ => null,
-                    };
-                    if (!string.IsNullOrEmpty(value))
-                        ids.Add(value);
-                }
-            }
-            catch (JsonException)
-            {
-            }
-        }
-
-        return ids;
-    }
+    public static HashSet<string> SpaceIdsOf(IEnumerable<Source> sources) => IdsOf(sources, "spaceId");
 }

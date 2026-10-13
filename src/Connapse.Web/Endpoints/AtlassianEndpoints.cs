@@ -491,6 +491,25 @@ public static class AtlassianEndpoints
             };
         }).RequireAuthorization("RequireAdmin");
 
+        // GET /api/v1/atlassian/sites/{connectionId}/projects — the site's live Jira projects the
+        // service account can browse, for choosing which to turn into sources.
+        group.MapGet("/{connectionId:guid}/projects", async (
+            Guid connectionId,
+            [FromServices] AtlassianSiteService sites,
+            CancellationToken ct) =>
+        {
+            var listed = await sites.ListProjectsAsync(connectionId, ct);
+            return listed.Outcome switch
+            {
+                AtlassianSpacesOutcome.NotFound => Results.NotFound(new { error = "No such connection." }),
+                AtlassianSpacesOutcome.NotAtlassian =>
+                    Results.BadRequest(new { error = "That connection is not an Atlassian site." }),
+                AtlassianSpacesOutcome.Unavailable =>
+                    Results.Json(new { error = listed.Error }, statusCode: StatusCodes.Status502BadGateway),
+                _ => Results.Ok(listed.Projects!.Select(p => new { id = p.Id, key = p.Key, name = p.Name, projectTypeKey = p.ProjectTypeKey })),
+            };
+        }).RequireAuthorization("RequireAdmin");
+
         return app;
     }
 
