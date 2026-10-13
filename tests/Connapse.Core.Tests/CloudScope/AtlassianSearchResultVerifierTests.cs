@@ -44,7 +44,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
 
     private AtlassianSearchResultVerifier NewVerifier(HttpMessageHandler? handler = null, AtlassianVerifierSettings? settings = null) =>
         new(_documents, _links, _connections, NewChecker(handler ?? _api, _cache, _connections),
-            JiraPermissionCheckerTests.NewJiraChecker(handler ?? _api, _cache), _presence,
+            JiraPermissionCheckerTests.NewJiraChecker(_cache), _presence,
             Options.Create(settings ?? new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
 
     private SearchHit Hit(string id, string? uri)
@@ -291,7 +291,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     {
         var checkerConnections = AtlassianConnectionStore();
         var verifier = new AtlassianSearchResultVerifier(_documents, _links, _connections,
-            NewChecker(_api, _cache, checkerConnections), JiraPermissionCheckerTests.NewJiraChecker(_api, _cache), _presence,
+            NewChecker(_api, _cache, checkerConnections), JiraPermissionCheckerTests.NewJiraChecker(_cache), _presence,
             Options.Create(new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
         SearchHit[] hits = [.. Enumerable.Range(1, 8).Select(i =>
         {

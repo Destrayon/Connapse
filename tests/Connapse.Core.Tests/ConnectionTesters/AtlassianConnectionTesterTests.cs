@@ -206,6 +206,21 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     }
 
     [Fact]
+    public async Task Test_JiraRoleUrlWithTrailingSlash_ReadsTheRole()
+    {
+        _jira.MapSiteTest();
+        _api.MapJson(_jira.Root + "/project/10000/role", new Dictionary<string, string>
+        {
+            ["Developers"] = $"https://api.atlassian.com/ex/jira/{CloudId}/rest/api/3/project/10000/role/10002/",
+        });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Details!["products"].Should().Be("confluence,jira");
+        _api.Calls.GetValueOrDefault(_jira.Root + "/project/10000/role/10002").Should().Be(1);
+    }
+
+    [Fact]
     public async Task Test_JiraRoleWithoutActors_CantReadJiraMembership()
     {
         _jira.MapSiteTest();
