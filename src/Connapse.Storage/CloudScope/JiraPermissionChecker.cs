@@ -71,7 +71,7 @@ public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermis
             if (!siteLooked)
             {
                 siteLooked = true;
-                if (await sites.SiteForAsync(cloudId, ct) is { } found)
+                if (await sites.SiteForAsync(cloudId, AtlassianProduct.Jira, ct) is { } found)
                     client = sites.ClientFor(found.Site, found.Secret, AtlassianProduct.Jira);
             }
             return client;

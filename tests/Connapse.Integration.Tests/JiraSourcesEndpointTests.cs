@@ -21,9 +21,11 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsyncLifetime
 {
-    // A cloud id of its own, so the Jira routes mapped here never make other classes' sites pass for Jira.
-    private const string CloudId = "22222222-3333-4444-5555-666666666666";
-    private const string Wiki = "/ex/confluence/" + CloudId + "/wiki";
+    // A cloud id of its own per test: the Jira routes mapped here never make other classes' sites pass
+    // for Jira, and a site has one connection per product while every host the fake answers for
+    // resolves to this one cloud id.
+    private readonly string _cloudId = Guid.NewGuid().ToString("D");
+    private string Wiki => "/ex/confluence/" + _cloudId + "/wiki";
     private const string Secret = "jira-sources-secret-123";
     private const string EditorEmail = "editor@jira-sources-tests.connapse.io";
     private const string EditorPassword = "EditorTest1!";
@@ -37,7 +39,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         _api.FailTokenWith(null);
         _api.AnswerTokenWith(null);
         _api.FailWith(null);
-        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
+        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = _cloudId });
         _api.MapJson(Wiki + "/rest/api/user/current", new { accountId = "svc" });
         _api.MapJson(Wiki + "/api/v2/spaces", new { results = new[] { new { id = "100", key = "ENG", name = "Engineering", type = "global" } } });
         _api.MapJson(Wiki + "/api/v2/pages", new { results = new[] { new { id = "7" } } });
@@ -47,7 +49,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         });
         _api.MapJson(Wiki + "/rest/api/content/7/permission/check", new { hasPermission = true });
 
-        _jira = new FakeJira(_api, CloudId).MapSiteTest();
+        _jira = new FakeJira(_api, _cloudId).MapSiteTest();
         _api.MapJson(_jira.Root + "/project/search", new
         {
             values = new object[]
@@ -76,10 +78,10 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
 
     private HttpClient Admin => fixture.AdminClient;
 
-    private async Task<Guid> CreateSiteAsync(string host)
+    private async Task<Guid> CreateSiteAsync(string host, string product = "jira")
     {
         var response = await Admin.PostAsJsonAsync("/api/v1/atlassian/sites",
-            new { siteUrl = $"https://{host}", clientId = "client-1", clientSecret = Secret });
+            new { siteUrl = $"https://{host}", clientId = "client-1", clientSecret = Secret, product });
         response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
     }
@@ -126,7 +128,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
 
         response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         var body = await BodyAsync(response);
-        body.GetProperty("name").GetString().Should().Be("jira-api-create.atlassian.net / Engineering");
+        body.GetProperty("name").GetString().Should().Be("jira-api-create.atlassian.net / Engineering (Jira)");
 
         using var scope = JsonDocument.Parse(await StoredScopeAsync(body.GetProperty("id").GetGuid()));
         scope.RootElement.GetProperty("kind").GetString().Should().Be("jira-project");
@@ -167,37 +169,26 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
     }
 
     [Fact]
-    public async Task Create_SiteWithoutJira_400()
+    public async Task Create_JiraConnectionWhoseLastTestFailed_400()
     {
-        // Jira refuses the service account, so the site is saved for Confluence alone.
+        // Jira refuses the service account, so the Jira connection isn't saved at all.
         _jira.Answer("/myself", HttpStatusCode.Forbidden);
-        Guid site = await CreateSiteAsync("jira-api-nojira.atlassian.net");
+        var refused = await Admin.PostAsJsonAsync("/api/v1/atlassian/sites",
+            new { siteUrl = "https://jira-api-nojira.atlassian.net", clientId = "client-1", clientSecret = Secret, product = "jira" });
+        refused.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await BodyAsync(refused)).GetProperty("step").GetString().Should().Be("jira-identity");
 
-        var response = await CreateSourceAsync(site, new { kind = "jira-project", projectId = "10000" });
-
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await BodyAsync(response)).GetProperty("error").GetString()
-            .Should().Be("This site's last test didn't pass for Jira. Test it on the Connections page.");
-        (await SourceCountAsync(site)).Should().Be(0);
-
-        // A scope without a kind is still Confluence's, as before Jira.
-        (await CreateSourceAsync(site, new { spaceId = "100" })).StatusCode.Should().Be(HttpStatusCode.Created);
-    }
-
-    [Fact]
-    public async Task Create_PassingSiteWithoutProducts_400()
-    {
-        // A site whose last passing test predates the Jira checks lists no products: Confluence only.
+        // A Jira connection saved earlier whose last test then failed is offered no Jira source.
         Guid site;
         using (var scope = fixture.Factory.Services.CreateScope())
         {
             var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
             var connection = await store.CreateAsync(new Connapse.Core.CreateConnectionRequest(
-                "jira-api-noproducts.atlassian.net", Connapse.Core.ConnectionProvider.Atlassian,
-                $$"""{"siteUrl":"https://jira-api-noproducts.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}""",
+                "jira-api-failed.atlassian.net", Connapse.Core.ConnectionProvider.Atlassian,
+                $$"""{"siteUrl":"https://jira-api-failed.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-1","product":"jira"}""",
                 Secret), null);
             await store.RecordHealthAsync(connection.Id, new Connapse.Core.ConnectionHealth(
-                DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test", Products: null));
+                DateTime.UtcNow, Succeeded: false, Step: "jira-admin", Message: "m", Origin: "test"));
             site = connection.Id;
         }
 
@@ -207,6 +198,63 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         (await BodyAsync(response)).GetProperty("error").GetString()
             .Should().Be("This site's last test didn't pass for Jira. Test it on the Connections page.");
         (await SourceCountAsync(site)).Should().Be(0);
+
+        // A scope without a kind is still Confluence's, as before Jira, so this Jira connection refuses it.
+        var space = await CreateSourceAsync(site, new { spaceId = "100" });
+        space.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await BodyAsync(space)).GetProperty("field").GetString().Should().Be("connectionId");
+    }
+
+    [Fact]
+    public async Task Create_JiraSourceOnConfluenceConnection_400()
+    {
+        Guid confluence = await CreateSiteAsync("jira-api-wrongproduct.atlassian.net", product: "confluence");
+
+        var response = await CreateSourceAsync(confluence, new { kind = "jira-project", projectId = "10000" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await BodyAsync(response);
+        body.GetProperty("field").GetString().Should().Be("connectionId");
+        body.GetProperty("error").GetString().Should().Be(
+            "Connection 'jira-api-wrongproduct.atlassian.net' is a Confluence connection, so it can't hold a Jira source. "
+            + "Choose this site's Jira connection, or add one on the Connections page.");
+        (await SourceCountAsync(confluence)).Should().Be(0);
+
+        // The site's own Jira connection, added beside it, takes the project.
+        Guid jira = await CreateSiteAsync("jira-api-wrongproduct.atlassian.net");
+        jira.Should().NotBe(confluence);
+        (await CreateSourceAsync(jira, new { kind = "jira-project", projectId = "10000" })).StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task OneSite_AddedAsBothConnections_EachHoldsItsOwnProductsSource()
+    {
+        const string host = "jira-api-both.atlassian.net";
+        Guid confluence = await CreateSiteAsync(host, product: "confluence");
+        Guid jira = await CreateSiteAsync(host);
+
+        var sites = await BodyAsync(await Admin.GetAsync("/api/v1/atlassian/sites"));
+        sites.EnumerateArray()
+            .Where(s => s.GetProperty("id").GetGuid() == confluence || s.GetProperty("id").GetGuid() == jira)
+            .Select(s => (s.GetProperty("name").GetString(), s.GetProperty("product").GetString()))
+            .Should().BeEquivalentTo([(host, "confluence"), ($"{host} (Jira)", "jira")]);
+
+        var space = await CreateSourceAsync(confluence, new { kind = "confluence-space", spaceId = "100" });
+        space.StatusCode.Should().Be(HttpStatusCode.Created, await space.Content.ReadAsStringAsync());
+        // The space and the project are both Engineering: the Jira source's name says Jira, so they don't collide.
+        var project = await CreateSourceAsync(jira, new { kind = "jira-project", projectId = "10000" });
+        project.StatusCode.Should().Be(HttpStatusCode.Created, await project.Content.ReadAsStringAsync());
+        var spaceBody = await BodyAsync(space);
+        var projectBody = await BodyAsync(project);
+        spaceBody.GetProperty("name").GetString().Should().Be($"{host} / Engineering");
+        projectBody.GetProperty("name").GetString().Should().Be($"{host} / Engineering (Jira)");
+
+        using (var stored = JsonDocument.Parse(await StoredScopeAsync(spaceBody.GetProperty("id").GetGuid())))
+            stored.RootElement.GetProperty("kind").GetString().Should().Be("confluence-space");
+        using (var stored = JsonDocument.Parse(await StoredScopeAsync(projectBody.GetProperty("id").GetGuid())))
+            stored.RootElement.GetProperty("kind").GetString().Should().Be("jira-project");
+        (await SourceCountAsync(confluence)).Should().Be(1);
+        (await SourceCountAsync(jira)).Should().Be(1);
     }
 
     [Fact]

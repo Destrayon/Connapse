@@ -59,6 +59,11 @@ public sealed class JiraProjectSelection : AtlassianSourceSelection<JiraProjectI
 
     public override string Product => Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.JiraProduct;
 
+    /// <summary>The end of a Jira source's default name, as the site's Jira connection is named.</summary>
+    public const string SourceNameSuffix = " (Jira)";
+
+    public override string NameSuffix => SourceNameSuffix;
+
     public override string IdField => "projectId";
 
     public override string RequiredAttachmentScope => AttachmentScope;

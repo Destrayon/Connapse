@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Web.Components.Connections;
 using Connapse.Web.Components.Sources;
 
@@ -36,7 +37,7 @@ public sealed class JiraSourceScope : AtlassianSourceScope
     // A site last tested before Jira was, or whose Jira probe failed, is offered no Jira source on the dialog either.
     public static Task<Result> ResolveAsync(
         string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore, CancellationToken ct) =>
-        ResolveAsync<JiraProjectInfo, JiraProjectSelection>(scopeJson, connection, sites, sourceStore, Texts,
+        ResolveAsync<JiraProjectInfo, JiraProjectSelection>(scopeJson, connection, sites, sourceStore, Texts, AtlassianProduct.Jira,
             AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.JiraProduct) ? null : JiraNotReady, ct);
 
     /// <summary>

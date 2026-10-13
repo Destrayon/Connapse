@@ -54,6 +54,28 @@ public class ConnectionFormTests
         form.AtlassianSiteHost.Should().Be("acme.atlassian.net");
     }
 
+    [Theory]
+    [InlineData("""{"siteUrl":"https://acme.atlassian.net","cloudId":"c-1","clientId":"svc"}""", "Atlassian:Confluence")]
+    [InlineData("""{"siteUrl":"https://acme.atlassian.net","cloudId":"c-1","clientId":"svc","product":"jira"}""", "Atlassian:Jira")]
+    public void AtlassianConnection_ProviderChoiceNamesItsProduct(string config, string choice)
+    {
+        ConnectionForm.FromConnection(Stored(ConnectionProvider.Atlassian, config)).ProviderChoice.Should().Be(choice);
+    }
+
+    [Theory]
+    [InlineData(ConnectionForm.ConfluenceSiteChoice, ConnectionProvider.Atlassian, Connapse.Storage.Connectors.Atlassian.AtlassianProduct.Confluence)]
+    [InlineData(ConnectionForm.JiraSiteChoice, ConnectionProvider.Atlassian, Connapse.Storage.Connectors.Atlassian.AtlassianProduct.Jira)]
+    [InlineData("Sftp", ConnectionProvider.Sftp, Connapse.Storage.Connectors.Atlassian.AtlassianProduct.Confluence)]
+    public void ProviderChoice_ChoosingAnEntry_SetsTheProviderAndAnAtlassianSitesProduct(
+        string choice, ConnectionProvider provider, Connapse.Storage.Connectors.Atlassian.AtlassianProduct product)
+    {
+        var form = new ConnectionForm { ProviderChoice = choice };
+
+        form.Provider.Should().Be(provider);
+        form.AtlassianProduct.Should().Be(product);
+        form.ProviderChoice.Should().Be(choice);
+    }
+
     [Fact]
     public void S3Connection_RoundTripsEveryField()
     {

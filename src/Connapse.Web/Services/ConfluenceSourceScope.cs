@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Web.Components.Sources;
 
 namespace Connapse.Web.Services;
@@ -31,7 +32,7 @@ public sealed class ConfluenceSourceScope : AtlassianSourceScope
 
     public static Task<Result> ResolveAsync(
         string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore, CancellationToken ct) =>
-        ResolveAsync<ConfluenceSpaceInfo, ConfluenceSpaceSelection>(scopeJson, connection, sites, sourceStore, Texts, notReady: null, ct);
+        ResolveAsync<ConfluenceSpaceInfo, ConfluenceSpaceSelection>(scopeJson, connection, sites, sourceStore, Texts, AtlassianProduct.Confluence, notReady: null, ct);
 
     /// <summary>
     /// A changed scope for an existing Confluence source. Its space is fixed: indexed documents are

@@ -20,6 +20,8 @@ public class AtlassianSetupGuideDocsTests
         "## 1. Linking app",
         "## 2. Service account",
         "## 3. Site connection",
+        "### Add a Confluence site",
+        "### Add a Jira site",
         "## 4. Confluence sources",
         "## 5. Jira sources",
         "## Troubleshooting",
@@ -204,6 +206,31 @@ public class AtlassianSetupGuideDocsTests
             .And.Contain("**Administer Jira**")
             .And.Contain("every group and project role your team restricts comments to")
             .And.Contain("is never indexed, and Connapse can't tell it exists");
+    }
+
+    [Fact]
+    public void SetupGuide_AddsASiteOncePerProduct_WithOneServiceAccountAndACredentialPerProduct()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain("One service account can serve both products, with one credential per product: add the site twice, once as each connection.")
+            .And.NotContain("One service account and one credential can serve both products", "one credential carrying both products' scopes is unverified")
+            .And.Contain("choose **Confluence site**")
+            .And.Contain("choose **Jira site**")
+            .And.NotContain("Not set up for this site", "a connection reads one product, so there is no other product to report")
+            .And.NotContain("choose **Atlassian site**");
+    }
+
+    [Fact]
+    public void SetupGuide_NamesJirasTwoRoleRows_NeverItsAdminRole()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain("## Add Jira to an existing Confluence setup")
+            .And.Contain("**Jira Administration** to **App admin**")
+            .And.Contain("**Jira admin settings**").And.Contain("`jira-admins-<site>`")
+            .And.NotContain("Jira to its admin role")
+            .And.NotContain("Jira admin role");
     }
 
     [Fact]

@@ -65,7 +65,7 @@ public sealed partial class JiraProjectConnector(
 
     private const int BulkFetchSize = 100;
 
-    private static readonly string[] BulkFieldNames = ["summary", "updated", "attachment", "comment"];
+    private static readonly string[] BulkFieldNames = ["summary", "updated", "attachment"];
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -516,23 +516,22 @@ public sealed partial class JiraProjectConnector(
             CommentsReadAt = readAt,
         };
 
-        // The inline comment field is capped at 20 and serves only as a count.
-        if (item.Fields.Comment?.Total is not 0)
+        // Every issue's comments are read, whatever the inline comment field counts: on a live site
+        // its total said 0 for an issue whose role-restricted comment the comment list returned, and
+        // trusting it hid that comment from every sync and sweep.
+        try
         {
-            try
+            await foreach (var comment in CommentsAsync(issue.Id, ct))
             {
-                await foreach (var comment in CommentsAsync(issue.Id, ct))
-                {
-                    if (!JiraIssueStateStore.IsId(comment.Id))
-                        continue;
-                    issue.Comments.Add(ToStored(comment));
-                }
+                if (!JiraIssueStateStore.IsId(comment.Id))
+                    continue;
+                issue.Comments.Add(ToStored(comment));
             }
-            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
-            {
-                listed.Remove(issue.Id);
-                return;
-            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            listed.Remove(issue.Id);
+            return;
         }
 
         if (config.IncludeAttachments && issue.Attachments.Count > 0)
@@ -965,8 +964,6 @@ public sealed partial class JiraProjectConnector(
 
     private sealed record SearchHit(string Id, DateTimeOffset? Updated);
 
-    private sealed record CommentCount(int? Total);
-
     private sealed record AttachmentResponse(
         string? Id, string? Filename, string? MimeType, long? Size,
         [property: JsonConverter(typeof(JiraTimeConverter))] DateTimeOffset? Created);
@@ -974,8 +971,7 @@ public sealed partial class JiraProjectConnector(
     private sealed record BulkFields(
         string? Summary,
         [property: JsonConverter(typeof(JiraTimeConverter))] DateTimeOffset? Updated,
-        List<AttachmentResponse>? Attachment,
-        CommentCount? Comment);
+        List<AttachmentResponse>? Attachment);
 
     private sealed record BulkIssue(string? Id, string? Key, BulkFields? Fields);
 

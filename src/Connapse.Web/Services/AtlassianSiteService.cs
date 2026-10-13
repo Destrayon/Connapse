@@ -15,7 +15,11 @@ public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict }
 
 public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
 
-public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable }
+/// <summary>
+/// How listing a site's spaces or projects went. <see cref="WrongProduct"/>: the connection is the
+/// site's other product's, whose credential lists nothing here; its message says what to list instead.
+/// </summary>
+public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable, WrongProduct }
 
 /// <summary>A space or project an admin can turn into a source: what the pickers share.</summary>
 public interface IAtlassianSourceItem
@@ -50,13 +54,18 @@ public sealed record AtlassianProjectsResult(
     string? TroubleshootingUrl = null);
 
 /// <param name="Test">The test that ran: the failed probe for <see cref="AtlassianAddOutcome.TestFailed"/>, or a warning saved anyway.</param>
+/// <param name="Name">
+/// For <see cref="AtlassianAddOutcome.Conflict"/>, the connection already in the way: the site's
+/// connection for the same product, or another connection with the name this one would take.
+/// </param>
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
     Connection? Connection = null,
     ConnectionTestResult? Test = null,
     string? SiteUrl = null,
     string? CloudId = null,
-    string? ClientId = null);
+    string? ClientId = null,
+    string? Name = null);
 
 /// <param name="Test">The test of the new credential, when one ran.</param>
 public sealed record AtlassianReplaceResult(
@@ -76,8 +85,7 @@ public sealed record AtlassianTestReport(
     string? StepLabel,
     string? TroubleshootingUrl,
     string? Detail,
-    IReadOnlyList<string> Scopes,
-    IReadOnlyList<AtlassianProductNote>? OtherProducts = null)
+    IReadOnlyList<string> Scopes)
 {
     public static AtlassianTestReport From(ConnectionTestResult result)
     {
@@ -91,41 +99,9 @@ public sealed record AtlassianTestReport(
             step is null ? null : AtlassianConnectionTester.StepLabel(step),
             anchor is null ? null : AtlassianSiteTroubleshooting.UrlOf(anchor),
             result.Details?.GetValueOrDefault("detail") as string,
-            result.Details?.GetValueOrDefault("scopes") as string[] ?? [],
-            OtherProductsOf(result));
+            result.Details?.GetValueOrDefault("scopes") as string[] ?? []);
     }
-
-    // Each product that didn't pass, unless its message is the one the report already shows.
-    private static IReadOnlyList<AtlassianProductNote> OtherProductsOf(ConnectionTestResult result) =>
-        [.. new[] { AtlassianSiteScopes.ConfluenceProduct, AtlassianSiteScopes.JiraProduct }
-            .Where(p => result.Details?.GetValueOrDefault("product:" + p) is string message && message != result.Message)
-            .Select(p => NotSetUp(result, p)
-                ? new AtlassianProductNote(AtlassianSiteScopes.DisplayName(p), NotSetUpMessage, null, null)
-                : new AtlassianProductNote(
-                    AtlassianSiteScopes.DisplayName(p),
-                    (string)result.Details!["product:" + p],
-                    result.Details.GetValueOrDefault($"product:{p}:step") is string step ? AtlassianConnectionTester.StepLabel(step) : null,
-                    result.Details.GetValueOrDefault($"product:{p}:troubleshoot") is string anchor
-                        ? AtlassianSiteTroubleshooting.UrlOf(anchor)
-                        : null))];
-
-    public const string NotSetUpMessage = "Not set up for this site.";
-
-    /// <summary>
-    /// The site passed, and this product's credential couldn't read it at all: the product was never
-    /// set up, which is a choice, not a fault. A product that got further, or failed for a reason
-    /// that isn't about the credential (a rate limit, a timeout), still shows its problem.
-    /// </summary>
-    private static bool NotSetUp(ConnectionTestResult result, string product) =>
-        result.Success
-        && result.Details!.GetValueOrDefault($"product:{product}:step") is AtlassianConnectionTester.IdentityStep
-            or AtlassianConnectionTester.JiraIdentityStep
-        && result.Details.GetValueOrDefault($"product:{product}:troubleshoot") is AtlassianSiteTroubleshooting.CantReadConfluence
-            or AtlassianSiteTroubleshooting.CantReadJira;
 }
-
-/// <summary>A product the test reported on apart from the main message: why it isn't ready, and where to read more.</summary>
-public sealed record AtlassianProductNote(string Name, string Message, string? StepLabel, string? TroubleshootingUrl);
 
 /// <summary>
 /// What adding, resolving, re-testing and replacing the credentials of an Atlassian site mean,
@@ -168,16 +144,20 @@ public sealed class AtlassianSiteService(
     /// Save a site whose only failure is a warning (no page or no other user yet to check
     /// administrator access against). Any other failure is never saved.
     /// </param>
+    /// <param name="product">
+    /// What the connection reads. A site has at most one connection per product; its Jira connection
+    /// is named apart from its Confluence one, which keeps the site's bare host name as before.
+    /// </param>
     public async Task<AtlassianAddResult> AddAsync(
         string? siteUrl, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
-        CancellationToken ct = default)
+        AtlassianProduct product = AtlassianProduct.Confluence, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(siteUrl)
             || string.IsNullOrWhiteSpace(clientId)
             || string.IsNullOrWhiteSpace(clientSecret))
             return new AtlassianAddResult(AtlassianAddOutcome.MissingFields);
 
-        var result = await TestAsync("add", null, new AtlassianSiteTestRequest(siteUrl, clientId, clientSecret), ct);
+        var result = await TestAsync("add", null, new AtlassianSiteTestRequest(siteUrl, clientId, clientSecret, product), ct);
 
         if (!Saveable(result, saveAnyway)
             || !result.Details!.TryGetValue("cloudId", out object? cloudIdValue)
@@ -187,12 +167,20 @@ public sealed class AtlassianSiteService(
         string normalizedSite = (string)siteUrlValue;
         string cloudId = (string)cloudIdValue;
         string trimmedClientId = clientId.Trim();
-        string name = new Uri(normalizedSite).Host;
+        string host = new Uri(normalizedSite).Host;
+        string name = product == AtlassianProduct.Jira ? $"{host} (Jira)" : host;
 
-        string configJson = JsonSerializer.Serialize(new { siteUrl = normalizedSite, cloudId, clientId = trimmedClientId });
+        string configJson = JsonSerializer.Serialize(new
+        {
+            siteUrl = normalizedSite, cloudId, clientId = trimmedClientId, product = AtlassianSite.ProductValue(product),
+        });
 
         // Cancelled while the check ran: stop before anything is saved.
         ct.ThrowIfCancellationRequested();
+
+        // One connection per site and product, whatever it has been renamed to since.
+        if (await SiteConnectionAsync(cloudId, product, ct) is { } existing)
+            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: existing.Name);
 
         Connection connection;
         try
@@ -203,17 +191,29 @@ public sealed class AtlassianSiteService(
         }
         catch (InvalidOperationException)
         {
-            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite);
+            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: name);
         }
 
         await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),
-            new { Provider = "Atlassian", SiteUrl = normalizedSite, CloudId = cloudId, ClientId = trimmedClientId, SavedWithWarning = !result.Success }, ct);
+            new
+            {
+                Provider = "Atlassian", Product = AtlassianSite.ProductValue(product), SiteUrl = normalizedSite, CloudId = cloudId,
+                ClientId = trimmedClientId, SavedWithWarning = !result.Success,
+            }, ct);
 
         if (await connections.RecordHealthAsync(connection.Id, HealthOf(result), ct) is { } health)
             connection = connection with { Health = health };
 
         return new AtlassianAddResult(AtlassianAddOutcome.Created, connection, result, normalizedSite, cloudId, trimmedClientId);
     }
+
+    /// <summary>The site's saved connection for <paramref name="product"/>, if it has one.</summary>
+    private async Task<Connection?> SiteConnectionAsync(string cloudId, AtlassianProduct product, CancellationToken ct) =>
+        (await connections.ListAsync(take: int.MaxValue, ct: ct)).FirstOrDefault(c =>
+            c.Provider == ConnectionProvider.Atlassian
+            && AtlassianSite.FromConfigJson(c.ConfigJson) is { } site
+            && site.Product == product
+            && string.Equals(site.CloudId, cloudId, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Tests a new client ID and secret against the site's stored address and, only when they pass,
@@ -231,7 +231,7 @@ public sealed class AtlassianSiteService(
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return new AtlassianReplaceResult(AtlassianReplaceOutcome.MissingFields);
 
-        var result = await TestAsync("replace", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, clientId, clientSecret), ct);
+        var result = await TestAsync("replace", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, clientId, clientSecret, site.Product), ct);
         if (!Saveable(result, saveAnyway))
             return new AtlassianReplaceResult(AtlassianReplaceOutcome.TestFailed, Test: result);
 
@@ -305,6 +305,10 @@ public sealed class AtlassianSiteService(
             return (AtlassianSpacesOutcome.NotAtlassian, null, null, null);
 
         AtlassianSite? site = AtlassianSite.FromConfigJson(connection.ConfigJson);
+        // Refused before the secret is read: the credential was granted for the connection's own product alone.
+        if (site is not null && site.Product != product)
+            return (AtlassianSpacesOutcome.WrongProduct, null, WrongProductMessage(site.Product), null);
+
         string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
         if (site is null || string.IsNullOrEmpty(secret))
             return (AtlassianSpacesOutcome.Unavailable, null,
@@ -341,6 +345,10 @@ public sealed class AtlassianSiteService(
                 AtlassianSiteTroubleshooting.UrlOf(refused ? refusedEntry : AtlassianSiteTroubleshooting.Unreachable));
         }
     }
+
+    private static string WrongProductMessage(AtlassianProduct actual) => actual == AtlassianProduct.Jira
+        ? "This is a Jira connection; list its projects instead."
+        : "This is a Confluence connection; list its spaces instead.";
 
     private static JiraProjectInfo? ReadProject(JsonElement item)
     {
@@ -391,7 +399,7 @@ public sealed class AtlassianSiteService(
         if (secret is null)
             return null;
 
-        var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret), ct);
+        var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret, site.Product), ct);
         await connections.RecordHealthAsync(connectionId, HealthOf(result), ct);
         return result;
     }
@@ -409,10 +417,7 @@ public sealed class AtlassianSiteService(
         Origin: "test",
         CredentialRejected: result.Details?.ContainsKey("rejected") ?? false,
         Warning: result.Details?.ContainsKey("warning") ?? false,
-        ConfirmedScopes: result.Success ? result.Details?.GetValueOrDefault("scopes") as string[] : null,
-        Products: result.Details?.GetValueOrDefault("products") is string products
-            ? products.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            : null);
+        ConfirmedScopes: result.Success ? result.Details?.GetValueOrDefault("scopes") as string[] : null);
 
     /// <summary>Runs the tester between the audit events that make setup measurable.</summary>
     private async Task<ConnectionTestResult> TestAsync(

@@ -433,6 +433,23 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_BulkFetchCountsNoComments_CommentsStillRead()
+    {
+        // Seen on a live site: bulkfetch's comment total was 0 for an issue whose comment list
+        // returned a comment restricted to the role "QA/Ops Team".
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Role secret", T0,
+            Visibility: new { type = "role", value = "QA/Ops Team", identifier = "QA/Ops Team" }));
+        _jira.BulkCommentTotal = 0;
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        delta.Upserted.Select(f => f.Path).Should().Contain(CommentPath("20001", "3"));
+        Doc(delta, CommentPath("20001", "3"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraComment(CloudId, "20001", "3", false, new JiraRestriction(JiraRestrictionType.Role, "QA/Ops Team", ProjectId)));
+    }
+
+    [Fact]
     public async Task Sync_RestrictedAndInternalComments_EachTheirOwnDocument()
     {
         var issue = Issue("20001", "ENG-1", "Login fails");
@@ -1284,7 +1301,24 @@ public sealed class JiraProjectConnectorTests : IDisposable
 
     private static long Size(SyncDelta delta, string path) => delta.Upserted.Single(f => f.Path == path).SizeBytes;
 
-    private static (ConnectorFactory Factory, Connection Connection) Factory()
+    [Fact]
+    public void Factory_JiraKindOnConfluenceConnection_Throws()
+    {
+        var (factory, connection) = Factory(product: null);
+        var source = Source(connection.Id, """{"kind":"jira-project","projectId":"10000","projectKey":"ENG"}""");
+
+        Action act = () => factory.Create(source, connection, "service-secret");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*'{source.Name}'*Confluence*");
+
+        var (jiraFactory, jiraConnection) = Factory();
+        var space = Source(jiraConnection.Id, """{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG"}""");
+        Action reverse = () => jiraFactory.Create(space, jiraConnection, "service-secret");
+        reverse.Should().Throw<InvalidOperationException>().WithMessage($"*'{space.Name}'*Jira*");
+    }
+
+    /// <param name="product">The connection's product; null writes none, which is a Confluence site.</param>
+    private static (ConnectorFactory Factory, Connection Connection) Factory(string? product = "jira")
     {
         var security = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
         security.CurrentValue.Returns(new SourceSecuritySettings());
@@ -1309,7 +1343,9 @@ public sealed class JiraProjectConnectorTests : IDisposable
             atlassianSettings: atlassian);
         var connection = new Connection(
             Id: Guid.NewGuid(), Name: "conn", Provider: ConnectionProvider.Atlassian,
-            ConfigJson: $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}""",
+            ConfigJson: product is null
+                ? $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}"""
+                : $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1","product":"{{product}}"}""",
             CreatedByUserId: null, CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow);
         return (factory, connection);
     }

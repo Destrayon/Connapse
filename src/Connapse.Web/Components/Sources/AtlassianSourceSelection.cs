@@ -103,11 +103,23 @@ public abstract class AtlassianSourceSelection
     public static int StorableMaxAttachmentMb(int maxAttachmentMb, int fallback = DefaultMaxAttachmentMb) =>
         maxAttachmentMb is >= MinAttachmentMb and <= MaxAttachmentMbLimit ? maxAttachmentMb : fallback;
 
-    public static string SourceName(string siteHost, string itemName)
+    /// <summary>
+    /// A source's default name, <c>{host} / {item}</c> followed by <paramref name="suffix"/>. A name too
+    /// long is shortened before the suffix, so the suffix always survives.
+    /// </summary>
+    public static string SourceName(string siteHost, string itemName, string suffix = "")
     {
         string name = $"{siteHost} / {itemName}";
-        return name.Length <= MaxSourceName ? name : name[..(MaxSourceName - 1)] + "…";
+        return name.Length + suffix.Length <= MaxSourceName
+            ? name + suffix
+            : name[..(MaxSourceName - 1 - suffix.Length)] + "…" + suffix;
     }
+
+    /// <summary>
+    /// What a source's default name ends with: nothing for Confluence, <c> (Jira)</c> for Jira, so a
+    /// space and a project of one name on one site get different names.
+    /// </summary>
+    public virtual string NameSuffix => "";
 
     /// <summary>The ids of this product's items that already have a source, from the scopes of a connection's sources.</summary>
     public HashSet<string> ExistingIdsOf(IEnumerable<Source> sources) => IdsOf(sources, IdField);
@@ -211,7 +223,7 @@ public abstract class AtlassianSourceSelection<TItem, TSelf> : AtlassianSourceSe
                 continue;
             }
 
-            requests.Add(new CreateSourceRequest(SourceName(siteHost, item.Name), connectionId, ScopeJsonFor(item)));
+            requests.Add(new CreateSourceRequest(SourceName(siteHost, item.Name, NameSuffix), connectionId, ScopeJsonFor(item)));
         }
 
         skipped = skippedNames;

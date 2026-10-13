@@ -21,7 +21,8 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     private readonly MemoryCache _cache = new(new MemoryCacheOptions());
     private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
     private readonly IAtlassianIdentityLinkReader _links = Substitute.For<IAtlassianIdentityLinkReader>();
-    private readonly IConnectionStore _connections = AtlassianConnectionStore();
+    private readonly IConnectionStore _connections = AtlassianConnectionStore(
+        [Connapse.Storage.Connectors.Atlassian.AtlassianProduct.Confluence, Connapse.Storage.Connectors.Atlassian.AtlassianProduct.Jira]);
     private readonly Dictionary<string, string?> _uris = [];
     private readonly Guid _user = Guid.NewGuid();
 

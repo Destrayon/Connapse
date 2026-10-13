@@ -450,7 +450,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
 
         await sp.GetRequiredService<IConnectionStore>().CreateAsync(new CreateConnectionRequest(
             $"atl-{_cloudId}", ConnectionProvider.Atlassian,
-            $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-{{_cloudId}}"}""",
+            $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-{{_cloudId}}","product":"jira"}""",
             "service-secret"), null);
 
         await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();

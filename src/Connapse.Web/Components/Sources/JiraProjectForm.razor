@@ -210,6 +210,7 @@
                         Audit, selection, connectionId, listed.Projects!.Count, durationMs));
                     break;
                 case AtlassianSpacesOutcome.Unavailable:
+                case AtlassianSpacesOutcome.WrongProduct:
                     selection.Available = [];
                     (loadError, loadErrorUrl) = (listed.Error, listed.TroubleshootingUrl);
                     await ListFailedAsync(selection, connectionId, "unavailable");

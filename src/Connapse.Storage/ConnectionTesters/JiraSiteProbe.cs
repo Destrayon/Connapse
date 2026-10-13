@@ -28,8 +28,9 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
 
     internal const string NotJiraAdministratorMessage =
         "The service account doesn't have the Administer Jira permission, so Connapse can't check what other people may read "
-        + "in Jira. In Atlassian Administration, go to Directory > Service accounts, set its Jira role to the admin role, "
-        + "then test again.";
+        + "in Jira. In Atlassian Administration, go to Directory > Service accounts and set Jira to User and Jira "
+        + "Administration to App admin, then test again. If it still fails, add the service account to the "
+        + "jira-admins-<site> group under Directory > Groups, which holds Administer Jira, and test again.";
 
     internal const string CantListUsersMessage =
         "The service account can't list Jira users, so Connapse can't find another person to check access for. Check that "
@@ -97,8 +98,10 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         // missing a scope fails here and not at sync.
         run.Enter(JiraContentStep);
         string? issueId;
-        var (searched, searchFailure) = await PostForJsonAsync(api, "rest/api/3/search/jql",
-            new { jql = $"project = {project} ORDER BY updated DESC", maxResults = 1, fields = new[] { "id" } },
+        // A GET, as the sync searches: Atlassian requires more scopes for the POST form of this endpoint.
+        string jql = Uri.EscapeDataString($"project = {project} ORDER BY updated DESC");
+        var (searched, searchFailure) = await ReadJsonAsync(
+            () => api.GetAsync($"rest/api/3/search/jql?jql={jql}&maxResults=1&fields=id", linked),
             AtlassianSiteScopes.JiraIssueDetails, run, linked);
         if (searchFailure is not null)
             return searchFailure;
@@ -107,8 +110,9 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
 
         if (issueId is not null)
         {
-            var (fetched, fetchFailure) = await PostForJsonAsync(api, "rest/api/3/issue/bulkfetch",
-                new { issueIdsOrKeys = new[] { issueId }, fields = new[] { "id" } }, AtlassianSiteScopes.JiraIssue, run, linked);
+            var (fetched, fetchFailure) = await ReadJsonAsync(
+                () => api.PostAsync("rest/api/3/issue/bulkfetch", new { issueIdsOrKeys = new[] { issueId }, fields = new[] { "id" } }, linked),
+                AtlassianSiteScopes.JiraIssue, run, linked);
             if (fetchFailure is not null)
                 return fetchFailure;
             fetched!.Dispose();
@@ -124,7 +128,9 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         }
 
         // Optional: recorded as confirmed when it passes, never a failure without it.
-        bool attachmentsConfirmed = (await ProbeAsync(api, "rest/api/3/attachment/meta", linked)).Outcome == Probe.Granted;
+        // Attachment 0 never exists: Atlassian checks the scope first, so "not found" proves it, and the
+        // content endpoint needs read:attachment:jira alone (attachment/meta needs one more).
+        bool attachmentsConfirmed = (await ProbeAsync(api, "rest/api/3/attachment/content/0", linked)).Outcome == Probe.Granted;
 
         run.Enter(JiraAdminStep);
         string? otherUser;
@@ -230,15 +236,15 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
     }
 
     /// <summary>
-    /// One POST that must answer 200 with JSON. A refusal is a missing <paramref name="scope"/>; any
+    /// One request that must answer 200 with JSON. A refusal is a missing <paramref name="scope"/>; any
     /// other answer is reported as unanswered, never as a missing scope.
     /// </summary>
-    private static async Task<(JsonDocument? Answer, ProductProbeResult? Failure)> PostForJsonAsync(
-        AtlassianApiClient api, string path, object body, string scope, ProductSteps run, CancellationToken ct)
+    private static async Task<(JsonDocument? Answer, ProductProbeResult? Failure)> ReadJsonAsync(
+        Func<Task<HttpResponseMessage>> send, string scope, ProductSteps run, CancellationToken ct)
     {
         try
         {
-            using var response = await api.PostAsync(path, body, ct);
+            using var response = await send();
             string text = await response.Content.ReadAsStringAsync(ct);
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
                 return (null, run.Fail(MissingScopeMessage(scope), AtlassianSiteTroubleshooting.MissingScope,

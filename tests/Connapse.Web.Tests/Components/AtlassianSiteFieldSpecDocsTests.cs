@@ -101,17 +101,32 @@ public class AtlassianSiteStatusTests
     }
 
     [Fact]
-    public void ProductsOf_ReadsWhichProductsTheLastTestCouldRead()
+    public void IsReady_OnlyForTheConnectionsOwnProduct_WhenItsLastCheckPassedOrWarned()
     {
-        AtlassianSiteStatus.ProductsOf(Site(null)).Select(p => p.Text).Should().AllBe("Not checked yet");
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["confluence", "jira"] }))
-            .Select(p => p.Text).Should().Equal("Ready", "Ready");
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true) with { Products = ["jira"] }))
-            .Select(p => (p.Name, p.Ready)).Should().Equal(("Confluence", false), ("Jira", true));
-        // A check from before Jira was tested listed no products, and tested only Confluence.
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: true))).Select(p => p.Ready).Should().Equal(true, false);
-        AtlassianSiteStatus.ProductsOf(Site(Check(ok: false, step: "token") with { Products = ["jira"] }))
-            .Last().Text.Should().Be("Ready at the last successful check");
+        AtlassianSiteStatus.IsReady(Site(null), AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse("not checked yet");
+        AtlassianSiteStatus.IsReady(Site(Check(ok: true)), AtlassianSiteScopes.ConfluenceProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: false, warning: true, step: "admin")), AtlassianSiteScopes.ConfluenceProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: false, step: "token")), AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: true)), AtlassianSiteScopes.JiraProduct).Should().BeFalse("a connection without a product is Confluence");
+
+        Connection jira = Site(Check(ok: true)) with { ConfigJson = JiraConfig };
+        AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.JiraProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse();
+    }
+
+    private const string JiraConfig =
+        """{"siteUrl":"https://acme.atlassian.net","cloudId":"11111111-2222-3333-4444-555555555555","clientId":"x","product":"jira"}""";
+
+    [Fact]
+    public void Label_NamesTheConnectionsProduct()
+    {
+        Connection confluence = Site(null);
+        Connection jira = Site(null) with { Name = "acme.atlassian.net (Jira)", ConfigJson = JiraConfig };
+
+        AtlassianSiteStatus.ProductName(confluence).Should().Be("Confluence", "a connection without a product is Confluence");
+        AtlassianSiteStatus.ProductName(jira).Should().Be("Jira");
+        AtlassianSiteStatus.Label(confluence, "acme.atlassian.net").Should().Be("Confluence · acme.atlassian.net");
+        AtlassianSiteStatus.Label(jira, jira.Name).Should().Be("Jira · acme.atlassian.net (Jira)");
     }
 
     [Fact]
@@ -153,6 +168,29 @@ public class ConnectionsPageLifecycleTests
     public void AtlassianRows_ShowTheSiteStatus()
     {
         Markup.Should().Contain("AtlassianSiteStatus.Of(c)").And.Contain("Replace credentials");
+    }
+
+    [Fact]
+    public void AddConnection_OffersAConfluenceSiteAndAJiraSite()
+    {
+        Markup.Should().Contain("@bind=\"form.ProviderChoice\"")
+            .And.Contain("<option value=\"@ConnectionForm.ConfluenceSiteChoice\">Confluence site</option>")
+            .And.Contain("<option value=\"@ConnectionForm.JiraSiteChoice\">Jira site</option>")
+            .And.NotContain(">Atlassian site</option>");
+        Markup.Should().Contain("Product=\"@form.AtlassianProduct\"", "each add form shows its own product's scopes and steps");
+    }
+
+    [Fact]
+    public void ProviderList_IsLockedWhileAnAtlassianCheckRuns()
+    {
+        Markup.Should().Contain("@bind=\"form.ProviderChoice\" disabled=\"@(!isNew || atlassianChecking)\"")
+            .And.Contain("CheckingChanged=\"@((bool checking) => atlassianChecking = checking)\"");
+    }
+
+    [Fact]
+    public void AtlassianRows_NameTheProductBesideTheHost()
+    {
+        Markup.Should().Contain("AtlassianSiteStatus.Label(connection, form.AtlassianSiteHost ?? \"—\")");
     }
 
     [Fact]

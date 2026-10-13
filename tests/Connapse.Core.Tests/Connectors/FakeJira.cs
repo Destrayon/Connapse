@@ -19,7 +19,7 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     /// <summary>The site's REST v3 root, such as <c>/ex/jira/{cloudId}/rest/api/3</c>.</summary>
     public string Root => $"/ex/jira/{cloudId}/rest/api/3";
 
-    /// <summary>The body of each <c>search/jql</c> request.</summary>
+    /// <summary>The method and query of each <c>search/jql</c> request the site test makes.</summary>
     public List<string> Searches { get; } = [];
 
     /// <summary>The body of each <c>permissions/check</c> request.</summary>
@@ -32,12 +32,12 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
         api.MapJson(Root + "/project/search", new { values = new[] { new { id = ProjectId, key = "ENG" } }, total = 1, isLast = true });
         api.Map(Root + "/search/jql", request =>
         {
-            Searches.Add(Body(request));
+            Searches.Add($"{request.Method} {Uri.UnescapeDataString(request.RequestUri!.Query)}");
             return FakeAtlassianApi.Json(new { issues = new[] { new { id = IssueId } } });
         });
         api.MapJson(Root + "/issue/bulkfetch", new { issues = new[] { new { id = IssueId } }, issueErrors = Array.Empty<object>() });
         api.MapJson(Root + $"/issue/{IssueId}/comment", new { comments = Array.Empty<object>(), startAt = 0, maxResults = 1, total = 0 });
-        api.MapJson(Root + "/attachment/meta", new { enabled = true, uploadLimit = 10485760 });
+        api.Map(Root + "/attachment/content/0", _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
         Users(
             new { accountId = OwnAccount, accountType = "app" },
             new { accountId = "customer-1", accountType = "customer" },
@@ -171,6 +171,12 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
 
     /// <summary>The most comments one comment page holds, whatever <c>maxResults</c> asks.</summary>
     public int CommentPageSize { get; set; } = 100;
+
+    /// <summary>
+    /// When set, the comment total bulkfetch reports for every issue, whatever its comments are: a live
+    /// site reported 0 for an issue whose role-restricted comment the comment list returned.
+    /// </summary>
+    public int? BulkCommentTotal { get; set; }
 
     /// <summary>Maps the routes a sync reads: fields, <c>search/jql</c> (GET) and <c>bulkfetch</c>.</summary>
     public FakeJira MapSync()
@@ -352,7 +358,7 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
                         created = Time(a.Created),
                         content = $"https://acme.atlassian.net/rest/api/3/attachment/content/{a.Id}",
                     }),
-                    comment = new { total = i.Comments.Count, maxResults = 20, startAt = 0, comments = i.Comments.Take(20).Select(Comment) },
+                    comment = new { total = BulkCommentTotal ?? i.Comments.Count, maxResults = 20, startAt = 0, comments = i.Comments.Take(20).Select(Comment) },
                 },
             }),
             issueErrors = ids.Where(id => !_issues.ContainsKey(id)).Select(id => new { issueIdsOrKeys = new[] { id }, status = 404 }),

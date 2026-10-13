@@ -361,6 +361,27 @@ public sealed class AtlassianApiClientTests : IDisposable
         AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://evil.example","cloudId":"{{CloudId}}","clientId":"c"}""")
             .Should().BeNull();
 
+    [Fact]
+    public void FromConfigJson_NoProduct_IsConfluence()
+    {
+        AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c"}""")!
+            .Product.Should().Be(AtlassianProduct.Confluence);
+        AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c","product":"jira"}""")!
+            .Product.Should().Be(AtlassianProduct.Jira);
+        AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c","product":"confluence"}""")!
+            .Product.Should().Be(AtlassianProduct.Confluence);
+    }
+
+    [Theory]
+    [InlineData("\"bitbucket\"")]
+    [InlineData("\"\"")]
+    [InlineData("1")]
+    [InlineData("null")]
+    public void FromConfigJson_UnknownProduct_Null(string product) =>
+        AtlassianSite.FromConfigJson(
+                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c","product":{{product}}}""")
+            .Should().BeNull();
+
     private static HttpResponseMessage WithLink(HttpResponseMessage response, string link)
     {
         response.Headers.TryAddWithoutValidation("Link", link);

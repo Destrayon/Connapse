@@ -34,16 +34,22 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         _cache.Dispose();
     }
 
-    internal static IConnectionStore AtlassianConnectionStore(params string[] cloudIds)
+    internal static IConnectionStore AtlassianConnectionStore(params string[] cloudIds) =>
+        AtlassianConnectionStore([AtlassianProduct.Confluence], cloudIds);
+
+    /// <summary>One connection per product per site; a Confluence one is written without a product, as before Jira.</summary>
+    internal static IConnectionStore AtlassianConnectionStore(IReadOnlyList<AtlassianProduct> products, params string[] cloudIds)
     {
         if (cloudIds.Length == 0) cloudIds = [CloudId];
         var store = Substitute.For<IConnectionStore>();
         var connections = new List<Connection>();
         foreach (string cloudId in cloudIds)
+        foreach (AtlassianProduct product in products)
         {
             var id = Guid.NewGuid();
-            connections.Add(new Connection(id, "site-" + cloudId, ConnectionProvider.Atlassian,
-                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-{{cloudId}}"}""",
+            string productJson = product == AtlassianProduct.Jira ? ",\"product\":\"jira\"" : "";
+            connections.Add(new Connection(id, $"site-{cloudId}-{product}", ConnectionProvider.Atlassian,
+                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-{{cloudId}}"{{productJson}}}""",
                 null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true));
             store.GetSecretAsync(id, Arg.Any<CancellationToken>()).Returns("secret");
         }

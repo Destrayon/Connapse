@@ -1,10 +1,12 @@
 using System.Net;
+using Connapse.Core.Interfaces;
 using Connapse.Core.Tests.Connectors;
 using Connapse.Storage.CloudScope;
 using Connapse.Storage.Connectors.Atlassian;
 using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 using static Connapse.Core.Tests.CloudScope.ConfluencePermissionCheckerTests;
 
@@ -39,7 +41,7 @@ public sealed class JiraPermissionCheckerTests : IDisposable
     internal static JiraPermissionChecker NewJiraChecker(IMemoryCache cache) =>
         new(cache, NullLogger<JiraPermissionChecker>.Instance);
 
-    private AtlassianSiteLookup Sites() => NewChecker(_api, _cache, AtlassianConnectionStore()).NewSiteLookup();
+    private AtlassianSiteLookup Sites() => NewChecker(_api, _cache, AtlassianConnectionStore([AtlassianProduct.Jira])).NewSiteLookup();
 
     private Task<bool[]> CheckAsync(params JiraResource[] resources) => CheckAsync(Account, resources);
 
@@ -419,6 +421,38 @@ public sealed class JiraPermissionCheckerTests : IDisposable
         Calls($"/project/{Project}/role").Should().Be(1);
         Calls($"/project/{Project}/role/10002").Should().Be(1);
     }
+
+    [Fact]
+    public async Task Lookup_SameCloudBothProducts_EachCheckerGetsItsOwn()
+    {
+        // The Jira connection is listed first, so a lookup on the cloud id alone would hand Confluence its credential.
+        var store = Substitute.For<IConnectionStore>();
+        Connection jira = SiteConnection("jira-client", ",\"product\":\"jira\""), confluence = SiteConnection("confluence-client", "");
+        store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([jira, confluence]);
+        store.GetSecretAsync(jira.Id, Arg.Any<CancellationToken>()).Returns("jira-secret");
+        store.GetSecretAsync(confluence.Id, Arg.Any<CancellationToken>()).Returns("confluence-secret");
+        var sites = NewChecker(_api, _cache, store).NewSiteLookup();
+
+        var forConfluence = await sites.SiteForAsync(CloudId, AtlassianProduct.Confluence, default);
+        var forJira = await sites.SiteForAsync(CloudId, AtlassianProduct.Jira, default);
+
+        forConfluence!.Value.Site.Should().Be(new AtlassianSite("https://acme.atlassian.net", CloudId, "confluence-client"));
+        forConfluence.Value.Secret.Should().Be("confluence-secret");
+        forJira!.Value.Site.Should().Be(new AtlassianSite("https://acme.atlassian.net", CloudId, "jira-client", AtlassianProduct.Jira));
+        forJira.Value.Secret.Should().Be("jira-secret");
+
+        // A site with only a Confluence connection has nothing for the Jira checker, which denies without asking.
+        _jira.Browse(Account, "10001");
+        var confluenceOnly = NewChecker(_api, _cache, AtlassianConnectionStore()).NewSiteLookup();
+        (await confluenceOnly.SiteForAsync(CloudId, AtlassianProduct.Jira, default)).Should().BeNull();
+        (await _checker.CanSeeAsync(CloudId, Account, [Issue("10001")], confluenceOnly, default)).Should().Equal(false);
+        PermissionCalls.Should().Be(0);
+    }
+
+    private static Connection SiteConnection(string clientId, string product) => new(
+        Guid.NewGuid(), clientId, ConnectionProvider.Atlassian,
+        $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"{{clientId}}"{{product}}}""",
+        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
 
     [Fact]
     public async Task Check_CacheKeyIncludesProduct()

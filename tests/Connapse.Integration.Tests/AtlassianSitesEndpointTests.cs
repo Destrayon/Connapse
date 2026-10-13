@@ -25,8 +25,10 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 {
-    private const string CloudId = "11111111-2222-3333-4444-555555555555";
-    private const string Root = "/ex/confluence/" + CloudId + "/wiki";
+    // A site of its own per test: a site has one connection per product, and every host the fake
+    // answers for resolves to this one cloud id.
+    private readonly string _cloudId = Guid.NewGuid().ToString("D");
+    private string Root => "/ex/confluence/" + _cloudId + "/wiki";
     private const string Secret = "atlassian-secret-value-123";
     private const string EditorEmail = "editor@atlassian-sites-tests.connapse.io";
     private const string EditorPassword = "EditorTest1!";
@@ -48,7 +50,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         _api.FailTokenWith(null);
         _api.AnswerTokenWith(null);
         _api.FailWith(null);
-        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
+        _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = _cloudId });
         _api.MapJson(Root + "/rest/api/user/current", new { accountId = "svc" });
         _api.MapJson(Root + "/api/v2/spaces", new { results = new[] { new { id = "1" } } });
         _api.MapJson(Root + "/api/v2/pages", new { results = new[] { new { id = "7" } } });
@@ -94,8 +96,8 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         return client;
     }
 
-    private Task<HttpResponseMessage> CreateAsync(HttpClient client, string host, string secret = Secret) =>
-        client.PostAsJsonAsync(Sites, new { siteUrl = $"https://{host}", clientId = "client-1", clientSecret = secret });
+    private Task<HttpResponseMessage> CreateAsync(HttpClient client, string host, string secret = Secret, string? product = null) =>
+        client.PostAsJsonAsync(Sites, new { siteUrl = $"https://{host}", clientId = "client-1", clientSecret = secret, product });
 
     private async Task<Connection?> FindAsync(string name)
     {
@@ -142,7 +144,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("cloudId").GetString().Should().Be(CloudId);
+        body.GetProperty("cloudId").GetString().Should().Be(_cloudId);
         body.GetProperty("siteUrl").GetString().Should().Be("https://acme.atlassian.net");
     }
 
@@ -221,9 +223,23 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         body.GetProperty("siteUrl").GetString().Should().Be("https://detail.atlassian.net");
         body.GetProperty("health").GetProperty("succeeded").GetBoolean().Should().BeTrue();
         body.GetProperty("health").GetProperty("lastSucceededAt").ValueKind.Should().Be(JsonValueKind.String);
-        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("product").GetString())
-            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.All.Select(s => s.Product));
-        body.GetProperty("scopes").EnumerateArray().Count(s => s.GetProperty("product").GetString() == "confluence").Should().Be(7);
+        body.GetProperty("product").GetString().Should().Be("confluence");
+        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("name").GetString())
+            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.Confluence.Select(s => s.Name),
+                "a Confluence connection's credential needs Confluence scopes only");
+    }
+
+    [Fact]
+    public async Task Get_JiraConnection_ListsOnlyTheJiraScopes()
+    {
+        Guid id = await CreateSiteAsync("detail-jira.atlassian.net", product: "jira");
+
+        var body = await (await _fixture.AdminClient.GetAsync($"{Sites}/{id}")).Content.ReadFromJsonAsync<JsonElement>();
+
+        body.GetProperty("product").GetString().Should().Be("jira");
+        body.GetProperty("scopes").EnumerateArray().Select(s => s.GetProperty("name").GetString())
+            .Should().Equal(Connapse.Storage.ConnectionTesters.AtlassianSiteScopes.Jira.Select(s => s.Name));
+        body.GetProperty("scopes").EnumerateArray().Should().OnlyContain(s => s.GetProperty("product").GetString() == "jira");
     }
 
     [Fact]
@@ -345,11 +361,8 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         string raw = await response.Content.ReadAsStringAsync();
         raw.Should().NotContain(Secret);
-        // This fake site has no Jira, which is a choice, not a fault: the report says so without a fix.
-        var jira = JsonDocument.Parse(raw).RootElement.GetProperty("test").GetProperty("otherProducts")[0];
-        jira.GetProperty("name").GetString().Should().Be("Jira");
-        jira.GetProperty("message").GetString().Should().Be("Not set up for this site.");
-        jira.GetProperty("troubleshootingUrl").ValueKind.Should().Be(JsonValueKind.Null);
+        // A Confluence connection's report names Confluence alone (#725).
+        JsonDocument.Parse(raw).RootElement.GetProperty("test").TryGetProperty("otherProducts", out _).Should().BeFalse();
 
         var connection = await FindAsync("passing.atlassian.net");
         connection.Should().NotBeNull();
@@ -357,7 +370,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         connection.HasSecret.Should().BeTrue();
 
         var site = AtlassianSite.FromConfigJson(connection.ConfigJson);
-        site.Should().Be(new AtlassianSite("https://passing.atlassian.net", CloudId, "client-1"));
+        site.Should().Be(new AtlassianSite("https://passing.atlassian.net", _cloudId, "client-1"));
 
         using var scope = _fixture.Factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
@@ -375,9 +388,12 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         second.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
-    private async Task<Guid> CreateSiteAsync(string host)
+    private async Task<Guid> CreateSiteAsync(string host, string? product = null)
     {
-        var response = await CreateAsync(_fixture.AdminClient, host);
+        // A Jira connection's test reads Jira, so the fake site answers as a working Jira.
+        if (product == "jira")
+            new FakeJira(_api, _cloudId).MapSiteTest();
+        var response = await CreateAsync(_fixture.AdminClient, host, product: product);
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("id").GetGuid();
@@ -456,11 +472,12 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
     public async Task Rename_BlankOrTakenName_IsRefused()
     {
         Guid id = await CreateSiteAsync("rename-refused.atlassian.net");
-        await CreateSiteAsync("rename-taken.atlassian.net");
+        // The site's other connection: the test site has one cloud id, and one connection per product.
+        await CreateSiteAsync("rename-taken.atlassian.net", product: "jira");
 
         (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = " " }))
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = "rename-taken.atlassian.net" }))
+        (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{id}", new { name = "rename-taken.atlassian.net (Jira)" }))
             .StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await _fixture.AdminClient.PatchAsJsonAsync($"{Sites}/{Guid.NewGuid()}", new { name = "x" }))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -589,6 +606,23 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         var response = await _fixture.AdminClient.GetAsync($"{Sites}/{other.Id}/spaces");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task SpacesAndProjects_OtherProductsConnection_Return400()
+    {
+        Guid confluence = await CreateSiteAsync("list-wrong-product.atlassian.net");
+        Guid jira = await CreateSiteAsync("list-wrong-product.atlassian.net", product: "jira");
+
+        var spaces = await _fixture.AdminClient.GetAsync($"{Sites}/{jira}/spaces");
+        var projects = await _fixture.AdminClient.GetAsync($"{Sites}/{confluence}/projects");
+
+        spaces.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await spaces.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("This is a Jira connection; list its projects instead.");
+        projects.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await projects.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("This is a Confluence connection; list its spaces instead.");
     }
 
     [Fact]
