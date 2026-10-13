@@ -454,7 +454,8 @@ public sealed partial class JiraProjectConnector(
     /// <summary>
     /// Fetches the given issues a hundred at a time, and each one's comments in full, into
     /// <paramref name="fetched"/>. An issue bulkfetch does not return keeps its previous record
-    /// (or, new, waits for the next cycle); one whose comments answer 404 was deleted since the
+    /// (or, new, waits for the next cycle), unless bulkfetch reports it with an error: a 404 takes
+    /// it out of the listing, and any other error stops the cycle. One whose comments answer 404 was deleted since the
     /// listing and is taken out of it. Issues are handled in id order, and <paramref name="handled"/>
     /// is told each id once it is done with, so an issue cut off partway is never in the result.
     /// </summary>
@@ -473,6 +474,23 @@ public sealed partial class JiraProjectConnector(
                 response.EnsureSuccessStatusCode();
                 bulk = await response.Content.ReadFromJsonAsync<BulkResponse>(Json, ct)
                     ?? throw new AtlassianMalformedResponseException("Jira returned an empty bulkfetch answer.");
+            }
+
+            // Only a 404 says an issue is gone. Any other error is an issue Jira could not return
+            // now, and applying the cycle would drop its record, so the cycle stops with nothing applied.
+            foreach (var error in bulk.IssueErrors ?? [])
+            {
+                if (error.Status is not 404)
+                {
+                    throw new HttpRequestException(
+                        $"Jira could not return {error.IssueIdsOrKeys?.Count ?? 0} issue(s) in a bulk fetch "
+                        + $"(HTTP {error.Status?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "status missing"}).",
+                        null,
+                        error.Status is { } status ? (HttpStatusCode)status : null);
+                }
+
+                foreach (string gone in error.IssueIdsOrKeys ?? [])
+                    listed.Remove(gone);
             }
 
             var returned = new Dictionary<string, BulkIssue>(StringComparer.Ordinal);
@@ -975,7 +993,9 @@ public sealed partial class JiraProjectConnector(
 
     private sealed record BulkIssue(string? Id, string? Key, BulkFields? Fields);
 
-    private sealed record BulkResponse(List<BulkIssue>? Issues);
+    private sealed record BulkIssueError(List<string>? IssueIdsOrKeys, int? Status);
+
+    private sealed record BulkResponse(List<BulkIssue>? Issues, List<BulkIssueError>? IssueErrors);
 
     private sealed record CommentAuthor(string? AccountId, string? DisplayName);
 

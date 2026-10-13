@@ -215,6 +215,13 @@ public sealed class JiraProjectConnectorTests : IDisposable
         files.Single(f => f.Path == "/issues/20001.md").Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 First");
     }
 
+    private void BulkFetchAnswersWithIssueError(object issueError) =>
+        _api.Map(_jira.Root + "/issue/bulkfetch", _ => FakeAtlassianApi.Json(new
+        {
+            issues = new[] { new { id = "20001", key = "ENG-1", fields = new { summary = "First", updated = FakeJira.Time(T0), attachment = Array.Empty<object>(), comment = new { total = 0 } } } },
+            issueErrors = new[] { issueError },
+        }));
+
     [Fact]
     public async Task Sync_FreshStart_IssueBulkFetchDidNotReturn_HasNoRecord()
     {
@@ -222,16 +229,68 @@ public sealed class JiraProjectConnectorTests : IDisposable
         Issue("20002", "ENG-2", "Second");
         await _connector.GetChangesAsync(null);
 
-        // Listed, but bulkfetch reports it in issueErrors: its record from before the resync is not kept.
-        _api.Map(_jira.Root + "/issue/bulkfetch", _ => FakeAtlassianApi.Json(new
-        {
-            issues = new[] { new { id = "20001", key = "ENG-1", fields = new { summary = "First", updated = FakeJira.Time(T0), attachment = Array.Empty<object>(), comment = new { total = 0 } } } },
-            issueErrors = new[] { new { issueIdsOrKeys = new[] { "20002" }, status = 500 } },
-        }));
+        // Listed, but bulkfetch reports it gone (404): its record from before the resync is not kept.
+        BulkFetchAnswersWithIssueError(new { issueIdsOrKeys = new[] { "20002" }, status = 404 });
         var second = await _connector.GetChangesAsync(null);
 
         second.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
         (await _connector.ExistsAsync("/issues/20002.md")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Sync_IssueBulkFetchError404_IssueDropsOut()
+    {
+        Issue("20001", "ENG-1", "First");
+        var second = Issue("20002", "ENG-2", "Second");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        second.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        BulkFetchAnswersWithIssueError(new { issueIdsOrKeys = new[] { "20002" }, status = 404 });
+        var delta = await _connector.GetChangesAsync(first.NextCursor);
+
+        delta.Upserted.Select(f => f.Path).Should().Equal("/issues/20001.md");
+    }
+
+    public static TheoryData<object> FailedIssueErrors => new()
+    {
+        new { issueIdsOrKeys = new[] { "20002" }, status = 500 },
+        new { issueIdsOrKeys = new[] { "20002" }, status = 403 },
+        new { issueIdsOrKeys = new[] { "20002" } },
+    };
+
+    [Theory]
+    [MemberData(nameof(FailedIssueErrors))]
+    public async Task Sync_FreshStart_IssueBulkFetchErrorNot404_UnavailableAndStoreUntouched(object issueError)
+    {
+        var edited = Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        await _connector.GetChangesAsync(null);
+
+        edited.Summary = "First, edited";
+        BulkFetchAnswersWithIssueError(issueError);
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(null))
+            .Should().ThrowAsync<AtlassianUnavailableException>();
+
+        var files = await _connector.ListFilesAsync();
+        files.Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", "/issues/20002.md");
+        files.Single(f => f.Path == "/issues/20001.md").Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 First");
+    }
+
+    [Fact]
+    public async Task Sync_IssueBulkFetchError500_UnavailableAndStoreUntouched()
+    {
+        Issue("20001", "ENG-1", "First");
+        var second = Issue("20002", "ENG-2", "Second");
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        second.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        BulkFetchAnswersWithIssueError(new { issueIdsOrKeys = new[] { "20002" }, status = 500 });
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor))
+            .Should().ThrowAsync<AtlassianUnavailableException>();
+
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().BeEquivalentTo("/issues/20001.md", "/issues/20002.md");
     }
 
     [Theory]
