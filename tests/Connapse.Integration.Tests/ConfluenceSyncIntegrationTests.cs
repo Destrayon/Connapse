@@ -484,6 +484,63 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         second.WithheldDeletions.Should().Be(12, "12 of the 15 documents indexed before the cycle is over the guard");
         second.Deleted.Should().Be(0);
         queue.Jobs.Should().HaveCount(150, "the additions still apply");
+
+        // Retried without approval, while the additions are still queued and again once they have
+        // settled: the 150 new documents must not release the hold by diluting the ratio.
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var queued = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        queued.WithheldDeletions.Should().Be(12);
+        queued.Deleted.Should().Be(0);
+
+        await SettleAsync(scope.ServiceProvider, queue);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var settled = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        settled.WithheldDeletions.Should().Be(12);
+        settled.Deleted.Should().Be(0);
+        (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().Be(12);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var approved = await service.SyncSourceAsync(
+            (await sources.GetAsync(source.Id))!, connection, CancellationToken.None, applyWithheldDeletions: true);
+        approved.Deleted.Should().Be(12);
+        approved.WithheldDeletions.Should().Be(0);
+        (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().BeNull();
+    }
+
+    /// <summary>A withhold ends without approval only when the remote recovers: nothing is missing any more.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task WithheldDeletions_RemoteRecovers_TheHoldClears(bool incremental)
+    {
+        _attachments.ReconcileInterval = incremental ? TimeSpan.FromDays(7) : TimeSpan.Zero;
+        SeedSpace();
+        var files = Enumerable.Range(1, 12).Select(i => new FakeConfluenceAttachment(
+            (500 + i).ToString(), "101", $"file{i}.txt", System.Text.Encoding.UTF8.GetBytes("attached text"),
+            new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero))).ToList();
+        files.ForEach(_api.Confluence.AddAttachment);
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        files.ForEach(f => _api.Confluence.RemoveAttachment(f.Id));
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).WithheldDeletions.Should().Be(12);
+
+        // Back, as a remote that recovers from a bad answer would be.
+        files.ForEach(_api.Confluence.AddAttachment);
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var recovered = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+
+        recovered.Error.Should().BeNull();
+        recovered.WithheldDeletions.Should().Be(0);
+        recovered.Deleted.Should().Be(0);
+        (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().BeNull("an empty vanished set clears the hold");
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(15);
     }
 
     [Fact]

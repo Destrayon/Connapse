@@ -584,9 +584,13 @@ public class SourceSyncService(
         // a first-ever sync carrying applyWithheldDeletions=true is still guarded.
         int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
 
-        bool withhold = approved is null
-            ? DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count)
-            : vanished.Count > approved.Value;
+        // A hold already pending stays until it is approved, or until nothing is missing any more:
+        // the ratio is not re-judged, since documents added since it tripped would dilute it.
+        bool withhold = approved is not null
+            ? vanished.Count > approved.Value
+            : source.WithheldDeletions is not null
+                ? vanished.Count > 0
+                : DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count);
 
         int deleted = 0;
         if (withhold)
@@ -854,7 +858,8 @@ public class SourceSyncService(
     /// against <paramref name="indexed"/>, the source's documents before this cycle's upserts: a connector that misread its remote must not be
     /// able to empty the source a delta at a time either. Withheld, the count is recorded for an
     /// administrator to approve, and an approval applies a set no larger than the one shown.
-    /// Nothing to delete leaves a pending approval as it is.
+    /// While a hold is pending, any deletion joins it unapproved. Nothing to delete leaves a pending
+    /// approval as it is: a delta reports changes only, so it cannot show the remote recovered.
     /// </summary>
     private async Task<(int Deleted, int Withheld)> DeleteDeltaPathsAsync(
         Source source, IReadOnlyList<string> paths, int indexed, ISourceStore sourceStore, KnowledgeDbContext context,
@@ -866,9 +871,10 @@ public class SourceSyncService(
         if (present == 0) return (0, 0);
 
         int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
-        bool withhold = approved is null
-            ? DeletionGuard.ShouldWithhold(present, indexed)
-            : present > approved.Value;
+        // As for a full listing: a pending hold is not re-judged, only approved or cleared.
+        bool withhold = approved is not null
+            ? present > approved.Value
+            : source.WithheldDeletions is not null || DeletionGuard.ShouldWithhold(present, indexed);
 
         if (withhold)
         {
