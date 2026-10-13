@@ -259,13 +259,13 @@ public sealed partial class JiraProjectConnector(
     /// restriction of its tie now. A tying comment may have been made public, deleted, edited to drop
     /// the link, or hidden from the service account, and Connapse cannot tell those apart, so a file
     /// a restricted comment once hid is never listed unrestricted, nor under another comment's
-    /// restriction alone. Only a file no restricted comment ever tied is listed unrestricted.
+    /// restriction alone. Only a file no restricted comment ever tied is listed unrestricted. A file
+    /// more than one comment has tied is deny-all too, even when they agree: its URI names one
+    /// comment for search to re-check, and another could tighten unseen. Kept whether or not
+    /// attachments are listed, and across a fresh start, which still reads the last record here.
     /// </summary>
     private void KeepTiesHidden(JiraStoredIssue? last, JiraStoredIssue now)
     {
-        if (!config.IncludeAttachments)
-            return;
-
         var before = (last?.Attachments ?? []).ToDictionary(a => a.Id, StringComparer.Ordinal);
         var comments = now.Comments.DistinctBy(c => c.Id).ToDictionary(c => c.Id, StringComparer.Ordinal);
         foreach (var attachment in now.Attachments)
@@ -284,8 +284,7 @@ public sealed partial class JiraProjectConnector(
             var tie = attachment.RestrictingCommentId is { } tyingId && comments.TryGetValue(tyingId, out var tying)
                 ? Route(tying, config.ProjectId)
                 : default;
-            bool settled = tie.Separate && attachment.TiedBy.All(id =>
-                comments.TryGetValue(id, out var comment) && Route(comment, config.ProjectId) == tie);
+            bool settled = tie.Separate && attachment.TiedBy.Count == 1 && attachment.TiedBy[0] == attachment.RestrictingCommentId;
             if (!settled)
             {
                 attachment.RestrictingCommentId ??= attachment.TiedBy[0];
@@ -690,7 +689,9 @@ public sealed partial class JiraProjectConnector(
             return;
         }
 
-        if (config.IncludeAttachments && issue.Attachments.Count > 0)
+        // Tied whether or not attachments are listed: the history must not have a gap that
+        // turning them back on would publish as an unrestricted file.
+        if (issue.Attachments.Count > 0)
             await TieAttachmentsAsync(issue, ct);
 
         fetched[issue.Id] = issue;
