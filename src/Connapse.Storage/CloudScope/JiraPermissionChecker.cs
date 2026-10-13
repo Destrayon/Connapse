@@ -276,6 +276,9 @@ public sealed class JiraPermissionChecker(IMemoryCache cache, ILogger<JiraPermis
     /// </summary>
     private static bool Matches(LiveComment live, JiraResource uri)
     {
+        // An attachment released because its comment went public is admitted while it stays public.
+        if (uri is { Kind: JiraResourceKind.Attachment, Internal: false, Restriction: null })
+            return !live.Separate && !live.Internal && live.Restriction is null && !live.DenyAll;
         if (!live.Separate || live.DenyAll || live.Internal != uri.Internal)
             return false;
         JiraRestriction? restriction = live.Restriction is { Type: JiraRestrictionType.Role } role

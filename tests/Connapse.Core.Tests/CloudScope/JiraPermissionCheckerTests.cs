@@ -742,6 +742,50 @@ public sealed class JiraPermissionCheckerTests : IDisposable
         Calls("/issue/10001/comment/501").Should().Be(1);
     }
 
+    [Fact]
+    public async Task Check_AttachmentGovernedByPublicComment_StillPublic_Allowed()
+    {
+        _jira.Browse(Account, "10001");
+        _jira.LiveComment("10001", "501");
+        AtlassianUri.TryParseJira(AtlassianUri.ForJiraAttachment(CloudId, "10001", "30001", false, null, "501"), out var attachment)
+            .Should().BeTrue();
+
+        (await CheckAsync(attachment)).Should().Equal(true);
+        Calls("/issue/10001/comment/501").Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("restricted again")]
+    [InlineData("internal again")]
+    [InlineData("gone")]
+    [InlineData("read fails")]
+    public async Task Check_AttachmentGovernedByPublicComment_NoLongerPublic_DeniedToBrowser(string now)
+    {
+        // Released to public at the last sync; the comment changed since, with no sync in between.
+        _jira.Browse(Account, "10001");
+        _jira.Agent(Account, "10001");
+        _jira.Groups(Account, ("engineering", GroupA)); // in the group even, and an agent: the URI grants neither
+        if (now == "restricted again")
+            _jira.LiveComment("10001", "501", new { type = "group", identifier = GroupA });
+        else if (now == "internal again")
+            _jira.LiveComment("10001", "501", jsdPublic: false);
+        else
+            _jira.LiveCommentFails("10001", "501", now == "gone" ? HttpStatusCode.NotFound : HttpStatusCode.InternalServerError);
+        AtlassianUri.TryParseJira(AtlassianUri.ForJiraAttachment(CloudId, "10001", "30001", false, null, "501"), out var attachment)
+            .Should().BeTrue();
+
+        (await CheckAsync(Issue("10001"), attachment)).Should().Equal(true, false);
+    }
+
+    [Fact]
+    public async Task Check_AttachmentGovernedByPublicComment_NoBrowse_DeniedWithoutRead()
+    {
+        _jira.LiveComment("10001", "501");
+
+        (await CheckAsync(TiedAttachment("10001", "501"))).Should().Equal(false);
+        CommentReads.Should().Be(0);
+    }
+
     [Theory]
     [InlineData("10000", true)]
     [InlineData("10099", false)]

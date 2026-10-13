@@ -121,9 +121,10 @@ public static partial class AtlassianUri
     /// <summary>
     /// Reads a Jira document's address. Rejects shapes no document has: an issue carrying a marker or
     /// restriction, a comment with neither (only restricted comments are separate documents), a tying
-    /// comment after anything but an attachment, a tied attachment with neither marker nor
-    /// restriction, an untied one with any but deny-all, and a role name that is blank once
-    /// unescaped or not escaped in canonical form.
+    /// comment after anything but an attachment, an untied attachment with any restriction but
+    /// deny-all, and a role name that is blank once unescaped or not escaped in canonical form. A
+    /// tied attachment with neither marker nor restriction is one whose comment went public: it
+    /// follows that comment live.
     /// </summary>
     public static bool TryParseJira(string? uri, out JiraResource resource)
     {
@@ -168,7 +169,7 @@ public static partial class AtlassianUri
             return false;
         // An untied attachment is governed by its issue alone, so a restriction there could only be stale.
         bool untiedShape = restriction == JiraRestriction.DenyAll || (restriction is null && !internalNote);
-        if (kind == JiraResourceKind.Attachment && (tied ? !internalNote && restriction is null : !untiedShape))
+        if (kind == JiraResourceKind.Attachment && !tied && !untiedShape)
             return false;
 
         resource = new JiraResource(

@@ -132,6 +132,18 @@ public sealed class AtlassianUriTests
         Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", true, restriction, "55"));
     }
 
+    [Fact]
+    public void JiraUri_AttachmentGovernedByPublicComment_RoundTrips()
+    {
+        // Released because its comment went public: no restriction, but still the comment to re-check.
+        string uri = AtlassianUri.ForJiraAttachment(Cloud, "10001", "77", false, null, "55");
+
+        uri.Should().Be($"atlassian://{Cloud}/jira/issue/10001/attachment/77/comment/55");
+        Parse(uri).Should().Be(new JiraResource(Cloud, "10001", JiraResourceKind.Attachment, "77", false, null, "55"));
+        AtlassianUri.TryParseJira($"atlassian://{Cloud}/jira/issue/10001/comment/55", out _)
+            .Should().BeFalse("a comment document with no restriction is never separate");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -149,7 +161,6 @@ public sealed class AtlassianUriTests
     [InlineData("/jira/issue/1/attachment/2/group/" + Group)]               // a live restriction without its comment
     [InlineData("/jira/issue/1/attachment/2/role/10200/Developers")]
     [InlineData("/jira/issue/1/attachment/2/internal")]
-    [InlineData("/jira/issue/1/attachment/2/comment/3")]                     // tied, but to nothing restricted
     [InlineData("/jira/issue/1/attachment/2/comment/3/")]
     [InlineData("/jira/issue/1/attachment/2/comment/x/group/" + Group)]
     [InlineData("/jira/issue/1/attachment/2/group/" + Group + "/comment/3")] // the comment out of place

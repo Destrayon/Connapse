@@ -1071,7 +1071,15 @@ public sealed partial class JiraProjectConnector(
         string cloudId = config.Site.CloudId;
         bool hidden = attachment.DenyAll || HiddenByHistory(attachment, history);
         if (attachment.RestrictingCommentId is not { } commentId)
-            return AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, false, hidden ? JiraRestriction.DenyAll : null);
+        {
+            if (hidden)
+                return AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, false, JiraRestriction.DenyAll);
+            // Released because its one comment went public: still named, so search re-checks that
+            // the comment is public. A file no comment ever tied needs no check.
+            return history.TryGetValue(attachment.Id, out var entry) && entry.TiedBy.Count == 1
+                ? AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, false, null, entry.TiedBy[0])
+                : AtlassianUri.ForJiraAttachment(cloudId, issue.Id, attachment.Id, false, null);
+        }
 
         var comment = issue.Comments.FirstOrDefault(c => c.Id == commentId);
         var route = comment is null ? default : Route(comment, config.ProjectId);

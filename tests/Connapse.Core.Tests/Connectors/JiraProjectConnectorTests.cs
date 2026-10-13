@@ -1425,7 +1425,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         // link dropped nothing says what governs the file: it stays hidden. Made public, Jira has
         // lifted the restriction, and the file follows the issue.
         var expected = change == "made public"
-            ? AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, null)
+            ? AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, null, "2")
             : AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll);
         foreach (var delta in new[] { second, third })
         {
