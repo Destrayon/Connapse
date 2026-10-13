@@ -127,6 +127,18 @@ public sealed class AtlassianApiClientTests : IDisposable
         _api.Calls[Root + "/api/v2/spaces/1"].Should().Be(2);
     }
 
+    [Theory]
+    [InlineData(AtlassianProduct.Confluence, "/ex/confluence/" + CloudId + "/wiki/rest/api/x", AtlassianSyncErrors.FreshTokenRefused)]
+    [InlineData(AtlassianProduct.Jira, "/ex/jira/" + CloudId + "/rest/api/x", AtlassianSyncErrors.JiraFreshTokenRefused)]
+    public async Task GetJsonAsync_Persistent401_MessageNamesTheClientsProduct(AtlassianProduct product, string path, string message)
+    {
+        _api.Map(path, _ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var client = new AtlassianApiClient(_api.CreateClient(), NewTokens(), _site, "secret", _clock, product: product);
+
+        (await FluentActions.Awaiting(() => client.GetJsonAsync<JsonElement>("rest/api/x", default))
+            .Should().ThrowAsync<AtlassianAuthException>()).Which.Message.Should().Be(message);
+    }
+
     [Fact]
     public async Task GetJsonAsync_TokenEndpointRefuses_ThrowsAuthException()
     {

@@ -46,8 +46,8 @@ public sealed class JiraSyncIntegrationTests(SharedWebAppFixture fixture)
         return user.Id;
     }
 
-    [Fact]
-    public async Task JiraSync_CreatedViaApi_IssuesSearchableByAllowedUser()
+    /// <summary>A site saved through its test and a Jira project source on it, both created as an admin would.</summary>
+    private async Task<(Guid SourceId, Guid ConnectionId, FakeJira Jira)> CreateJiraSourceAsync()
     {
         var api = fixture.Atlassian;
         api.FailTokenWith(null);
@@ -70,7 +70,17 @@ public sealed class JiraSyncIntegrationTests(SharedWebAppFixture fixture)
         });
         created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
         Guid sourceId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        return (sourceId, connectionId, jira);
+    }
 
+    private static SourceSyncService NewSyncService(IServiceProvider sp, IIngestionQueue queue) => new(
+        sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<IConnectorFactory>(), queue,
+        sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
+
+    [Fact]
+    public async Task JiraSync_CreatedViaApi_IssuesSearchableByAllowedUser()
+    {
+        var (sourceId, connectionId, jira) = await CreateJiraSourceAsync();
         jira.MapSync().MapEnforcement();
         jira.AddProject(FakeJira.ProjectId, "ENG", "Engineering");
         jira.AddIssue(new FakeJiraIssue("30001", "ENG-1", $"The {Term} rollout", DateTimeOffset.UtcNow.AddMinutes(-5)));
@@ -84,9 +94,7 @@ public sealed class JiraSyncIntegrationTests(SharedWebAppFixture fixture)
 
         var factory = sp.GetRequiredService<IConnectorFactory>();
         var queue = new RecordingIngestionQueue();
-        var service = new SourceSyncService(
-            sp.GetRequiredService<IServiceScopeFactory>(), factory, queue,
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
+        var service = NewSyncService(sp, queue);
 
         (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Error.Should().BeNull();
         var job = queue.Jobs.Single(j => j.Options.Path == "/issues/30001.md");
@@ -101,5 +109,41 @@ public sealed class JiraSyncIntegrationTests(SharedWebAppFixture fixture)
 
         (await SearchAsUserAsync(AllowedAccount)).Select(h => h.DocumentId).Should().Contain(job.DocumentId);
         (await SearchAsUserAsync(DeniedAccount)).Should().BeEmpty("Jira does not let this account browse the issue");
+    }
+
+    /// <summary>
+    /// A Jira source whose requests are refused even with a fresh token says so in Jira's words,
+    /// links Jira's troubleshooting entry, and records the failure at the site's Jira step.
+    /// </summary>
+    [Fact]
+    public async Task JiraSync_RefusedWithAFreshToken_ReportsJiraNotConfluence()
+    {
+        var (sourceId, connectionId, jira) = await CreateJiraSourceAsync();
+        jira.MapSync();
+        jira.AddProject(FakeJira.ProjectId, "ENG", "Engineering");
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var source = (await sp.GetRequiredService<ISourceStore>().GetAsync(sourceId))!;
+        var connections = sp.GetRequiredService<IConnectionStore>();
+        var connection = (await connections.GetAsync(connectionId))!;
+
+        fixture.Atlassian.FailWith(HttpStatusCode.Unauthorized);
+        SourceSyncResult failed;
+        try
+        {
+            failed = await NewSyncService(sp, new RecordingIngestionQueue()).SyncSourceAsync(source, connection, CancellationToken.None);
+        }
+        finally
+        {
+            fixture.Atlassian.FailWith(null);
+        }
+
+        failed.Error.Should().StartWith(Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.JiraFreshTokenRefused);
+        Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.TroubleshootingUrl(failed.Error!).Should().EndWith("#cant-read-jira");
+        var health = (await connections.GetAsync(connectionId))!.Health!;
+        health.Step.Should().Be(Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.JiraIdentityStep);
+        health.CredentialRejected.Should().BeFalse();
+        Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.StepLabel(health.Step).Should().Be("Reading Jira");
     }
 }

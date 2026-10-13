@@ -97,6 +97,11 @@ public sealed class AtlassianSyncErrorsTests : IDisposable
 
     [Theory]
     [InlineData(AtlassianSyncErrors.FreshTokenRefused, AtlassianSiteTroubleshooting.CantReadConfluence)]
+    [InlineData(AtlassianSyncErrors.JiraFreshTokenRefused, AtlassianSiteTroubleshooting.CantReadJira)]
+    [InlineData(AtlassianSyncErrors.JiraUnavailable, AtlassianSiteTroubleshooting.Unreachable)]
+    [InlineData(JiraProjectConnector.AttachmentScopeNotice, AtlassianSiteTroubleshooting.MissingScope)]
+    [InlineData("Jira attachment 30001 was not downloaded. " + JiraProjectConnector.AttachmentScopeNotice, AtlassianSiteTroubleshooting.MissingScope)]
+    [InlineData("2 attachments were skipped: larger than 25 MB, or a file type Connapse can't read. To include larger files, raise Max attachment size on the source.", AtlassianSiteTroubleshooting.AttachmentsSkipped)]
     [InlineData(AtlassianSyncErrors.TokenRedirected, AtlassianSiteTroubleshooting.Unreachable)]
     [InlineData(AtlassianSyncErrors.NoAccessToken, AtlassianSiteTroubleshooting.Unreachable)]
     [InlineData(ConfluenceSpaceConnector.AttachmentScopeNotice, AtlassianSiteTroubleshooting.MissingScope)]
@@ -105,6 +110,13 @@ public sealed class AtlassianSyncErrorsTests : IDisposable
     [InlineData("Provider requested a full resync; cursor cleared.", AtlassianSiteTroubleshooting.General)]
     public void TroubleshootingAnchor_MapsEachMessageToItsEntry(string error, string anchor) =>
         AtlassianSyncErrors.TroubleshootingAnchor(error).Should().Be(anchor);
+
+    [Theory]
+    [InlineData(403)]
+    [InlineData(404)]
+    public void TroubleshootingAnchor_JiraProjectUnreadable_LinksProjectEntry(int status) =>
+        AtlassianSyncErrors.TroubleshootingAnchor(AtlassianSyncErrors.JiraProjectUnreadable("ENG", status) + "\nDetails: HTTP " + status)
+            .Should().Be(AtlassianSiteTroubleshooting.ProjectUnreadable);
 
     [Fact]
     public void SyncErrorText_SplitsTheMessageFromTheDetail()

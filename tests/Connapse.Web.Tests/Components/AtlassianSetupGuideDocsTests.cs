@@ -139,6 +139,10 @@ public class AtlassianSetupGuideDocsTests
                      AtlassianSyncErrors.Unavailable,
                      AtlassianSyncErrors.SpaceUnreadable("ENG", 403)["Confluence space ENG ".Length..],
                      AtlassianSyncErrors.SpaceUnreadable("ENG", 404)["Confluence space ENG can no longer be read: ".Length..],
+                     AtlassianSyncErrors.JiraFreshTokenRefused,
+                     AtlassianSyncErrors.JiraProjectUnreadable("ENG", 403)["Jira project ENG ".Length..],
+                     AtlassianSyncErrors.JiraProjectUnreadable("ENG", 404)["Jira project ENG can no longer be read: ".Length..],
+                     JiraProjectConnector.AttachmentScopeNotice,
                  })
         {
             string firstSentence = message[..(message.IndexOf(". ", StringComparison.Ordinal) + 1)];

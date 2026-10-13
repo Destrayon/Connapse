@@ -159,6 +159,32 @@ public class SourcesSyncStatusTests : IDisposable
         cut.Find(".sync-error a").GetAttribute("href").Should().Be(AtlassianSiteTroubleshooting.GuideUrl + anchor);
     }
 
+    [Theory]
+    [InlineData(AtlassianSyncErrors.JiraFreshTokenRefused, "#cant-read-jira")]
+    [InlineData(AtlassianSyncErrors.JiraUnavailable, "#couldnt-reach-atlassian")]
+    [InlineData(JiraProjectConnector.AttachmentScopeNotice, "#missing-scope")]
+    public void EachJiraFailure_LinksItsTroubleshootingEntry(string error, string anchor)
+    {
+        var cut = Render(Jira(SyncStatus.Failed, error));
+
+        cut.Find(".sync-error a").GetAttribute("href").Should().Be(AtlassianSiteTroubleshooting.GuideUrl + anchor);
+    }
+
+    [Fact]
+    public void JiraProjectUnreadable_LinksTheProjectEntry()
+    {
+        var cut = Render(Jira(SyncStatus.Failed, AtlassianSyncErrors.JiraProjectUnreadable("ENG", 403) + "\nDetails: HTTP 403"));
+
+        var row = cut.Find(".sync-error");
+        row.TextContent.Should().Contain("Give the service account the Browse projects permission");
+        row.QuerySelector("a")!.GetAttribute("href").Should().EndWith("atlassian-setup.md#project-can-no-longer-be-read");
+    }
+
+    private Source Jira(SyncStatus status, string? error) => new(
+        Guid.NewGuid(), "acme.atlassian.net / ENG", null, site.Id,
+        """{"kind":"jira-project","projectId":"10000","projectKey":"ENG"}""", DateTime.UtcNow, DateTime.UtcNow,
+        LastSyncedAt: DateTime.UtcNow, LastSyncStatus: status, LastSyncError: error);
+
     [Fact]
     public void GitHubFailure_StillLinksTheGitHubGuide()
     {

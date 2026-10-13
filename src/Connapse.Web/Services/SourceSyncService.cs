@@ -262,7 +262,7 @@ public class SourceSyncService(
                 && ex is Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth)
             {
                 await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
-                    AtlassianSignInHealth(auth, source.Name), ct);
+                    AtlassianSignInHealth(auth, source.Name, AtlassianSourceScope.IsJira(source.ScopeJson)), ct);
             }
 
             // Record the failure without discarding progress: a transient outage must not
@@ -298,7 +298,7 @@ public class SourceSyncService(
     /// the source's error links to the matching troubleshooting entry.
     /// </summary>
     internal static ConnectionHealth AtlassianSignInHealth(
-        Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth, string sourceName)
+        Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth, string sourceName, bool jira = false)
     {
         if (Connapse.Storage.Connectors.Atlassian.AtlassianSyncErrors.IsCredentialRefused(auth))
         {
@@ -307,10 +307,12 @@ public class SourceSyncService(
                 Origin: "sync", CredentialRejected: true);
         }
 
-        // Refused even with a fresh token: the sign-in worked, reading Confluence did not.
+        // Refused even with a fresh token: the sign-in worked, reading the source's product did not.
         string step = auth.TokenRefused
             ? Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.TokenStep
-            : Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.IdentityStep;
+            : jira
+                ? Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.JiraIdentityStep
+                : Connapse.Storage.ConnectionTesters.AtlassianConnectionTester.IdentityStep;
         return new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: step,
             Message: $"While syncing source '{sourceName}': {auth.Message}", Origin: "sync", CredentialRejected: false);
     }

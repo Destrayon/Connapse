@@ -315,7 +315,8 @@ public sealed class AtlassianApiClient(
             tokens.Invalidate(site, token);
             if (attempt >= 1)
                 throw new AtlassianAuthException(
-                    AtlassianSyncErrors.FreshTokenRefused, detail: "HTTP 401 twice, the second time with a new token");
+                    product == AtlassianProduct.Jira ? AtlassianSyncErrors.JiraFreshTokenRefused : AtlassianSyncErrors.FreshTokenRefused,
+                    detail: "HTTP 401 twice, the second time with a new token");
         }
     }
 

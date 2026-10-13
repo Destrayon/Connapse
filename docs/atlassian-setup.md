@@ -300,14 +300,16 @@ Confluence on this site.* although the service account has a Confluence role. Fo
 Confluence source shows *Attachments were skipped: the site's credential lacks the
 read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* on
 the Sources page, or the New source dialog says *the site's last connection test didn't confirm the
-read:attachment:confluence permission*. For Jira: *The credential is missing the read:project:jira
+read:attachment:confluence permission*. For Jira attachments: a Jira source shows *Attachments were
+skipped: the site's credential lacks the read:attachment:jira permission. Add it to the credential, or
+turn off Include attachments.* For Jira: *The credential is missing the read:project:jira
 scope* while **Listing Jira projects**, *The credential is missing the read:issue-details:jira scope*
 (or `read:issue:jira`, or `read:comment:jira`) while **Reading issues and comments**, or *The credential
 is missing the read:permission:jira scope* or *The service account can't list Jira users…* while
 **Checking Jira access permissions**.
 **Likely cause:** the credential was created without one of the scopes in steps 2.4 and 2.5; listing Jira
 users also needs the **Browse users and groups** global permission, which Jira's admin role includes. For attachments, it
-is the optional `read:attachment:confluence`.
+is the optional `read:attachment:confluence`, or `read:attachment:jira` for Jira.
 **Fix:** create a new OAuth 2.0 credential on the service account, paste the scope list into the scope
 search and tick each one (step 2.5; for attachments, include `read:attachment:confluence`), then use
 **Replace credentials** on the site with the new client ID
@@ -329,7 +331,9 @@ and choose **Test connection**.
 ### Can't read Jira
 
 **Symptom:** *The credential can't read Jira on this site.* while **Reading Jira** or **Listing Jira
-projects**.
+projects**, or a Jira source that failed with *Atlassian refused the service account's requests even
+with a new token. Check that the service account has Jira access on this site…* The site is not marked
+**Needs new credentials**, because Atlassian accepted the credential itself.
 **Likely cause:** the service account has no Jira access on this site, or the credential was created
 without the Jira scopes. A site whose Confluence checks pass and whose credential can't read Jira at all
 shows **Jira: Not set up for this site.** instead: Jira is optional, and there is nothing to fix unless
@@ -404,12 +408,24 @@ not deleted, until the space can be read again.
 **Fix:** in the space, open **Space settings** → **Users** and give the service account the **Viewer**
 role again (step 2.3), then choose **Sync** on the source. If the space was deleted, delete the source.
 
+### Project can no longer be read
+
+**Symptom:** a Jira source on the Sources page failed with *Jira project … can no longer be read: the
+service account lost access to it.* or *… it was deleted, or the service account can no longer see it.*
+**Details** shows HTTP 403 or 404.
+**Likely cause:** someone removed the service account's **Browse projects** permission in the project,
+changed the project's permission scheme, or deleted or archived the project. The source's documents are
+hidden from search, not deleted, until the project can be read again.
+**Fix:** in the project, open **Project settings** → **People** (or the permission scheme) and give the
+service account **Browse projects** again, then choose **Sync** on the source. If the project was
+deleted, delete the source.
+
 ### Attachments skipped
 
-**Symptom:** a Confluence source shows **Warning** on the Sources page with *… attachments were skipped:
-larger than 25 MB, or a file type Connapse can't read.*
+**Symptom:** a Confluence or Jira source shows **Warning** on the Sources page with *… attachments were
+skipped: larger than 25 MB, or a file type Connapse can't read.*
 **Likely cause:** the attachments are larger than the source's **Max attachment size (MB)**, or they
-are images or other files no parser can read. Pages and comments still synced.
+are images or other files no parser can read. Pages, issues and comments still synced.
 **Fix:** to include larger files, choose **Edit** on the source and raise **Max attachment size (MB)**
 (up to 100). Files of an unreadable type stay skipped.
 
