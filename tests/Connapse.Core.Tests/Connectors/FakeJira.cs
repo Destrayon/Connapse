@@ -223,10 +223,17 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     /// </summary>
     public int? BulkCommentTotal { get; set; }
 
+    /// <summary>How many times <c>GET field</c> was read.</summary>
+    public int FieldReads { get; set; }
+
     /// <summary>Maps the routes a sync reads: fields, <c>search/jql</c> (GET) and <c>bulkfetch</c>.</summary>
     public FakeJira MapSync()
     {
-        api.Map(Root + "/field", _ => FakeAtlassianApi.Json(_fields));
+        api.Map(Root + "/field", _ =>
+        {
+            FieldReads++;
+            return FakeAtlassianApi.Json(_fields);
+        });
         api.Map(Root + "/search/jql", Search);
         api.Map(Root + "/issue/bulkfetch", BulkFetch);
         return this;

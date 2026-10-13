@@ -372,8 +372,26 @@ public class SourceSyncService(
         }
         else
         {
+            // Counted before the upserts claim their rows, as a full listing's guard counts what was
+            // indexed: this cycle's additions must not dilute its deletions.
+            int indexedBefore = delta.DeletedPaths.Count == 0
+                ? 0
+                : await context.Documents.CountAsync(d => d.SourceId == source.Id, ct);
             (upserted, inFlight) = await EnqueueAllAsync(source, supported, context, sp, ct);
-            deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+            (deleted, withheld) = await DeleteDeltaPathsAsync(
+                source, delta.DeletedPaths, indexedBefore, sourceStore, context, sp, applyWithheldDeletions, ct);
+
+            // As for a full listing: the cursor stays, so the deletions come back to be approved.
+            // A connector whose store moved past that cursor answers the next cycle in full.
+            if (withheld > 0)
+            {
+                await sourceStore.UpdateSyncStateAsync(
+                    source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
+
+                return new SourceSyncResult(
+                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld,
+                    Unsupported: unsupported);
+            }
 
             // A delta reports a changed file once and the cursor then moves past it, so a filtered
             // upsert whose path already holds a leftover Failed document is the only chance to
@@ -566,9 +584,13 @@ public class SourceSyncService(
         // a first-ever sync carrying applyWithheldDeletions=true is still guarded.
         int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
 
-        bool withhold = approved is null
-            ? DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count)
-            : vanished.Count > approved.Value;
+        // A hold already pending stays until it is approved, or until nothing is missing any more:
+        // the ratio is not re-judged, since documents added since it tripped would dilute it.
+        bool withhold = approved is not null
+            ? vanished.Count > approved.Value
+            : source.WithheldDeletions is not null
+                ? vanished.Count > 0
+                : DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count);
 
         int deleted = 0;
         if (withhold)
@@ -829,6 +851,44 @@ public class SourceSyncService(
 
         return lastModified != file.LastModified.ToString("O")
             || size != file.SizeBytes.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Applies a delta's deletions under the same guard as a full listing's vanished set, counted
+    /// against <paramref name="indexed"/>, the source's documents before this cycle's upserts: a connector that misread its remote must not be
+    /// able to empty the source a delta at a time either. Withheld, the count is recorded for an
+    /// administrator to approve, and an approval applies a set no larger than the one shown.
+    /// While a hold is pending, any deletion joins it unapproved. Nothing to delete leaves a pending
+    /// approval as it is: a delta reports changes only, so it cannot show the remote recovered.
+    /// </summary>
+    private async Task<(int Deleted, int Withheld)> DeleteDeltaPathsAsync(
+        Source source, IReadOnlyList<string> paths, int indexed, ISourceStore sourceStore, KnowledgeDbContext context,
+        IServiceProvider sp, bool applyWithheldDeletions, CancellationToken ct)
+    {
+        if (paths.Count == 0) return (0, 0);
+
+        int present = (await LoadByPathsAsync(context, source.Id, paths, ct)).Count;
+        if (present == 0) return (0, 0);
+
+        int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
+        // As for a full listing: a pending hold is not re-judged, only approved or cleared.
+        bool withhold = approved is not null
+            ? present > approved.Value
+            : source.WithheldDeletions is not null || DeletionGuard.ShouldWithhold(present, indexed);
+
+        if (withhold)
+        {
+            logger.LogWarning(
+                "Source {SourceId} delta would delete {Deleting} of {Indexed} document(s); withholding pending administrator approval",
+                source.Id, present, indexed);
+            await sourceStore.UpdateWithheldDeletionsAsync(source.Id, present, ct);
+            return (0, present);
+        }
+
+        int deleted = await DeleteByPathsAsync(source, paths, context, sp, ct);
+        if (approved is not null)
+            await sourceStore.UpdateWithheldDeletionsAsync(source.Id, null, ct);
+        return (deleted, 0);
     }
 
     private async Task<int> DeleteByPathsAsync(

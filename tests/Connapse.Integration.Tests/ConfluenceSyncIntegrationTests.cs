@@ -55,6 +55,10 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
     {
         public bool Include { get; set; } = true;
         public int MaxMb { get; set; } = 25;
+
+        // Every cycle a reconcile unless a test says otherwise: most tests here change the space
+        // without moving the clock, and expect the next cycle's full listing to see it.
+        public TimeSpan? ReconcileInterval { get; set; } = TimeSpan.Zero;
     }
 
     private readonly AttachmentOptions _attachments = new();
@@ -70,7 +74,8 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
             var site = AtlassianSite.FromConfigJson(connection.ConfigJson)!;
             return new ConfluenceSpaceConnector(
                 new ConfluenceSpaceConfig(
-                    site, SpaceId, "ENG", Path.Combine(root, source.Id.ToString("N")), options.Include, options.MaxMb),
+                    site, SpaceId, "ENG", Path.Combine(root, source.Id.ToString("N")), options.Include, options.MaxMb,
+                    options.ReconcileInterval),
                 new AtlassianApiClient(api.CreateClient(), _tokens, site, secret!),
                 clock: clock,
                 fileTypes: fileTypes);
@@ -359,6 +364,183 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         metadata["confluence:spaceKey"].Should().Be("ENG");
         metadata["confluence:title"].Should().Be("Page 2");
         metadata["confluence:url"].Should().Be("https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=102");
+    }
+
+    /// <summary>
+    /// An ordinary cycle between reconciles: no space listing, the edited page re-queued, and the
+    /// attachment the sweep found gone deleted through the delta's paths.
+    /// </summary>
+    [Fact]
+    public async Task IncrementalCycle_ReEnqueuesTheEditedPageAndDeletesTheAttachmentFoundGone()
+    {
+        _attachments.ReconcileInterval = TimeSpan.FromDays(7);
+        SeedSpace();
+        _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+            "501", "101", "notes.txt", System.Text.Encoding.UTF8.GetBytes("attached text"), new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero)));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().Contain("/attachments/501/notes.txt");
+
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        _api.Confluence.RemoveAttachment("501");
+        _api.Confluence.Upsert(new FakeConfluencePage("102", SpaceId, "Page 2, edited", Version: 2, VersionAt: _clock.GetUtcNow().AddMinutes(-1)));
+        int listings = _api.Requests.Count(r => r.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(1);
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal))
+            .Should().Be(listings, "an incremental cycle does not list the space");
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Contain("lastReconcileAt");
+    }
+
+    /// <summary>
+    /// The deletion guard covers an incremental delta too: one that would delete more than it
+    /// allows is withheld with the cursor kept, and an approval applies it at the reconcile the
+    /// kept cursor brings.
+    /// </summary>
+    [Fact]
+    public async Task IncrementalCycle_DeletingMoreThanTheGuardAllows_IsWithheldUntilApproved()
+    {
+        _attachments.ReconcileInterval = TimeSpan.FromDays(7);
+        SeedSpace();
+        for (int i = 1; i <= 12; i++)
+        {
+            _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+                (500 + i).ToString(), "101", $"file{i}.txt", System.Text.Encoding.UTF8.GetBytes("attached text"),
+                new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero)));
+        }
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(15);
+
+        // Every attachment answered gone by the sweep: twelve deletions in one incremental delta.
+        for (int i = 1; i <= 12; i++)
+            _api.Confluence.RemoveAttachment((500 + i).ToString());
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.WithheldDeletions.Should().Be(12);
+        second.Deleted.Should().Be(0);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(15);
+        var held = (await sources.GetAsync(source.Id))!;
+        held.SyncCursor.Should().Be(synced.SyncCursor, "a withheld delta is not taken up");
+        held.WithheldDeletions.Should().Be(12);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var approved = await service.SyncSourceAsync(held, connection, CancellationToken.None, applyWithheldDeletions: true);
+
+        approved.Error.Should().BeNull();
+        approved.Deleted.Should().Be(12);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+    }
+
+    /// <summary>
+    /// Pages added in the same cycle do not dilute the guard: an incremental delta withholds the
+    /// deletions a reconcile of the same change would, both counted against the documents indexed
+    /// before the cycle.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MixedCycle_AdditionsDoNotDiluteTheDeletionGuard(bool incremental)
+    {
+        _attachments.ReconcileInterval = incremental ? TimeSpan.FromDays(7) : TimeSpan.Zero;
+        SeedSpace();
+        for (int i = 1; i <= 12; i++)
+        {
+            _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+                (500 + i).ToString(), "101", $"file{i}.txt", System.Text.Encoding.UTF8.GetBytes("attached text"),
+                new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero)));
+        }
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        // Twelve of fifteen documents go, while 150 new pages arrive: 12 of 165 would pass the guard.
+        for (int i = 1; i <= 12; i++)
+            _api.Confluence.RemoveAttachment((500 + i).ToString());
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        for (int i = 1; i <= 150; i++)
+            _api.Confluence.Upsert(new FakeConfluencePage((1000 + i).ToString(), SpaceId, $"New {i}", VersionAt: _clock.GetUtcNow().AddMinutes(-1)));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.WithheldDeletions.Should().Be(12, "12 of the 15 documents indexed before the cycle is over the guard");
+        second.Deleted.Should().Be(0);
+        queue.Jobs.Should().HaveCount(150, "the additions still apply");
+
+        // Retried without approval, while the additions are still queued and again once they have
+        // settled: the 150 new documents must not release the hold by diluting the ratio.
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var queued = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        queued.WithheldDeletions.Should().Be(12);
+        queued.Deleted.Should().Be(0);
+
+        await SettleAsync(scope.ServiceProvider, queue);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var settled = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        settled.WithheldDeletions.Should().Be(12);
+        settled.Deleted.Should().Be(0);
+        (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().Be(12);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var approved = await service.SyncSourceAsync(
+            (await sources.GetAsync(source.Id))!, connection, CancellationToken.None, applyWithheldDeletions: true);
+        approved.Deleted.Should().Be(12);
+        approved.WithheldDeletions.Should().Be(0);
+        (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().BeNull();
+    }
+
+    /// <summary>A withhold ends without approval only when the remote recovers: nothing is missing any more.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task WithheldDeletions_RemoteRecovers_TheHoldClears(bool incremental)
+    {
+        _attachments.ReconcileInterval = incremental ? TimeSpan.FromDays(7) : TimeSpan.Zero;
+        SeedSpace();
+        var files = Enumerable.Range(1, 12).Select(i => new FakeConfluenceAttachment(
+            (500 + i).ToString(), "101", $"file{i}.txt", System.Text.Encoding.UTF8.GetBytes("attached text"),
+            new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero))).ToList();
+        files.ForEach(_api.Confluence.AddAttachment);
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        files.ForEach(f => _api.Confluence.RemoveAttachment(f.Id));
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).WithheldDeletions.Should().Be(12);
+
+        // Back, as a remote that recovers from a bad answer would be.
+        files.ForEach(_api.Confluence.AddAttachment);
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var recovered = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+
+        recovered.Error.Should().BeNull();
+        recovered.WithheldDeletions.Should().Be(0);
+        recovered.Deleted.Should().Be(0);
+        (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().BeNull("an empty vanished set clears the hold");
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(15);
     }
 
     [Fact]
