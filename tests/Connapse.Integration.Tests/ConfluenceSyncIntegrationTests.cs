@@ -55,6 +55,10 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
     {
         public bool Include { get; set; } = true;
         public int MaxMb { get; set; } = 25;
+
+        // Every cycle a reconcile unless a test says otherwise: most tests here change the space
+        // without moving the clock, and expect the next cycle's full listing to see it.
+        public TimeSpan? ReconcileInterval { get; set; } = TimeSpan.Zero;
     }
 
     private readonly AttachmentOptions _attachments = new();
@@ -70,7 +74,8 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
             var site = AtlassianSite.FromConfigJson(connection.ConfigJson)!;
             return new ConfluenceSpaceConnector(
                 new ConfluenceSpaceConfig(
-                    site, SpaceId, "ENG", Path.Combine(root, source.Id.ToString("N")), options.Include, options.MaxMb),
+                    site, SpaceId, "ENG", Path.Combine(root, source.Id.ToString("N")), options.Include, options.MaxMb,
+                    options.ReconcileInterval),
                 new AtlassianApiClient(api.CreateClient(), _tokens, site, secret!),
                 clock: clock,
                 fileTypes: fileTypes);
@@ -359,6 +364,41 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         metadata["confluence:spaceKey"].Should().Be("ENG");
         metadata["confluence:title"].Should().Be("Page 2");
         metadata["confluence:url"].Should().Be("https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=102");
+    }
+
+    /// <summary>
+    /// An ordinary cycle between reconciles: no space listing, the edited page re-queued, and the
+    /// attachment the sweep found gone deleted through the delta's paths.
+    /// </summary>
+    [Fact]
+    public async Task IncrementalCycle_ReEnqueuesTheEditedPageAndDeletesTheAttachmentFoundGone()
+    {
+        _attachments.ReconcileInterval = TimeSpan.FromDays(7);
+        SeedSpace();
+        _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+            "501", "101", "notes.txt", System.Text.Encoding.UTF8.GetBytes("attached text"), new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero)));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().Contain("/attachments/501/notes.txt");
+
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        _api.Confluence.RemoveAttachment("501");
+        _api.Confluence.Upsert(new FakeConfluencePage("102", SpaceId, "Page 2, edited", Version: 2, VersionAt: _clock.GetUtcNow().AddMinutes(-1)));
+        int listings = _api.Requests.Count(r => r.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(1);
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal))
+            .Should().Be(listings, "an incremental cycle does not list the space");
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Contain("lastReconcileAt");
     }
 
     [Fact]

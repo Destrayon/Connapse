@@ -19,15 +19,356 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
 
     public ConfluenceSpaceConnectorTests()
     {
-        var site = new AtlassianSite("https://acme.atlassian.net", CloudId, "client-1");
-        var tokens = new AtlassianTokenSource(new FakeFactory(_api), TimeProvider.System);
-        _connector = new ConfluenceSpaceConnector(
-            new ConfluenceSpaceConfig(site, SpaceId, "ENG", _root),
-            new AtlassianApiClient(_api.CreateClient(), tokens, site, "secret"),
-            clock: _clock,
-            fileTypes: new Extensions(".txt", ".pdf"));
+        _connector = NewConnector();
         _api.Confluence.AddSpace(SpaceId, "ENG", "Engineering");
     }
+
+    private ConfluenceSpaceConnector NewConnector(TimeSpan? reconcileInterval = null, int sweepSlice = 500)
+    {
+        var site = new AtlassianSite("https://acme.atlassian.net", CloudId, "client-1");
+        var tokens = new AtlassianTokenSource(new FakeFactory(_api), TimeProvider.System);
+        return new ConfluenceSpaceConnector(
+            new ConfluenceSpaceConfig(site, SpaceId, "ENG", _root, ReconcileInterval: reconcileInterval),
+            new AtlassianApiClient(_api.CreateClient(), tokens, site, "secret"),
+            clock: _clock,
+            fileTypes: new Extensions(".txt", ".pdf"))
+        {
+            AttachmentSweepSliceSize = sweepSlice,
+        };
+    }
+
+    // ── Incremental cycles and the reconcile ───────────────────────────────
+
+    private int SpaceListings => _api.Requests.Count(r =>
+        r.AbsolutePath.EndsWith($"/spaces/{SpaceId}/pages", StringComparison.Ordinal)
+        || r.AbsolutePath.EndsWith($"/spaces/{SpaceId}/blogposts", StringComparison.Ordinal));
+
+    private int PageReads => _api.Requests.Count(r => System.Text.RegularExpressions.Regex.IsMatch(r.AbsolutePath, @"/api/v2/(pages|blogposts)/\d+$"));
+
+    /// <summary>A page edited now, as the change query sees it.</summary>
+    private void EditNow(string id, string? title = null, int version = 2, string? parentId = null, string? parentType = null)
+    {
+        var page = new FakeConfluencePage(id, SpaceId, title ?? "Page " + id, Version: version, VersionAt: _clock.GetUtcNow().AddMinutes(-1),
+            ParentId: parentId, ParentType: parentType);
+        _api.Confluence.Upsert(page);
+    }
+
+    [Fact]
+    public async Task GetChanges_NoChangeIncrementalCycle_MakesNoSpaceListingOrPageRead()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        _api.Confluence.Upsert(new FakeConfluencePage("50", SpaceId, "News", Kind: "blogpost"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
+        var first = await _connector.GetChangesAsync(null);
+        int listings = SpaceListings;
+        int attachmentReads = _api.Confluence.AttachmentListings.Values.Sum();
+
+        string? cursor = first.NextCursor;
+        for (int cycle = 0; cycle < 11; cycle++)
+        {
+            _clock.Advance(TimeSpan.FromMinutes(5));
+            var delta = await _connector.GetChangesAsync(cursor);
+            delta.IsFullListing.Should().BeFalse();
+            delta.Upserted.Should().BeEmpty();
+            delta.DeletedPaths.Should().BeEmpty();
+            cursor = delta.NextCursor;
+        }
+
+        SpaceListings.Should().Be(listings, "an incremental cycle does not list the space");
+        PageReads.Should().Be(0);
+        _api.Confluence.AttachmentListings.Values.Sum().Should().Be(attachmentReads);
+        _api.Confluence.SearchQueries.Should().HaveCount(11).And.OnlyContain(q => q.StartsWith(
+            "space=\"ENG\" AND type in (page, blogpost, comment, attachment) AND lastmodified >= ", StringComparison.Ordinal));
+        (await _connector.ListFilesAsync()).Should().HaveCount(4);
+    }
+
+    [Fact]
+    public async Task GetChanges_PageRenamedIncremental_UpsertsItAndItsDescendantOnly()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Root"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Child", ParentId: "1", ParentType: "page"));
+        _api.Confluence.Upsert(new FakeConfluencePage("3", SpaceId, "Other"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        EditNow("1", "Start Here");
+        var delta = await _connector.GetChangesAsync(first.NextCursor);
+
+        delta.IsFullListing.Should().BeFalse();
+        delta.DeletedPaths.Should().BeEmpty();
+        delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo(new[] { "/pages/1.md", "/pages/2.md" },
+            "the child's breadcrumb changed with its parent's title");
+        delta.Upserted.Should().OnlyContain(f => f.ResourceUri == AtlassianUri.ForPage(CloudId, f.Path.Substring(7, f.Path.Length - 10)));
+        PageReads.Should().Be(1, "only the page the change query named is read");
+        (await ReadAsync("/pages/2.md")).Should().StartWith("# Engineering > Start Here > Child\n");
+    }
+
+    [Fact]
+    public async Task GetChanges_NewPageUnderAnUnknownFolderIncremental_IsListedAndTheFolderReadOnce()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddFolder("900", "Guides");
+        EditNow("7", "Guide", version: 1, parentId: "900", parentType: "folder");
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeFalse();
+        second.Upserted.Select(f => f.Path).Should().Equal("/pages/7.md");
+        (await ReadAsync("/pages/7.md")).Should().StartWith("# Engineering > Guides > Guide\n");
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        await _connector.GetChangesAsync(second.NextCursor);
+        _api.Confluence.FolderFetches["900"].Should().Be(1, "a known folder is not read again between reconciles");
+    }
+
+    [Fact]
+    public async Task GetChanges_NewCommentIncremental_ReingestsOnlyItsPageWithoutReadingIt()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var at = _clock.GetUtcNow().AddMinutes(-1);
+        _api.Confluence.AddComment("1", "acc", "<p>New remark.</p>", at);
+        var delta = await _connector.GetChangesAsync(first.NextCursor);
+
+        delta.IsFullListing.Should().BeFalse();
+        delta.Upserted.Should().ContainSingle().Which.Path.Should().Be("/pages/1.md");
+        delta.Upserted.Single().LastModified.Should().Be(at.UtcDateTime);
+        PageReads.Should().Be(0, "the stored record is enough to re-ingest the page");
+    }
+
+    [Fact]
+    public async Task GetChanges_NewAttachmentIncremental_UpsertsUnderItsPage()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddAttachment(Attachment("503", "2", "new.pdf") with { ModifiedAt = _clock.GetUtcNow().AddMinutes(-1) });
+        var delta = await _connector.GetChangesAsync(first.NextCursor);
+
+        delta.IsFullListing.Should().BeFalse();
+        delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/pages/2.md", "/attachments/503/new.pdf");
+        delta.Upserted.Single(f => f.Path == "/attachments/503/new.pdf").ResourceUri
+            .Should().Be(AtlassianUri.ForAttachment(CloudId, "2", "503"));
+        _api.Confluence.AttachmentListings.Should().BeEquivalentTo(new Dictionary<string, int> { ["1"] = 1, ["2"] = 2 });
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentGoneFoundBySweepIncremental_InDeletedPaths()
+    {
+        var connector = NewConnector(reconcileInterval: TimeSpan.FromDays(7));
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
+        _api.Confluence.AddAttachment(Attachment("502", "1", "b.txt"));
+        var first = await connector.GetChangesAsync(null);
+
+        _api.Confluence.RemoveAttachment("501");
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var delta = await connector.GetChangesAsync(first.NextCursor);
+
+        delta.IsFullListing.Should().BeFalse();
+        delta.DeletedPaths.Should().Equal("/attachments/501/a.txt");
+        delta.Upserted.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetChanges_DeletedAndMovedOutPages_RemovedOnlyAtTheReconcile()
+    {
+        _api.Confluence.AddSpace("4002", "OPS", "Operations");
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Kept"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Deleted"));
+        _api.Confluence.Upsert(new FakeConfluencePage("3", SpaceId, "Moved"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _api.Confluence.Remove("2");
+        _api.Confluence.Move("3", "4002");
+        _clock.Advance(TimeSpan.FromMinutes(30));
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeFalse();
+        second.DeletedPaths.Should().BeEmpty();
+        (await _connector.ExistsAsync("/pages/2.md")).Should().BeTrue("deletions wait for the reconcile");
+
+        _clock.Advance(TimeSpan.FromMinutes(30));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+
+        third.IsFullListing.Should().BeTrue();
+        third.Upserted.Select(f => f.Path).Should().Equal("/pages/1.md");
+        (await _connector.ExistsAsync("/pages/2.md")).Should().BeFalse();
+        (await _connector.ExistsAsync("/pages/3.md")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetChanges_Reconcile_RunsOnFreshStartAndOnceTheIntervalHasPassed()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        var first = await _connector.GetChangesAsync(null);
+        first.IsFullListing.Should().BeTrue();
+
+        string? cursor = first.NextCursor;
+        foreach (int minutes in new[] { 20, 20, 19 })
+        {
+            _clock.Advance(TimeSpan.FromMinutes(minutes));
+            var delta = await _connector.GetChangesAsync(cursor);
+            delta.IsFullListing.Should().BeFalse();
+            cursor = delta.NextCursor;
+        }
+        int listings = SpaceListings;
+
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        var due = await _connector.GetChangesAsync(cursor);
+        due.IsFullListing.Should().BeTrue();
+        SpaceListings.Should().Be(listings + 2, "pages and blog posts are listed");
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        (await _connector.GetChangesAsync(due.NextCursor)).IsFullListing.Should().BeFalse("the interval runs from the last reconcile");
+    }
+
+    [Fact]
+    public async Task GetChanges_ReconcileIntervalIsConfigurable()
+    {
+        var connector = NewConnector(reconcileInterval: TimeSpan.FromMinutes(15));
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        var first = await connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var second = await connector.GetChangesAsync(first.NextCursor);
+        second.IsFullListing.Should().BeFalse();
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        (await connector.GetChangesAsync(second.NextCursor)).IsFullListing.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetChanges_ReconcileDeferred_NextCycleReconciles()
+    {
+        _api.Confluence.MaxPageSize = 1;
+        foreach (string id in new[] { "1", "2", "3" })
+            _api.Confluence.Upsert(new FakeConfluencePage(id, SpaceId, "Page " + id));
+        var first = await _connector.GetChangesAsync(null);
+
+        _api.Confluence.Remove("3");
+        _clock.Advance(TimeSpan.FromMinutes(61));
+        _api.Confluence.RateLimitNextContinuation = true;
+        var deferred = await _connector.GetChangesAsync(first.NextCursor);
+        deferred.Deferred.Should().BeTrue();
+        deferred.NextCursor.Should().Be(first.NextCursor);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var retried = await _connector.GetChangesAsync(deferred.NextCursor);
+
+        retried.IsFullListing.Should().BeTrue("a deferred reconcile retries on the next cycle");
+        retried.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/pages/1.md", "/pages/2.md");
+    }
+
+    [Fact]
+    public async Task GetChanges_CursorWithoutLastReconcileAt_Reconciles()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        await _connector.GetChangesAsync(null);
+        int listings = SpaceListings;
+
+        // A cursor written before the reconcile existed.
+        string legacy = $$"""{"watermark":"{{_clock.GetUtcNow():O}}"}""";
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var delta = await _connector.GetChangesAsync(legacy);
+
+        delta.IsFullListing.Should().BeTrue();
+        SpaceListings.Should().Be(listings + 2);
+    }
+
+    [Fact]
+    public async Task GetChanges_SpaceRenamed_NextCycleReconciles()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _api.Confluence.RenameSpace(SpaceId, "Platform");
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var delta = await _connector.GetChangesAsync(first.NextCursor);
+
+        delta.IsFullListing.Should().BeTrue("every breadcrumb carries the space name");
+        (await ReadAsync("/pages/1.md")).Should().StartWith("# Platform > One\n");
+    }
+
+    [Fact]
+    public async Task GetChanges_RateLimitedInIncrementalCycle_DeferredKeepsCursorAndStore()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        EditNow("1", "One, edited");
+        _api.Confluence.RateLimitNextSearch = true;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.Deferred.Should().BeTrue();
+        second.NextCursor.Should().Be(first.NextCursor);
+        second.Upserted.Should().BeEmpty();
+        second.DeletedPaths.Should().BeEmpty();
+        second.IsFullListing.Should().BeFalse();
+        (await ReadAsync("/pages/1.md")).Should().StartWith("# Engineering > One\n");
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var third = await _connector.GetChangesAsync(second.NextCursor);
+        third.Upserted.Select(f => f.Path).Should().Equal("/pages/1.md");
+        (await ReadAsync("/pages/1.md")).Should().StartWith("# Engineering > One, edited\n");
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentSweep_ReadsAtMostOneSlicePerCycleAndResumes()
+    {
+        var connector = NewConnector(reconcileInterval: TimeSpan.FromDays(7), sweepSlice: 2);
+        foreach (string id in new[] { "1", "2", "3", "4", "5" })
+            _api.Confluence.Upsert(new FakeConfluencePage(id, SpaceId, "Page " + id));
+        string? cursor = (await connector.GetChangesAsync(null)).NextCursor;
+        _api.Confluence.AttachmentListings.Clear();
+
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var read = new List<string[]>();
+        for (int cycle = 0; cycle < 4; cycle++)
+        {
+            cursor = (await connector.GetChangesAsync(cursor)).NextCursor;
+            read.Add([.. _api.Confluence.AttachmentListings.Keys.Order()]);
+            _api.Confluence.AttachmentListings.Clear();
+            _clock.Advance(TimeSpan.FromMinutes(5));
+        }
+
+        read[0].Should().Equal("1", "2");
+        read[1].Should().Equal("3", "4");
+        read[2].Should().Equal("5");
+        read[3].Should().BeEmpty("the sweep is done until a day after each list was read");
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentSweepRateLimitedMidSlice_KeepsItsProgress()
+    {
+        var connector = NewConnector(reconcileInterval: TimeSpan.FromDays(7), sweepSlice: 3);
+        foreach (string id in new[] { "1", "2", "3", "4" })
+            _api.Confluence.Upsert(new FakeConfluencePage(id, SpaceId, "Page " + id));
+        string? cursor = (await connector.GetChangesAsync(null)).NextCursor;
+        _api.Confluence.AttachmentListings.Clear();
+
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        _api.Confluence.RateLimitAttachmentListing.Add("2");
+        var limited = await connector.GetChangesAsync(cursor);
+        limited.Deferred.Should().BeFalse("a rate limit in the sweep must not hold back the cycle");
+        limited.Notice.Should().Contain("rate limiting");
+        _api.Confluence.AttachmentListings.Keys.Should().BeEquivalentTo("1", "2");
+        _api.Confluence.AttachmentListings.Clear();
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        await connector.GetChangesAsync(limited.NextCursor);
+        _api.Confluence.AttachmentListings.Keys.Should().BeEquivalentTo(new[] { "2", "3", "4" }, "page 1's list was read already");
+    }
+
 
     public void Dispose()
     {
@@ -180,6 +521,7 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         // A page now in a folder whose lookup is rate limited, and the old page gone.
         _api.Confluence.Remove("1");
         _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "New", ParentId: "900", ParentType: "folder"));
+        _clock.Advance(ConfluenceSpaceConfig.DefaultReconcileInterval);
         _api.Map($"/ex/confluence/{CloudId}/wiki/api/v2/folders/900", _ =>
         {
             var limited = new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests);
@@ -250,6 +592,7 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
 
         _api.Confluence.Reparent("1", null, null);
+        _clock.Advance(ConfluenceSpaceConfig.DefaultReconcileInterval);
         await _connector.GetChangesAsync(cursor);
 
         string state = await File.ReadAllTextAsync(Path.Combine(_root, "state.json"));
@@ -317,9 +660,9 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         await _connector.GetChangesAsync(cursor);
 
         _api.Confluence.SearchQueries.Should().Equal(
-            "space=\"ENG\" AND type in (comment, attachment) AND lastmodified >= \"2026-09-30 12:00\"");
+            "space=\"ENG\" AND type in (page, blogpost, comment, attachment) AND lastmodified >= \"2026-09-30 12:00\"");
         _api.Requests.Last(r => r.AbsolutePath.EndsWith("/rest/api/search", StringComparison.Ordinal)).Query
-            .Should().Contain("limit=100").And.Contain("expand=content.container");
+            .Should().Contain("limit=100").And.Contain("expand=content.container,content.version");
     }
 
     [Fact]
@@ -480,7 +823,9 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/pages/1.md", "/pages/2.md", "/attachments/502/b.txt");
 
         var next = await _connector.GetChangesAsync(delta.NextCursor);
-        next.Upserted.Select(f => f.Path).Should().BeEquivalentTo("/pages/1.md", "/pages/2.md");
+        next.IsFullListing.Should().BeFalse();
+        next.DeletedPaths.Should().Equal("/attachments/502/b.txt");
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().BeEquivalentTo("/pages/1.md", "/pages/2.md");
     }
 
     [Fact]
@@ -525,7 +870,8 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         }
 
         _api.Confluence.SearchQueries.Last().Should().Contain("attachment");
-        delta.Upserted.Select(f => f.Path).Should().Contain(["/attachments/502/b.txt", "/attachments/503/c.txt"]);
+        delta.Should().NotBeNull();
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Contain(["/attachments/502/b.txt", "/attachments/503/c.txt"]);
         _api.Confluence.AttachmentListings["1"].Should().Be(2, "a change already read is not read again");
     }
 

@@ -22,27 +22,40 @@ namespace Connapse.Storage.Connectors.Atlassian;
 /// <param name="StatePath">This source's own page-state directory.</param>
 /// <param name="IncludeAttachments">Whether page attachments are indexed too.</param>
 /// <param name="MaxAttachmentMb">Attachments larger than this are skipped.</param>
+/// <param name="ReconcileInterval">
+/// How long after the last complete listing of the space the next one runs; null is
+/// <see cref="DefaultReconcileInterval"/>. Cycles in between fetch only what changed.
+/// </param>
 public sealed record ConfluenceSpaceConfig(
     AtlassianSite Site,
     string SpaceId,
     string SpaceKey,
     string StatePath,
     bool IncludeAttachments = true,
-    int MaxAttachmentMb = 25)
+    int MaxAttachmentMb = 25,
+    TimeSpan? ReconcileInterval = null)
 {
     /// <summary>
     /// The largest attachment cap a source may ask for. Connapse has no global upload maximum to
     /// borrow, and each attachment is buffered and parsed in memory, so the cap is bounded here.
     /// </summary>
     public const int MaxAttachmentMbCeiling = 100;
+
+    /// <summary>How often a space is listed in full, which is how trashed, archived and moved-out pages drop out.</summary>
+    public static readonly TimeSpan DefaultReconcileInterval = TimeSpan.FromHours(1);
 }
 
 /// <summary>
-/// Syncs a Confluence space's current pages and blog posts. Every cycle lists the whole space
-/// without bodies (a page of 250 per request), records what it saw in the page-state store, and
-/// hands the sync engine a full listing: the engine re-ingests only what changed signature and
-/// deletes what is gone, so a page trashed, archived or moved to another space drops out the
-/// same way. Paths are id-based, so a rename or move inside the space never re-ingests.
+/// Syncs a Confluence space's current pages and blog posts. Every cycle asks CQL which pages, blog
+/// posts, comments and attachments changed, and reads only the pages it names whose version the
+/// page-state store does not have. An ordinary cycle hands the sync engine the documents whose
+/// signature or address changed, with those of every page a change named, and as deletions only
+/// documents the store shows are gone. A reconcile, by default hourly
+/// (<see cref="ConfluenceSpaceConfig.ReconcileInterval"/>), also lists the whole space without
+/// bodies (a page of 250 per request) and hands over a full listing: the engine re-ingests only
+/// what changed signature and deletes what is gone, so a page trashed, archived or moved to
+/// another space drops out the same way. Paths are id-based, so a rename or move inside the space
+/// never re-ingests.
 /// </summary>
 public sealed partial class ConfluenceSpaceConnector(
     ConfluenceSpaceConfig config,
@@ -108,6 +121,14 @@ public sealed partial class ConfluenceSpaceConnector(
 
     internal ConfluenceSpaceConfig Config => config;
 
+    /// <summary>
+    /// How many pages one cycle's attachment sweep re-reads. A larger space is swept over several
+    /// cycles, oldest list first, so the sweep never crowds out a cycle's ordinary changes.
+    /// </summary>
+    internal int AttachmentSweepSliceSize { get; init; } = 500;
+
+    private TimeSpan ReconcileInterval => config.ReconcileInterval ?? ConfluenceSpaceConfig.DefaultReconcileInterval;
+
     public ConnectorType Type => ConnectorType.Atlassian;
 
     public bool SupportsLiveWatch => false;
@@ -125,22 +146,46 @@ public sealed partial class ConfluenceSpaceConnector(
         DateTimeOffset started = _clock.GetUtcNow();
         var state = fresh ? new ConfluenceSyncState() : _store.LoadState();
         var listed = new Dictionary<string, ConfluenceStoredPage>(StringComparer.Ordinal);
-        Dictionary<string, DateTimeOffset> commented = [];
-        Dictionary<string, DateTimeOffset?> attached = [];
-        Dictionary<string, string?> attachmentOwners = [];
+        var changes = ChangeHits.None();
+        bool reconcile;
+        string listingKey;
 
         try
         {
             var space = await api.GetJsonAsync<SpaceResponse>($"api/v2/spaces/{config.SpaceId}", ct);
             state.SpaceName = string.IsNullOrWhiteSpace(space.Name) ? config.SpaceKey : space.Name;
 
-            await ListAsync("pages", "page", listed, ct);
-            await ListAsync("blogposts", "blogpost", listed, ct);
-            await ResolveFoldersAsync(listed.Values, state, started, ct);
+            // A reconcile runs on a fresh start, once the interval has passed since the last one,
+            // and when the space's name or the source's attachment settings changed, which change
+            // documents no change query names. A reconcile that was deferred or failed, or whose
+            // deletions were withheld, left the cursor as it was, so the next cycle runs it again.
+            listingKey = ListingKey(state.SpaceName);
+            reconcile = fresh
+                || previous!.Watermark is null
+                || previous.LastReconcileAt is not { } reconciled
+                || started - reconciled >= ReconcileInterval
+                || previous.ListingKey != listingKey;
 
-            // A first sync reads every page, comments included, so it has nothing to catch up on.
-            if (previous?.Watermark is { } watermark)
-                (commented, attached, attachmentOwners) = await ChangedPagesAsync(watermark, ct);
+            if (reconcile)
+            {
+                await ListAsync("pages", "page", listed, ct);
+                await ListAsync("blogposts", "blogpost", listed, ct);
+                await ResolveFoldersAsync(listed.Values, state, started, allowRefresh: true, ct);
+
+                // A first sync reads every page, comments included, so it has nothing to catch up on.
+                if (previous?.Watermark is { } watermark)
+                    changes = await ChangedPagesAsync(watermark, ct);
+            }
+            else
+            {
+                // No listing: the store stands in for it, with what the change query names.
+                changes = await ChangedPagesAsync(previous!.Watermark!.Value, ct);
+                foreach (var page in _store.Ids().Select(_store.Load).OfType<ConfluenceStoredPage>())
+                    listed[page.Id] = page;
+                await ReadChangedPagesAsync(changes, listed, ct);
+                // Known folders come from the state; only one no stored page reached before is read.
+                await ResolveFoldersAsync(listed.Values, state, started, allowRefresh: false, ct);
+            }
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
         {
@@ -163,7 +208,7 @@ public sealed partial class ConfluenceSpaceConnector(
             throw Unavailable(ex);
         }
 
-        var stored = Merge(listed, fresh, commented, attached);
+        var stored = Merge(listed, fresh, changes.Commented, changes.Attached);
 
         // After the listing is settled, and outside its all-or-nothing rule: a page whose list
         // could not be read keeps the attachments it had, so nothing is deleted for it.
@@ -171,7 +216,7 @@ public sealed partial class ConfluenceSpaceConnector(
         try
         {
             stopped = config.IncludeAttachments
-                ? await RefreshAttachmentsAsync(listed.Values, started, attached, ct)
+                ? await RefreshAttachmentsAsync(listed.Values, started, changes.Attached, ct)
                 : null;
         }
         catch (Exception ex) when (IsUnavailable(ex, ct))
@@ -180,13 +225,15 @@ public sealed partial class ConfluenceSpaceConnector(
         }
 
         if (config.IncludeAttachments)
-            ReconcileAttachmentOwners(listed.Values, started, attachmentOwners);
+            ReconcileAttachmentOwners(listed.Values, started, changes.Owners);
 
+        // The documents as the last cycle left them, which an incremental cycle's delta is the difference from.
+        var before = reconcile ? null : Documents(out _);
         Save(listed, stored, state);
         state.Watermark = started;
         _store.SaveState(state);
 
-        var files = Listing(null, out int skipped);
+        var documents = Documents(out int skipped);
         string? skippedNote = skipped > 0
             ? $"{skipped} attachment{(skipped == 1 ? " was" : "s were")} {SkippedAttachmentsPhrase} "
               + $"{config.MaxAttachmentMb} MB, or a file type Connapse can't read. To include larger files, raise "
@@ -194,9 +241,104 @@ public sealed partial class ConfluenceSpaceConnector(
             : null;
         string? notice = string.Join(" ", new[] { skippedNote, stopped }.Where(n => n is not null));
 
+        string next = new ConfluenceCursor(started, reconcile ? started : previous!.LastReconcileAt, listingKey).Serialize();
+        if (before is null)
+        {
+            return new SyncDelta(
+                Ordered(documents.Select(d => d.File)), [], next, RequiresFullResync: false, IsFullListing: true,
+                Notice: notice.Length > 0 ? notice : null);
+        }
+
+        var (upserted, deleted) = IncrementalChanges(before, documents, changes.PageIds);
         return new SyncDelta(
-            files, [], new ConfluenceCursor(started).Serialize(), RequiresFullResync: false, IsFullListing: true,
-            Notice: notice.Length > 0 ? notice : null);
+            upserted, deleted, next, RequiresFullResync: false, IsFullListing: false, Notice: notice.Length > 0 ? notice : null);
+    }
+
+    /// <summary>
+    /// An incremental cycle's delta. Upserted: every document whose signature, address or type
+    /// differs from the last cycle's, which covers a page whose ancestor or folder was renamed or
+    /// moved, since its breadcrumb is in its signature; and every document of a page a change hit
+    /// named, so a cycle whose delta the engine did not take up is reported again while the
+    /// overlap still returns it. Deleted: the paths the last cycle listed that the store no longer
+    /// does, which between reconciles are only attachments a list read or owner check took off.
+    /// </summary>
+    private static (List<ConnectorFile> Upserted, List<string> Deleted) IncrementalChanges(
+        List<(string PageId, ConnectorFile File)> before, List<(string PageId, ConnectorFile File)> after, IReadOnlySet<string> named)
+    {
+        var old = before.ToDictionary(d => d.File.Path, d => d.File, StringComparer.Ordinal);
+        var upserted = after
+            .Where(d => named.Contains(d.PageId)
+                || !old.TryGetValue(d.File.Path, out var was)
+                || was.SizeBytes != d.File.SizeBytes
+                || was.LastModified != d.File.LastModified
+                || was.ResourceUri != d.File.ResourceUri
+                || was.ContentType != d.File.ContentType)
+            .Select(d => d.File);
+        var now = after.Select(d => d.File.Path).ToHashSet(StringComparer.Ordinal);
+        return (Ordered(upserted), [.. old.Keys.Where(p => !now.Contains(p)).Order(StringComparer.Ordinal)]);
+    }
+
+    private static List<ConnectorFile> Ordered(IEnumerable<ConnectorFile> files) =>
+        [.. files.OrderBy(f => f.Path, StringComparer.Ordinal)];
+
+    /// <summary>A short hash of what every document's listing depends on beyond its own page.</summary>
+    private string ListingKey(string spaceName)
+    {
+        string text = string.Join('\u001f',
+            config.SpaceKey, spaceName, config.IncludeAttachments ? "attachments" : "none",
+            config.MaxAttachmentMb.ToString(CultureInfo.InvariantCulture));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
+    }
+
+    /// <summary>
+    /// Reads the pages and blog posts the change query named whose version the store lacks, and
+    /// any page owning a changed comment or attachment that the store does not hold, into
+    /// <paramref name="listed"/>. One gone, refused, no longer current, or in another space is
+    /// left as it is: the next reconcile settles it.
+    /// </summary>
+    private async Task ReadChangedPagesAsync(ChangeHits changes, Dictionary<string, ConfluenceStoredPage> listed, CancellationToken ct)
+    {
+        var wanted = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (id, hit) in changes.Pages)
+        {
+            if (!listed.TryGetValue(id, out var known) || hit.Version is null || known.Version != hit.Version || known.Kind != hit.Kind)
+                wanted[id] = hit.Kind;
+        }
+        foreach (var (id, kind) in changes.Containers)
+        {
+            if (!listed.ContainsKey(id))
+                wanted.TryAdd(id, kind);
+        }
+
+        foreach (var (id, kind) in wanted)
+        {
+            string endpoint = kind == "blogpost" ? "blogposts" : "pages";
+            PageResponse page;
+            try
+            {
+                page = await api.GetJsonAsync<PageResponse>($"api/v2/{endpoint}/{id}", ct);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+            {
+                continue;
+            }
+
+            if (page.Id != id || page.Version is not { Number: > 0 })
+                throw new AtlassianMalformedResponseException($"Confluence returned {kind} {id} without a valid id and version.");
+            if ((page.Status is { } status && status != "current") || (page.SpaceId is { } spaceId && spaceId != config.SpaceId))
+                continue;
+
+            listed[id] = new ConfluenceStoredPage
+            {
+                Id = id,
+                Kind = kind,
+                Version = page.Version.Number,
+                VersionAt = page.Version.CreatedAt ?? DateTimeOffset.MinValue,
+                Title = page.Title ?? "",
+                ParentId = ConfluencePageStateStore.IsContentId(page.ParentId) ? page.ParentId : null,
+                ParentType = page.ParentType,
+            };
+        }
     }
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) =>
@@ -373,11 +515,13 @@ public sealed partial class ConfluenceSpaceConnector(
     /// A folder that answered 403 or 404 is remembered as unavailable until that refresh too.
     /// Folders no listed page reaches any more are dropped. Nothing is written to
     /// <paramref name="state"/> until every lookup has finished, so a rate limit midway leaves it as it was.
+    /// Without <paramref name="allowRefresh"/> (an incremental cycle) the refresh waits for the
+    /// next reconcile, and only a folder the state does not know is read.
     /// </summary>
     private async Task ResolveFoldersAsync(
-        IEnumerable<ConfluenceStoredPage> pages, ConfluenceSyncState state, DateTimeOffset now, CancellationToken ct)
+        IEnumerable<ConfluenceStoredPage> pages, ConfluenceSyncState state, DateTimeOffset now, bool allowRefresh, CancellationToken ct)
     {
-        bool refresh = state.FoldersRefreshedAt is not { } last || now - last >= FolderRefreshInterval;
+        bool refresh = allowRefresh && (state.FoldersRefreshedAt is not { } last || now - last >= FolderRefreshInterval);
 
         var titles = new Dictionary<string, string>(StringComparer.Ordinal);
         var parents = new Dictionary<string, ConfluenceFolderParent>(StringComparer.Ordinal);
@@ -436,31 +580,42 @@ public sealed partial class ConfluenceSpaceConnector(
     }
 
     /// <summary>
-    /// Asks CQL which comments (and, with attachments on, which attachments) changed since a day
-    /// before <paramref name="watermark"/>. Returns the newest comment change per page, and the
-    /// pages whose attachments changed. The day of overlap absorbs CQL's unstated timezone; a hit
+    /// Asks CQL which pages, blog posts and comments (and, with attachments on, which attachments)
+    /// changed since a day before <paramref name="watermark"/>. Returns each changed page or blog
+    /// post with its version, the newest comment change per page, and the pages whose attachments
+    /// changed. The day of overlap absorbs CQL's unstated timezone; a hit
     /// reported twice is harmless because a comment time only moves forward and an attachment hit
     /// only re-reads the page's list.
     /// Also returns the page each changed attachment now sits on, or null for an attachment
     /// reported on more than one page, so a moved attachment can be taken off its old page.
     /// Each page with attachment changes carries its newest change time, null if a hit had none.
     /// </summary>
-    private async Task<(Dictionary<string, DateTimeOffset> Commented, Dictionary<string, DateTimeOffset?> Attached, Dictionary<string, string?> Owners)>
-        ChangedPagesAsync(DateTimeOffset watermark, CancellationToken ct)
+    private async Task<ChangeHits> ChangedPagesAsync(DateTimeOffset watermark, CancellationToken ct)
     {
         string since = (watermark - TimeSpan.FromDays(1)).UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-        string types = config.IncludeAttachments ? "type in (comment, attachment)" : "type=comment";
+        string types = config.IncludeAttachments ? "type in (page, blogpost, comment, attachment)" : "type in (page, blogpost, comment)";
         string cql = $"space=\"{CqlQuote(config.SpaceKey)}\" AND {types} AND lastmodified >= \"{since}\"";
-        string url = $"rest/api/search?cql={Uri.EscapeDataString(cql)}&limit=100&expand=content.container";
+        string url = $"rest/api/search?cql={Uri.EscapeDataString(cql)}&limit=100&expand=content.container,content.version";
 
-        var commented = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
-        var attached = new Dictionary<string, DateTimeOffset?>(StringComparer.Ordinal);
-        var owners = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var changes = ChangeHits.None();
+        var commented = changes.Commented;
+        var attached = changes.Attached;
+        var owners = changes.Owners;
         await foreach (var hit in api.PageAsync(url, ReadSearchResults, ct))
         {
+            if (hit.Content?.Type is "page" or "blogpost")
+            {
+                // A hit without a version cannot be compared with the store, so its page is read.
+                if (ConfluencePageStateStore.IsContentId(hit.Content.Id))
+                    changes.Pages[hit.Content.Id!] = (hit.Content.Type, hit.Content.Version?.Number is > 0 ? hit.Content.Version.Number : null);
+                continue;
+            }
+
             string? pageId = hit.Content?.Container?.Id;
             if (!ConfluencePageStateStore.IsContentId(pageId))
                 continue;
+            if (hit.Content!.Container!.Type is "page" or "blogpost")
+                changes.Containers[pageId!] = hit.Content.Container.Type;
 
             if (hit.Content!.Type == "attachment")
             {
@@ -478,7 +633,24 @@ public sealed partial class ConfluenceSpaceConnector(
                 commented[pageId!] = at;
         }
 
-        return (commented, attached, owners);
+        return changes;
+    }
+
+    /// <summary>What one change query reported. <see cref="Containers"/> are the pages owning changed comments or attachments, by kind.</summary>
+    private sealed record ChangeHits(
+        Dictionary<string, (string Kind, int? Version)> Pages,
+        Dictionary<string, string> Containers,
+        Dictionary<string, DateTimeOffset> Commented,
+        Dictionary<string, DateTimeOffset?> Attached,
+        Dictionary<string, string?> Owners)
+    {
+        public static ChangeHits None() => new(
+            new(StringComparer.Ordinal), new(StringComparer.Ordinal), new(StringComparer.Ordinal),
+            new(StringComparer.Ordinal), new(StringComparer.Ordinal));
+
+        /// <summary>Every page any hit named.</summary>
+        public IReadOnlySet<string> PageIds =>
+            Pages.Keys.Concat(Containers.Keys).Concat(Commented.Keys).Concat(Attached.Keys).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>The numeric part of a Confluence attachment id ("att" plus digits), or null when it is not one.</summary>
@@ -559,17 +731,25 @@ public sealed partial class ConfluenceSpaceConnector(
 
     /// <summary>
     /// Reads the attachment list of every page that is due: never read, named by an attachment
-    /// change, or older than <see cref="AttachmentSweepInterval"/>. A rate limit stops the reading
+    /// change, or, at most <see cref="AttachmentSweepSliceSize"/> of them, older than
+    /// <see cref="AttachmentSweepInterval"/>. A rate limit stops the reading
     /// and is returned as a notice; every page not reached keeps its previous list and stays due.
+    /// The sweep's progress is each page's own list time: the oldest lists are read first, so the
+    /// next cycle's slice starts where this one stopped.
     /// </summary>
     private async Task<string?> RefreshAttachmentsAsync(
         IEnumerable<ConfluenceStoredPage> pages, DateTimeOffset now, Dictionary<string, DateTimeOffset?> changed, CancellationToken ct)
     {
+        var all = pages.ToList();
         // Oldest read first, so a sweep cut short by rate limiting picks up where it stopped.
-        var due = pages
-            .Where(p => p.AttachmentsListedAt is not { } at || now - at >= AttachmentSweepInterval)
-            .OrderBy(p => p.AttachmentsListedAt ?? DateTimeOffset.MinValue)
-            .ThenBy(p => p.Id, StringComparer.Ordinal)
+        var due = all
+            .Where(p => p.AttachmentsListedAt is null)
+            .OrderBy(p => p.Id, StringComparer.Ordinal)
+            .Concat(all
+                .Where(p => p.AttachmentsListedAt is { } at && now - at >= AttachmentSweepInterval)
+                .OrderBy(p => p.AttachmentsListedAt)
+                .ThenBy(p => p.Id, StringComparer.Ordinal)
+                .Take(AttachmentSweepSliceSize))
             .ToList();
 
         foreach (var page in due)
@@ -693,18 +873,26 @@ public sealed partial class ConfluenceSpaceConnector(
     private IReadOnlyList<ConnectorFile> Listing(string? prefix, out int skipped)
     {
         string? normalized = string.IsNullOrEmpty(prefix) ? null : "/" + prefix.Trim('/') + "/";
+        return Ordered(Documents(out skipped)
+            .Select(d => d.File)
+            .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal)));
+    }
+
+    /// <summary>What <see cref="Listing"/> lists, each document with the page it belongs to.</summary>
+    private List<(string PageId, ConnectorFile File)> Documents(out int skipped)
+    {
         var pages = _store.Ids()
             .Select(_store.Load)
             .OfType<ConfluenceStoredPage>()
             .ToDictionary(p => p.Id, StringComparer.Ordinal);
         var state = _store.LoadState();
-        var files = new List<ConnectorFile>();
+        var files = new List<(string PageId, ConnectorFile File)>();
         skipped = 0;
 
         foreach (var page in pages.Values)
         {
             var breadcrumb = Breadcrumb(page, state, pages.GetValueOrDefault);
-            files.Add(ToConnectorFile(page, breadcrumb));
+            files.Add((page.Id, ToConnectorFile(page, breadcrumb)));
 
             if (!config.IncludeAttachments)
                 continue;
@@ -716,18 +904,13 @@ public sealed partial class ConfluenceSpaceConnector(
                     continue;
 
                 if (IsIndexable(attachment))
-                    files.Add(ToConnectorFile(page, attachment, breadcrumb));
+                    files.Add((page.Id, ToConnectorFile(page, attachment, breadcrumb)));
                 else
                     skipped++;
             }
         }
 
-        return
-        [
-            .. files
-                .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal))
-                .OrderBy(f => f.Path, StringComparer.Ordinal),
-        ];
+        return files;
     }
 
     /// <summary>
@@ -968,10 +1151,16 @@ public sealed partial class ConfluenceSpaceConnector(
 
     private sealed record FolderResponse(string? Id, string? Title, string? ParentId, string? ParentType);
 
+    private sealed record PageResponse(
+        string? Id, string? Title, string? SpaceId, string? Status, string? ParentId, string? ParentType, VersionInfo? Version);
+
+    private sealed record SearchVersion(int Number);
+
     // Confluence's search sends a container's id as a JSON number, unlike the v2 API's strings.
     private sealed record SearchContainer([property: JsonConverter(typeof(StringOrNumberId))] string? Id, string? Type);
 
-    private sealed record SearchContent([property: JsonConverter(typeof(StringOrNumberId))] string? Id, string? Type, SearchContainer? Container);
+    private sealed record SearchContent(
+        [property: JsonConverter(typeof(StringOrNumberId))] string? Id, string? Type, SearchContainer? Container, SearchVersion? Version = null);
 
     /// <summary>A content id given as either a JSON string or a whole number; anything else is malformed.</summary>
     private sealed class StringOrNumberId : JsonConverter<string?>
@@ -999,7 +1188,9 @@ public sealed partial class ConfluenceSpaceConnector(
     private sealed record AttachmentResponse(string? Id, string? Title, string? MediaType, long? FileSize, VersionInfo? Version);
 
     /// <summary>The cursor: when the last complete listing started, which the next change query counts back from.</summary>
-    private sealed record ConfluenceCursor(DateTimeOffset? Watermark)
+    /// <param name="LastReconcileAt">When the last full listing ran; a cursor without one reconciles next.</param>
+    /// <param name="ListingKey">What that listing's documents depended on beyond their pages; a change reconciles next.</param>
+    private sealed record ConfluenceCursor(DateTimeOffset? Watermark, DateTimeOffset? LastReconcileAt = null, string? ListingKey = null)
     {
         public string Serialize() => JsonSerializer.Serialize(this, Json);
 
