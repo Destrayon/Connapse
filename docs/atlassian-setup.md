@@ -90,8 +90,8 @@ In [Atlassian Administration](https://admin.atlassian.com):
 1. Go to **Directory** → **Service accounts** → **Create a service account**. Name it with 6 to 30
    letters or digits, for example `connapse`.
 2. On **Select app roles**, set **Confluence** to its admin role if you will index Confluence, and
-   **Jira** to its admin role if you will index Jira (step 4 explains why). Leave every other app at
-   **None**. Connapse needs Confluence admin rights to check other people's access, and the Confluence
+   if you will index Jira, **Jira** to **User** and **Jira Administration** to **App admin** (step 4
+   explains why). Leave every other app at **None**. Connapse needs Confluence admin rights to check other people's access, and the Confluence
    site's check in step 3 confirms them. You can change the role later under **Directory** → **Service
    accounts**, or add the account to the site's Confluence admin group under **Directory** → **Groups**.
 3. **For Confluence**, in **every space you will index**, give the service account (or a group it is in)
@@ -99,9 +99,11 @@ In [Atlassian Administration](https://admin.atlassian.com):
    settings** → **Users**, add the service account, and choose **Viewer**. On older sites without space
    roles the page is **Permissions**, where it needs **View**. Being an admin does not grant this.
 4. **For Jira**, give the service account Jira access and the **Administer Jira** global permission:
-   under **Directory** → **Service accounts**, choose the service account and set **Jira** to its admin
-   role, which holds Administer Jira. Connapse needs it to ask Jira what each person may read, and the
-   Jira site's check in step 3 confirms it. In every project you will index, give the service account the
+   under **Directory** → **Service accounts**, choose the service account, set **Jira** to **User** (access
+   to Jira) and **Jira Administration** to **App admin** (which holds Administer Jira). Connapse needs it to
+   ask Jira what each person may read, and the Jira site's check in step 3 confirms it. If that check
+   fails at **Checking Jira access permissions**, grant the permission directly: in Jira, **Settings** →
+   **System** → **Global permissions** → **Administer Jira**, and add the service account. In every project you will index, give the service account the
    **Browse projects** permission. Then add the service account to **every group and project role your
    team restricts comments to**: a comment restricted to a group or role the service account isn't in is
    never indexed, and Connapse can't tell it exists.
