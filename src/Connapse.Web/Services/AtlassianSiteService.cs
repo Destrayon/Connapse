@@ -28,6 +28,16 @@ public sealed record AtlassianSpacesResult(
     string? Error = null,
     string? TroubleshootingUrl = null);
 
+/// <summary>A Jira project an admin can turn into a source.</summary>
+public sealed record JiraProjectInfo(string Id, string Key, string Name, string ProjectTypeKey);
+
+/// <summary>The site's Jira projects, or why they could not be listed; the outcomes are those of <see cref="AtlassianSpacesResult"/>.</summary>
+public sealed record AtlassianProjectsResult(
+    AtlassianSpacesOutcome Outcome,
+    IReadOnlyList<JiraProjectInfo>? Projects = null,
+    string? Error = null,
+    string? TroubleshootingUrl = null);
+
 /// <param name="Test">The test that ran: the failed probe for <see cref="AtlassianAddOutcome.TestFailed"/>, or a warning saved anyway.</param>
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
@@ -245,53 +255,89 @@ public sealed class AtlassianSiteService(
     public async Task<AtlassianSpacesResult> ListSpacesAsync(
         Guid connectionId, bool includePersonal, CancellationToken ct = default)
     {
+        var (outcome, spaces, error, url) = await ListAsync(connectionId, AtlassianProduct.Confluence,
+            api => api.PageAsync("api/v2/spaces?status=current&limit=250", ReadSpaces, ct),
+            space => includePersonal || !string.Equals(space.Type, "personal", StringComparison.OrdinalIgnoreCase),
+            space => space.Name,
+            "Atlassian could not list this site's spaces. Check the service account's access and try again.",
+            AtlassianSiteTroubleshooting.NoSpaces, ct);
+        return new AtlassianSpacesResult(outcome, spaces, error, url);
+    }
+
+    /// <summary>
+    /// Lists the site's live Jira projects the service account can browse, as Jira itself answers
+    /// for that account. Failures are reduced to a message safe to show an admin, as for spaces.
+    /// </summary>
+    public async Task<AtlassianProjectsResult> ListProjectsAsync(Guid connectionId, CancellationToken ct = default)
+    {
+        var (outcome, projects, error, url) = await ListAsync(connectionId, AtlassianProduct.Jira,
+            api => api.PageByOffsetAsync("rest/api/3/project/search?action=browse&status=live", "values", ReadProject, 100, ct),
+            _ => true,
+            project => project.Name,
+            "Atlassian could not list this site's Jira projects. Check the service account's access and try again.",
+            AtlassianSiteTroubleshooting.CantReadJira, ct);
+        return new AtlassianProjectsResult(outcome, projects, error, url);
+    }
+
+    /// <summary>
+    /// What listing spaces and projects share: the connection is looked up and checked, the client
+    /// is pinned to <paramref name="product"/>, and every failure becomes a message without the secret.
+    /// </summary>
+    private async Task<(AtlassianSpacesOutcome Outcome, IReadOnlyList<T>? Items, string? Error, string? TroubleshootingUrl)> ListAsync<T>(
+        Guid connectionId, AtlassianProduct product, Func<AtlassianApiClient, IAsyncEnumerable<T>> list,
+        Func<T, bool> keep, Func<T, string> name, string unlistable, string refusedEntry, CancellationToken ct)
+    {
         Connection? connection = await connections.GetAsync(connectionId, ct);
         if (connection is null)
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.NotFound);
+            return (AtlassianSpacesOutcome.NotFound, null, null, null);
         if (connection.Provider != ConnectionProvider.Atlassian)
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.NotAtlassian);
+            return (AtlassianSpacesOutcome.NotAtlassian, null, null, null);
 
         AtlassianSite? site = AtlassianSite.FromConfigJson(connection.ConfigJson);
         string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
         if (site is null || string.IsNullOrEmpty(secret))
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
-                Error: $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.");
+            return (AtlassianSpacesOutcome.Unavailable, null,
+                $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.", null);
 
         try
         {
             using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
-            var api = new AtlassianApiClient(http, tokens, site, secret);
+            var api = new AtlassianApiClient(http, tokens, site, secret, product: product);
 
-            var spaces = new List<ConfluenceSpaceInfo>();
-            await foreach (ConfluenceSpaceInfo space in api.PageAsync(
-                "api/v2/spaces?status=current&limit=250", ReadSpaces, ct))
+            var items = new List<T>();
+            await foreach (T item in list(api))
             {
-                if (includePersonal || !string.Equals(space.Type, "personal", StringComparison.OrdinalIgnoreCase))
-                    spaces.Add(space);
+                if (keep(item))
+                    items.Add(item);
             }
 
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Listed,
-                spaces.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList());
+            return (AtlassianSpacesOutcome.Listed, items.OrderBy(name, StringComparer.OrdinalIgnoreCase).ToList(), null, null);
         }
         catch (AtlassianRateLimitedException ex)
         {
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message,
-                TroubleshootingUrl: AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.General));
+            return (AtlassianSpacesOutcome.Unavailable, null, ex.Message,
+                AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.General));
         }
         catch (AtlassianAuthException ex)
         {
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message,
-                TroubleshootingUrl: AtlassianSyncErrors.TroubleshootingUrl(ex.Message));
+            return (AtlassianSpacesOutcome.Unavailable, null, ex.Message, AtlassianSyncErrors.TroubleshootingUrl(ex.Message));
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException)
         {
             // A refusal is the service account's access; anything else says nothing about it.
             bool refused = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound };
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
-                Error: "Atlassian could not list this site's spaces. Check the service account's access and try again.",
-                TroubleshootingUrl: AtlassianSiteTroubleshooting.UrlOf(
-                    refused ? AtlassianSiteTroubleshooting.NoSpaces : AtlassianSiteTroubleshooting.Unreachable));
+            return (AtlassianSpacesOutcome.Unavailable, null, unlistable,
+                AtlassianSiteTroubleshooting.UrlOf(refused ? refusedEntry : AtlassianSiteTroubleshooting.Unreachable));
         }
+    }
+
+    private static JiraProjectInfo? ReadProject(JsonElement item)
+    {
+        // Ids are digits: the connector refuses any other project id, so none is offered.
+        string? id = Text(item, "id"), key = Text(item, "key");
+        if (id is not { Length: > 0 and <= 19 } || !id.All(char.IsAsciiDigit) || string.IsNullOrEmpty(key))
+            return null;
+        return new JiraProjectInfo(id, key, Text(item, "name") ?? key, Text(item, "projectTypeKey") ?? "");
     }
 
     private static IEnumerable<ConfluenceSpaceInfo> ReadSpaces(JsonElement root)

@@ -125,25 +125,28 @@ public static class SourcesEndpoints
                     scopeJson = resolved.ScopeJson;
                 }
 
-                // The checks the New source dialog runs for a Confluence space, against the site as
-                // its service account; the scope stored is rebuilt from Atlassian's answer.
+                // The checks the New source dialog runs for a Confluence space or a Jira project
+                // (by the scope's kind; none means Confluence), against the site as its service
+                // account; the scope stored is rebuilt from Atlassian's answer.
                 if (connection.Provider == ConnectionProvider.Atlassian)
                 {
-                    var confluence = await ConfluenceSourceScope.ResolveAsync(scopeJson, connection, atlassianSites, sourceStore, ct);
-                    switch (confluence.Outcome)
+                    var atlassian = AtlassianSourceScope.IsJira(scopeJson)
+                        ? await JiraSourceScope.ResolveAsync(scopeJson, connection, atlassianSites, sourceStore, ct)
+                        : await ConfluenceSourceScope.ResolveAsync(scopeJson, connection, atlassianSites, sourceStore, ct);
+                    switch (atlassian.Outcome)
                     {
-                        case ConfluenceSourceScope.Outcome.Invalid:
-                            return Results.BadRequest(new { error = confluence.Error, field = confluence.Field });
-                        case ConfluenceSourceScope.Outcome.Duplicate:
-                            return Results.Conflict(new { error = confluence.Error, field = confluence.Field });
-                        case ConfluenceSourceScope.Outcome.Unavailable:
-                            return Results.Json(new { error = confluence.Error, field = confluence.Field },
+                        case AtlassianSourceScope.Outcome.Invalid:
+                            return Results.BadRequest(new { error = atlassian.Error, field = atlassian.Field });
+                        case AtlassianSourceScope.Outcome.Duplicate:
+                            return Results.Conflict(new { error = atlassian.Error, field = atlassian.Field });
+                        case AtlassianSourceScope.Outcome.Unavailable:
+                            return Results.Json(new { error = atlassian.Error, field = atlassian.Field },
                                 statusCode: StatusCodes.Status502BadGateway);
                     }
 
-                    scopeJson = confluence.ScopeJson;
+                    scopeJson = atlassian.ScopeJson;
                     if (name.Length == 0)
-                        name = confluence.DefaultName!;
+                        name = atlassian.DefaultName!;
                 }
 
                 if (name.Length == 0)
@@ -230,14 +233,17 @@ public static class SourcesEndpoints
             }
 
             // A Confluence source keeps its space; what it reads from it is checked as on creation.
+            // A Jira source, known by its stored kind, keeps its project the same way.
             if (!string.IsNullOrWhiteSpace(request.ScopeJson)
                 && await sourceStore.GetAsync(sourceId, ct) is { ConnectionId: Guid connectionId } current
                 && await connectionStore.GetAsync(connectionId, ct) is { Provider: ConnectionProvider.Atlassian })
             {
-                var confluence = ConfluenceSourceScope.Update(current.ScopeJson, request.ScopeJson);
-                if (confluence.Outcome != ConfluenceSourceScope.Outcome.Valid)
-                    return Results.BadRequest(new { error = confluence.Error, field = confluence.Field });
-                request = request with { ScopeJson = confluence.ScopeJson };
+                var atlassian = AtlassianSourceScope.IsJira(current.ScopeJson)
+                    ? JiraSourceScope.Update(current.ScopeJson, request.ScopeJson)
+                    : ConfluenceSourceScope.Update(current.ScopeJson, request.ScopeJson);
+                if (atlassian.Outcome != AtlassianSourceScope.Outcome.Valid)
+                    return Results.BadRequest(new { error = atlassian.Error, field = atlassian.Field });
+                request = request with { ScopeJson = atlassian.ScopeJson };
             }
 
             var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
