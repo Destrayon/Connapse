@@ -208,6 +208,9 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     /// <summary>The ids each <c>bulkfetch</c> asked for, one list per call.</summary>
     public List<List<string>> BulkFetches { get; } = [];
 
+    /// <summary>When set, bulkfetch answers every issue without its <c>attachment</c> field.</summary>
+    public bool OmitAttachmentField { get; set; }
+
     /// <summary>The most issues one <c>search/jql</c> page holds, whatever <c>maxResults</c> asks.</summary>
     public int SearchPageSize { get; set; } = 5000;
 
@@ -387,24 +390,33 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
             {
                 id = i.Id,
                 key = i.Key,
-                fields = new
-                {
-                    summary = i.Summary,
-                    updated = Time(i.Updated),
-                    attachment = i.Attachments.Select(a => new
-                    {
-                        id = a.Id,
-                        filename = a.FileName,
-                        mimeType = a.MimeType,
-                        size = a.DeclaredSize ?? a.Content.Length,
-                        created = Time(a.Created),
-                        content = $"https://acme.atlassian.net/rest/api/3/attachment/content/{a.Id}",
-                    }),
-                    comment = new { total = BulkCommentTotal ?? i.Comments.Count, maxResults = 20, startAt = 0, comments = i.Comments.Take(20).Select(Comment) },
-                },
+                fields = BulkFields(i),
             }),
             issueErrors = ids.Where(id => !_issues.ContainsKey(id)).Select(id => new { issueIdsOrKeys = new[] { id }, status = 404 }),
         });
+    }
+
+    private Dictionary<string, object?> BulkFields(FakeJiraIssue i)
+    {
+        var fields = new Dictionary<string, object?>
+        {
+            ["summary"] = i.Summary,
+            ["updated"] = Time(i.Updated),
+            ["comment"] = new { total = BulkCommentTotal ?? i.Comments.Count, maxResults = 20, startAt = 0, comments = i.Comments.Take(20).Select(Comment) },
+        };
+        if (!OmitAttachmentField)
+        {
+            fields["attachment"] = i.Attachments.Select(a => new
+            {
+                id = a.Id,
+                filename = a.FileName,
+                mimeType = a.MimeType,
+                size = a.DeclaredSize ?? a.Content.Length,
+                created = Time(a.Created),
+                content = $"https://acme.atlassian.net/rest/api/3/attachment/content/{a.Id}",
+            });
+        }
+        return fields;
     }
 
     private static Dictionary<string, object?> FullFields(FakeJiraIssue i)

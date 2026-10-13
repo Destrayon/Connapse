@@ -58,6 +58,20 @@ internal sealed class JiraStoredTombstone
     public long RecordedMs { get; set; }               // the start of the cycle that recorded it
 }
 
+/// <summary>
+/// What Connapse has ever learnt about one attachment's restriction, kept apart from the issue
+/// records: a fetch that leaves the attachment out, an answer without the attachment field, or the
+/// issue dropping out of the listing must not forget it. Dropped only with the source's state.
+/// </summary>
+internal sealed class JiraAttachmentHistory
+{
+    /// <summary>Every restricted comment that has ever tied the attachment, or may have shown it.</summary>
+    public List<string> TiedBy { get; set; } = [];
+
+    /// <summary>Deny-all for good: tied by more than one comment, or made deny-all by a tie pass.</summary>
+    public bool DenyAll { get; set; }
+}
+
 /// <summary>What the last fetch said about one issue.</summary>
 internal sealed class JiraStoredIssue
 {
@@ -94,6 +108,8 @@ internal sealed class JiraIssueStateStore(string root)
 
     private string StatePath => Path.Combine(root, "state.json");
 
+    private string AttachmentHistoryPath => Path.Combine(root, "attachment-history.json");
+
     public JiraStoredIssue? Load(string issueId)
     {
         if (!IsId(issueId))
@@ -129,6 +145,20 @@ internal sealed class JiraIssueStateStore(string root)
     }
 
     public void SaveState(JiraSyncState state) => WriteAtomically(StatePath, state);
+
+    /// <summary>Each attachment's restriction history, by attachment id. Never pruned by a listing or an issue's deletion.</summary>
+    public Dictionary<string, JiraAttachmentHistory> LoadAttachmentHistory()
+    {
+        if (!File.Exists(AttachmentHistoryPath))
+            return new(StringComparer.Ordinal);
+
+        using var stream = File.OpenRead(AttachmentHistoryPath);
+        var loaded = JsonSerializer.Deserialize<Dictionary<string, JiraAttachmentHistory>>(stream, Json);
+        return new(loaded ?? [], StringComparer.Ordinal);
+    }
+
+    public void SaveAttachmentHistory(Dictionary<string, JiraAttachmentHistory> history) =>
+        WriteAtomically(AttachmentHistoryPath, history);
 
     /// <summary>Jira issue, comment and project ids are digits; anything else never reaches a file name or a URL.</summary>
     public static bool IsId(string? id) =>

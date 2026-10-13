@@ -1527,6 +1527,67 @@ public sealed class JiraProjectConnectorTests : IDisposable
             AtlassianUri.ForJiraAttachment(CloudId, "20001", "30002", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
     }
 
+    [Theory]
+    [InlineData("attachment omitted")]
+    [InlineData("attachment field missing")]
+    [InlineData("issue out of the listing")]
+    public async Task Sync_RestrictedAttachmentAwayAndBack_CommentStillHidden_DenyAll(string away)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var file = issue.Attachments.Single();
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        Doc(first, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri.Should().Be(
+            AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, new JiraRestriction(JiraRestrictionType.Group, GroupA), "2"));
+
+        // The tying comment is hidden from the service account while the file is out of sight.
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        if (away == "attachment omitted")
+            issue.Attachments.Remove(file);
+        else if (away == "attachment field missing")
+            _jira.OmitAttachmentField = true;
+        else
+            issue.ProjectId = "10099";
+        await _connector.GetChangesAsync(null);
+        if (away == "issue out of the listing")
+            new JiraIssueStateStore(_root).Load("20001").Should().BeNull("the issue's own record is gone");
+
+        if (away == "attachment omitted")
+            issue.Attachments.Add(file);
+        _jira.OmitAttachmentField = false;
+        issue.ProjectId = ProjectId;
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Sync_StickyDenyAll_SurvivesTheIssueLeavingTheListing()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "shared.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        var b = new FakeJiraComment("3", "Cy", "B", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(b);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+
+        issue.ProjectId = "10099";
+        await _connector.GetChangesAsync(null);
+        issue.ProjectId = ProjectId;
+        issue.Comments.Remove(b); // only group A's comment links it now
+        _jira.ServeComments(issue);
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
     [Fact]
     public async Task Sync_HiddenTyingCommentReturns_TieRestored()
     {
