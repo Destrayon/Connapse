@@ -52,3 +52,37 @@ Search in Connapse as each person once the sources finish syncing. These six cov
 | What is the 2026 GPU burst budget ceiling per quarter? | a PDF attached to one guide (412 thousand dollars) | found | found | not found |
 
 Then, to check that permissions are live: in Confluence, restrict one Engineering page to yourself and the service account (lock icon → **Specific people**) and search for it again as them. It should disappear within five minutes.
+
+## 6. Jira (optional)
+The same site can also test the Jira connector (#708). Add Jira (the free plan is enough) from Atlassian Administration, and give the service account the Jira scopes and **Administer Jira**. The script needs the service account's account ID from step 2; the second person's ID is optional and only used to warn you if they would see a restricted comment.
+
+1. Create an API token for your own account as in step 3. `JIRA_EMAIL` and `JIRA_API_TOKEN` are used first; the `CONFLUENCE_` pair works if those are unset.
+2. Run the script. Add `--dry-run` first to see every request it would make:
+
+   ```powershell
+   $env:JIRA_EMAIL = "you@example.com"
+   $env:JIRA_API_TOKEN = "<your API token>"
+   python -I eval/tools/seed_jira.py push --site connapse-test.atlassian.net --service-account-id <account ID> --second-user-id <account ID>
+   ```
+
+   It needs only the `requests` package and is safe to re-run. It creates:
+
+   | What | Who can read it |
+   |---|---|
+   | Project **ENG** (company-managed): 30 short issues, three under one epic, three pairs linked | everyone with access to the project |
+   | A comment restricted to the group `connapse-restricted-readers` (you and the service account), with an attachment `burst-compute-budget-2026.pdf` | you and the service account |
+   | A comment restricted to the project role **Developers** (you and the service account are added) | you and the service account |
+   | A comment restricted to a project role named **QA/Ops Team** (you and the service account are added) | you and the service account |
+   | Service project **SUP** with one internal note, if the site has Jira Service Management | agents only |
+
+   The attachment is uploaded to an ENG issue, and the group-restricted comment links to its content URL (a link, not an embedded media node, because the REST API doesn't return the Media file ID an embedded node needs). Anything the API refuses is printed at the end as a manual step: creating the group or roles needs site-admin rights, and a service project needs a Service Management license; making the service account a Service Management agent is always by hand.
+3. Connapse: add ENG (and SUP) as Jira sources on the site's connection, link accounts as in step 4, and search as each person. The script prints this table at the end:
+
+   | Question | Answer | You | Second person | Unlinked user |
+   |---|---|---|---|---|
+   | How many retries per request does the ingest client allow? | an ENG issue (three) | found | found | not found |
+   | Who owns the cobalt failover drill for the billing queue, and what is the runbook code? | the group-restricted comment (COBALT-41) | found | not found | not found |
+   | When does the nightly index rebuild run after the Juniper migration? | the Developers-restricted comment (02:15 UTC) | found | not found | not found |
+   | How many QA/Ops approvals does the mobile client release sign-off need? | the QA/Ops Team-restricted comment (two) | found | not found | not found |
+   | What is the 2026 burst compute ceiling per quarter? | the attached PDF (733 thousand dollars) | found, if attachments are indexed | not found | not found |
+   | Who is the vendor escalation contact for the print queue outage? | the SUP internal note (PRINT-ECHO-12) | found, if internal comments are indexed | not found | not found |
