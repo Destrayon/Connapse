@@ -75,9 +75,6 @@ public sealed partial class JiraProjectConnector(
 
     internal JiraProjectConfig Config => config;
 
-    // Kept for the attachment phases, which skip attachments without a parser as Confluence does.
-    internal IFileTypeValidator? FileTypes => fileTypes;
-
     /// <summary>
     /// How many issues one cycle re-reads for the sweep. A project with more issues is swept over
     /// several cycles, so the sweep's requests never crowd out a cycle's ordinary changes.
