@@ -280,6 +280,25 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         scope.RootElement.GetProperty("maxAttachmentMb").GetInt32().Should().Be(10);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Patch_EmptyScopeJson_RefusedAndScopeKept(string empty)
+    {
+        Guid site = await CreateSiteAsync($"jira-api-empty-{empty.Length}.atlassian.net");
+        var created = await CreateSourceAsync(site, new { kind = "jira-project", projectId = "10000" });
+        Guid sourceId = (await BodyAsync(created)).GetProperty("id").GetGuid();
+        string before = await StoredScopeAsync(sourceId);
+
+        var patched = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { scopeJson = empty });
+
+        patched.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await BodyAsync(patched);
+        body.GetProperty("field").GetString().Should().Be("scopeJson");
+        body.GetProperty("error").GetString().Should().Be(Connapse.Web.Services.AtlassianSourceScope.EmptyScopeError);
+        (await StoredScopeAsync(sourceId)).Should().Be(before);
+    }
+
     [Fact]
     public async Task Projects_NonAdmin_403()
     {
