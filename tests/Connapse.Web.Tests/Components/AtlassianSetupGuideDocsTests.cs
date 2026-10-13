@@ -209,15 +209,28 @@ public class AtlassianSetupGuideDocsTests
     }
 
     [Fact]
-    public void SetupGuide_AddsASiteOncePerProduct_WithOneServiceAccountAndCredential()
+    public void SetupGuide_AddsASiteOncePerProduct_WithOneServiceAccountAndACredentialPerProduct()
     {
         string guide = Flat(Guide());
 
-        guide.Should().Contain("One service account and one credential can serve both products: add the site twice, once as each connection.")
+        guide.Should().Contain("One service account can serve both products, with one credential per product: add the site twice, once as each connection.")
+            .And.NotContain("One service account and one credential can serve both products", "one credential carrying both products' scopes is unverified")
             .And.Contain("choose **Confluence site**")
             .And.Contain("choose **Jira site**")
             .And.NotContain("Not set up for this site", "a connection reads one product, so there is no other product to report")
             .And.NotContain("choose **Atlassian site**");
+    }
+
+    [Fact]
+    public void SetupGuide_NamesJirasTwoRoleRows_NeverItsAdminRole()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain("## Add Jira to an existing Confluence setup")
+            .And.Contain("**Jira Administration** to **App admin**")
+            .And.Contain("**Settings** → **System** → **Global permissions**")
+            .And.NotContain("Jira to its admin role")
+            .And.NotContain("Jira admin role");
     }
 
     [Fact]
