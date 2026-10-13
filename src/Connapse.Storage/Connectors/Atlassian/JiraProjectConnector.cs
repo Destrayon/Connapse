@@ -99,6 +99,10 @@ public sealed partial class JiraProjectConnector(
 
     public async Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
+        // Before any record is replaced or deleted: state from before the history existed holds it
+        // only in the records.
+        SeedAttachmentHistory();
+
         var previous = cursor is null ? null : JiraCursor.TryParse(cursor);
         if (cursor is not null && previous is null)
             return new SyncDelta([], [], NextCursor: null, RequiresFullResync: true);
@@ -304,6 +308,36 @@ public sealed partial class JiraProjectConnector(
                 attachment.DenyAll = true;
             }
         }
+    }
+
+    /// <summary>
+    /// Seeds the attachment history from every stored record when the file is missing or of an
+    /// older format: each attachment's tie and <see cref="JiraStoredAttachment.TiedBy"/>, a deny-all
+    /// one as sticky, and an attachment tombstone as sticky deny-all. Merged into what the file holds.
+    /// </summary>
+    private void SeedAttachmentHistory()
+    {
+        if (_store.HasCurrentAttachmentHistory())
+            return;
+
+        var history = _store.LoadAttachmentHistory();
+        JiraAttachmentHistory EntryFor(string id) => history.TryGetValue(id, out var found) ? found : history[id] = new();
+
+        foreach (var issue in _store.Ids().Select(_store.Load).OfType<JiraStoredIssue>())
+        {
+            foreach (var attachment in issue.Attachments.Where(a => JiraIssueStateStore.IsId(a.Id)))
+            {
+                var ties = attachment.TiedBy.Append(attachment.RestrictingCommentId).OfType<string>().Where(JiraIssueStateStore.IsId).ToList();
+                if (ties.Count == 0 && !attachment.DenyAll)
+                    continue;
+                var entry = EntryFor(attachment.Id);
+                entry.TiedBy = [.. entry.TiedBy.Concat(ties).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+                entry.DenyAll |= attachment.DenyAll || entry.TiedBy.Count > 1;
+            }
+            foreach (var tombstone in issue.Tombstones.Where(t => t.AttachmentFileName is not null && JiraIssueStateStore.IsId(t.Id)))
+                EntryFor(tombstone.Id).DenyAll = true;
+        }
+        _store.SaveAttachmentHistory(history);
     }
 
     /// <summary>Whether the history alone makes an attachment deny-all: sticky, or not tied by exactly its one comment.</summary>

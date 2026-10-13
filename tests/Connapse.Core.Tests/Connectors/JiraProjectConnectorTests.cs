@@ -1588,6 +1588,104 @@ public sealed class JiraProjectConnectorTests : IDisposable
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
     }
 
+    /// <summary>Turns the store into what the code before the attachment history wrote: no history file, no TiedBy.</summary>
+    private void MakeLegacy()
+    {
+        File.Delete(Path.Combine(_root, "attachment-history.json"));
+        var store = new JiraIssueStateStore(_root);
+        foreach (string id in store.Ids().ToList())
+        {
+            var record = store.Load(id)!;
+            foreach (var attachment in record.Attachments)
+                attachment.TiedBy = [];
+            store.Save(record);
+        }
+    }
+
+    [Theory]
+    [InlineData("attachment omitted")]
+    [InlineData("issue out of the listing")]
+    public async Task Upgrade_LegacyTiedAttachmentAwayThenBack_CommentHidden_DenyAll(string away)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var file = issue.Attachments.Single();
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+
+        // The first sync after the upgrade doesn't see the file, and the comment is hidden meanwhile.
+        issue.Comments.Remove(a);
+        _jira.ServeComments(issue);
+        if (away == "attachment omitted")
+            issue.Attachments.Remove(file);
+        else
+            issue.ProjectId = "10099";
+        await _connector.GetChangesAsync(null);
+        File.Exists(Path.Combine(_root, "attachment-history.json")).Should().BeTrue();
+
+        if (away == "attachment omitted")
+            issue.Attachments.Add(file);
+        issue.ProjectId = ProjectId;
+        var back = await _connector.GetChangesAsync(null);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacyDenyAllWithOneSurvivingTie_StaysDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "shared.txt"));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001")));
+        var b = new FakeJiraComment("3", "Cy", "B", T0, Visibility: GroupVisibility(GroupB), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(b);
+        _jira.ServeComments(issue);
+        await _connector.GetChangesAsync(null);
+        MakeLegacy();
+        var legacy = new JiraIssueStateStore(_root).Load("20001")!.Attachments.Single();
+        legacy.DenyAll.Should().BeTrue();
+        legacy.RestrictingCommentId.Should().Be("2");
+
+        issue.Comments.Remove(b);
+        _jira.ServeComments(issue);
+        var after = await _connector.GetChangesAsync(null);
+
+        Doc(after, AttachmentPath("20001", "30001", "shared.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
+    [Fact]
+    public async Task Upgrade_LegacyAttachmentTombstone_SeedsStickyDenyAll()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "secret.txt"));
+        var file = issue.Attachments.Single();
+        var a = new FakeJiraComment("2", "Bob", "A", T0, Visibility: GroupVisibility(GroupA), RenderedBody: LinkTo("30001"));
+        issue.Comments.Add(a);
+        _jira.ServeComments(issue);
+        var first = await _connector.GetChangesAsync(null);
+        issue.Attachments.Remove(file);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        issue.Updated = _clock.GetUtcNow();
+        var vanished = await _connector.GetChangesAsync(first.NextCursor); // the file is a tombstone now
+        new JiraIssueStateStore(_root).Load("20001")!.Tombstones.Should().ContainSingle(t => t.Id == "30001");
+        MakeLegacy();
+
+        issue.Comments.Remove(a);
+        issue.Attachments.Add(file);
+        _jira.ServeComments(issue);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        issue.Updated = _clock.GetUtcNow();
+        var back = await _connector.GetChangesAsync(vanished.NextCursor);
+
+        Doc(back, AttachmentPath("20001", "30001", "secret.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, JiraRestriction.DenyAll));
+    }
+
     [Fact]
     public async Task Sync_HiddenTyingCommentReturns_TieRestored()
     {

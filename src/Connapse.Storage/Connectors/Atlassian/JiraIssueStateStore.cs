@@ -72,6 +72,13 @@ internal sealed class JiraAttachmentHistory
     public bool DenyAll { get; set; }
 }
 
+/// <summary>The attachment history file: its format version and the entries by attachment id.</summary>
+internal sealed class JiraAttachmentHistoryFile
+{
+    public int Version { get; set; }
+    public Dictionary<string, JiraAttachmentHistory> Attachments { get; set; } = [];
+}
+
 /// <summary>What the last fetch said about one issue.</summary>
 internal sealed class JiraStoredIssue
 {
@@ -146,19 +153,27 @@ internal sealed class JiraIssueStateStore(string root)
 
     public void SaveState(JiraSyncState state) => WriteAtomically(StatePath, state);
 
-    /// <summary>Each attachment's restriction history, by attachment id. Never pruned by a listing or an issue's deletion.</summary>
-    public Dictionary<string, JiraAttachmentHistory> LoadAttachmentHistory()
-    {
-        if (!File.Exists(AttachmentHistoryPath))
-            return new(StringComparer.Ordinal);
+    /// <summary>The history format this code writes. A file of an older one, or none, is seeded again from the issue records.</summary>
+    public const int AttachmentHistoryVersion = 1;
 
-        using var stream = File.OpenRead(AttachmentHistoryPath);
-        var loaded = JsonSerializer.Deserialize<Dictionary<string, JiraAttachmentHistory>>(stream, Json);
-        return new(loaded ?? [], StringComparer.Ordinal);
-    }
+    /// <summary>Whether the history file exists in the current format.</summary>
+    public bool HasCurrentAttachmentHistory() => ReadAttachmentHistory() is { Version: >= AttachmentHistoryVersion };
+
+    /// <summary>Each attachment's restriction history, by attachment id. Never pruned by a listing or an issue's deletion.</summary>
+    public Dictionary<string, JiraAttachmentHistory> LoadAttachmentHistory() =>
+        new(ReadAttachmentHistory()?.Attachments ?? [], StringComparer.Ordinal);
 
     public void SaveAttachmentHistory(Dictionary<string, JiraAttachmentHistory> history) =>
-        WriteAtomically(AttachmentHistoryPath, history);
+        WriteAtomically(AttachmentHistoryPath, new JiraAttachmentHistoryFile { Version = AttachmentHistoryVersion, Attachments = history });
+
+    private JiraAttachmentHistoryFile? ReadAttachmentHistory()
+    {
+        if (!File.Exists(AttachmentHistoryPath))
+            return null;
+
+        using var stream = File.OpenRead(AttachmentHistoryPath);
+        return JsonSerializer.Deserialize<JiraAttachmentHistoryFile>(stream, Json);
+    }
 
     /// <summary>Jira issue, comment and project ids are digits; anything else never reaches a file name or a URL.</summary>
     public static bool IsId(string? id) =>
