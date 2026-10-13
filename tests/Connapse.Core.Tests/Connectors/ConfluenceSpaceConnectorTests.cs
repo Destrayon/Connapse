@@ -207,6 +207,95 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         (await connector.GetChangesAsync(retry.NextCursor)).IsFullListing.Should().BeFalse("the retry's delta was taken up");
     }
 
+    private static HttpResponseMessage Raw(string body) =>
+        new(System.Net.HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+
+    public static TheoryData<string> MalformedResultPages =>
+    [
+        "{}",
+        """{"_links":{}}""",
+        """{"results":null}""",
+        """{"results":{}}""",
+        """{"results":[null]}""",
+        """{"results":["att501"]}""",
+        """{"results":[{"title":"no id.txt"}]}""",
+        """{"results":[{"id":"501x","title":"bad id.txt"}]}""",
+    ];
+
+    private async Task<(ConfluenceSpaceConnector Connector, string Cursor)> TwoAttachmentsSweepDueAsync()
+    {
+        var connector = NewConnector(reconcileInterval: TimeSpan.FromDays(7));
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "a.txt"));
+        _api.Confluence.AddAttachment(Attachment("502", "1", "b.txt"));
+        string cursor = (await connector.GetChangesAsync(null)).NextCursor!;
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        return (connector, cursor);
+    }
+
+    private async Task NoDeletionAfterTheMalformedListAsync(ConfluenceSpaceConnector connector, string cursor)
+    {
+        string[] both = ["/attachments/501/a.txt", "/attachments/502/b.txt", "/pages/1.md"];
+        string record = await File.ReadAllTextAsync(Path.Combine(_root, "pages", "1.json"));
+
+        (await FluentActions.Awaiting(() => connector.GetChangesAsync(cursor)).Should().ThrowAsync<AtlassianUnavailableException>())
+            .WithInnerException<AtlassianMalformedResponseException>();
+        (await File.ReadAllTextAsync(Path.Combine(_root, "pages", "1.json"))).Should().Be(record, "the stored list is kept");
+        (await connector.ListFilesAsync()).Select(f => f.Path).Should().BeEquivalentTo(both);
+
+        // Answered properly next cycle: the page was still due, and nothing is gone.
+        _api.Intercept = null;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var next = await connector.GetChangesAsync(cursor);
+        next.IsFullListing.Should().BeFalse();
+        next.DeletedPaths.Should().BeEmpty();
+        _api.Confluence.AttachmentListings["1"].Should().BeGreaterThan(1);
+        (await connector.ListFilesAsync()).Select(f => f.Path).Should().BeEquivalentTo(both);
+    }
+
+    [Theory]
+    [MemberData(nameof(MalformedResultPages))]
+    public async Task GetChanges_MalformedAttachmentListFirstPageIncremental_NoDeletionAndTheListKept(string body)
+    {
+        var (connector, cursor) = await TwoAttachmentsSweepDueAsync();
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/pages/1/attachments", StringComparison.Ordinal) ? Raw(body) : null;
+
+        await NoDeletionAfterTheMalformedListAsync(connector, cursor);
+    }
+
+    [Theory]
+    [MemberData(nameof(MalformedResultPages))]
+    public async Task GetChanges_MalformedAttachmentListContinuationIncremental_NoDeletionAndTheListKept(string body)
+    {
+        _api.Confluence.MaxPageSize = 1; // two attachments, so the list has a second page
+        var (connector, cursor) = await TwoAttachmentsSweepDueAsync();
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/pages/1/attachments", StringComparison.Ordinal)
+            && uri.Query.Contains("cursor=", StringComparison.Ordinal) ? Raw(body) : null;
+
+        await NoDeletionAfterTheMalformedListAsync(connector, cursor);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"results":null}""")]
+    [InlineData("""{"results":[null]}""")]
+    [InlineData("""{"results":[7]}""")]
+    public async Task GetChanges_MalformedChangeQueryAnswer_UnavailableAndNothingApplied(string body)
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        EditNow("1", "One, edited");
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/rest/api/search", StringComparison.Ordinal) ? Raw(body) : null;
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor)).Should().ThrowAsync<AtlassianUnavailableException>();
+
+        _api.Intercept = null;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var next = await _connector.GetChangesAsync(first.NextCursor);
+        next.Upserted.Select(f => f.Path).Should().Equal(new[] { "/pages/1.md" }, "the change is not lost: the watermark did not move");
+    }
+
     [Fact]
     public async Task GetChanges_DeletedAndMovedOutPages_RemovedOnlyAtTheReconcile()
     {

@@ -686,6 +686,76 @@ public sealed class JiraProjectConnectorTests : IDisposable
         (await ReadAsync("/issues/20001.md")).Should().Contain("Root cause").And.Contain("Expired certificate");
     }
 
+    [Theory]
+    [InlineData("""{"comments":[null],"startAt":0,"maxResults":100,"total":1}""")]
+    [InlineData("""{"comments":[7],"startAt":0,"maxResults":100,"total":1}""")]
+    [InlineData("""{"comments":[{"body":null}],"startAt":0,"maxResults":100,"total":1}""")]
+    [InlineData("""{"comments":[{"id":"x2"}],"startAt":0,"maxResults":100,"total":1}""")]
+    [InlineData("""{"startAt":0,"maxResults":100,"total":1}""")]
+    public async Task Sync_MalformedCommentPageIncremental_UnavailableAndNothingDeleted(string body)
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA)));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        _api.Intercept = uri => uri.AbsolutePath.EndsWith("/issue/20001/comment", StringComparison.Ordinal)
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") }
+            : null;
+
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor))
+            .Should().ThrowAsync<AtlassianUnavailableException>("a dropped comment would become a tombstone and then a deletion");
+        (await _connector.ListFilesAsync()).Single(f => f.Path == CommentPath("20001", "2")).ResourceUri
+            .Should().EndWith($"/group/{GroupA}");
+    }
+
+    [Fact]
+    public async Task Sync_BulkFetchAttachmentEntryWithoutAValidId_UnavailableAndNothingDeleted()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        _api.Map(_jira.Root + "/issue/bulkfetch", _ => FakeAtlassianApi.Json(new
+        {
+            issues = new[]
+            {
+                new
+                {
+                    id = "20001", key = "ENG-1",
+                    fields = new { summary = "Login fails", updated = FakeJira.Time(issue.Updated), attachment = new object?[] { null } },
+                },
+            },
+            issueErrors = Array.Empty<object>(),
+        }));
+
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(first.NextCursor)).Should().ThrowAsync<AtlassianUnavailableException>();
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Contain(AttachmentPath("20001", "30001", "notes.txt"));
+    }
+
+    [Fact]
+    public async Task Sync_BulkFetchWithoutTheAttachmentFieldIncremental_AttachmentsKeptNotDeleted()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "notes.txt"));
+        var first = await _connector.GetChangesAsync(null);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        issue.Summary = "Login fails, edited";
+        issue.Updated = _clock.GetUtcNow().AddMinutes(-1);
+        _jira.OmitAttachmentField = true;
+        var second = await _connector.GetChangesAsync(first.NextCursor);
+
+        second.IsFullListing.Should().BeFalse();
+        second.DeletedPaths.Should().BeEmpty("an answer without the field says nothing about the attachments");
+        Doc(second, AttachmentPath("20001", "30001", "notes.txt"))!.ResourceUri
+            .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", false, null));
+        Doc(second, "/issues/20001.md")!.Metadata!["jira:breadcrumb"].Should().Be("Engineering > ENG-1 Login fails, edited");
+    }
+
     [Fact]
     public async Task Sync_SweepInIncrementalCycle_UpsertsSweptIssues()
     {

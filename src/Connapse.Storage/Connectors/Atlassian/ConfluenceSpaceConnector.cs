@@ -672,10 +672,20 @@ public sealed partial class ConfluenceSpaceConnector(
     /// <summary>A value for inside a CQL double-quoted string.</summary>
     private static string CqlQuote(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
-    private static IEnumerable<SearchHit> ReadSearchResults(JsonElement root) =>
-        root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array
-            ? results.EnumerateArray().Select(e => e.Deserialize<SearchHit>(Json)).OfType<SearchHit>().ToList()
-            : [];
+    /// <summary>
+    /// One search page's hits. A page without its results array, or with an entry that is not an
+    /// object, throws rather than reading as fewer changes: the watermark would move past them.
+    /// </summary>
+    private static List<SearchHit> ReadSearchResults(JsonElement root) =>
+        [.. ResultsArray(root, "search page").EnumerateArray().Select(e =>
+            (e.ValueKind == JsonValueKind.Object ? e.Deserialize<SearchHit>(Json) : null)
+            ?? throw new AtlassianMalformedResponseException("Confluence returned a search hit that is not an object."))];
+
+    /// <summary>The <c>results</c> array of a page of answers; anything else is a malformed page, never an empty one.</summary>
+    private static JsonElement ResultsArray(JsonElement root, string what) =>
+        root.ValueKind == JsonValueKind.Object && root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array
+            ? results
+            : throw new AtlassianMalformedResponseException($"Confluence returned a {what} with no results array.");
 
     /// <summary>
     /// Fills each listed page with what earlier cycles learned and the change query reported, and
@@ -868,10 +878,16 @@ public sealed partial class ConfluenceSpaceConnector(
         return attachments;
     }
 
-    private static IEnumerable<AttachmentResponse> ReadAttachments(JsonElement root) =>
-        root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array
-            ? results.EnumerateArray().Select(e => e.Deserialize<AttachmentResponse>(Json)).OfType<AttachmentResponse>().ToList()
-            : [];
+    /// <summary>
+    /// One page of a page's attachment list. A page without its results array, or an entry that is
+    /// not an object with an attachment id, throws: read as the end of the list, or skipped, it would
+    /// replace the stored list with part of it, and the missing attachments would read as deleted.
+    /// </summary>
+    private static List<AttachmentResponse> ReadAttachments(JsonElement root) =>
+        [.. ResultsArray(root, "attachment list").EnumerateArray().Select(e =>
+            (e.ValueKind == JsonValueKind.Object ? e.Deserialize<AttachmentResponse>(Json) : null) is { } item && AttachmentId(item.Id) is not null
+                ? item
+                : throw new AtlassianMalformedResponseException("Confluence returned an attachment list entry without a valid id."))];
 
     // ── Documents ──────────────────────────────────────────────────────────
 

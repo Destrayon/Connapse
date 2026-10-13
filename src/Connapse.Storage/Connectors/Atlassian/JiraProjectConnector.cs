@@ -865,14 +865,13 @@ public sealed partial class JiraProjectConnector(
         if (item?.Fields?.Updated is not { } updated)
             return;
 
-        var issue = new JiraStoredIssue
-        {
-            Id = item.Id!,
-            Key = item.Key ?? "",
-            Summary = item.Fields.Summary ?? "",
-            Updated = updated,
-            Attachments = [.. (item.Fields.Attachment ?? [])
-                .Where(a => JiraIssueStateStore.IsId(a.Id) && !string.IsNullOrWhiteSpace(a.Filename))
+        // An entry without an attachment id is a malformed answer, not one attachment fewer: left
+        // out, the file would read as deleted. An answer without the field says nothing about the
+        // attachments, so the files last recorded stand, and the tie pass below decides them afresh.
+        if (item.Fields.Attachment?.Any(a => a is null || !JiraIssueStateStore.IsId(a.Id)) == true)
+            throw new AtlassianMalformedResponseException($"Jira returned an attachment of issue {item.Id} without a valid id.");
+        var attachments = item.Fields.Attachment is { } answered
+            ? answered.Where(a => !string.IsNullOrWhiteSpace(a.Filename))
                 .Select(a => new JiraStoredAttachment
                 {
                     Id = a.Id!,
@@ -880,7 +879,24 @@ public sealed partial class JiraProjectConnector(
                     MediaType = a.MimeType,
                     Size = a.Size ?? 0,
                     Created = a.Created ?? DateTimeOffset.MinValue,
-                })],
+                })
+            : (_store.Load(item.Id!)?.Attachments ?? [])
+                .Select(a => new JiraStoredAttachment
+                {
+                    Id = a.Id,
+                    FileName = a.FileName,
+                    MediaType = a.MediaType,
+                    Size = a.Size,
+                    Created = a.Created,
+                });
+
+        var issue = new JiraStoredIssue
+        {
+            Id = item.Id!,
+            Key = item.Key ?? "",
+            Summary = item.Fields.Summary ?? "",
+            Updated = updated,
+            Attachments = [.. attachments],
             CommentsReadAt = readAt,
         };
 
@@ -892,7 +908,7 @@ public sealed partial class JiraProjectConnector(
             await foreach (var comment in CommentsAsync(issue.Id, ct))
             {
                 if (!JiraIssueStateStore.IsId(comment.Id))
-                    continue;
+                    throw new AtlassianMalformedResponseException($"Jira returned a comment of issue {issue.Id} without a valid id.");
                 issue.Comments.Add(ToStored(comment));
             }
         }
@@ -1089,10 +1105,16 @@ public sealed partial class JiraProjectConnector(
     private static JiraComment ToRendered(CommentResponse comment) =>
         new(comment.Author?.DisplayName ?? "Unknown user", comment.Created ?? DateTimeOffset.MinValue, comment.Body);
 
+    /// <summary>
+    /// An issue's comments. An entry that is not an object throws, never skipped: a restricted comment
+    /// left out would become a tombstone, and then a deletion.
+    /// </summary>
     private IAsyncEnumerable<CommentResponse> CommentsAsync(string issueId, CancellationToken ct) =>
         api.PageByOffsetAsync(
             $"rest/api/3/issue/{issueId}/comment?orderBy=created", "comments",
-            e => e.ValueKind == JsonValueKind.Object ? e.Deserialize<CommentResponse>(Json) : null, 100, ct);
+            e => (e.ValueKind == JsonValueKind.Object ? e.Deserialize<CommentResponse>(Json) : null)
+                ?? throw new AtlassianMalformedResponseException($"Jira returned a comment of issue {issueId} that is not an object."),
+            100, ct);
 
     // ── Documents ──────────────────────────────────────────────────────────
 
