@@ -821,6 +821,55 @@ public sealed class JiraProjectConnectorTests : IDisposable
             .Should().Be(AtlassianUri.ForJiraAttachment(CloudId, "20001", "30001", true, null));
     }
 
+    /// <summary>
+    /// The seam between the connector and the verifier: every file the listing emits carries a URI
+    /// that the verifier's one parser reads back to exactly the restriction the connector meant.
+    /// </summary>
+    [Fact]
+    public async Task Listing_EveryResourceUri_ParsesBackThroughTryParseJira()
+    {
+        var issue = Issue("20001", "ENG-1", "Login fails");
+        _jira.Attach(issue, Attachment("30001", "group.txt"));
+        _jira.Attach(issue, Attachment("30002", "role.txt"));
+        _jira.Attach(issue, Attachment("30003", "denied.txt"));
+        _jira.Attach(issue, Attachment("30004", "public.txt"));
+        issue.Comments.Add(new FakeJiraComment("1", "Ada", "Public remark", T0));
+        issue.Comments.Add(new FakeJiraComment("2", "Bob", "Group secret", T0, Visibility: GroupVisibility(GroupA),
+            RenderedBody: LinkTo("30001")));
+        issue.Comments.Add(new FakeJiraComment("3", "Cy", "Role secret", T0,
+            Visibility: new { type = "role", value = "QA/Ops Team", identifier = "QA/Ops Team" }, RenderedBody: LinkTo("30002")));
+        issue.Comments.Add(new FakeJiraComment("4", "Di", "Internal note", T0, JsdPublic: false));
+        issue.Comments.Add(new FakeJiraComment("5", "Ed", "Named group", T0, Visibility: new { type = "group", value = "admins" },
+            RenderedBody: LinkTo("30003")));
+        _jira.ServeComments(issue);
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        var role = new JiraRestriction(JiraRestrictionType.Role, "QA/Ops Team", ProjectId);
+        var group = new JiraRestriction(JiraRestrictionType.Group, GroupA);
+        var expected = new Dictionary<string, JiraResource>
+        {
+            ["/issues/20001.md"] = new(CloudId, "20001", JiraResourceKind.Issue, null, false, null),
+            [CommentPath("20001", "2")] = new(CloudId, "20001", JiraResourceKind.Comment, "2", false, group),
+            [CommentPath("20001", "3")] = new(CloudId, "20001", JiraResourceKind.Comment, "3", false, role),
+            [CommentPath("20001", "4")] = new(CloudId, "20001", JiraResourceKind.Comment, "4", true, null),
+            [CommentPath("20001", "5")] = new(CloudId, "20001", JiraResourceKind.Comment, "5", false, JiraRestriction.DenyAll),
+            [AttachmentPath("20001", "30001", "group.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30001", false, group),
+            [AttachmentPath("20001", "30002", "role.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30002", false, role),
+            [AttachmentPath("20001", "30003", "denied.txt")] =
+                new(CloudId, "20001", JiraResourceKind.Attachment, "30003", false, JiraRestriction.DenyAll),
+            [AttachmentPath("20001", "30004", "public.txt")] = new(CloudId, "20001", JiraResourceKind.Attachment, "30004", false, null),
+        };
+
+        delta.Upserted.Select(f => f.Path).Should().BeEquivalentTo(expected.Keys);
+        foreach (var file in delta.Upserted)
+        {
+            AtlassianUri.TryParseJira(file.ResourceUri, out var parsed).Should().BeTrue($"{file.Path} must carry a parseable URI");
+            parsed.Should().Be(expected[file.Path], file.Path);
+        }
+        Doc(delta, CommentPath("20001", "3"))!.ResourceUri.Should().Contain("QA%2FOps%20Team");
+    }
+
     [Fact]
     public async Task Sync_AttachmentLinkedFromTwoDifferentRestrictions_DenyAll()
     {

@@ -8,6 +8,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using Connapse.Storage.CloudScope;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Connapse.Web.Mcp;
@@ -439,7 +440,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
     /// <see cref="AllowedAccount"/> browses the issue, is an agent and is in the group;
     /// <see cref="DeniedAccount"/> is a customer who only browses it.
     /// </summary>
-    private async Task<Guid> SeedJiraAsync(IServiceProvider sp)
+    private async Task<Guid> SeedJiraAsync(IServiceProvider sp, params (string Name, string? Uri)[] more)
     {
         var jira = new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId).MapEnforcement();
         jira.Browse(AllowedAccount, "30001");
@@ -463,7 +464,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
                          new JiraRestriction(JiraRestrictionType.Group, JiraGroup))),
                      ("jira-internal-note.md", AtlassianUri.ForJiraComment(_cloudId, "30001", "502", true, null)),
                      ("upload.md", null),
-                 })
+                 }.Concat(more))
         {
             var document = new DocumentEntity
             {
@@ -515,6 +516,88 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         names.Should().NotContain(["jira-issue.md", "jira-group-comment.md", "jira-internal-note.md"])
             .And.Contain("upload.md");
         JiraCalls.Should().Be(0);
+    }
+
+    /// <summary>
+    /// Syncs issue 30001 with <see cref="JiraProjectConnector"/> against a Jira of its own and returns
+    /// the URIs it lists: a comment restricted to the role <c>QA/Ops Team</c>, an attachment linked
+    /// from it, and an attachment no restricted comment links.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> ConnectorJiraUrisAsync()
+    {
+        using var api = new Connapse.Core.Tests.Connectors.FakeAtlassianApi();
+        var jira = new Connapse.Core.Tests.Connectors.FakeJira(api, _cloudId).MapSync();
+        jira.AddProject(Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "ENG", "Engineering");
+        var issue = jira.AddIssue(new Connapse.Core.Tests.Connectors.FakeJiraIssue("30001", "ENG-1", "Rollout", DateTimeOffset.UtcNow));
+        var at = DateTimeOffset.UtcNow.AddDays(-1);
+        jira.Attach(issue, new Connapse.Core.Tests.Connectors.FakeJiraAttachment("40001", "qa.txt", "qa notes"u8.ToArray(), at, null));
+        jira.Attach(issue, new Connapse.Core.Tests.Connectors.FakeJiraAttachment("40002", "open.txt", "open notes"u8.ToArray(), at, null));
+        issue.Comments.Add(new Connapse.Core.Tests.Connectors.FakeJiraComment("503", "Cy", "QA only", at,
+            Visibility: new { type = "role", value = "QA/Ops Team", identifier = "QA/Ops Team" },
+            RenderedBody: "<a href=\"https://acme.atlassian.net/rest/api/3/attachment/content/40001\">qa.txt</a>"));
+        jira.ServeComments(issue);
+
+        var site = new AtlassianSite("https://acme.atlassian.net", _cloudId, "client-" + _cloudId);
+        string root = Path.Combine(Path.GetTempPath(), "jira-enforcement-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var connector = new JiraProjectConnector(
+                new JiraProjectConfig(site, Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "ENG", root),
+                new AtlassianApiClient(api.CreateClient(), new AtlassianTokenSource(new SingleHandlerFactory(api), TimeProvider.System),
+                    site, "secret", product: AtlassianProduct.Jira),
+                fileTypes: new TextFiles());
+            var delta = await connector.GetChangesAsync(null);
+            return delta.Upserted.ToDictionary(f => f.Path, f => f.ResourceUri!);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class SingleHandlerFactory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    private sealed class TextFiles : IFileTypeValidator
+    {
+        public bool IsSupported(string fileName) => fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase);
+
+        public IReadOnlySet<string> SupportedExtensions { get; } = new HashSet<string> { ".txt" };
+    }
+
+    /// <summary>The role comment and both attachments, under the URIs the connector gave them; the allowed account is in the role.</summary>
+    private async Task<IEnumerable<string?>> SearchJiraRoleAndAttachmentsAsync(string atlassianAccount)
+    {
+        var uris = await ConnectorJiraUrisAsync();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid containerId = await SeedJiraAsync(scope.ServiceProvider,
+            ("jira-role-comment.md", uris["/issues/30001/comments/503.md"]),
+            ("jira-role-attachment.txt", uris["/issues/30001/attachments/40001/qa.txt"]),
+            ("jira-open-attachment.txt", uris["/issues/30001/attachments/40002/open.txt"]));
+        new Connapse.Core.Tests.Connectors.FakeJira(fixture.Atlassian, _cloudId)
+            .Role(Connapse.Core.Tests.Connectors.FakeJira.ProjectId, "10007", "QA/Ops Team",
+                Connapse.Core.Tests.Connectors.FakeJira.UserActor(AllowedAccount));
+        return await SearchAsync(containerId, atlassianAccount);
+    }
+
+    [Fact]
+    public async Task Search_JiraRoleMember_SeesRoleCommentAndItsAttachment()
+    {
+        var names = await SearchJiraRoleAndAttachmentsAsync(AllowedAccount);
+
+        names.Should().Contain(["jira-role-comment.md", "jira-role-attachment.txt", "jira-open-attachment.txt"]);
+    }
+
+    [Fact]
+    public async Task Search_JiraNotInRole_SeesOnlyTheUntiedAttachment()
+    {
+        var names = await SearchJiraRoleAndAttachmentsAsync(DeniedAccount);
+
+        names.Should().Contain(["jira-issue.md", "jira-open-attachment.txt"])
+            .And.NotContain(["jira-role-comment.md", "jira-role-attachment.txt"]);
     }
 
     [Fact]
