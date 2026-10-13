@@ -299,4 +299,34 @@ public class AdfRendererTests
     {
         RenderDoc(P(text)).Should().Be("\\" + text);
     }
+
+    // The JSON text escapes \t, so the paragraph holds a real tab.
+    [Theory]
+    [InlineData(@"-\tforged item", "-\tforged item")]
+    [InlineData(@"*\tforged item", "*\tforged item")]
+    [InlineData(@"+\tforged item", "+\tforged item")]
+    [InlineData(@"1.\tforged item", "1.\tforged item")]
+    [InlineData(@"1)\tforged item", "1)\tforged item")]
+    [InlineData("_ _ _", "_ _ _")]
+    [InlineData("_  _   _", "_  _   _")]
+    [InlineData(@"_\t_\t_", "_\t_\t_")]
+    [InlineData(@"*\t*\t*", "*\t*\t*")]
+    [InlineData(@"-\t-\t-", "-\t-\t-")]
+    [InlineData("- - -", "- - -")]
+    [InlineData("* * *", "* * *")]
+    [InlineData("__ _", "__ _")]
+    public void Render_LineStartTabMarkerOrSpacedRule_IsEscaped(string json, string text)
+    {
+        RenderDoc(P(json)).Should().Be("\\" + text);
+    }
+
+    [Theory]
+    [InlineData("_ _")]
+    [InlineData("-x")]
+    [InlineData("1.5 percent")]
+    [InlineData("_ a _")]
+    public void Render_LineStartLookalike_NotEscaped(string text)
+    {
+        RenderDoc(P(text)).Should().Be(text);
+    }
 }

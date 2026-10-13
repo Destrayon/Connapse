@@ -85,18 +85,27 @@ public static class AdfRenderer
             return text;
 
         string rest = text[start..];
+        // A list marker may be followed by a tab as well as a space.
         bool escape = rest[0] is '#' or '>' or '|'
-            || rest.StartsWith("- ", StringComparison.Ordinal)
-            || rest.StartsWith("+ ", StringComparison.Ordinal)
-            || rest.StartsWith("* ", StringComparison.Ordinal)
+            || (rest.Length > 1 && rest[0] is '-' or '+' or '*' && rest[1] is ' ' or '\t')
             || rest.StartsWith("***", StringComparison.Ordinal)
             || rest.StartsWith("___", StringComparison.Ordinal)
             || IsOrderedMarker(rest)
+            || IsThematicBreak(rest)
             || rest.StartsWith("```", StringComparison.Ordinal)
             || rest.StartsWith("~~~", StringComparison.Ordinal)
             || rest.StartsWith("---", StringComparison.Ordinal)
-            || rest.All(c => c is '=' or '-' or ' ');
+            || rest.All(c => c is '=' or '-' or ' ' or '\t');
         return escape ? text[..start] + "\\" + rest : text;
+    }
+
+    /// <summary>Three or more of one of <c>-</c>, <c>*</c> or <c>_</c>, with nothing else on the line but spaces and tabs.</summary>
+    private static bool IsThematicBreak(string text)
+    {
+        char mark = text[0];
+        return mark is '-' or '*' or '_'
+            && text.Count(c => c == mark) >= 3
+            && text.All(c => c == mark || c is ' ' or '\t');
     }
 
     private static bool IsOrderedMarker(string text)
@@ -104,7 +113,7 @@ public static class AdfRenderer
         int digits = 0;
         while (digits < text.Length && char.IsAsciiDigit(text[digits]))
             digits++;
-        return digits > 0 && digits < text.Length - 1 && text[digits] is '.' or ')' && text[digits + 1] == ' ';
+        return digits > 0 && digits < text.Length - 1 && text[digits] is '.' or ')' && text[digits + 1] is ' ' or '\t';
     }
 
     private static string EscapeLines(string text) =>
