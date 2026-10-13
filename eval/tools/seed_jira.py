@@ -402,6 +402,7 @@ def push(args):
 
     # Jira Service Management -------------------------------------------------------------------
     jsm_done = False
+    no_jsm = False
     try:
         desks = j.read("GET", "/rest/servicedeskapi/servicedesk", default={"values": []})
         if not args.dry_run and not desks.get("values"):
@@ -436,6 +437,7 @@ def push(args):
     except RuntimeError as e:
         if "/rest/servicedeskapi/servicedesk -> HTTP 403" in str(e) or "/rest/servicedeskapi/servicedesk -> HTTP 404" in str(e):
             print("service project: skipped, this site doesn't have Jira Service Management (the internal note question needs it)")
+            no_jsm = True
         else:
             print("service project: not created through the API")
             manual.append((JIRA, "Create a service project "
@@ -450,17 +452,17 @@ def push(args):
         print("\nDo these by hand, in the place each one names:")
         for where, m in manual:
             print(f" - [{where}] {m}")
-    print_expectations(attach_issue, jsm_done)
+    print_expectations(attach_issue, jsm_done, no_jsm)
 
 
-def print_expectations(attach_issue, jsm_done):
+def print_expectations(attach_issue, jsm_done, no_jsm=False):
     rows = [
         ("How many retries per request does the ingest client allow?", f"{PROJECT_KEY} issue 'Add retry budget to the ingest client' (three retries)", "found", "found", "not found"),
         ("Who owns the cobalt failover drill for the billing queue, and what is the runbook code?", f"a comment restricted to {GROUP} on {attach_issue} (COBALT-41)", "found", "not found", "not found"),
         ("When does the nightly index rebuild run after the Juniper migration?", f"a comment restricted to the {ROLE_DEVELOPERS} role (02:15 UTC, JUNIPER-88)", "found", "not found", "not found"),
         ("How many QA/Ops approvals does the mobile client release sign-off need?", f"a comment restricted to the {ROLE_QA} role (two, SIGNOFF-ZEBRA-3)", "found", "not found", "not found"),
         ("What is the 2026 burst compute ceiling per quarter?", f"{ATTACHMENT_FILE}, linked from the {GROUP} comment (733 thousand dollars)", "found, if attachments are indexed", "not found", "not found"),
-        ("Who is the vendor escalation contact for the print queue outage?", f"internal note on the {JSM_KEY} request (Priya Ramanathan, PRINT-ECHO-12)" + ("" if jsm_done else " (needs the manual steps above)"), "found, if internal comments are indexed", "not found", "not found"),
+        ("Who is the vendor escalation contact for the print queue outage?", f"internal note on the {JSM_KEY} request (Priya Ramanathan, PRINT-ECHO-12)" + ("" if jsm_done else " (skip: this site has no Service Management)" if no_jsm else " (needs the manual steps above)"), "found, if internal comments are indexed", "not found", "not found"),
     ]
     print("\nSearch in Connapse as each person once the sources finish syncing. \"You\" is the account that ran this script.\n")
     print("| Question | Answer | You | Second person | Unlinked user |")
