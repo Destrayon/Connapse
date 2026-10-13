@@ -43,7 +43,8 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     private readonly AtlassianConnectionPresence _presence;
 
     private AtlassianSearchResultVerifier NewVerifier(HttpMessageHandler? handler = null, AtlassianVerifierSettings? settings = null) =>
-        new(_documents, _links, _connections, NewChecker(handler ?? _api, _cache, _connections), _presence,
+        new(_documents, _links, _connections, NewChecker(handler ?? _api, _cache, _connections),
+            JiraPermissionCheckerTests.NewJiraChecker(handler ?? _api, _cache), _presence,
             Options.Create(settings ?? new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
 
     private SearchHit Hit(string id, string? uri)
@@ -188,18 +189,54 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Verify_JiraHit_DeniedWithoutCalls()
+    public async Task Verify_Unlinked_JiraDeniedNoCalls()
     {
+        new FakeJira(_api, CloudId).MapEnforcement().Browse(Account, "10001");
         SearchHit[] hits =
         [
             Hit("issue", AtlassianUri.ForJiraIssue(CloudId, "10001")),
             Hit("note", AtlassianUri.ForJiraComment(CloudId, "10001", "55", true, null)),
+            Hit("x", null),
         ];
 
-        (await NewVerifier().VerifyAsync(hits, _user, 10)).Should().BeEmpty();
-
+        Ids(await NewVerifier().VerifyAsync(hits, Guid.NewGuid(), 10)).Should().Equal("x");
+        Ids(await NewVerifier().VerifyAsync(hits, null, 10)).Should().Equal("x");
         _api.Requests.Should().BeEmpty();
-        await _links.DidNotReceiveWithAnyArgs().GetLinkAsync(default, default);
+    }
+
+    [Fact]
+    public async Task Verify_MixedConfluenceAndJira_EachCheckedByItsOwn()
+    {
+        Allow("1", true);
+        Allow("2", false);
+        var jira = new FakeJira(_api, CloudId).MapEnforcement();
+        jira.Browse(Account, "10001");
+        SearchHit[] hits =
+        [
+            Hit("p1", AtlassianUri.ForPage(CloudId, "1")), Hit("i1", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("p2", AtlassianUri.ForPage(CloudId, "2")), Hit("i2", AtlassianUri.ForJiraIssue(CloudId, "10002")),
+            Hit("n1", AtlassianUri.ForJiraComment(CloudId, "10001", "55", true, null)), Hit("x", null),
+        ];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("p1", "i1", "x");
+
+        _api.Calls.GetValueOrDefault(PageRoot + "1/permission/check").Should().Be(1);
+        _api.Calls.GetValueOrDefault(jira.Root + "/permissions/check").Should().Be(1, "one bulk call answers every Jira hit on the site");
+        _api.Calls.Keys.Should().NotContain(k => k.Contains("/confluence/") && k.Contains("1000"));
+    }
+
+    [Fact]
+    public async Task Verify_JiraBudgetExhausted_Denied()
+    {
+        new FakeJira(_api, CloudId).MapEnforcement().Browse(Account, "10001");
+        var slow = new StallingHandler(_api);
+        SearchHit[] hits = [Hit("i1", AtlassianUri.ForJiraIssue(CloudId, "10001")), Hit("x", null)];
+
+        var started = DateTime.UtcNow;
+        var result = await NewVerifier(slow, new AtlassianVerifierSettings { BudgetMs = 200 }).VerifyAsync(hits, _user, 10);
+
+        Ids(result).Should().Equal("x");
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -254,7 +291,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     {
         var checkerConnections = AtlassianConnectionStore();
         var verifier = new AtlassianSearchResultVerifier(_documents, _links, _connections,
-            NewChecker(_api, _cache, checkerConnections), _presence,
+            NewChecker(_api, _cache, checkerConnections), JiraPermissionCheckerTests.NewJiraChecker(_api, _cache), _presence,
             Options.Create(new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
         SearchHit[] hits = [.. Enumerable.Range(1, 8).Select(i =>
         {

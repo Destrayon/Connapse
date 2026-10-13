@@ -67,6 +67,93 @@ public sealed partial class FakeJira(FakeAtlassianApi api, string cloudId)
     public void Answer(string relative, HttpStatusCode status) =>
         api.Map(Root + relative, _ => new HttpResponseMessage(status));
 
+    // ── Enforcement: what each account may see, its groups and the projects' roles ──────────
+
+    private readonly Dictionary<(string Account, string Permission), HashSet<long>> _granted = [];
+    private readonly Dictionary<string, List<(string Name, string GroupId)>> _groups = [];
+    private readonly Dictionary<string, List<(string Name, string RoleId)>> _roles = [];
+
+    /// <summary>
+    /// Maps <c>permissions/check</c> and <c>user/groups</c> to answer from the tables below. An
+    /// account with no entry is one Jira does not know: a 200 with empty <c>issues</c>, no groups.
+    /// </summary>
+    public FakeJira MapEnforcement()
+    {
+        api.Map(Root + "/permissions/check", PermissionCheck);
+        api.Map(Root + "/user/groups", request =>
+        {
+            string account = System.Web.HttpUtility.ParseQueryString(request.RequestUri!.Query)["accountId"] ?? "";
+            return FakeAtlassianApi.Json(_groups.GetValueOrDefault(account, [])
+                .Select(g => new { name = g.Name, groupId = g.GroupId, self = "https://acme.atlassian.net/group" }));
+        });
+        return this;
+    }
+
+    /// <summary>Lets <paramref name="account"/> browse the issues.</summary>
+    public void Browse(string account, params string[] issueIds) => Grant(account, "BROWSE_PROJECTS", issueIds);
+
+    /// <summary>Makes <paramref name="account"/> a service-desk agent on the issues.</summary>
+    public void Agent(string account, params string[] issueIds) => Grant(account, "SERVICEDESK_AGENT", issueIds);
+
+    private void Grant(string account, string permission, string[] issueIds)
+    {
+        if (!_granted.TryGetValue((account, permission), out var issues))
+            _granted[(account, permission)] = issues = [];
+        issues.UnionWith(issueIds.Select(long.Parse));
+    }
+
+    /// <summary>Puts <paramref name="account"/> in groups, each a (name, groupId).</summary>
+    public void Groups(string account, params (string Name, string GroupId)[] groups) =>
+        _groups[account] = [.. groups];
+
+    /// <summary>
+    /// Adds a role to a project's role list and serves its actors. Two roles may share a name, as
+    /// a duplicated key in Jira's answer.
+    /// </summary>
+    public void Role(string projectId, string roleId, string name, params object[] actors)
+    {
+        if (!_roles.TryGetValue(projectId, out var roles))
+        {
+            _roles[projectId] = roles = [];
+            // Written by hand: a dictionary cannot hold the duplicated name an ambiguous answer has.
+            api.Map(Root + $"/project/{projectId}/role", _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{" + string.Join(",", _roles[projectId].Select(r =>
+                        System.Text.Json.JsonSerializer.Serialize(r.Name) + ":" + System.Text.Json.JsonSerializer.Serialize(
+                            $"https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/project/{projectId}/role/{r.RoleId}"))) + "}",
+                    System.Text.Encoding.UTF8, "application/json"),
+            });
+        }
+        roles.Add((name, roleId));
+        api.MapJson(Root + $"/project/{projectId}/role/{roleId}", new { id = long.TryParse(roleId, out long n) ? n : 0, name, actors });
+    }
+
+    public static object UserActor(string accountId) =>
+        new { type = "atlassian-user-role-actor", actorUser = new { accountId } };
+
+    public static object GroupActor(string groupId, string name = "some-group") =>
+        new { type = "atlassian-group-role-actor", actorGroup = new { groupId, name } };
+
+    private HttpResponseMessage PermissionCheck(HttpRequestMessage request)
+    {
+        string text = Body(request);
+        PermissionChecks.Add(text);
+        using var body = System.Text.Json.JsonDocument.Parse(text);
+        string account = body.RootElement.GetProperty("accountId").GetString()!;
+        var answer = new List<object>();
+        foreach (var entry in body.RootElement.GetProperty("projectPermissions").EnumerateArray())
+        {
+            var asked = entry.GetProperty("issues").EnumerateArray().Select(e => e.GetInt64()).ToList();
+            foreach (var permission in entry.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()!))
+            {
+                var granted = _granted.GetValueOrDefault((account, permission), []);
+                answer.Add(new { permission, issues = asked.Where(granted.Contains).ToArray(), projects = Array.Empty<long>() });
+            }
+        }
+        return FakeAtlassianApi.Json(new { projectPermissions = answer, globalPermissions = Array.Empty<string>() });
+    }
+
     // ── Sync: a stateful project with issues, comments and fields ──────────
 
     private readonly Dictionary<string, (string Key, string Name)> _projects = [];
