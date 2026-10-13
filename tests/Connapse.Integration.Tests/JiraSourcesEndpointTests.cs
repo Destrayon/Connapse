@@ -185,6 +185,31 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
     }
 
     [Fact]
+    public async Task Create_PassingSiteWithoutProducts_400()
+    {
+        // A site whose last passing test predates the Jira checks lists no products: Confluence only.
+        Guid site;
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+            var connection = await store.CreateAsync(new Connapse.Core.CreateConnectionRequest(
+                "jira-api-noproducts.atlassian.net", Connapse.Core.ConnectionProvider.Atlassian,
+                $$"""{"siteUrl":"https://jira-api-noproducts.atlassian.net","cloudId":"{{CloudId}}","clientId":"client-1"}""",
+                Secret), null);
+            await store.RecordHealthAsync(connection.Id, new Connapse.Core.ConnectionHealth(
+                DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test", Products: null));
+            site = connection.Id;
+        }
+
+        var response = await CreateSourceAsync(site, new { kind = "jira-project", projectId = "10000" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await BodyAsync(response)).GetProperty("error").GetString()
+            .Should().Be("This site's last test didn't pass for Jira. Test it on the Connections page.");
+        (await SourceCountAsync(site)).Should().Be(0);
+    }
+
+    [Fact]
     public async Task Patch_ProjectIdChange_Refused()
     {
         Guid site = await CreateSiteAsync("jira-api-patch.atlassian.net");

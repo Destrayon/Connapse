@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Web.Components.Sources;
 
 namespace Connapse.Web.Services;
@@ -32,13 +33,80 @@ public abstract class AtlassianSourceScope
         {
             return JsonNode.Parse(string.IsNullOrWhiteSpace(scopeJson) ? "{}" : scopeJson) is JsonObject scope
                 && scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k)
-                && string.Equals(k, JiraProjectSelection.Kind, StringComparison.OrdinalIgnoreCase);
+                && IsJiraKind(k);
         }
         catch (JsonException)
         {
             return false;
         }
     }
+
+    /// <summary>What a product's checks say, in its own words; the checks themselves are shared.</summary>
+    /// <param name="NotAnObject">The scope is not a JSON object.</param>
+    /// <param name="IdError">The id is not digits.</param>
+    /// <param name="MissingId">The scope names no id; given the connection id, for the listing route.</param>
+    /// <param name="Unavailable">The site could not be asked, and said nothing itself.</param>
+    /// <param name="NotOnSite">The id is not one the service account can read; given the id and the connection id.</param>
+    /// <param name="Duplicate">The item already has a source; given its name.</param>
+    /// <param name="IdFixed">A patch names another id.</param>
+    private protected sealed record ScopeTexts(
+        string NotAnObject, string IdError, Func<Guid, string> MissingId, string Unavailable,
+        Func<string, Guid, string> NotOnSite, Func<string, string> Duplicate, string IdFixed);
+
+    /// <summary>
+    /// The checks the New source dialog runs, for the REST API: the id must be one the site's service
+    /// account can read now and not already a source on the connection, and the attachment cap must be
+    /// in range. The scope stored is rebuilt from Atlassian's answer, so an API-created source matches
+    /// a UI-created one. <paramref name="notReady"/>, when set, refuses the site before Atlassian is asked.
+    /// </summary>
+    private protected static async Task<Result> ResolveAsync<TItem, TSelection>(
+        string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore,
+        ScopeTexts texts, string? notReady, CancellationToken ct)
+        where TItem : IAtlassianSourceItem
+        where TSelection : AtlassianSourceSelection<TItem, TSelection>, new()
+    {
+        var selection = new TSelection();
+        string idField = selection.IdField;
+
+        if (Read(scopeJson, idField, texts.IdError) is not { } parsed)
+            return Result.Fail(Outcome.Invalid, "scopeJson", texts.NotAnObject);
+        if (parsed.Error is not null)
+            return Result.Fail(Outcome.Invalid, parsed.Field!, parsed.Error);
+        if (parsed.Id is not { } id)
+            return Result.Fail(Outcome.Invalid, idField, texts.MissingId(connection.Id));
+        if (notReady is not null)
+            return Result.Fail(Outcome.Invalid, "connectionId", notReady);
+
+        // Left out, attachments are on only when the site's last test confirmed their scope, as on the dialog.
+        selection.IncludeAttachments = parsed.IncludeAttachments ?? selection.AttachmentScopeConfirmedFor(connection.Health);
+        selection.MaxAttachmentMb = parsed.MaxAttachmentMb ?? AtlassianSourceSelection.DefaultMaxAttachmentMb;
+        selection.Selected.Add(id);
+        if (selection.Validate() is not null)
+            return Result.Fail(Outcome.Invalid, "maxAttachmentMb", selection.MaxAttachmentMbError!);
+
+        if (SiteOf(connection, out string siteHost) is { } incomplete)
+            return incomplete;
+
+        // Asked now, as the site's service account, exactly as the dialog asks before it creates anything.
+        var onSite = await selection.ListOnSiteAsync(sites, connection.Id, ct);
+        if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
+            return Result.Fail(Outcome.Unavailable, idField, onSite.Error ?? texts.Unavailable);
+
+        var verified = selection.VerifiedAgainst(onSite.Items!, out var refused);
+        if (refused.Count > 0)
+            return Result.Fail(Outcome.Invalid, idField, texts.NotOnSite(id, connection.Id));
+
+        var existing = selection.ExistingIdsOf(await sourceStore.ListByConnectionAsync(connection.Id, ct));
+        var requests = verified.ToRequests(connection.Id, siteHost, existing, out var skipped);
+        if (skipped.Count > 0)
+            return Result.Fail(Outcome.Duplicate, idField, texts.Duplicate(skipped[0]));
+
+        var request = requests.Single();
+        return new Result(Outcome.Valid, request.ScopeJson, request.Name);
+    }
+
+    /// <summary>Whether a scope's <c>kind</c> value is a Jira project's; the one place that comparison is made.</summary>
+    public static bool IsJiraKind(string? kind) => string.Equals(kind, JiraProjectSelection.Kind, StringComparison.OrdinalIgnoreCase);
 
     private protected sealed record Parsed(string? Id, bool? IncludeAttachments, int? MaxAttachmentMb, string? Error = null, string? Field = null);
 
@@ -98,12 +166,12 @@ public abstract class AtlassianSourceScope
 
     /// <summary>
     /// A changed scope for an existing source whose id, in <paramref name="idField"/>, is fixed:
-    /// indexed documents are keyed to it, so a different id is refused with <paramref name="idFixed"/>.
+    /// indexed documents are keyed to it, so a different id is refused with <see cref="ScopeTexts.IdFixed"/>.
     /// Only what to read may change, under the same rules as when the source was created.
     /// </summary>
-    private protected static Result Update(string currentScopeJson, string? newScopeJson, string idField, string idError, string idFixed)
+    private protected static Result Update(string currentScopeJson, string? newScopeJson, string idField, ScopeTexts texts)
     {
-        if (Read(newScopeJson, idField, idError) is not { } parsed)
+        if (Read(newScopeJson, idField, texts.IdError) is not { } parsed)
             return Result.Fail(Outcome.Invalid, "scopeJson", "The scope must be a JSON object.");
         if (parsed.Error is not null)
             return Result.Fail(Outcome.Invalid, parsed.Field!, parsed.Error);
@@ -118,9 +186,9 @@ public abstract class AtlassianSourceScope
             current = [];
         }
 
-        string? currentId = Read(currentScopeJson, idField, idError)?.Id;
+        string? currentId = Read(currentScopeJson, idField, texts.IdError)?.Id;
         if (parsed.Id is { } id && !string.Equals(id, currentId, StringComparison.Ordinal))
-            return Result.Fail(Outcome.Invalid, idField, idFixed);
+            return Result.Fail(Outcome.Invalid, idField, texts.IdFixed);
 
         bool includeAttachments = parsed.IncludeAttachments
             ?? (current["includeAttachments"]?.GetValueKind() is JsonValueKind.False ? false : true);

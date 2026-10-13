@@ -39,13 +39,9 @@
         @* The setup guide sits in the title row, as on every provider surface. *@
         <div class="d-flex flex-wrap align-items-baseline gap-2 mt-2 mb-4">
             <h1 class="h4 mb-0">@source.Name</h1>
-            @if (form.Confluence is not null)
+            @if (form.Attachments is { } guided)
             {
-                <SetupGuideLink Id="confluence-setup-guide" Href="@ConfluenceSpaceSelection.GuideUrl" />
-            }
-            else if (form.Jira is not null)
-            {
-                <SetupGuideLink Id="jira-setup-guide" Href="@JiraProjectSelection.GuideUrl" />
+                <SetupGuideLink Id="atlassian-setup-guide" Href="@guided.SetupGuideUrl" />
             }
         </div>
 
@@ -127,8 +123,7 @@
                                 @atlassian.AttachmentScopeHelpText
                                 <a href="@AtlassianSourceSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">How to add it<span class="visually-hidden"> (opens in a new tab)</span></a>.
                             </div>
-                            @if (atlassian.IncludeAttachments && connection is { } site
-                                 && !(site.Health?.ConfirmedScopes?.Contains(atlassian.RequiredAttachmentScope, StringComparer.OrdinalIgnoreCase) ?? false))
+                            @if (atlassian.IncludeAttachments && connection is { } site && !atlassian.AttachmentScopeConfirmedFor(site.Health))
                             {
                                 <ConfluenceAttachmentScopeRoute Id="@($"{id}-attachments-scope-route")" ConnectionId="site.Id" SiteName="@site.Name"
                                                                 Scope="@atlassian.RequiredAttachmentScope" />

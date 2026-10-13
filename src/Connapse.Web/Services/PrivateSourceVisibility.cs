@@ -108,7 +108,7 @@ public sealed class PrivateSourceVisibility(
                 && doc.RootElement.TryGetProperty("kind", out var kind)
                 && kind.ValueKind == JsonValueKind.String
                 && (string.Equals(kind.GetString(), "confluence-space", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(kind.GetString(), "jira-project", StringComparison.OrdinalIgnoreCase));
+                    || AtlassianSourceScope.IsJiraKind(kind.GetString()));
         }
         catch (JsonException)
         {

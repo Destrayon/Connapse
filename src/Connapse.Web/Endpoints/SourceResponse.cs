@@ -141,10 +141,16 @@ public sealed record ConfluenceSourceSettings(
         if (scope is null || !IsConfluence(scope))
             return null;
 
-        var (include, maxMb) = Attachments(scope);
-        return new ConfluenceSourceSettings(Str(scope, "spaceId"), Str(scope, "spaceKey"), Str(scope, "spaceName"), include, maxMb);
+        var (include, maxMb) = AtlassianScopeFields.Attachments(scope);
+        return new ConfluenceSourceSettings(
+            AtlassianScopeFields.Str(scope, "spaceId"), AtlassianScopeFields.Str(scope, "spaceKey"),
+            AtlassianScopeFields.Str(scope, "spaceName"), include, maxMb);
     }
+}
 
+/// <summary>Reading an Atlassian scope's fields as the API returns them, for either product.</summary>
+internal static class AtlassianScopeFields
+{
     /// <summary>An Atlassian scope's attachment settings.</summary>
     internal static (bool Include, int MaxMb) Attachments(JsonObject scope)
     {
@@ -173,8 +179,7 @@ public sealed record JiraSourceSettings(
     string? ProjectId, string? ProjectKey, string? ProjectName, bool IncludeAttachments, int MaxAttachmentMb)
 {
     internal static bool IsJira(JsonObject scope) =>
-        scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k)
-        && string.Equals(k, JiraProjectSelection.Kind, StringComparison.OrdinalIgnoreCase);
+        scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k) && AtlassianSourceScope.IsJiraKind(k);
 
     /// <summary>The settings, or null when <paramref name="scope"/> is not a Jira project's.</summary>
     internal static JiraSourceSettings? From(JsonObject? scope)
@@ -182,9 +187,9 @@ public sealed record JiraSourceSettings(
         if (scope is null || !IsJira(scope))
             return null;
 
-        var (include, maxMb) = ConfluenceSourceSettings.Attachments(scope);
+        var (include, maxMb) = AtlassianScopeFields.Attachments(scope);
         return new JiraSourceSettings(
-            ConfluenceSourceSettings.Str(scope, "projectId"), ConfluenceSourceSettings.Str(scope, "projectKey"),
-            ConfluenceSourceSettings.Str(scope, "projectName"), include, maxMb);
+            AtlassianScopeFields.Str(scope, "projectId"), AtlassianScopeFields.Str(scope, "projectKey"),
+            AtlassianScopeFields.Str(scope, "projectName"), include, maxMb);
     }
 }

@@ -1,6 +1,8 @@
 @using Connapse.Web.Services
 @using Connapse.Storage.ConnectionTesters
 @inject AtlassianSiteService Sites
+@inject Connapse.Core.Interfaces.IAuditLogger Audit
+@inject ILogger<JiraProjectForm> Logger
 
 @* The Jira part of the New source dialog: the site's projects to tick, and what to read from each. *@
 
@@ -163,6 +165,23 @@
             ? "jira-max-attachment-mb-help"
             : "jira-max-attachment-mb-error jira-max-attachment-mb-help";
 
+    /// <summary>Writes a setup event; a failure to record it never reaches the dialog.</summary>
+    private async Task RecordAsync(Func<Task> write)
+    {
+        try
+        {
+            await write();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not record a Jira source setup event");
+        }
+    }
+
+    private Task ListFailedAsync(JiraProjectSelection selection, Guid connectionId, string reason) =>
+        RecordAsync(() => AtlassianSourceSetupEvents.StepFailedAsync(
+            Audit, selection, connectionId, AtlassianSourceSetupEvents.ProjectsStep, reason));
+
     private async Task LoadAsync()
     {
         // A response belongs to the connection it was requested for: one for a site the admin has
@@ -175,9 +194,11 @@
         loadedSelection = selection;
         loading = true;
         (loadError, loadErrorUrl) = (null, null);
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             var listed = await Sites.ListProjectsAsync(connectionId);
+            long durationMs = (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             if (mine != generation) return;
 
             switch (listed.Outcome)
@@ -185,14 +206,18 @@
                 case AtlassianSpacesOutcome.Listed:
                     selection.Available = listed.Projects!;
                     selection.Selected.IntersectWith(listed.Projects!.Select(p => p.Id));
+                    await RecordAsync(() => AtlassianSourceSetupEvents.ListedAsync(
+                        Audit, selection, connectionId, listed.Projects!.Count, durationMs));
                     break;
                 case AtlassianSpacesOutcome.Unavailable:
                     selection.Available = [];
                     (loadError, loadErrorUrl) = (listed.Error, listed.TroubleshootingUrl);
+                    await ListFailedAsync(selection, connectionId, "unavailable");
                     break;
                 default:
                     selection.Available = [];
                     loadError = "That connection is not an Atlassian site.";
+                    await ListFailedAsync(selection, connectionId, "not_atlassian");
                     break;
             }
         }
@@ -202,6 +227,7 @@
             if (mine != generation) return;
             selection.Available = [];
             loadError = "Could not list this site's projects.";
+            await ListFailedAsync(selection, connectionId, "error");
         }
         finally
         {

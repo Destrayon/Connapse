@@ -17,8 +17,19 @@ public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFai
 
 public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable }
 
+/// <summary>A space or project an admin can turn into a source: what the pickers share.</summary>
+public interface IAtlassianSourceItem
+{
+    string Id { get; }
+    string Name { get; }
+}
+
+/// <summary>A site's spaces or projects as one product's picker reads them, or why they could not be listed.</summary>
+public sealed record AtlassianListing<TItem>(
+    AtlassianSpacesOutcome Outcome, IReadOnlyList<TItem>? Items, string? Error, string? TroubleshootingUrl);
+
 /// <summary>A Confluence space an admin can turn into a source.</summary>
-public sealed record ConfluenceSpaceInfo(string Id, string Key, string Name, string Type);
+public sealed record ConfluenceSpaceInfo(string Id, string Key, string Name, string Type) : IAtlassianSourceItem;
 
 /// <param name="Error">What went wrong, for <see cref="AtlassianSpacesOutcome.Unavailable"/>. Never carries a secret.</param>
 /// <param name="TroubleshootingUrl">The setup guide's entry for <paramref name="Error"/>.</param>
@@ -29,7 +40,7 @@ public sealed record AtlassianSpacesResult(
     string? TroubleshootingUrl = null);
 
 /// <summary>A Jira project an admin can turn into a source.</summary>
-public sealed record JiraProjectInfo(string Id, string Key, string Name, string ProjectTypeKey);
+public sealed record JiraProjectInfo(string Id, string Key, string Name, string ProjectTypeKey) : IAtlassianSourceItem;
 
 /// <summary>The site's Jira projects, or why they could not be listed; the outcomes are those of <see cref="AtlassianSpacesResult"/>.</summary>
 public sealed record AtlassianProjectsResult(

@@ -21,6 +21,7 @@ public class AtlassianSetupGuideDocsTests
         "## 2. Service account",
         "## 3. Site connection",
         "## 4. Confluence sources",
+        "## 5. Jira sources",
         "## Troubleshooting",
         "### Site not found",
         "### Client ID or secret rejected",
@@ -72,6 +73,18 @@ public class AtlassianSetupGuideDocsTests
         anchors.Should().Contain(ConfluenceSpaceSelection.GuideUrl.Split('#')[1]);
         ConfluenceSpaceSelection.MissingScopeGuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
         anchors.Should().Contain(ConfluenceSpaceSelection.MissingScopeGuideUrl.Split('#')[1]);
+        JiraProjectSelection.GuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+        anchors.Should().Contain(JiraProjectSelection.GuideUrl.Split('#')[1]);
+    }
+
+    [Fact]
+    public void SetupGuide_NamesEveryJiraSourceField()
+    {
+        string guide = Guide();
+
+        foreach (string label in JiraProjectSelection.FieldLabels)
+            guide.Should().Contain(label, $"the guide must explain the \"{label}\" field");
+        Flat(guide).Should().Contain(JiraProjectSelection.ProjectFixedNote);
     }
 
     private static HashSet<string> Anchors() => Guide().Split('\n')

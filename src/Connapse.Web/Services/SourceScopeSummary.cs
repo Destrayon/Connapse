@@ -104,7 +104,7 @@ public static class SourceScopeSummary
     /// </summary>
     private static string? JiraProject(JsonObject node, string? siteHost)
     {
-        if (!string.Equals(Str(node, "kind"), Components.Sources.JiraProjectSelection.Kind, StringComparison.OrdinalIgnoreCase))
+        if (!AtlassianSourceScope.IsJiraKind(Str(node, "kind")))
             return null;
 
         string project = "Jira project " + (Str(node, "projectKey") ?? node["projectId"]?.ToString() ?? "?");

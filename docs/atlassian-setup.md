@@ -207,6 +207,42 @@ Sources can also be created with `POST /api/sources` and changed with `PATCH /ap
 [API reference](api.md). The API runs the same checks as the dialog, and leaving `includeAttachments`
 out follows the same default.
 
+## 5. Jira sources
+
+A site whose last **Test connection** passed for Jira (the Connections page shows **Jira: Ready**) can
+have Jira sources. On **Sources → New source**, choose the site's connection. If the site passed for
+both Confluence and Jira, choose **Jira projects**; a site that passed for Jira alone goes straight to
+its projects. A site last tested before Connapse checked Jira counts as Confluence only: test it again
+on the Connections page to offer its projects.
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name>`. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't browse: give it the **Browse projects** permission in that project |
+| Include attachments | On if the site's last test confirmed `read:attachment:jira`, otherwise Off | Indexes files attached to issues, when Connapse can read their file type. Needs the optional `read:attachment:jira` scope (step 2.4) |
+| Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
+
+**What a Jira source indexes.** Each issue is one document: its summary, description, fields and the
+comments everyone who can see the issue can read. Search shows an issue only to a person whose linked
+Atlassian account Jira lets browse it, checked live for every search.
+
+**Restricted comments and internal notes.** A comment restricted to a group or a project role is indexed
+as its own document, and search shows it only to people Jira lists in that group or role. A Jira Service
+Management internal note is its own document too, shown only to the project's service desk agents. A
+restriction Connapse can't read is treated as visible to no one, and a comment restricted to a group or
+role the service account isn't in is never indexed (step 2.4).
+
+**Attachments.** An attachment is shown to the people who can read where it was added: the issue, or the
+restricted comment or internal note it was attached in. When Connapse can't tell which comment that was,
+the attachment is shown to no one. As for Confluence, a site whose last test didn't confirm
+`read:attachment:jira` starts with **Include attachments** off, and the dialog says what to add and links
+to **Replace credentials**.
+
+**Changing a source.** Choose **Edit** next to the source. You can change **Include attachments** and
+**Max attachment size (MB)**; the project itself can't be changed: *A source covers one project; add a
+new source for another project.* With the API, create a Jira source with `POST /api/sources` and a scope
+of `{"kind":"jira-project","projectId":"10000"}`; list the project ids with
+`GET /api/v1/atlassian/sites/{id}/projects`. The API runs the same checks as the dialog.
+
 ## Troubleshooting
 
 ### Site not found

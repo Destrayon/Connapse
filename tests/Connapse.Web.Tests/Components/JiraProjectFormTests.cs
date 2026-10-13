@@ -31,6 +31,15 @@ public class JiraProjectFormTests : IDisposable
     private readonly ISourceStore sources = Substitute.For<ISourceStore>();
     private readonly IConnectionStore connections = Substitute.For<IConnectionStore>();
     private readonly List<CreateSourceRequest> created = [];
+    private readonly List<(string Action, string Details)> events = [];
+
+    /// <summary>The setup events written so far, in order.</summary>
+    private List<(string Action, string Details)> SetupEvents()
+    {
+        lock (events) return events.Where(e => e.Action.StartsWith("source.setup_", StringComparison.Ordinal)).ToList();
+    }
+
+    private static string Detail(string details, string name) => JsonDocument.Parse(details).RootElement.GetProperty(name).ToString();
 
     private static Connection Site(string host, string cloudId, params string[] products) => new(
         Guid.NewGuid(), host, ConnectionProvider.Atlassian,
@@ -41,6 +50,12 @@ public class JiraProjectFormTests : IDisposable
 
     private readonly Connection both = Site("acme.atlassian.net", BothCloudId, "confluence", "jira");
     private readonly Connection jiraOnly = Site("globex.atlassian.net", JiraCloudId, "jira");
+
+    /// <summary>A site whose test passed before Jira was checked: no products listed, so Confluence only.</summary>
+    private readonly Connection untested = Site("initech.atlassian.net", BothCloudId) with
+    {
+        Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test", Products: null),
+    };
 
     public JiraProjectFormTests()
     {
@@ -54,8 +69,8 @@ public class JiraProjectFormTests : IDisposable
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(stub, disposeHandler: false));
 
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Connection>>([both, jiraOnly]));
-        foreach (var site in new[] { both, jiraOnly })
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([both, jiraOnly, untested]));
+        foreach (var site in new[] { both, jiraOnly, untested })
         {
             connections.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
             connections.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
@@ -78,7 +93,14 @@ public class JiraProjectFormTests : IDisposable
         var tokens = new AtlassianTokenSource(http, TimeProvider.System);
         ctx.Services.AddSingleton(sources);
         ctx.Services.AddSingleton(connections);
-        ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
+        var audit = Substitute.For<IAuditLogger>();
+        audit.LogAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<object?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(c =>
+            {
+                lock (events) events.Add((c.ArgAt<string>(0), JsonSerializer.Serialize(c.ArgAt<object?>(3))));
+            });
+        ctx.Services.AddSingleton(audit);
         ctx.Services.AddSingleton(new AtlassianSiteService(
             http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens));
         var authorization = Substitute.For<IAuthorizationService>();
@@ -158,6 +180,67 @@ public class JiraProjectFormTests : IDisposable
         doc.RootElement.GetProperty("projectKey").GetString().Should().Be("ENG");
         doc.RootElement.GetProperty("includeAttachments").GetBoolean().Should().BeTrue();
         doc.RootElement.GetProperty("maxAttachmentMb").GetInt32().Should().Be(40);
+    }
+
+    [Fact]
+    public void NewSource_PassingSiteWithoutProducts_OffersConfluenceOnly()
+    {
+        var cut = OpenDialog(untested);
+
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
+        cut.FindAll("#atlassian-product-jira").Should().BeEmpty("a site last tested before Jira counts as Confluence only");
+        cut.FindAll("#jira-projects").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Funnel_JiraOnlySite_IsOneJiraAttemptFromStartToCompletion()
+    {
+        var cut = OpenDialog(jiraOnly);
+        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+
+        cut.Find("#project-10000").Change(true);
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(AtlassianSourceSetupEvents.Completed));
+
+        var setup = SetupEvents();
+        setup.Select(e => e.Action).Should().Equal(
+            AtlassianSourceSetupEvents.Started, AtlassianSourceSetupEvents.ProjectsListed, AtlassianSourceSetupEvents.Completed);
+        setup.Should().OnlyContain(e => Detail(e.Details, "Product") == "jira", "a Jira setup is not counted as a Confluence one");
+        setup.Select(e => Detail(e.Details, "Attempt")).Distinct().Should().ContainSingle();
+        Detail(setup[1].Details, "Count").Should().Be("2");
+        Detail(setup[2].Details, "Created").Should().Be("1");
+    }
+
+    [Fact]
+    public void Funnel_ProjectNotChosen_RecordsTheFailedCreateStep()
+    {
+        var cut = OpenDialog(jiraOnly);
+        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(AtlassianSourceSetupEvents.StepFailed));
+        var failed = SetupEvents().Single(e => e.Action == AtlassianSourceSetupEvents.StepFailed).Details;
+        Detail(failed, "Step").Should().Be(AtlassianSourceSetupEvents.CreateStep);
+        Detail(failed, "Reason").Should().Be("invalid");
+        Detail(failed, "Product").Should().Be("jira");
+    }
+
+    [Fact]
+    public void Funnel_SiteWithBoth_StartsTheShownProductAndAJiraAttemptOnSwitching()
+    {
+        var cut = OpenDialog(both);
+        cut.WaitForAssertion(() => cut.Find("#confluence-spaces"));
+        cut.WaitForAssertion(() => SetupEvents().Should().Contain(e => e.Action == AtlassianSourceSetupEvents.Started));
+
+        cut.Find("#atlassian-product-jira").Change(true);
+        cut.Find("#atlassian-product-confluence").Change(true);
+        cut.Find("#atlassian-product-jira").Change(true);
+        cut.WaitForAssertion(() => cut.FindAll(".jira-project-option").Should().HaveCount(2));
+
+        var started = SetupEvents().Where(e => e.Action == AtlassianSourceSetupEvents.Started).ToList();
+        started.Select(e => Detail(e.Details, "Product")).Should().Equal(["confluence", "jira"], "each product's attempt starts once");
+        started.Select(e => Detail(e.Details, "Attempt")).Distinct().Should().HaveCount(2);
     }
 
     private sealed class StubHandler : HttpMessageHandler
