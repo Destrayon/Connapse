@@ -16,6 +16,7 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 | — | Does an unlinked user see nothing from Jira? | **Yes** | The owner unlinked the second user's Atlassian account and searched; nothing from ENG appeared. |
 | — | Is an attachment tied to its restricted comment through the rendered body's link? | **Yes**, for a content-URL link | The group comment's `renderedBody` linked `/rest/api/3/attachment/content/10000`. The PDF took the group restriction: found by the owner, hidden from the second user. Embedded media nodes are still unverified. |
 | 4 | Does changing a comment's visibility bump the issue's `updated` time? | **Yes** | Making ENG-9's Developers-only comment public moved both the issue's and the comment's `updated` to 11:51:12. The next ordinary sync, 13 s later, moved the comment into the issue's document and deleted its separate comment document. **The daily comment sweep stays on anyway:** adding the service account to a group or role later makes comments newly visible to it without touching any issue, and only the sweep catches that. |
+| 5 | Does the service account receive attachments from restricted comments it can't see? | **No** | The owner restricted a comment on ENG-12 to `connapse-excluded` (a group without the service account) and attached a file inside it in Jira's comment editor. The next sync, 30 s later, received neither the comment nor the attachment for ENG-12. So Connapse only ever receives a file whose governing comment the service account can see; the attachment-history rules are defence in depth. |
 
 ## Found and fixed while setting up
 
@@ -32,7 +33,6 @@ This file records the answers to the spec's live checklist (`docs/superpowers/sp
 
 2. How team-managed space roles resolve. In company-managed ENG, a role restriction's identifier is the role name, and resolving it through the project's role list worked for both test roles.
 3. Whether a comment's author sees their own restricted comment.
-5. Whether the service account receives attachments from restricted comments it can't see.
 6. Whether `SERVICEDESK_AGENT` denies a portal customer.
 7. The rate-limit headers on Jira client-credentials traffic.
 - From the Phase 8 review: whether the 1,000-issue cap counts per request or per permission entry, and whether a site without Service Management rejects the `SERVICEDESK_AGENT` key.
