@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.CustomSource.Example.Tests;
 
@@ -104,5 +105,35 @@ public class ChangeFeedTests
                 return cursor.GetString()!;
             url = $"/v1/scopes/{scope}/documents?page_token={Uri.EscapeDataString(page.GetProperty("next_page_token").GetString()!)}";
         }
+    }
+
+    [Fact]
+    public async Task Changes_CursorIssuedForAnotherScope_Returns410()
+    {
+        using ExampleServer server = NewServer();
+        server.WriteFile("ops/runbook.md", "# Runbook");
+        string engCursor = await ListToEnd(server, "eng");
+        await ListToEnd(server, "ops");
+
+        HttpResponseMessage response = await server.Client().GetAsync($"/v1/scopes/ops/changes?cursor={Uri.EscapeDataString(engCursor)}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Gone);
+    }
+
+    [Fact]
+    public void Journal_RecordsTheDocumentWhenTheChangeIsDetected()
+    {
+        using ExampleServer server = NewServer();
+        ChangeJournal journal = server.Services.GetRequiredService<ChangeJournal>();
+        string cursor = journal.HeadCursor("eng");
+        server.WriteFile("eng/README.md", "# Engineering, edited");
+
+        ChangeWindow window = journal.Read("eng", cursor)!;
+        // A file briefly missing when the change is served must not turn the recorded upsert into a delete.
+        server.DeleteFile("eng/README.md");
+
+        JournalEntry entry = window.Entries.Should().ContainSingle().Subject;
+        entry.Document.Should().NotBeNull();
+        entry.Document!.Path.Should().Be("README.md");
     }
 }

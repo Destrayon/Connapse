@@ -69,12 +69,18 @@ public static class ContentEndpoints
         if (document is null)
             return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such document.");
 
-        string etag = $"\"{document.Version}\"";
+        // Read once and label exactly those bytes, so a file replaced after the lookup cannot be served under
+        // the previous version's ETag.
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(document.FullPath); }
+        catch (FileNotFoundException) { return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such document."); }
+
+        string etag = $"\"{FolderCatalog.VersionOf(bytes)}\"";
+        http.Response.Headers.ETag = etag;
         if (http.Request.Headers.IfNoneMatch.ToString() == etag)
             return Results.StatusCode(StatusCodes.Status304NotModified);
 
-        http.Response.Headers.ETag = etag;
-        return Results.Stream(File.OpenRead(document.FullPath), document.ContentType);
+        return Results.Bytes(bytes, document.ContentType);
     }
 
     private static IResult ListChanges(
@@ -82,7 +88,6 @@ public static class ContentEndpoints
         [FromQuery] string? cursor,
         [FromQuery(Name = "page_token")] string? pageToken,
         ExampleConfig config,
-        FolderCatalog catalog,
         ChangeJournal journal)
     {
         if (!config.HasScope(scope)) return UnknownScope();
@@ -95,11 +100,12 @@ public static class ContentEndpoints
         if (window is null)
             return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This cursor is no longer valid; run a full listing.");
 
-        // The journal records IDs; read the document now, so an upsert for a file deleted since becomes a delete.
+        // Serve each change as it was detected. Re-reading the file here could turn an upsert into a delete
+        // that no later snapshot undoes, if the file were briefly missing and then restored unchanged.
         List<ChangeItem> items = window.Entries
-            .Select(e => e.Deleted || catalog.Find(scope, e.Id) is not { } document
+            .Select(e => e.Document is null
                 ? ChangeItem.Delete(e.Id)
-                : ChangeItem.Upsert(DocumentItem.From(document, config.PermissionsEnabled)))
+                : ChangeItem.Upsert(DocumentItem.From(e.Document, config.PermissionsEnabled)))
             .ToList();
 
         return Results.Ok(new ChangePage(items, window.NextPageToken, window.NextCursor));
