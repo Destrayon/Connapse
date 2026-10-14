@@ -27,7 +27,7 @@ are added on **Connections**, and spaces and projects on **Sources → New sourc
 | For Confluence: a Confluence Cloud site, on the **Standard** plan or above | The Free plan has no page restrictions or private spaces, so there is nothing per person to enforce. Data Center and Server are not supported |
 | For Jira: Jira Cloud on the same site, on any plan | Free works, but it can't edit project roles, so comments can't be restricted to roles you create. Data Center is not supported |
 | An Atlassian **organization admin**, in an organization that uses **centralized user management** | Only they can create service accounts and their credentials. Each organization gets five free service accounts; they don't take a product seat |
-| For Jira: a **Jira admin** | Only they can check and grant Jira's global permissions (step 2.4). The organization admin often is one |
+| For Jira: a **Jira admin** | Only they can change permission schemes and space (project) roles (step 2.4). The organization admin often is one |
 | An [Atlassian developer console](https://developer.atlassian.com/console/myapps/) account | The linking app is created there |
 | A **privacy policy URL** for your organization | Atlassian asks for one before the linking app can be shared with anyone but you |
 | Connapse opened at the address your users use, served over **HTTPS** (or reached on `localhost`) | Atlassian accepts only an HTTPS callback URL, except for `localhost` |
@@ -63,7 +63,7 @@ organization admin.**
      attachments, use **Copy with the attachments permission** instead, which adds `read:attachment:jira`.
    - Copy the **client ID** and **client secret**. Atlassian shows them once and can't recover them.
    - Make this a separate credential for Jira, and leave the Confluence connection's credential alone.
-     Atlassian doesn't confirm that one OAuth credential can carry both products' scopes.
+     Use one credential per product.
    - Scopes can't be edited later. To change them, create a new credential, use **Replace credentials**
      on the connection in Connapse, then **Revoke** the old credential.
 
@@ -74,7 +74,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
 3. Leave **Global permissions** as it is. It grants **Administer Jira** and **Browse users and groups**
    to groups (`jira-admins-<site>`, `org-admins`, `jira-users-<site>`), and **App admin** from step 1
    gives the service account admin rights without adding it to any of them, so **View Users** there
-   won't list it. That's expected: App admin is enough (confirmed on a live site in October 2026). Connapse's site check confirms it instead, at **Checking Jira
+   won't list it. That's expected: App admin is enough. Connapse's site check confirms it instead, at **Checking Jira
    access permissions** (step 5). Only if that check fails, an organization admin adds the service
    account to `jira-admins-<site>` in Atlassian Administration (**Directory** → **Groups** →
    `jira-admins-<site>` → **Add group members**, or **Directory** → **Service accounts** → **•••** →
@@ -82,7 +82,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
 4. Check that the service account can see every space you will index. A space it can't see isn't
    listed when you add a source, so you can also skip this and add it if a space is missing.
    - **Team-managed spaces** have no permission by that name; access comes from the space's access
-     setting under **•••** next to the space's name → **Space settings** → **Access**. **Open** or
+     setting under **•••** next to the space's name → **Space settings** (**Project settings**) → **Access**. **Open** or
      **Limited** lets everyone with Jira access see the space, so step 1 is enough. **Private** needs the
      service account added there, as **Viewer** or higher.
    - **Company-managed spaces** use a permission scheme: gear icon → **Jira admin settings** → **Work
@@ -91,7 +91,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
 
    Then add the service account to every group and space role your team restricts comments to (step
    2.4 explains why): groups under **Directory** → **Groups** in Atlassian Administration, space roles
-   under **Space settings** → **Access**. Jira creates a starter space when it's added to a site; leave
+   under **Space settings** (**Project settings**) → **Access**. Jira creates a starter space when it's added to a site; leave
    it alone unless you will index it.
 
 **In Connapse. You must be a Connapse admin.**
@@ -100,11 +100,12 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
    provider page). Enter the site URL and the new credential's client ID and secret, then **Check and
    save**. All seven checks should pass.
    - A site with no project yet only warns at **Listing Jira projects**, and can be saved with **Save
-     anyway**.
+     anyway**. A site whose projects have no issue yet warns at **Reading issues and comments** the
+     same way.
    - A site with no project role the service account can read fails at **Reading Jira groups and
      project roles**: see [Can't read Jira membership](#cant-read-jira-membership).
 6. Go to **Sources** → **New source**, choose **Jira · your-site.atlassian.net**, tick the projects,
-   check **Include attachments**, then **Create source**. A site saved with **Save anyway** offers its
+   turn on **Include attachments** only if the credential has `read:attachment:jira`, then **Create source**. A site saved with **Save anyway** offers its
    projects too.
 7. People who already linked their Atlassian account for Confluence need to do nothing: the same link
    covers Jira.
@@ -159,9 +160,8 @@ browse every project you index.
 products, with one credential per product: add the site twice, once as each connection. A Confluence
 site and a Jira site are separate connections on the Connections page (step 3), each tested for its own
 product only. Give the existing service account the other product's role (2.2) and access (2.3 or 2.4),
-and create a second credential for that product (2.5). Atlassian doesn't confirm that one OAuth
-credential can carry both products' scopes, so don't add the other product's scopes to the credential
-you already use.
+and create a second credential for that product (2.5). Don't add the other product's scopes to the
+credential you already use.
 
 In [Atlassian Administration](https://admin.atlassian.com), as an organization admin:
 
@@ -188,12 +188,12 @@ In [Atlassian Administration](https://admin.atlassian.com), as an organization a
    The service account must be able to see every space (project) you will index:
 
    - **Team-managed spaces** have no permission by that name; access comes from the space's access
-     setting under **•••** next to the space's name → **Space settings** → **Access**. **Open** or
-     **Limited** lets everyone with Jira access see the space, so step 1 is enough. **Private** needs the
+     setting under **•••** next to the space's name → **Space settings** (**Project settings**) → **Access**. **Open** or
+     **Limited** lets everyone with Jira access see the space, so step 2.2 is enough. **Private** needs the
      service account added there, as **Viewer** or higher.
    - **Company-managed spaces** use a permission scheme: gear icon → **Jira admin settings** → **Work
      items** → **Permission schemes** → the space's scheme → **Browse Spaces** (**Browse Projects**). The
-     default scheme grants it to everyone with Jira access, so step 1 is enough.
+     default scheme grants it to everyone with Jira access, so step 2.2 is enough.
 
    Then add the service account to **every group and project role your team restricts comments
    to**: a comment restricted to a group or role the service account isn't in is never indexed, and
@@ -303,7 +303,8 @@ delete its OAuth 2.0 credential.
 ## 4. Confluence sources
 
 On **Sources → New source**, choose the site's Confluence connection. The dialog lists the site's spaces
-that the service account can view.
+that the service account can view. Sources can be added once the connection's last **Test connection**
+passed, or it was saved with **Save anyway**; otherwise the dialog links the connection to test it.
 
 | Field | Default | Notes |
 |-------|---------|-------|
@@ -346,7 +347,7 @@ connection never spaces.
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name> (Jira)`, so a Confluence space of the same name on the site keeps its own name. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't browse: give it the **Browse projects** (**Browse spaces**) permission in that project (step 2.4) |
+| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name> (Jira)`, so a Confluence space of the same name on the site keeps its own name. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't see: on a private team-managed space, add it as **Viewer** under **Space settings** (**Project settings**) → **Access**; on a company-managed space, grant it **Browse Spaces** (**Browse Projects**) in the permission scheme (step 2.4) |
 | Include attachments | On if the site's last test confirmed `read:attachment:jira`, otherwise Off | Indexes files attached to issues, when Connapse can read their file type. Needs the optional `read:attachment:jira` scope (step 2.5) |
 | Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
 
@@ -447,21 +448,23 @@ attachments, use **Copy with the attachments permission**, which includes `read:
 or `read:attachment:jira`), then use **Replace credentials** on the site with the new client ID
 and secret, and **Revoke** the old credential. The replacement is tested before it is used, and its test
 records which scopes it has, so new sources then start with attachments on. For **Browse users and
-groups**, grant it in Jira's **Global permissions** (step 2.4). If you don't want attachments, turn off
+groups**, set **Jira Administration** to **App admin** on the service account (step 2.2). If you don't want attachments, turn off
 **Include attachments** on the source instead (see [step 4](#4-confluence-sources) or
 [step 5](#5-jira-sources)).
 
 ### Site has no pages or no other users yet
 
 **Symptom:** *This site has no pages yet…* or *The site has no user other than the service account…*,
-or for Jira, *The service account can't see any Jira project yet…* or *The site has no Jira user other
-than the service account…*
+or for Jira, *The service account can't see any Jira project yet…*, *The site has no Jira user other
+than the service account…* or *The service account can't see any Jira issue yet…*
 **Likely cause:** the admin check asks Confluence whether another person can read a page, or Jira
 whether another person can browse a project, so it needs at least one page or project the service
-account can see and one other user.
+account can see and one other user. Jira's last check also reads one issue and its comments, so it
+needs a project with an issue.
 **Fix:** choose **Save anyway** to save the site now; it is marked with a warning until the check can
 run, and its spaces or projects can already be added as sources. Then, for Confluence, create a page in
-a space the service account can view; for Jira, create a space or let the service account see one (step 2.4). If the site has only one user, invite one more with
+a space the service account can view; for Jira, create an issue in a space the service account can see, or let it see a space that has
+issues (step 2.4). If the site has only one user, invite one more with
 access to that product. Then choose **Test connection**. On a Jira site with projects but no project
 role the service account can read, the test fails at **Reading Jira groups and project roles** instead:
 see [Can't read Jira membership](#cant-read-jira-membership).
@@ -477,6 +480,15 @@ without the Jira scopes.
 **Fix:** in Atlassian Administration, under **Directory** → **Service accounts**, set the service
 account's **Jira** row to **User** (step 2.2): admin rights alone don't give access to Jira. If it is
 already User, create a new credential with the Jira scopes (step 2.5) and use **Replace credentials**.
+
+### Jira project missing
+
+**Symptom:** **New source** lists no Jira projects (*This site has no projects the service account can
+browse.*), or a project you expect isn't in the list.
+**Likely cause:** the service account can't see that space (project).
+**Fix:** on a private team-managed space, add the service account as **Viewer** under **•••** next to the
+space's name → **Space settings** (**Project settings**) → **Access**. On a company-managed space, grant it **Browse Spaces**
+(**Browse Projects**) in the space's permission scheme (step 2.4). Then reopen **New source**.
 
 ### Not Jira administrator
 
@@ -503,8 +515,7 @@ restricted to a group or a project role.
 scopes (step 2.5) and use **Replace credentials**. If **Details** says *Jira listed no project role
 Connapse could read*, the site has no project role yet: create one under the gear icon → **Jira admin settings** →
 **System** → **Space roles** (**Project roles**), add the service account to it in a space under **•••**
-next to the space's name → **Space settings** → **Access**, and test again. On the test site, the seed script in
-[Confluence test site](confluence-test-site.md#6-jira-optional) creates the roles.
+next to the space's name → **Space settings** (**Project settings**) → **Access**, and test again.
 
 ### Linking app rejected
 
@@ -561,7 +572,7 @@ service account lost access to it.* or *… it was deleted, or the service accou
 **Likely cause:** someone made the space private or removed the service account from it, changed its
 permission scheme, or deleted or archived the project. The source's documents are
 hidden from search, not deleted, until the project can be read again.
-**Fix:** in the space, open **•••** next to its name → **Space settings** → **Access** (or the permission
+**Fix:** in the space, open **•••** next to its name → **Space settings** (**Project settings**) → **Access** (or the permission
 scheme) and let the service account see the space again (step 2.4), then choose **Sync** on the source. If the project was
 deleted, delete the source.
 

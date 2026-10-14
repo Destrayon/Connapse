@@ -147,6 +147,7 @@ public static class AtlassianSiteTroubleshooting
     public const string MissingScope = "missing-scope";
     public const string NothingToCheckYet = "site-has-no-pages-or-no-other-users-yet";
     public const string CantReadJira = "cant-read-jira";
+    public const string JiraProjectMissing = "jira-project-missing";
     public const string NotJiraAdministrator = "not-jira-administrator";
     public const string CantReadJiraMembership = "cant-read-jira-membership";
 
@@ -173,7 +174,7 @@ public static class AtlassianSiteTroubleshooting
          CantReadJira, NotJiraAdministrator, CantReadJiraMembership, General];
 
     /// <summary>The entries only sync, the spaces dialog and the linking app link to; the site test never fails with these.</summary>
-    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, ProjectUnreadable, Unreachable, AttachmentsSkipped];
+    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, ProjectUnreadable, JiraProjectMissing, Unreachable, AttachmentsSkipped];
 
     public static string UrlOf(string anchor) => $"{GuideUrl}#{anchor}";
 }

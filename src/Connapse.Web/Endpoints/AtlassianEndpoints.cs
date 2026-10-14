@@ -289,6 +289,8 @@ public static class AtlassianEndpoints
                 AtlassianAddOutcome.TestFailed => Results.UnprocessableEntity(Report(added.Test!)),
                 AtlassianAddOutcome.Conflict =>
                     Results.Conflict(new { error = $"A connection named '{added.Name}' already exists." }),
+                AtlassianAddOutcome.NameTaken =>
+                    Results.Conflict(new { error = $"Another connection is already named '{added.Name}'. Rename it, then try again." }),
                 _ => Results.Created($"/api/v1/atlassian/sites/{added.Connection!.Id}",
                     new
                     {

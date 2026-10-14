@@ -49,11 +49,13 @@ public class NewSourceConfluenceTests : IDisposable
         Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
             ConfirmedScopes: ["read:space:confluence", "read:page:confluence", ConfluenceSpaceSelection.AttachmentScope]));
 
-    /// <summary>A site whose last test confirmed no attachment scope (it has never been tested).</summary>
+    /// <summary>A site whose last test passed but confirmed no attachment scope.</summary>
     private readonly Connection otherConnection = new(
         Guid.NewGuid(), "globex.atlassian.net", ConnectionProvider.Atlassian,
         $$"""{"siteUrl":"https://globex.atlassian.net","cloudId":"{{OtherCloudId}}","clientId":"client-2"}""",
-        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true,
+        Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
+            ConfirmedScopes: ["read:space:confluence", "read:page:confluence"]));
 
     public NewSourceConfluenceTests()
     {
@@ -418,6 +420,27 @@ public class NewSourceConfluenceTests : IDisposable
 
         cut.Find("#confluence-attachments").HasAttribute("checked").Should().BeTrue();
         cut.FindAll("#confluence-attachments-scope").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Dialog_SiteWhoseLastTestFailed_SaysSoBeforeAnySpaceIsTickedAndLinksTheSite()
+    {
+        var failing = otherConnection with
+        {
+            Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token", Message: "rejected", Origin: "test"),
+        };
+        connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([connection, failing]));
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>()
+            .NavigateTo($"/sources?new={failing.Id}");
+
+        var cut = ctx.Render<SourcesPage>();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-site-not-ready").TextContent
+            .Should().Contain(ConfluenceSourceScope.ConfluenceNotReady));
+        cut.Find("#atlassian-site-not-ready a").GetAttribute("href").Should().Be($"/connections?edit={failing.Id}");
+        cut.FindAll(".confluence-space-option").Should().BeEmpty();
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").HasAttribute("disabled").Should().BeTrue();
     }
 
     [Fact]

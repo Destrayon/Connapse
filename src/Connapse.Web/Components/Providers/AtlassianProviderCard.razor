@@ -330,7 +330,8 @@
         <a id="atlassian-add-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=confluence">
             <span class="bi-plug me-1" aria-hidden="true"></span> Add a Confluence site
         </a>
-        <a id="atlassian-add-jira-site" class="btn btn-sm @(SetupOpen ? "btn-outline-secondary" : "btn-outline-primary")" href="/connections?new=jira">
+        @* Always secondary, so the row keeps a single primary action. *@
+        <a id="atlassian-add-jira-site" class="btn btn-sm btn-outline-secondary" href="/connections?new=jira">
             <span class="bi-plug me-1" aria-hidden="true"></span> Add a Jira site
         </a>
         @* Placed as GitHub's: at the right of the row, set apart from the other actions by a divider. *@

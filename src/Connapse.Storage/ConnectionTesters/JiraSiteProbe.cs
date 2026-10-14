@@ -22,23 +22,24 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         + "has the Jira scopes listed in the setup steps, then test again.";
 
     internal const string NoProjectsMessage =
-        "The service account can't see any Jira project yet, so Connapse can't check the rest of Jira. You can save anyway; "
-        + "the check runs again when you next test. Or give it Browse projects in a project and test again.";
+        "The service account can't see any Jira project yet, so Connapse can't check the rest of Jira. The site can be saved "
+        + "with this warning, and the check runs again at each test. Or let it see a project (Viewer on a private team-managed space, or Browse Spaces "
+        + "in a company-managed space's permission scheme) and test again.";
 
     internal const string NoIssuesMessage =
         "The service account can't see any Jira issue yet, so Connapse couldn't check that it can read issues and comments. "
-        + "You can save anyway; the check runs again when you next test. Or give it Browse projects in a project that has "
-        + "issues and test again.";
+        + "The site can be saved with this warning, and the check runs again at each test. Or let it see a project that has issues (Viewer on a "
+        + "private team-managed space, or Browse Spaces in a company-managed space's permission scheme) and test again.";
 
     internal const string NoOtherUserMessage =
         "The site has no Jira user other than the service account, so Connapse can't confirm it may check what other people "
-        + "can read in Jira. You can save anyway; the check runs again when you next test. Or add another user and test again.";
+        + "can read in Jira. The site can be saved with this warning, and the check runs again at each test. Or add another user and test again.";
 
     internal const string NotJiraAdministratorMessage =
         "The service account doesn't have the Administer Jira permission, so Connapse can't check what other people may read "
-        + "in Jira. In Atlassian Administration, go to Directory > Service accounts and set Jira to User and Jira "
+        + "in Jira. In Atlassian Administration, go to Directory → Service accounts and set Jira to User and Jira "
         + "Administration to App admin, then test again. If it still fails, add the service account to the "
-        + "jira-admins-<site> group under Directory > Groups, which holds Administer Jira, and test again.";
+        + "jira-admins-<site> group under Directory → Groups, which holds Administer Jira, and test again.";
 
     internal const string CantListUsersMessage =
         "The service account can't list Jira users, so Connapse can't find another person to check access for. Check that "
@@ -157,7 +158,7 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         }
         catch (Exception ex) when (IsProbeFailure(ex))
         {
-            return run.Fail(UnverifiedMessage, detail: Describe(ex));
+            return run.Fail(UnverifiedMessage, AtlassianSiteTroubleshooting.General, Describe(ex));
         }
 
         // Jira answers a check without an account for the caller: never send one without another person.
@@ -183,14 +184,14 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
                     : run.Fail(NotJiraAdministratorMessage, detail: checkDetail);
             }
             if (check.StatusCode != HttpStatusCode.OK)
-                return run.Fail($"{UnverifiedMessage} Jira answered HTTP {(int)check.StatusCode}.",
-                    detail: DescribeAnswer(check.StatusCode, body));
+                return run.Fail($"{UnverifiedMessage} Jira answered HTTP {(int)check.StatusCode}.", AtlassianSiteTroubleshooting.General,
+                    DescribeAnswer(check.StatusCode, body));
 
             // A 200 proves nothing by itself (a login page can be a 200): only an answer carrying a
             // projectPermissions list shows the check ran for that person.
             using var answer = JsonDocument.Parse(body);
             if (!HasArray(answer.RootElement, "projectPermissions"))
-                return run.Fail(UnverifiedMessage, detail: "Jira answered the check without a list of project permissions.");
+                return run.Fail(UnverifiedMessage, AtlassianSiteTroubleshooting.General, "Jira answered the check without a list of project permissions.");
         }
         catch (AtlassianAuthException ex)
         {
@@ -199,7 +200,7 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
         }
         catch (Exception ex) when (IsProbeFailure(ex))
         {
-            return run.Fail(UnverifiedMessage, detail: Describe(ex));
+            return run.Fail(UnverifiedMessage, AtlassianSiteTroubleshooting.General, Describe(ex));
         }
 
         // Comments restricted to a group or project role are matched against membership at search time.

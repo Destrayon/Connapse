@@ -16,7 +16,7 @@ namespace Connapse.Web.Services;
 /// </summary>
 public sealed class JiraSourceScope : AtlassianSourceScope
 {
-    public const string JiraNotReady = "This site's last test didn't pass for Jira. Test it on the Connections page.";
+    public const string JiraNotReady = "Jira sources can be added once this site passes a test. Choose Test connection on the Connections page.";
 
     private static readonly ScopeTexts Texts = new(
         NotAnObject: "The scope must be a JSON object naming projectId, as in {\"kind\":\"jira-project\",\"projectId\":\"10000\"}.",
@@ -25,7 +25,8 @@ public sealed class JiraSourceScope : AtlassianSourceScope
             $"A Jira source's scope needs \"projectId\": the id of a project on the site. List them with GET /api/v1/atlassian/sites/{connectionId}/projects.",
         Unavailable: "Could not check the project against this site. Try again.",
         NotOnSite: (projectId, connectionId) =>
-            $"Project {projectId} is not a project the site's service account can browse. Give the service account the Browse projects permission in it, "
+            $"Project {projectId} is not a project the site's service account can browse. Let the service account see it (Viewer under Space settings (Project settings) → Access "
+            + "on a private team-managed space, or Browse Spaces (Browse Projects) in a company-managed space's permission scheme), "
             + $"or pick an id from GET /api/v1/atlassian/sites/{connectionId}/projects.",
         Duplicate: name => $"Project '{name}' already has a source on this connection.",
         IdFixed: "A Jira source's project cannot be changed. Add the project as a new source.");
@@ -34,7 +35,7 @@ public sealed class JiraSourceScope : AtlassianSourceScope
     {
     }
 
-    // A site last tested before Jira was, or whose Jira probe failed, is offered no Jira source on the dialog either.
+    // The New source dialog refuses the same sites: one whose last test didn't pass for Jira.
     public static Task<Result> ResolveAsync(
         string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore, CancellationToken ct) =>
         ResolveAsync<JiraProjectInfo, JiraProjectSelection>(scopeJson, connection, sites, sourceStore, Texts, AtlassianProduct.Jira,
@@ -45,7 +46,9 @@ public sealed class JiraSourceScope : AtlassianSourceScope
     /// The API and the New source dialog both ask this, against the connection as stored.
     /// </summary>
     public static string? NotReady(Connection connection) =>
-        AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.JiraProduct) ? null : JiraNotReady;
+        AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.JiraProduct) ? null
+        : AtlassianSiteStatus.Of(connection).NeedsNewCredentials ? NeedsNewCredentials("Jira")
+        : JiraNotReady;
 
     /// <summary>
     /// A changed scope for an existing Jira source. Its project is fixed, as a Confluence source's

@@ -25,7 +25,9 @@ public sealed class JiraProjectSelection : AtlassianSourceSelection<JiraProjectI
 
     /// <summary>Under the Projects list: what ticking one does, and the usual reason one is missing.</summary>
     public const string ProjectsHelp =
-        "Each project you tick becomes its own source. If a project is missing, give the service account the Browse projects permission in it.";
+        "Each project you tick becomes its own source. If a project is missing, let the service account see it: "
+        + "on a private team-managed space (project), add it as Viewer under Space settings (Project settings) → Access; "
+        + "on a company-managed space (project), grant it Browse Spaces (Browse Projects) in the permission scheme.";
 
     public const string IncludeAttachmentsShortHelp = "Index files attached to issues, such as PDFs and Word documents.";
 

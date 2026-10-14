@@ -11,7 +11,7 @@ public enum AtlassianResolveOutcome { Resolved, InvalidAddress, NotFound }
 
 public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, string? SiteUrl = null, string? CloudId = null);
 
-public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict }
+public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken }
 
 public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
 
@@ -55,8 +55,8 @@ public sealed record AtlassianProjectsResult(
 
 /// <param name="Test">The test that ran: the failed probe for <see cref="AtlassianAddOutcome.TestFailed"/>, or a warning saved anyway.</param>
 /// <param name="Name">
-/// For <see cref="AtlassianAddOutcome.Conflict"/>, the connection already in the way: the site's
-/// connection for the same product, or another connection with the name this one would take.
+/// For <see cref="AtlassianAddOutcome.Conflict"/>, the site's connection for the same product; for
+/// <see cref="AtlassianAddOutcome.NameTaken"/>, the name this one would take, held by another connection.
 /// </param>
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
@@ -140,13 +140,17 @@ public sealed class AtlassianSiteService(
             : new AtlassianResolveResult(AtlassianResolveOutcome.Resolved, normalized, cloudId);
     }
 
+    /// <summary>The name a new site's connection is given: its host, marked for Jira.</summary>
+    public static string DefaultName(string host, AtlassianProduct product) =>
+        product == AtlassianProduct.Jira ? $"{host} (Jira)" : host;
+
     /// <param name="saveAnyway">
     /// Save a site whose only failure is a warning (no page or no other user yet to check
     /// administrator access against). Any other failure is never saved.
     /// </param>
     /// <param name="product">
     /// What the connection reads. A site has at most one connection per product; its Jira connection
-    /// is named apart from its Confluence one, which keeps the site's bare host name as before.
+    /// is named apart from its Confluence one, which is named after the site's host alone.
     /// </param>
     public async Task<AtlassianAddResult> AddAsync(
         string? siteUrl, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
@@ -168,7 +172,7 @@ public sealed class AtlassianSiteService(
         string cloudId = (string)cloudIdValue;
         string trimmedClientId = clientId.Trim();
         string host = new Uri(normalizedSite).Host;
-        string name = product == AtlassianProduct.Jira ? $"{host} (Jira)" : host;
+        string name = DefaultName(host, product);
 
         string configJson = JsonSerializer.Serialize(new
         {
@@ -191,7 +195,7 @@ public sealed class AtlassianSiteService(
         }
         catch (InvalidOperationException)
         {
-            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: name);
+            return new AtlassianAddResult(AtlassianAddOutcome.NameTaken, SiteUrl: normalizedSite, Name: name);
         }
 
         await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),
@@ -427,9 +431,10 @@ public sealed class AtlassianSiteService(
         Guid attempt = Guid.NewGuid();
         string? host = AtlassianSiteResolver.NormalizeSiteUrl(request.SiteUrl) is { } normalized ? new Uri(normalized).Host : null;
         string? resourceId = connectionId?.ToString();
+        string product = AtlassianSite.ProductValue(request.Product);
 
         await audit.LogAsync("connection.test_started", "connection", resourceId,
-            new { Provider = "Atlassian", Mode = mode, Attempt = attempt, SiteHost = host, ClientId = request.ClientId?.Trim() }, ct);
+            new { Provider = "Atlassian", Product = product, Mode = mode, Attempt = attempt, SiteHost = host, ClientId = request.ClientId?.Trim() }, ct);
 
         var result = await tester.TestConnectionAsync(request, ct: ct);
         long totalMs = (long)(result.Duration ?? TimeSpan.Zero).TotalMilliseconds;
@@ -437,13 +442,14 @@ public sealed class AtlassianSiteService(
         if (result.Success)
         {
             await audit.LogAsync("connection.test_verified", "connection", resourceId,
-                new { Provider = "Atlassian", Mode = mode, Attempt = attempt, SiteHost = host, TotalMs = totalMs }, ct);
+                new { Provider = "Atlassian", Product = product, Mode = mode, Attempt = attempt, SiteHost = host, TotalMs = totalMs }, ct);
         }
         else
         {
             await audit.LogAsync("connection.test_step_failed", "connection", resourceId, new
             {
                 Provider = "Atlassian",
+                Product = product,
                 Mode = mode,
                 Attempt = attempt,
                 SiteHost = host,

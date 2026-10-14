@@ -115,7 +115,10 @@
                     <fieldset id="@($"{id}-attachments-group")">
                         <legend class="h6 mb-3">@AtlassianSourceSelection.AttachmentsLabel</legend>
                         <div class="form-check">
-                            <input id="@($"{id}-attachments")" type="checkbox" class="form-check-input" aria-describedby="@($"{id}-attachments-help")"
+                            <input id="@($"{id}-attachments")" type="checkbox" class="form-check-input"
+                                   aria-describedby="@(atlassian.IncludeAttachments && connection is { } shown && !atlassian.AttachmentScopeConfirmedFor(shown.Health)
+                                       ? $"{id}-attachments-help {id}-attachments-scope-route"
+                                       : $"{id}-attachments-help")"
                                    @bind="atlassian.IncludeAttachments" @bind:after="AttachmentsChanged" />
                             <label for="@($"{id}-attachments")" class="form-check-label">@AtlassianSourceSelection.IncludeAttachmentsLabel</label>
                             <div id="@($"{id}-attachments-help")" class="form-text mt-0">

@@ -173,7 +173,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Success.Should().BeFalse();
         result.Message.Should().Be(JiraSiteProbe.NotJiraAdministratorMessage);
         result.Message.Should().Contain("set Jira to User and Jira Administration to App admin")
-            .And.Contain("jira-admins-<site> group").And.Contain("Directory > Groups")
+            .And.Contain("jira-admins-<site> group").And.Contain("Directory → Groups")
             .And.NotContain("admin role");
         result.Details!["step"].Should().Be(AtlassianConnectionTester.JiraAdminStep);
         result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NotJiraAdministrator);
@@ -918,7 +918,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NothingToCheckYet);
         result.Details["cloudId"].Should().Be(CloudId);
         result.Details["siteUrl"].Should().Be("https://acme.atlassian.net");
-        result.Message.Should().Contain("save anyway");
+        result.Message.Should().Contain("saved with this warning");
         _api.Calls.Keys.Should().NotContain(p => p.EndsWith("/permission/check"));
     }
 

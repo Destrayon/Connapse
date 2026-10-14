@@ -196,7 +196,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await BodyAsync(response)).GetProperty("error").GetString()
-            .Should().Be("This site's last test didn't pass for Jira. Test it on the Connections page.");
+            .Should().Be("Jira sources can be added once this site passes a test. Choose Test connection on the Connections page.");
         (await SourceCountAsync(site)).Should().Be(0);
 
         // A scope without a kind is still Confluence's, as before Jira, so this Jira connection refuses it.
@@ -217,7 +217,8 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         body.GetProperty("field").GetString().Should().Be("connectionId");
         body.GetProperty("error").GetString().Should().Be(
             "Connection 'jira-api-wrongproduct.atlassian.net' is a Confluence connection, so it can't hold a Jira source. "
-            + "Choose this site's Jira connection, or add one on the Connections page.");
+            + "Choose this site's Jira connection, or add one on the Connections page. "
+            + "A Confluence source's scope names \"spaceId\", as in {\"spaceId\":\"98306\"}.");
         (await SourceCountAsync(confluence)).Should().Be(0);
 
         // The site's own Jira connection, added beside it, takes the project.

@@ -202,6 +202,12 @@ public sealed partial class JiraProjectConnector(
 
             await FetchAsync(changed, listed, startedMs, fetched, null, ct);
 
+            // A fresh start keeps only what it fetched, so an issue still listed that bulkfetch left
+            // out, or returned without its update time, would read as deleted: the cycle stops instead.
+            if (cursor is null && listed.FirstOrDefault(id => !fetched.ContainsKey(id)) is { } missing)
+                throw new AtlassianMalformedResponseException(
+                    $"Jira's bulk fetch did not return listed issue {missing} with its fields; nothing is applied until it does.");
+
             if (sweepStartedAt is not null)
                 (sweptThrough, sweepDone) = await SweepAsync(listed, fetched, sweptThrough, startedMs, ct);
         }

@@ -27,7 +27,7 @@
     {
         <div class="text-muted small" role="status" id="jira-projects-none">
             This site has no projects the service account can browse.
-            <a href="@AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.CantReadJira)" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+            <a href="@AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.JiraProjectMissing)" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
         </div>
     }
     else
@@ -222,12 +222,13 @@
                     break;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // An exception escaping a Blazor lifecycle method tears down the circuit.
+            Logger.LogWarning(ex, "Could not list the projects of Atlassian connection {ConnectionId}", connectionId);
             if (mine != generation) return;
             selection.Available = [];
-            loadError = "Could not list this site's projects.";
+            loadError = "Could not list this site's projects. Try again; if it keeps failing, test the site on the Connections page.";
             await ListFailedAsync(selection, connectionId, "error");
         }
         finally

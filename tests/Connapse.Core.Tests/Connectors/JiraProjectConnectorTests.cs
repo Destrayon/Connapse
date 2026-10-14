@@ -240,6 +240,34 @@ public sealed class JiraProjectConnectorTests : IDisposable
         (await _connector.ExistsAsync("/issues/20002.md")).Should().BeFalse();
     }
 
+    public static TheoryData<object[]> IncompleteBulkIssues => new()
+    {
+        // Left out with no error at all.
+        new object[] { new { id = "20001", key = "ENG-1", fields = new { summary = "First", updated = FakeJira.Time(T0), attachment = Array.Empty<object>(), comment = new { total = 0 } } } },
+        // Returned, but without its update time.
+        new object[]
+        {
+            new { id = "20001", key = "ENG-1", fields = new { summary = "First", updated = FakeJira.Time(T0), attachment = Array.Empty<object>(), comment = new { total = 0 } } },
+            new { id = "20002", key = "ENG-2", fields = new { summary = "Second", attachment = Array.Empty<object>(), comment = new { total = 0 } } },
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(IncompleteBulkIssues))]
+    public async Task Sync_FreshStart_BulkFetchIncompleteForAListedIssue_UnavailableAndNothingDeleted(object[] issues)
+    {
+        Issue("20001", "ENG-1", "First");
+        Issue("20002", "ENG-2", "Second");
+        await _connector.GetChangesAsync(null);
+
+        // Listed by the search, but bulkfetch gives no usable answer for it and no 404 either.
+        _api.Map(_jira.Root + "/issue/bulkfetch", _ => FakeAtlassianApi.Json(new { issues }));
+
+        await FluentActions.Awaiting(() => _connector.GetChangesAsync(null))
+            .Should().ThrowAsync<AtlassianUnavailableException>("a fresh start keeps only what it fetched, so the issue would read as deleted");
+        (await _connector.ExistsAsync("/issues/20002.md")).Should().BeTrue();
+    }
+
     [Fact]
     public async Task Sync_IssueBulkFetchError404_IssueDropsOut()
     {

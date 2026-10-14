@@ -73,14 +73,15 @@ public abstract class AtlassianSourceScope
         var selection = new TSelection();
         string idField = selection.IdField;
 
+        // Checked first, so a scope meant for the other product is told which product the connection reads.
+        if (AtlassianSite.FromConfigJson(connection.ConfigJson) is { } site && site.Product != product)
+            return Result.Fail(Outcome.Invalid, "connectionId", WrongProduct(connection, site.Product, product) + ScopeHint(site.Product));
         if (Read(scopeJson, idField, texts.IdError) is not { } parsed)
             return Result.Fail(Outcome.Invalid, "scopeJson", texts.NotAnObject);
         if (parsed.Error is not null)
             return Result.Fail(Outcome.Invalid, parsed.Field!, parsed.Error);
         if (parsed.Id is not { } id)
             return Result.Fail(Outcome.Invalid, idField, texts.MissingId(connection.Id));
-        if (AtlassianSite.FromConfigJson(connection.ConfigJson) is { } site && site.Product != product)
-            return Result.Fail(Outcome.Invalid, "connectionId", WrongProduct(connection, site.Product, product));
         if (notReady is not null)
             return Result.Fail(Outcome.Invalid, "connectionId", notReady);
 
@@ -116,6 +117,15 @@ public abstract class AtlassianSourceScope
     private static string WrongProduct(Connection connection, AtlassianProduct actual, AtlassianProduct wanted) =>
         $"Connection '{connection.Name}' is a {actual} connection, so it can't hold a {wanted} source. "
         + $"Choose this site's {wanted} connection, or add one on the Connections page.";
+
+    /// <summary>Why a site Atlassian refused the credential of can't take sources: testing again won't help.</summary>
+    private protected static string NeedsNewCredentials(string product) =>
+        $"{product} sources can be added once this site has working credentials. Choose Replace credentials on the Connections page.";
+
+    /// <summary>For the REST API: the scope a source on a connection for <paramref name="actual"/> takes.</summary>
+    private static string ScopeHint(AtlassianProduct actual) => actual == AtlassianProduct.Jira
+        ? " A Jira source's scope needs \"kind\":\"jira-project\", as in {\"kind\":\"jira-project\",\"projectId\":\"10000\"}."
+        : " A Confluence source's scope names \"spaceId\", as in {\"spaceId\":\"98306\"}.";
 
     /// <summary>
     /// What the New source dialog says when a source of <paramref name="wantedProduct"/> (<c>confluence</c>
