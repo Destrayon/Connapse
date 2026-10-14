@@ -104,6 +104,13 @@ becomes a separate Connapse source with its own sync state.
   Never both.
 - Take `change_cursor` **before** you start reading the listing, so changes made while Connapse pages
   through it are not lost.
+- Pages must not shift while documents come and go. Order the listing by a stable key, such as the ID, and
+  let `next_page_token` mean "after the last item returned", never an offset: with offsets, deleting an
+  item on an earlier page pushes an unchanged one back across the boundary, so it appears in no page and
+  Connapse removes it. Adding or removing documents between pages may change which of *those* documents a
+  listing includes — the change feed covers them — but must never drop an unchanged one.
+- A `page_token` you no longer recognise: `410 Gone`. Connapse abandons that listing without removing
+  anything and starts a new one.
 - Unknown scope: `404`.
 
 ### Change feed
@@ -125,7 +132,8 @@ Only when `capabilities.changes` is true.
 
 - `cursor` is a `change_cursor` or `next_cursor` you issued. Connapse sends `page_token` instead of
   `cursor` to continue a multi-page response.
-- An upsert carries the same members as a listing item.
+- An upsert carries the same members as a listing item, including every member the listing requires
+  (`path`, `content_type`, `size`, `version`).
 - A page carries `next_page_token` when more pages follow, or `next_cursor` on the last page. Connapse
   saves the cursor only after it reaches the last page; after a crash it replays from the previous cursor,
   so the same change may arrive twice.
@@ -174,8 +182,11 @@ The action is always `{ "name": "read" }`.
 - `true` only when your system would let that user read that document right now. Answer `false` for an
   unknown user, an unknown document, or anything you cannot decide.
 - Refuse a batch larger than `max_batch` with `400`.
-- Connapse shows a document only on an explicit `"decision": true`. A timeout, an error, a missing or
-  malformed decision, or a result count that does not match the request hides the documents involved.
+- If you cannot decide one item, answer `{ "decision": false, "context": { "error": "…" } }` for it rather
+  than failing the batch. An item carrying `context.error` is **no access even when its decision is true**.
+- Connapse shows a document only on an explicit `"decision": true` with no `context.error`. A timeout, an
+  error response, a missing or malformed decision, or a result count that does not match the request hides
+  the documents involved.
 
 ### Access keys — optional
 
@@ -183,6 +194,10 @@ Only with `permissions.access_keys`. An access key is an opaque label you attach
 listing, such as `channel:C123` or `project:ENG`. Connapse uses a user's keys only to choose which documents
 to rank before the check; the check alone decides what is shown, so keys make search find more for users
 who can read a small part of a source.
+
+Once you advertise access keys, **give every document at least one key**: a document with no keys is
+ranked for no one, so it never reaches the check and never appears in search. For documents every linked
+user may read, use one shared key (for example `everyone`) and return it for every linked user.
 
 `POST /access/v1/search/resource`
 

@@ -80,11 +80,14 @@ public sealed class FolderCatalog(ExampleDataDirectory data)
             info.FullName,
             ContentTypeOf(relativePath),
             info.Length,
-            Hash(File.ReadAllBytes(file), 16),
+            VersionOf(File.ReadAllBytes(file)),
             new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero),
             keys,
             Hash(Encoding.UTF8.GetBytes(string.Join('\n', keys)), 8));
     }
+
+    /// <summary>The content version: a hash of exactly these bytes.</summary>
+    public static string VersionOf(byte[] bytes) => Hash(bytes, 16);
 
     private static string Hash(byte[] bytes, int length) =>
         Convert.ToHexString(SHA256.HashData(bytes))[..length].ToLowerInvariant();

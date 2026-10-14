@@ -35,6 +35,7 @@
           "400": { "$ref": "#/components/responses/Problem" },
           "401": { "$ref": "#/components/responses/Problem" },
           "404": { "$ref": "#/components/responses/Problem" },
+          "410": { "$ref": "#/components/responses/Problem" },
           "429": { "$ref": "#/components/responses/Problem" }
         }
       }
@@ -202,14 +203,19 @@
         }
       },
       "Change": {
-        "type": "object", "required": ["id", "op"],
-        "properties": {
-          "id": { "type": "string" }, "op": { "enum": ["upsert", "delete"] },
-          "path": { "type": "string" }, "title": { "type": "string" }, "content_type": { "type": "string" },
-          "size": { "type": "integer" }, "version": { "type": "string" }, "modified_at": { "type": "string", "format": "date-time" },
-          "url": { "type": "string", "format": "uri" }, "access_keys": { "type": "array", "items": { "type": "string" } },
-          "access_version": { "type": "string" }
-        }
+        "oneOf": [
+          {
+            "description": "An upsert carries every member a listing item requires.",
+            "allOf": [
+              { "$ref": "#/components/schemas/Document" },
+              { "type": "object", "required": ["op"], "properties": { "op": { "const": "upsert" } } }
+            ]
+          },
+          {
+            "type": "object", "required": ["id", "op"],
+            "properties": { "id": { "type": "string", "maxLength": 512 }, "op": { "const": "delete" } }
+          }
+        ]
       },
       "ChangePage": {
         "type": "object", "required": ["items"],
@@ -269,7 +275,17 @@
       "EvaluationsResponse": {
         "type": "object", "required": ["evaluations"],
         "properties": {
-          "evaluations": { "type": "array", "items": { "type": "object", "required": ["decision"], "properties": { "decision": { "type": "boolean" } } } }
+          "evaluations": {
+            "type": "array",
+            "items": {
+              "type": "object", "required": ["decision"],
+              "description": "An item whose context carries an error is no access, even when decision is true.",
+              "properties": {
+                "decision": { "type": "boolean" },
+                "context": { "type": "object", "properties": { "error": { "type": "string" } } }
+              }
+            }
+          }
         }
       },
       "ConfirmRequest": {
