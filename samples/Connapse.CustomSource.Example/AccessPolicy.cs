@@ -3,9 +3,11 @@ namespace Connapse.CustomSource.Example;
 /// <summary>The example system's own permission rules: keys a user holds, and per-document decisions.</summary>
 public sealed class AccessPolicy(ExampleConfig config, LinkStore links, FolderCatalog catalog)
 {
-    public IReadOnlyList<string> KeysFor(string connapseUserId, string scopeId)
+    public IReadOnlyList<string> KeysFor(string connapseUserId, string scopeId) =>
+        KeysOf(links.ExternalUser(connapseUserId), scopeId);
+
+    private IReadOnlyList<string> KeysOf(string? user, string scopeId)
     {
-        string? user = links.ExternalUser(connapseUserId);
         if (user is null || !config.Grants.TryGetValue(user, out List<string>? keys)) return [];
 
         string prefix = $"folder:{scopeId}/";
@@ -17,7 +19,8 @@ public sealed class AccessPolicy(ExampleConfig config, LinkStore links, FolderCa
 
     /// <summary>
     /// True only when the user is linked, holds the document's key, and is not denied that document.
-    /// Anything unknown is false.
+    /// Anything unknown is false. The linked account is read once, so a relink mid-decision cannot take the
+    /// grants from one account and the denies from another.
     /// </summary>
     public bool CanRead(string connapseUserId, string scopeId, string documentId)
     {
@@ -29,7 +32,7 @@ public sealed class AccessPolicy(ExampleConfig config, LinkStore links, FolderCa
         ExampleDocument? document = catalog.Find(scopeId, documentId);
         if (document is null) return false;
 
-        IReadOnlyList<string> held = KeysFor(connapseUserId, scopeId);
+        IReadOnlyList<string> held = KeysOf(user, scopeId);
         if (!document.AccessKeys.Any(k => held.Contains(k, StringComparer.Ordinal))) return false;
 
         return !(config.Denies.TryGetValue(user, out List<string>? denied)
