@@ -18,10 +18,14 @@ builder.Services.AddSingleton(sp => new ExampleDataDirectory(
 builder.Services.AddSingleton(sp => ExampleConfig.Load(sp.GetRequiredService<ExampleDataDirectory>().Path));
 builder.Services.AddSingleton<FolderCatalog>();
 builder.Services.AddSingleton<ChangeJournal>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<LinkStore>();
+builder.Services.AddSingleton<AccessPolicy>();
 
 WebApplication app = builder.Build();
 
 app.MapContentEndpoints();
+app.MapPermissionEndpoints();
 
 app.Run();
 
