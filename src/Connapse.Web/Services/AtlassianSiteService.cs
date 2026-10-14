@@ -11,7 +11,7 @@ public enum AtlassianResolveOutcome { Resolved, InvalidAddress, NotFound }
 
 public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, string? SiteUrl = null, string? CloudId = null);
 
-public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict }
+public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken }
 
 public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
 
@@ -55,8 +55,8 @@ public sealed record AtlassianProjectsResult(
 
 /// <param name="Test">The test that ran: the failed probe for <see cref="AtlassianAddOutcome.TestFailed"/>, or a warning saved anyway.</param>
 /// <param name="Name">
-/// For <see cref="AtlassianAddOutcome.Conflict"/>, the connection already in the way: the site's
-/// connection for the same product, or another connection with the name this one would take.
+/// For <see cref="AtlassianAddOutcome.Conflict"/>, the site's connection for the same product; for
+/// <see cref="AtlassianAddOutcome.NameTaken"/>, the name this one would take, held by another connection.
 /// </param>
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
@@ -191,7 +191,7 @@ public sealed class AtlassianSiteService(
         }
         catch (InvalidOperationException)
         {
-            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: name);
+            return new AtlassianAddResult(AtlassianAddOutcome.NameTaken, SiteUrl: normalizedSite, Name: name);
         }
 
         await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),

@@ -25,7 +25,8 @@ public sealed class JiraSourceScope : AtlassianSourceScope
             $"A Jira source's scope needs \"projectId\": the id of a project on the site. List them with GET /api/v1/atlassian/sites/{connectionId}/projects.",
         Unavailable: "Could not check the project against this site. Try again.",
         NotOnSite: (projectId, connectionId) =>
-            $"Project {projectId} is not a project the site's service account can browse. Give the service account the Browse projects permission in it, "
+            $"Project {projectId} is not a project the site's service account can browse. Let the service account see it (Viewer on a private team-managed space, "
+            + "or Browse Spaces in a company-managed space's permission scheme), "
             + $"or pick an id from GET /api/v1/atlassian/sites/{connectionId}/projects.",
         Duplicate: name => $"Project '{name}' already has a source on this connection.",
         IdFixed: "A Jira source's project cannot be changed. Add the project as a new source.");

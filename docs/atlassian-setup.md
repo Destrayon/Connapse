@@ -27,7 +27,7 @@ are added on **Connections**, and spaces and projects on **Sources → New sourc
 | For Confluence: a Confluence Cloud site, on the **Standard** plan or above | The Free plan has no page restrictions or private spaces, so there is nothing per person to enforce. Data Center and Server are not supported |
 | For Jira: Jira Cloud on the same site, on any plan | Free works, but it can't edit project roles, so comments can't be restricted to roles you create. Data Center is not supported |
 | An Atlassian **organization admin**, in an organization that uses **centralized user management** | Only they can create service accounts and their credentials. Each organization gets five free service accounts; they don't take a product seat |
-| For Jira: a **Jira admin** | Only they can check and grant Jira's global permissions (step 2.4). The organization admin often is one |
+| For Jira: a **Jira admin** | Only they can change permission schemes and space (project) roles (step 2.4). The organization admin often is one |
 | An [Atlassian developer console](https://developer.atlassian.com/console/myapps/) account | The linking app is created there |
 | A **privacy policy URL** for your organization | Atlassian asks for one before the linking app can be shared with anyone but you |
 | Connapse opened at the address your users use, served over **HTTPS** (or reached on `localhost`) | Atlassian accepts only an HTTPS callback URL, except for `localhost` |
@@ -63,7 +63,7 @@ organization admin.**
      attachments, use **Copy with the attachments permission** instead, which adds `read:attachment:jira`.
    - Copy the **client ID** and **client secret**. Atlassian shows them once and can't recover them.
    - Make this a separate credential for Jira, and leave the Confluence connection's credential alone.
-     Atlassian doesn't confirm that one OAuth credential can carry both products' scopes.
+     Use one credential per product.
    - Scopes can't be edited later. To change them, create a new credential, use **Replace credentials**
      on the connection in Connapse, then **Revoke** the old credential.
 
@@ -74,7 +74,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
 3. Leave **Global permissions** as it is. It grants **Administer Jira** and **Browse users and groups**
    to groups (`jira-admins-<site>`, `org-admins`, `jira-users-<site>`), and **App admin** from step 1
    gives the service account admin rights without adding it to any of them, so **View Users** there
-   won't list it. That's expected: App admin is enough (confirmed on a live site in October 2026). Connapse's site check confirms it instead, at **Checking Jira
+   won't list it. That's expected: App admin is enough. Connapse's site check confirms it instead, at **Checking Jira
    access permissions** (step 5). Only if that check fails, an organization admin adds the service
    account to `jira-admins-<site>` in Atlassian Administration (**Directory** → **Groups** →
    `jira-admins-<site>` → **Add group members**, or **Directory** → **Service accounts** → **•••** →
@@ -104,7 +104,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
    - A site with no project role the service account can read fails at **Reading Jira groups and
      project roles**: see [Can't read Jira membership](#cant-read-jira-membership).
 6. Go to **Sources** → **New source**, choose **Jira · your-site.atlassian.net**, tick the projects,
-   check **Include attachments**, then **Create source**. A site saved with **Save anyway** offers its
+   turn on **Include attachments** only if the credential has `read:attachment:jira`, then **Create source**. A site saved with **Save anyway** offers its
    projects too.
 7. People who already linked their Atlassian account for Confluence need to do nothing: the same link
    covers Jira.
@@ -159,9 +159,8 @@ browse every project you index.
 products, with one credential per product: add the site twice, once as each connection. A Confluence
 site and a Jira site are separate connections on the Connections page (step 3), each tested for its own
 product only. Give the existing service account the other product's role (2.2) and access (2.3 or 2.4),
-and create a second credential for that product (2.5). Atlassian doesn't confirm that one OAuth
-credential can carry both products' scopes, so don't add the other product's scopes to the credential
-you already use.
+and create a second credential for that product (2.5). Don't add the other product's scopes to the
+credential you already use.
 
 In [Atlassian Administration](https://admin.atlassian.com), as an organization admin:
 
@@ -346,7 +345,7 @@ connection never spaces.
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name> (Jira)`, so a Confluence space of the same name on the site keeps its own name. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't browse: give it the **Browse projects** (**Browse spaces**) permission in that project (step 2.4) |
+| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name> (Jira)`, so a Confluence space of the same name on the site keeps its own name. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't see: on a private team-managed space, add it as **Viewer** under **Space settings** → **Access**; on a company-managed space, grant it **Browse Spaces** (**Browse Projects**) in the permission scheme (step 2.4) |
 | Include attachments | On if the site's last test confirmed `read:attachment:jira`, otherwise Off | Indexes files attached to issues, when Connapse can read their file type. Needs the optional `read:attachment:jira` scope (step 2.5) |
 | Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
 
@@ -447,7 +446,7 @@ attachments, use **Copy with the attachments permission**, which includes `read:
 or `read:attachment:jira`), then use **Replace credentials** on the site with the new client ID
 and secret, and **Revoke** the old credential. The replacement is tested before it is used, and its test
 records which scopes it has, so new sources then start with attachments on. For **Browse users and
-groups**, grant it in Jira's **Global permissions** (step 2.4). If you don't want attachments, turn off
+groups**, set **Jira Administration** to **App admin** on the service account (step 2.2). If you don't want attachments, turn off
 **Include attachments** on the source instead (see [step 4](#4-confluence-sources) or
 [step 5](#5-jira-sources)).
 
@@ -503,8 +502,7 @@ restricted to a group or a project role.
 scopes (step 2.5) and use **Replace credentials**. If **Details** says *Jira listed no project role
 Connapse could read*, the site has no project role yet: create one under the gear icon → **Jira admin settings** →
 **System** → **Space roles** (**Project roles**), add the service account to it in a space under **•••**
-next to the space's name → **Space settings** → **Access**, and test again. On the test site, the seed script in
-[Confluence test site](confluence-test-site.md#6-jira-optional) creates the roles.
+next to the space's name → **Space settings** → **Access**, and test again.
 
 ### Linking app rejected
 

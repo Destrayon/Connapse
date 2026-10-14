@@ -23,12 +23,13 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
 
     internal const string NoProjectsMessage =
         "The service account can't see any Jira project yet, so Connapse can't check the rest of Jira. You can save anyway; "
-        + "the check runs again when you next test. Or give it Browse projects in a project and test again.";
+        + "the check runs again when you next test. Or let it see a project (Viewer on a private team-managed space, or Browse Spaces "
+        + "in a company-managed space's permission scheme) and test again.";
 
     internal const string NoIssuesMessage =
         "The service account can't see any Jira issue yet, so Connapse couldn't check that it can read issues and comments. "
-        + "You can save anyway; the check runs again when you next test. Or give it Browse projects in a project that has "
-        + "issues and test again.";
+        + "You can save anyway; the check runs again when you next test. Or let it see a project that has issues (Viewer on a "
+        + "private team-managed space, or Browse Spaces in a company-managed space's permission scheme) and test again.";
 
     internal const string NoOtherUserMessage =
         "The site has no Jira user other than the service account, so Connapse can't confirm it may check what other people "

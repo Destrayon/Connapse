@@ -1696,8 +1696,9 @@
 
     private async Task AtlassianSiteCreatedAsync(Connection created)
     {
-        string unconfirmed = created.Health is { Warning: true }
-            ? " Administrator access isn't confirmed yet: test the site again once it has a page and another user."
+        // The probe's own warning says what was left unchecked for this product, and how to finish it.
+        string unconfirmed = created.Health is { Warning: true, Message: { Length: > 0 } warning }
+            ? " " + warning
             : "";
         Succeed($"Atlassian site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
         statusLink = ("Add a source", $"/sources?new={created.Id}");

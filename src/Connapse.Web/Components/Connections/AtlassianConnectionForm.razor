@@ -211,8 +211,8 @@
         else
         {
             <p class="small text-muted" id="atlassian-site-intro">
-                An Atlassian Cloud site, read as a service account.
-                This service account reads your site for Atlassian sources and checks each user's access.
+                A Confluence Cloud site, read as a service account.
+                This service account reads your site's Confluence spaces for Confluence sources and checks each user's access.
                 The site is saved only once every check passes.
             </p>
         }
@@ -671,6 +671,9 @@
                     break;
                 case AtlassianAddOutcome.Conflict:
                     saveError = $"A connection named '{added.Name}' already exists. Open it from the list to test it or replace its credentials.";
+                    break;
+                case AtlassianAddOutcome.NameTaken:
+                    saveError = $"Another connection is already named '{added.Name}'. Rename it, then try again.";
                     break;
                 default:
                     saveResult = added.Test;

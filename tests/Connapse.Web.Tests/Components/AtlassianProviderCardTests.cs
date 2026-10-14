@@ -121,7 +121,8 @@ public class AtlassianProviderCardTests : IDisposable
 
         var add = cut.Find("#atlassian-add-jira-site");
         add.GetAttribute("href").Should().Be("/connections?new=jira");
-        add.ClassList.Should().Contain(["btn", "btn-sm", "btn-outline-primary"]);
+        // Secondary, so Add a Confluence site stays the one primary action.
+        add.ClassList.Should().Contain(["btn", "btn-sm", "btn-outline-secondary"]);
         add.TextContent.Trim().Should().Be("Add a Jira site");
     }
 

@@ -222,12 +222,13 @@
                     break;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // An exception escaping a Blazor lifecycle method tears down the circuit.
+            Logger.LogWarning(ex, "Could not list the projects of Atlassian connection {ConnectionId}", connectionId);
             if (mine != generation) return;
             selection.Available = [];
-            loadError = "Could not list this site's projects.";
+            loadError = "Could not list this site's projects. Try again; if it keeps failing, test the site on the Connections page.";
             await ListFailedAsync(selection, connectionId, "error");
         }
         finally
