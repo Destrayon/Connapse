@@ -560,7 +560,14 @@
             <div id="connection-name-help" class="form-text">
                 @if (NewAtlassianSite)
                 {
-                    <text>Atlassian sites are named after their host (for example acme.atlassian.net) when they are saved. You can rename it after saving.</text>
+                    @if (form.AtlassianProduct == AtlassianProduct.Jira)
+                    {
+                        <text>Jira sites are named after their host with (Jira) added (for example acme.atlassian.net (Jira)) when they are saved. You can rename it after saving.</text>
+                    }
+                    else
+                    {
+                        <text>Atlassian sites are named after their host (for example acme.atlassian.net) when they are saved. You can rename it after saving.</text>
+                    }
                 }
                 else
                 {

@@ -918,7 +918,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.NothingToCheckYet);
         result.Details["cloudId"].Should().Be(CloudId);
         result.Details["siteUrl"].Should().Be("https://acme.atlassian.net");
-        result.Message.Should().Contain("save anyway");
+        result.Message.Should().Contain("saved with this warning");
         _api.Calls.Keys.Should().NotContain(p => p.EndsWith("/permission/check"));
     }
 

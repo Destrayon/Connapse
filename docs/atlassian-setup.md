@@ -189,11 +189,11 @@ In [Atlassian Administration](https://admin.atlassian.com), as an organization a
 
    - **Team-managed spaces** have no permission by that name; access comes from the space's access
      setting under **•••** next to the space's name → **Space settings** (**Project settings**) → **Access**. **Open** or
-     **Limited** lets everyone with Jira access see the space, so step 1 is enough. **Private** needs the
+     **Limited** lets everyone with Jira access see the space, so step 2.2 is enough. **Private** needs the
      service account added there, as **Viewer** or higher.
    - **Company-managed spaces** use a permission scheme: gear icon → **Jira admin settings** → **Work
      items** → **Permission schemes** → the space's scheme → **Browse Spaces** (**Browse Projects**). The
-     default scheme grants it to everyone with Jira access, so step 1 is enough.
+     default scheme grants it to everyone with Jira access, so step 2.2 is enough.
 
    Then add the service account to **every group and project role your team restricts comments
    to**: a comment restricted to a group or role the service account isn't in is never indexed, and

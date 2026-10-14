@@ -123,7 +123,7 @@ internal sealed class ConfluenceSiteProbe(IHttpClientFactory httpClients, TimePr
         if (pageId is null)
             return run.Warn(
                 "This site has no pages yet, so Connapse can't confirm the service account is Confluence Administrator. "
-                + "You can save anyway; the check runs again when you next test. Or create a page and test again.");
+                + "The site can be saved with this warning, and the check runs again at each test. Or create a page and test again.");
 
         string? otherUser;
         try
@@ -143,7 +143,7 @@ internal sealed class ConfluenceSiteProbe(IHttpClientFactory httpClients, TimePr
         if (otherUser is null)
             return run.Warn(
                 "The site has no user other than the service account, so Connapse can't confirm Confluence Administrator "
-                + "access. You can save anyway; the check runs again when you next test. Or add another user and test again.");
+                + "access. The site can be saved with this warning, and the check runs again at each test. Or add another user and test again.");
 
         // A missing scope and a missing role both stop the check; Atlassian names the scope when
         // it is the cause (and, when it lists the token's scopes, the scope can be seen missing).
