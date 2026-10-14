@@ -174,4 +174,29 @@ public class PermissionTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
     }
+
+    [Fact]
+    public async Task Evaluations_NullOrWronglyTypedItem_DecidesFalseForThatItemOnly()
+    {
+        using ExampleServer server = new(files: Files);
+        string readme = DocumentId.Encode("README.md");
+        string body = $$"""
+            {
+              "subject": { "type": "user", "id": "{{ExampleServer.AliceId}}" },
+              "action": { "name": "read" },
+              "evaluations": [
+                null,
+                { "resource": { "type": "document", "id": 5, "properties": { "scope": "eng" } } },
+                { "resource": { "type": "document", "id": "{{readme}}", "properties": { "scope": "eng" } } }
+              ]
+            }
+            """;
+
+        HttpResponseMessage response = await server.Client().PostAsync("/access/v1/evaluations",
+            new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        JsonElement root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        Decisions(root).Should().Equal(false, false, true);
+    }
 }

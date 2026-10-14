@@ -213,7 +213,8 @@ the link in your own storage; Connapse stores nothing about it.
    it and shows it to the admin once). Claims: `iss` (Connapse's base URL), `sub` (Connapse user ID),
    `aud` (Connapse's provider ID), `jti`, `exp` (5 minutes), `return_url`.
 2. Verify the signature, `iss`, `aud` and `exp` (allow at most 60 seconds of clock skew), and refuse a
-   `jti` you have already seen. Sign the user in to your system, binding that sign-in to this browser with
+   `jti` you have already seen. Accept only `HS256`: reject any token whose header names another
+   algorithm, including `none`, rather than letting the header choose how it is verified. Sign the user in to your system, binding that sign-in to this browser with
    your own state cookie. Keep the result as a **pending** link and redirect to `return_url` with
    `code=<one-time code>` added to its query.
 3. Connapse checks who is signed in to Connapse and calls `POST /v1/links/confirm` with

@@ -50,18 +50,13 @@ public sealed class FolderCatalog(ExampleDataDirectory data)
             .ToList();
     }
 
-    /// <summary>Null when the ID is malformed, points outside the scope, or names no file.</summary>
-    public ExampleDocument? Find(string scopeId, string id)
-    {
-        if (!DocumentId.TryDecode(id, out string relativePath) || System.IO.Path.IsPathRooted(relativePath))
-            return null;
-
-        string root = System.IO.Path.GetFullPath(ScopeRoot(scopeId));
-        string full = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, relativePath));
-        bool inside = full.StartsWith(root + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal);
-
-        return inside && File.Exists(full) ? Describe(scopeId, root, full) : null;
-    }
+    /// <summary>
+    /// The document the listing emits under exactly this ID, or null. Looked up rather than decoded: a
+    /// decoded path can name the same file differently (another letter case on Windows, a link, a hidden
+    /// file), and a path the listing never emits must not reach content or permission decisions.
+    /// </summary>
+    public ExampleDocument? Find(string scopeId, string id) =>
+        List(scopeId).FirstOrDefault(d => string.Equals(d.Id, id, StringComparison.Ordinal));
 
     /// <summary>One key per top-level folder; files at the scope root share <c>folder:{scope}/</c>.</summary>
     public static string AccessKey(string scopeId, string relativePath)

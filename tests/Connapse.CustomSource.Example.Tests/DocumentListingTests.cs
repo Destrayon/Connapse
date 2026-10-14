@@ -123,4 +123,33 @@ public class DocumentListingTests
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Theory]
+    [InlineData("README.MD")]
+    [InlineData("DESIGN/secret.md")]
+    public async Task Content_IdTheListingNeverEmits_Returns404(string relativePath)
+    {
+        using ExampleServer server = new(files: Files);
+        string id = Base64Url.EncodeToString(Encoding.UTF8.GetBytes(relativePath));
+
+        HttpResponseMessage response = await server.Client().GetAsync($"/v1/scopes/eng/documents/{id}/content");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Listing_DocumentDeletedBetweenPages_StillListsTheRest()
+    {
+        using ExampleServer server = new(files: Files);
+
+        JsonElement first = await DiscoveryTests.GetJson(server, "/v1/scopes/eng/documents");
+        string firstPath = first.GetProperty("items")[0].GetProperty("path").GetString()!;
+        server.DeleteFile($"eng/{firstPath}");
+        string token = first.GetProperty("next_page_token").GetString()!;
+        JsonElement second = await DiscoveryTests.GetJson(server, $"/v1/scopes/eng/documents?page_token={Uri.EscapeDataString(token)}");
+
+        first.GetProperty("items").EnumerateArray().Concat(second.GetProperty("items").EnumerateArray())
+            .Select(i => i.GetProperty("path").GetString())
+            .Should().BeEquivalentTo("README.md", "design/architecture.md", "design/secret.md");
+    }
 }

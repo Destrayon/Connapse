@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Connapse.CustomSource.Example;
 
 public static class PermissionEndpoints
@@ -42,13 +44,28 @@ public static class PermissionEndpoints
 
         string userId = request.Subject!.Id!;
         List<DecisionItem> decisions = request.Evaluations
-            .Select(e => new DecisionItem(
-                e.Resource is { Type: "document", Id: { Length: > 0 } id, Properties.Scope: { Length: > 0 } scope }
-                && policy.CanRead(userId, scope, id)))
+            .Select(item => new DecisionItem(Decide(item, userId, policy)))
             .ToList();
 
         return Results.Ok(new EvaluationsResponse(decisions));
     }
+
+    /// <summary>False for anything that is not a well-formed document item the user may read.</summary>
+    private static bool Decide(JsonElement item, string userId, AccessPolicy policy) =>
+        item.ValueKind == JsonValueKind.Object
+        && item.TryGetProperty("resource", out JsonElement resource)
+        && resource.ValueKind == JsonValueKind.Object
+        && Text(resource, "type") == "document"
+        && Text(resource, "id") is { Length: > 0 } id
+        && resource.TryGetProperty("properties", out JsonElement properties)
+        && properties.ValueKind == JsonValueKind.Object
+        && Text(properties, "scope") is { Length: > 0 } scope
+        && policy.CanRead(userId, scope, id);
+
+    private static string? Text(JsonElement element, string name) =>
+        element.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     private static bool IsUserReading(AuthZenSubject? subject, AuthZenAction? action) =>
         subject is { Type: "user", Id: { Length: > 0 } } && action?.Name == "read";

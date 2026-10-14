@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Connapse.CustomSource.Example;
 
 public sealed record AuthZenSubject(string? Type, string? Id);
@@ -22,9 +24,8 @@ public sealed record AuthZenPageResponse(string NextToken);
 
 public sealed record ResourceSearchResponse(IReadOnlyList<ResourceRef> Results, AuthZenPageResponse Page);
 
-public sealed record EvaluationItem(AuthZenResource? Resource);
-
-public sealed record EvaluationsRequest(AuthZenSubject? Subject, AuthZenAction? Action, IReadOnlyList<EvaluationItem>? Evaluations);
+/// <summary>Items stay raw JSON so one malformed item decides false instead of failing the whole batch.</summary>
+public sealed record EvaluationsRequest(AuthZenSubject? Subject, AuthZenAction? Action, IReadOnlyList<JsonElement>? Evaluations);
 
 public sealed record DecisionItem(bool Decision);
 

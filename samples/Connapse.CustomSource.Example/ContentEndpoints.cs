@@ -43,21 +43,23 @@ public static class ContentEndpoints
     {
         if (!config.HasScope(scope)) return UnknownScope();
 
-        int offset = 0;
+        string lastId = "";
         string cursor;
         if (string.IsNullOrEmpty(pageToken))
             cursor = journal.HeadCursor(scope);
-        else if (!ListingToken.TryParse(pageToken, out offset, out cursor))
+        else if (!ListingToken.TryParse(pageToken, out lastId, out cursor))
             return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Malformed page_token.");
 
-        IReadOnlyList<ExampleDocument> all = catalog.List(scope);
-        List<DocumentItem> page = all.Skip(offset).Take(config.PageSize)
+        // The listing is ordered by ID, so "after the last ID returned" is stable while files come and go.
+        List<ExampleDocument> remaining = catalog.List(scope)
+            .Where(d => string.CompareOrdinal(d.Id, lastId) > 0)
+            .ToList();
+        List<DocumentItem> page = remaining.Take(config.PageSize)
             .Select(d => DocumentItem.From(d, config.PermissionsEnabled))
             .ToList();
-        int next = offset + page.Count;
 
-        return next < all.Count
-            ? Results.Ok(new DocumentPage(page, ListingToken.Format(next, cursor), null))
+        return remaining.Count > page.Count
+            ? Results.Ok(new DocumentPage(page, ListingToken.Format(page[^1].Id, cursor), null))
             : Results.Ok(new DocumentPage(page, null, cursor));
     }
 
