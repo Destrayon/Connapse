@@ -26,6 +26,7 @@ WebApplication app = builder.Build();
 
 app.MapContentEndpoints();
 app.MapPermissionEndpoints();
+app.MapLinkEndpoints();
 
 app.Run();
 
