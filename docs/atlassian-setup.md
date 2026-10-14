@@ -82,7 +82,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
 4. Check that the service account can see every space you will index. A space it can't see isn't
    listed when you add a source, so you can also skip this and add it if a space is missing.
    - **Team-managed spaces** have no permission by that name; access comes from the space's access
-     setting under **•••** next to the space's name → **Space settings** → **Access**. **Open** or
+     setting under **•••** next to the space's name → **Space settings** (**Project settings**) → **Access**. **Open** or
      **Limited** lets everyone with Jira access see the space, so step 1 is enough. **Private** needs the
      service account added there, as **Viewer** or higher.
    - **Company-managed spaces** use a permission scheme: gear icon → **Jira admin settings** → **Work
@@ -91,7 +91,7 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
 
    Then add the service account to every group and space role your team restricts comments to (step
    2.4 explains why): groups under **Directory** → **Groups** in Atlassian Administration, space roles
-   under **Space settings** → **Access**. Jira creates a starter space when it's added to a site; leave
+   under **Space settings** (**Project settings**) → **Access**. Jira creates a starter space when it's added to a site; leave
    it alone unless you will index it.
 
 **In Connapse. You must be a Connapse admin.**
@@ -187,7 +187,7 @@ In [Atlassian Administration](https://admin.atlassian.com), as an organization a
    The service account must be able to see every space (project) you will index:
 
    - **Team-managed spaces** have no permission by that name; access comes from the space's access
-     setting under **•••** next to the space's name → **Space settings** → **Access**. **Open** or
+     setting under **•••** next to the space's name → **Space settings** (**Project settings**) → **Access**. **Open** or
      **Limited** lets everyone with Jira access see the space, so step 1 is enough. **Private** needs the
      service account added there, as **Viewer** or higher.
    - **Company-managed spaces** use a permission scheme: gear icon → **Jira admin settings** → **Work
@@ -302,7 +302,8 @@ delete its OAuth 2.0 credential.
 ## 4. Confluence sources
 
 On **Sources → New source**, choose the site's Confluence connection. The dialog lists the site's spaces
-that the service account can view.
+that the service account can view. Sources can be added once the connection's last **Test connection**
+passed, or it was saved with **Save anyway**; otherwise the dialog links the connection to test it.
 
 | Field | Default | Notes |
 |-------|---------|-------|
@@ -345,7 +346,7 @@ connection never spaces.
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name> (Jira)`, so a Confluence space of the same name on the site keeps its own name. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't see: on a private team-managed space, add it as **Viewer** under **Space settings** → **Access**; on a company-managed space, grant it **Browse Spaces** (**Browse Projects**) in the permission scheme (step 2.4) |
+| Projects | None ticked | Tick one or more. Each becomes its own source named `<site host> / <project name> (Jira)`, so a Confluence space of the same name on the site keeps its own name. A project that already has a source on this site shows **already added**. A project missing from the list is one the service account can't see: on a private team-managed space, add it as **Viewer** under **Space settings** (**Project settings**) → **Access**; on a company-managed space, grant it **Browse Spaces** (**Browse Projects**) in the permission scheme (step 2.4) |
 | Include attachments | On if the site's last test confirmed `read:attachment:jira`, otherwise Off | Indexes files attached to issues, when Connapse can read their file type. Needs the optional `read:attachment:jira` scope (step 2.5) |
 | Max attachment size (MB) | 25 | Attachments larger than this are skipped. 1 to 100 MB |
 
@@ -483,7 +484,7 @@ already User, create a new credential with the Jira scopes (step 2.5) and use **
 browse.*), or a project you expect isn't in the list.
 **Likely cause:** the service account can't see that space (project).
 **Fix:** on a private team-managed space, add the service account as **Viewer** under **•••** next to the
-space's name → **Space settings** → **Access**. On a company-managed space, grant it **Browse Spaces**
+space's name → **Space settings** (**Project settings**) → **Access**. On a company-managed space, grant it **Browse Spaces**
 (**Browse Projects**) in the space's permission scheme (step 2.4). Then reopen **New source**.
 
 ### Not Jira administrator
@@ -511,7 +512,7 @@ restricted to a group or a project role.
 scopes (step 2.5) and use **Replace credentials**. If **Details** says *Jira listed no project role
 Connapse could read*, the site has no project role yet: create one under the gear icon → **Jira admin settings** →
 **System** → **Space roles** (**Project roles**), add the service account to it in a space under **•••**
-next to the space's name → **Space settings** → **Access**, and test again.
+next to the space's name → **Space settings** (**Project settings**) → **Access**, and test again.
 
 ### Linking app rejected
 
@@ -568,7 +569,7 @@ service account lost access to it.* or *… it was deleted, or the service accou
 **Likely cause:** someone made the space private or removed the service account from it, changed its
 permission scheme, or deleted or archived the project. The source's documents are
 hidden from search, not deleted, until the project can be read again.
-**Fix:** in the space, open **•••** next to its name → **Space settings** → **Access** (or the permission
+**Fix:** in the space, open **•••** next to its name → **Space settings** (**Project settings**) → **Access** (or the permission
 scheme) and let the service account see the space again (step 2.4), then choose **Sync** on the source. If the project was
 deleted, delete the source.
 

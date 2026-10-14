@@ -1,4 +1,4 @@
-# API Reference
+﻿# API Reference
 
 > Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
 
@@ -1234,7 +1234,8 @@ Scope keys by provider:
 | SFTP | `subPath`, `includePatterns`, `excludePatterns` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
 | GitHub | `owner`, `repo`, `kind`, `includePatterns`, `includeComments` |
-| Atlassian | `spaceId`, `includeAttachments`, `maxAttachmentMb` |
+| Atlassian (Confluence) | `spaceId`, `includeAttachments`, `maxAttachmentMb` |
+| Atlassian (Jira) | `kind` (`"jira-project"`), `projectId`, `includeAttachments`, `maxAttachmentMb` |
 
 The scope must fall inside the `allowedLocations` or `allowedRoot` its connection declares, or creation fails.
 
@@ -1256,6 +1257,19 @@ For an **Atlassian** connection, the request runs the checks the New source dial
 A failed check is a `400` naming the field, for example `{ "error": "...", "field": "spaceId" }`. A space that already has a source on the connection is a `409`, and if Atlassian can't be reached the response is `502`.
 
 If a source includes attachments but the site's credential lacks `read:attachment:confluence`, syncing still succeeds for pages and comments. The source's `lastSyncStatus` stays `"Succeeded"` and `lastSyncError` carries the notice *Attachments were skipped: the site's credential lacks the read:attachment:confluence permission. Add it to the credential, or turn off Include attachments.* The site is not marked as needing new credentials.
+
+On a **Jira** connection the scope names a project instead:
+
+```json
+{
+  "connectionId": "8a1b...",
+  "scopeJson": "{\"kind\":\"jira-project\",\"projectId\":\"10000\",\"includeAttachments\":false}"
+}
+```
+
+`projectId` must be a project the site's service account can browse now (list them with `GET /api/v1/atlassian/sites/{connectionId}/projects`), with no source on this connection yet. `includeAttachments` defaults to `true` only if the site's last connection test confirmed `read:attachment:jira`, and `maxAttachmentMb` follows the same rule as for Confluence. `name` defaults to `<site host> / <project name> (Jira)`.
+
+For either product, a `400` with `field: "connectionId"` means the scope is for the other product than the connection reads, or the site hasn't passed a connection test yet (run `POST /api/v1/atlassian/sites/{connectionId}/test`, or choose **Test connection**).
 
 ### Update a Confluence Source
 
@@ -1283,6 +1297,12 @@ If a source includes attachments but the site's credential lacks `read:attachmen
 | `spaceId` | It names a different space, or is not a string of digits |
 | `includeAttachments` | It is not `true` or `false` |
 | `maxAttachmentMb` | It is not a whole number, or is outside 1 to 100 while attachments are on |
+
+### Update a Jira Source
+
+**Endpoint**: `PATCH /api/sources/{id}`
+
+The same as for a Confluence source, with `projectId` in place of `spaceId`: only `includeAttachments` and `maxAttachmentMb` can change, and a `projectId` other than the source's own is a `400` naming `projectId`. Add another project as a new source.
 
 The Sources page's **Edit** view changes the same two settings under the same rules.
 

@@ -16,7 +16,7 @@ namespace Connapse.Web.Services;
 /// </summary>
 public sealed class ConfluenceSourceScope : AtlassianSourceScope
 {
-    public const string ConfluenceNotReady = "This site's last test didn't pass for Confluence. Test it on the Connections page.";
+    public const string ConfluenceNotReady = "Confluence sources can be added once this site passes a test. Choose Test connection on the Connections page.";
 
     private static readonly ScopeTexts Texts = new(
         NotAnObject: "The scope must be a JSON object naming spaceId, as in {\"spaceId\":\"98306\"}.",

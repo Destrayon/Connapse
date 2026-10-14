@@ -196,7 +196,7 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await BodyAsync(response)).GetProperty("error").GetString()
-            .Should().Be("This site's last test didn't pass for Jira. Test it on the Connections page.");
+            .Should().Be("Jira sources can be added once this site passes a test. Choose Test connection on the Connections page.");
         (await SourceCountAsync(site)).Should().Be(0);
 
         // A scope without a kind is still Confluence's, as before Jira, so this Jira connection refuses it.

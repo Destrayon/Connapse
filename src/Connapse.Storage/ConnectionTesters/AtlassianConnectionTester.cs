@@ -174,7 +174,7 @@ public static class AtlassianSiteTroubleshooting
          CantReadJira, NotJiraAdministrator, CantReadJiraMembership, General];
 
     /// <summary>The entries only sync, the spaces dialog and the linking app link to; the site test never fails with these.</summary>
-    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, ProjectUnreadable, Unreachable, AttachmentsSkipped];
+    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, ProjectUnreadable, JiraProjectMissing, Unreachable, AttachmentsSkipped];
 
     public static string UrlOf(string anchor) => $"{GuideUrl}#{anchor}";
 }

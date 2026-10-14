@@ -109,7 +109,7 @@ public class AtlassianConnectionFormTests : IDisposable
         cut.Find("#atlassian-service-account-guide").TextContent.Should().NotContain("Jira");
         cut.Find("#atlassian-service-account-guide").TextContent.Should().Contain("view access").And.Contain("admin group");
         System.Text.RegularExpressions.Regex.Replace(cut.Find("#atlassian-site-intro").TextContent, @"\s+", " ").Trim().Should().Be(
-            "A Confluence Cloud site, read as a service account. This service account reads your site's Confluence spaces for Confluence sources and checks each user's access. The site is saved only once every check passes.");
+            "A Confluence Cloud site, read as a service account. This service account reads your site's Confluence spaces for Confluence sources and checks each user's access. The site is saved once every check passes, or with Save anyway when the only problem is a warning.");
     }
 
     [Fact]
@@ -153,6 +153,24 @@ public class AtlassianConnectionFormTests : IDisposable
         cut.WaitForAssertion(() => cut.Find("#atlassian-save-result"));
         stub.Requests.Should().Contain(r => r.StartsWith("/ex/jira/", StringComparison.Ordinal))
             .And.NotContain(r => r.StartsWith("/ex/confluence/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NewJiraSite_OnASiteSavedForConfluence_FillsInItsAddressAndSaysWhere()
+    {
+        var cut = ctx.Render<AtlassianConnectionForm>(p => p
+            .Add(f => f.Product, AtlassianProduct.Jira)
+            .Add(f => f.SuggestedSiteUrls, ["https://acme.atlassian.net"]));
+
+        cut.Find("#atlassian-site-url").GetAttribute("value").Should().Be("https://acme.atlassian.net");
+        cut.Find("#atlassian-site-url").GetAttribute("list").Should().Be("atlassian-known-sites");
+        cut.Find("#atlassian-site-url-prefilled").TextContent.Should().Contain("this site's Confluence connection");
+
+        // Back to Confluence, where that site is already saved: the address it was offered for Jira goes.
+        cut.Render(p => p.Add(f => f.Product, AtlassianProduct.Confluence).Add(f => f.SuggestedSiteUrls, []));
+
+        cut.Find("#atlassian-site-url").GetAttribute("value").Should().BeNullOrEmpty();
+        cut.FindAll("#atlassian-site-url-prefilled").Should().BeEmpty();
     }
 
     [Fact]

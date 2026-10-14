@@ -1,4 +1,4 @@
-@page "/connections"
+﻿@page "/connections"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = "RequireAdmin")]
 @using Connapse.Core
@@ -1650,10 +1650,6 @@
     private bool NewAtlassianSite => isNew && editing is not null && form.Provider == ConnectionProvider.Atlassian;
 
     /// <summary>
-    /// Arriving from the Atlassian provider page: <c>?new=confluence</c> or <c>?new=jira</c> opens a
-    /// new site of that product. <c>?new=atlassian</c>, from older links, opens a Confluence site.
-    /// </summary>
-    /// <summary>
     /// Sites already saved for the other product and not yet for <paramref name="product"/>, so adding
     /// that product to a site offers its address rather than asking for it again.
     /// </summary>
@@ -1668,6 +1664,10 @@
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// Arriving from the Atlassian provider page: <c>?new=confluence</c> or <c>?new=jira</c> opens a
+    /// new site of that product. <c>?new=atlassian</c>, from older links, opens a Confluence site.
+    /// </summary>
     private async Task OpenAtlassianFromQueryAsync()
     {
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);

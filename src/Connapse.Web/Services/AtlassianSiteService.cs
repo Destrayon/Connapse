@@ -431,9 +431,10 @@ public sealed class AtlassianSiteService(
         Guid attempt = Guid.NewGuid();
         string? host = AtlassianSiteResolver.NormalizeSiteUrl(request.SiteUrl) is { } normalized ? new Uri(normalized).Host : null;
         string? resourceId = connectionId?.ToString();
+        string product = AtlassianSite.ProductValue(request.Product);
 
         await audit.LogAsync("connection.test_started", "connection", resourceId,
-            new { Provider = "Atlassian", Mode = mode, Attempt = attempt, SiteHost = host, ClientId = request.ClientId?.Trim() }, ct);
+            new { Provider = "Atlassian", Product = product, Mode = mode, Attempt = attempt, SiteHost = host, ClientId = request.ClientId?.Trim() }, ct);
 
         var result = await tester.TestConnectionAsync(request, ct: ct);
         long totalMs = (long)(result.Duration ?? TimeSpan.Zero).TotalMilliseconds;
@@ -441,13 +442,14 @@ public sealed class AtlassianSiteService(
         if (result.Success)
         {
             await audit.LogAsync("connection.test_verified", "connection", resourceId,
-                new { Provider = "Atlassian", Mode = mode, Attempt = attempt, SiteHost = host, TotalMs = totalMs }, ct);
+                new { Provider = "Atlassian", Product = product, Mode = mode, Attempt = attempt, SiteHost = host, TotalMs = totalMs }, ct);
         }
         else
         {
             await audit.LogAsync("connection.test_step_failed", "connection", resourceId, new
             {
                 Provider = "Atlassian",
+                Product = product,
                 Mode = mode,
                 Attempt = attempt,
                 SiteHost = host,
