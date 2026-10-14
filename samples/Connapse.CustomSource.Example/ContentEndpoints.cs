@@ -11,6 +11,7 @@ public static class ContentEndpoints
         RouteGroupBuilder scopes = app.MapGroup("/v1/scopes").AddEndpointFilter<BearerTokenFilter>();
         scopes.MapGet("", ListScopes);
         scopes.MapGet("/{scope}/documents", ListDocuments);
+        scopes.MapGet("/{scope}/changes", ListChanges);
         scopes.MapGet("/{scope}/documents/{id}/content", GetContent);
     }
 
@@ -74,6 +75,34 @@ public static class ContentEndpoints
 
         http.Response.Headers.ETag = etag;
         return Results.Stream(File.OpenRead(document.FullPath), document.ContentType);
+    }
+
+    private static IResult ListChanges(
+        string scope,
+        [FromQuery] string? cursor,
+        [FromQuery(Name = "page_token")] string? pageToken,
+        ExampleConfig config,
+        FolderCatalog catalog,
+        ChangeJournal journal)
+    {
+        if (!config.HasScope(scope)) return UnknownScope();
+
+        string? from = string.IsNullOrEmpty(pageToken) ? cursor : pageToken;
+        if (string.IsNullOrEmpty(from))
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "cursor or page_token is required.");
+
+        ChangeWindow? window = journal.Read(scope, from);
+        if (window is null)
+            return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This cursor is no longer valid; run a full listing.");
+
+        // The journal records IDs; read the document now, so an upsert for a file deleted since becomes a delete.
+        List<ChangeItem> items = window.Entries
+            .Select(e => e.Deleted || catalog.Find(scope, e.Id) is not { } document
+                ? ChangeItem.Delete(e.Id)
+                : ChangeItem.Upsert(DocumentItem.From(document, config.PermissionsEnabled)))
+            .ToList();
+
+        return Results.Ok(new ChangePage(items, window.NextPageToken, window.NextCursor));
     }
 
     private static IResult UnknownScope() =>

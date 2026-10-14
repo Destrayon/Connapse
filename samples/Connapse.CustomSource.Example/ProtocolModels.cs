@@ -45,3 +45,23 @@ public sealed record DocumentItem(
 }
 
 public sealed record DocumentPage(IReadOnlyList<DocumentItem> Items, string? NextPageToken, string? ChangeCursor);
+
+public sealed record ChangeItem(
+    string Id,
+    string Op,
+    string? Path = null,
+    string? Title = null,
+    string? ContentType = null,
+    long? Size = null,
+    string? Version = null,
+    DateTimeOffset? ModifiedAt = null,
+    IReadOnlyList<string>? AccessKeys = null,
+    string? AccessVersion = null)
+{
+    public static ChangeItem Delete(string id) => new(id, "delete");
+
+    public static ChangeItem Upsert(DocumentItem d) => new(
+        d.Id, "upsert", d.Path, d.Title, d.ContentType, d.Size, d.Version, d.ModifiedAt, d.AccessKeys, d.AccessVersion);
+}
+
+public sealed record ChangePage(IReadOnlyList<ChangeItem> Items, string? NextPageToken, string? NextCursor);
