@@ -1,6 +1,8 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Storage.ConnectionTesters;
+using Connapse.Web.Components.Connections;
 using Connapse.Web.Components.Sources;
 
 namespace Connapse.Web.Services;
@@ -14,6 +16,8 @@ namespace Connapse.Web.Services;
 /// </summary>
 public sealed class ConfluenceSourceScope : AtlassianSourceScope
 {
+    public const string ConfluenceNotReady = "This site's last test didn't pass for Confluence. Test it on the Connections page.";
+
     private static readonly ScopeTexts Texts = new(
         NotAnObject: "The scope must be a JSON object naming spaceId, as in {\"spaceId\":\"98306\"}.",
         IdError: "\"spaceId\" must be a Confluence space id, a string of digits such as \"98306\".",
@@ -32,7 +36,15 @@ public sealed class ConfluenceSourceScope : AtlassianSourceScope
 
     public static Task<Result> ResolveAsync(
         string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore, CancellationToken ct) =>
-        ResolveAsync<ConfluenceSpaceInfo, ConfluenceSpaceSelection>(scopeJson, connection, sites, sourceStore, Texts, AtlassianProduct.Confluence, notReady: null, ct);
+        ResolveAsync<ConfluenceSpaceInfo, ConfluenceSpaceSelection>(scopeJson, connection, sites, sourceStore, Texts, AtlassianProduct.Confluence,
+            NotReady(connection), ct);
+
+    /// <summary>
+    /// Why no Confluence source may be added on <paramref name="connection"/> now, or null when one may:
+    /// the same rule as for Jira, asked by the API and the New source dialog alike.
+    /// </summary>
+    public static string? NotReady(Connection connection) =>
+        AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.ConfluenceProduct) ? null : ConfluenceNotReady;
 
     /// <summary>
     /// A changed scope for an existing Confluence source. Its space is fixed: indexed documents are

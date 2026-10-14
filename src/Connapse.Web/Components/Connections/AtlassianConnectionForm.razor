@@ -222,6 +222,11 @@
             <p class="small mt-2 mb-2">
                 You need to be an organization admin, and the organization must use centralized user management.
                 Service accounts are free (five per organization) and don't take a product seat.
+                @if (IsJira)
+                {
+                    <text>For steps 3 and 4 you also need a Jira admin, to change permission schemes and project roles.
+                    On Jira's Free plan, project roles can't be edited, so comments can't be restricted to roles you create.</text>
+                }
                 <a href="@AtlassianSiteFieldSpecs.ServiceAccountSection" target="_blank" rel="noopener">Step-by-step guide<span class="visually-hidden"> (opens in a new tab)</span></a>
             </p>
             @if (IsJira)
@@ -242,11 +247,11 @@
                         <strong>jira-admins-</strong><em>site</em> group under <strong>Directory</strong> &rarr; <strong>Groups</strong> and test again.
                     </li>
                     <li>
-                        The service account must be able to see every project you will index (Jira on newer sites calls projects spaces).
+                        The service account must be able to see every project you will index (on Premium sites Jira calls projects spaces).
                         A team-managed space set to <strong>Open</strong> or <strong>Limited</strong> under <strong>&bull;&bull;&bull;</strong> next to its
-                        name &rarr; <strong>Space settings</strong> &rarr; <strong>Access</strong> already lets it; a <strong>Private</strong> one needs it added as
-                        <strong>Viewer</strong>. A company-managed project on the default permission scheme already grants <strong>Browse Projects</strong>
-                        to everyone with Jira access. A project it can't see is not listed.
+                        name &rarr; <strong>Space settings</strong> (<strong>Project settings</strong>) &rarr; <strong>Access</strong> already lets it; a <strong>Private</strong> one needs it added as
+                        <strong>Viewer</strong>. A company-managed project on the default permission scheme already grants <strong>Browse Spaces</strong>
+                        (<strong>Browse Projects</strong>) to everyone with Jira access. A project it can't see is not listed.
                     </li>
                     <li>
                         Add the service account to every group and project role your team restricts comments to. A comment
@@ -333,7 +338,17 @@
         <h3 class="h6 mt-3">Site</h3>
         <div @onfocusout="() => { ValidateSiteUrl(blur: true); }">
             <ProviderField Spec="AtlassianSiteFieldSpecs.SiteUrlFor(Product)" Small="true" Value="@siteUrl" ValueChanged="OnSiteUrlChanged"
-                           Error="@siteUrlError" Disabled="@(busy || lookingUp)" />
+                           Error="@siteUrlError" Disabled="@(busy || lookingUp)"
+                           ListId="@(SuggestedSiteUrls.Count > 0 ? "atlassian-known-sites" : null)" />
+            @if (SuggestedSiteUrls.Count > 0)
+            {
+                <datalist id="atlassian-known-sites">
+                    @foreach (string known in SuggestedSiteUrls)
+                    {
+                        <option value="@known"></option>
+                    }
+                </datalist>
+            }
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
             <button type="button" id="atlassian-resolve" class="btn btn-sm btn-outline-secondary" disabled="@(busy || lookingUp)" @onclick="ResolveAsync">
@@ -412,7 +427,7 @@
     /// <summary>The product a new site's connection reads; a saved site's comes from its config.</summary>
     [Parameter] public AtlassianProduct Product { get; set; } = AtlassianProduct.Confluence;
 
-    private AtlassianProduct shownNewProduct = AtlassianProduct.Confluence;
+    private AtlassianProduct? shownNewProduct;
 
     /// <summary>Raised with the connection once a new site passes every probe and is saved.</summary>
     [Parameter] public EventCallback<Connection> OnCreated { get; set; }
@@ -517,6 +532,9 @@
     /// </summary>
     [Parameter] public bool StartReplacing { get; set; }
 
+    /// <summary>Sites saved for the other product only, offered in Site URL; the only one is filled in.</summary>
+    [Parameter] public IReadOnlyList<string> SuggestedSiteUrls { get; set; } = [];
+
     // Only another site replaces what is shown: the parent's copy of this one goes stale after a
     // re-test or a replace, which refresh it here.
     protected override async Task OnParametersSetAsync()
@@ -525,6 +543,8 @@
         if (Product != shownNewProduct)
         {
             shownNewProduct = Product;
+            if (Existing is null && string.IsNullOrEmpty(siteUrl) && SuggestedSiteUrls.Count == 1)
+                siteUrl = SuggestedSiteUrls[0];
             saveResult = null;
             saveError = null;
             copyMessage = null;

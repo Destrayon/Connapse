@@ -1,4 +1,4 @@
-﻿@page "/connections"
+@page "/connections"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = "RequireAdmin")]
 @using Connapse.Core
@@ -8,6 +8,7 @@
 @inject IJSRuntime JS
 @using Connapse.Storage.ConnectionTesters
 @using Connapse.Storage.Connectors
+@using Connapse.Storage.Connectors.Atlassian
 @using Microsoft.Extensions.Options
 @using System.Text.Json
 @using System.Text.Json.Nodes
@@ -986,7 +987,7 @@
                                      OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit"
                                      ReplacingChanged="@((bool open) => atlassianReplacing = open)"
                                      CheckingChanged="@((bool checking) => atlassianChecking = checking)"
-                                     StartReplacing="@atlassianStartReplacing" />
+                                     StartReplacing="@atlassianStartReplacing" SuggestedSiteUrls="@AtlassianSitesWithout(form.AtlassianProduct)" />
         }
         else
         {
@@ -1652,6 +1653,21 @@
     /// Arriving from the Atlassian provider page: <c>?new=confluence</c> or <c>?new=jira</c> opens a
     /// new site of that product. <c>?new=atlassian</c>, from older links, opens a Confluence site.
     /// </summary>
+    /// <summary>
+    /// Sites already saved for the other product and not yet for <paramref name="product"/>, so adding
+    /// that product to a site offers its address rather than asking for it again.
+    /// </summary>
+    private IReadOnlyList<string> AtlassianSitesWithout(AtlassianProduct product)
+    {
+        var sites = connections.Where(c => c.Provider == ConnectionProvider.Atlassian)
+            .Select(c => AtlassianSite.FromConfigJson(c.ConfigJson))
+            .OfType<AtlassianSite>()
+            .ToList();
+        var taken = sites.Where(s => s.Product == product).Select(s => s.CloudId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return sites.Where(s => !taken.Contains(s.CloudId)).Select(s => s.SiteUrl)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     private async Task OpenAtlassianFromQueryAsync()
     {
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
@@ -1700,7 +1716,7 @@
         string unconfirmed = created.Health is { Warning: true, Message: { Length: > 0 } warning }
             ? " " + warning
             : "";
-        Succeed($"Atlassian site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
+        Succeed($"{AtlassianSiteStatus.ProductName(created)} site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
         statusLink = ("Add a source", $"/sources?new={created.Id}");
         ReturnFocusToList(created.Id);
         editing = null;

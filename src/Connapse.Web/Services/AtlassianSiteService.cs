@@ -140,13 +140,17 @@ public sealed class AtlassianSiteService(
             : new AtlassianResolveResult(AtlassianResolveOutcome.Resolved, normalized, cloudId);
     }
 
+    /// <summary>The name a new site's connection is given: its host, marked for Jira.</summary>
+    public static string DefaultName(string host, AtlassianProduct product) =>
+        product == AtlassianProduct.Jira ? $"{host} (Jira)" : host;
+
     /// <param name="saveAnyway">
     /// Save a site whose only failure is a warning (no page or no other user yet to check
     /// administrator access against). Any other failure is never saved.
     /// </param>
     /// <param name="product">
     /// What the connection reads. A site has at most one connection per product; its Jira connection
-    /// is named apart from its Confluence one, which keeps the site's bare host name as before.
+    /// is named apart from its Confluence one, which is named after the site's host alone.
     /// </param>
     public async Task<AtlassianAddResult> AddAsync(
         string? siteUrl, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
@@ -168,7 +172,7 @@ public sealed class AtlassianSiteService(
         string cloudId = (string)cloudIdValue;
         string trimmedClientId = clientId.Trim();
         string host = new Uri(normalizedSite).Host;
-        string name = product == AtlassianProduct.Jira ? $"{host} (Jira)" : host;
+        string name = DefaultName(host, product);
 
         string configJson = JsonSerializer.Serialize(new
         {

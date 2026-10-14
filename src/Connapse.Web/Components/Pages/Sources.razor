@@ -427,10 +427,10 @@
                     else if (selectedProvider is ConnectionProvider.Atlassian && ShownAtlassianSelection is not null)
                     {
                         @* A connection reads one product, so the dialog shows that product's picker. *@
-                        @if (jiraForm is not null && JiraNotReady is { } jiraNotReady)
+                        @if (AtlassianNotReady is { } siteNotReady)
                         {
-                            <div class="alert alert-warning mb-0" role="status">
-                                @jiraNotReady
+                            <div class="alert alert-warning mb-0" role="status" id="atlassian-site-not-ready">
+                                @siteNotReady
                                 <a class="alert-link" href="/connections?edit=@form.ConnectionId">Open @SelectedConnection?.Name</a>
                             </div>
                         }
@@ -600,7 +600,7 @@
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" data-dialog-cancel @onclick="CancelCreate" disabled="@creating">Cancel</button>
-                    <button class="btn btn-primary" @onclick="Create" disabled="@(creating || (jiraForm is not null && JiraNotReady is not null))">
+                    <button class="btn btn-primary" @onclick="Create" disabled="@(creating || AtlassianNotReady is not null)">
                         @if (creating)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
@@ -724,7 +724,15 @@
         connections.FirstOrDefault(c => c.Id == form?.ConnectionId);
 
     // Shown in place of the project list, so the admin learns it before ticking projects.
-    private string? JiraNotReady => SelectedConnection is { } connection ? JiraSourceScope.NotReady(connection) : null;
+    private string? AtlassianNotReady => SelectedConnection is { Provider: ConnectionProvider.Atlassian } connection
+        ? AtlassianSiteNotReady(connection)
+        : null;
+
+    // The rule the REST create applies: the site's last test must still have passed for its product.
+    private static string? AtlassianSiteNotReady(Connection connection) =>
+        AtlassianSiteStatus.ProductOf(connection) == AtlassianSiteScopes.JiraProduct
+            ? JiraSourceScope.NotReady(connection)
+            : ConfluenceSourceScope.NotReady(connection);
 
     /// <summary>
     /// The buckets or containers the chosen connection permits, or null when it permits any.
@@ -869,9 +877,14 @@
     /// so the product is named once; others by name and provider.
     /// </summary>
     private static string ConnectionLabel(Connection connection) => connection.Provider == ConnectionProvider.Atlassian
-        ? AtlassianSiteStatus.Label(connection,
-            AtlassianSite.FromConfigJson(connection.ConfigJson) is { } site ? new Uri(site.SiteUrl).Host : connection.Name)
+        ? AtlassianSiteStatus.Label(connection, AtlassianSite.FromConfigJson(connection.ConfigJson) is { } site
+            ? AtlassianPickerName(connection.Name, new Uri(site.SiteUrl).Host, site.Product)
+            : connection.Name)
         : $"{connection.Name} ({ProviderName(connection.Provider)})";
+
+    // A site renamed on the Connections page keeps the name its admin chose, with the host beside it.
+    private static string AtlassianPickerName(string name, string host, AtlassianProduct product) =>
+        name == AtlassianSiteService.DefaultName(host, product) ? host : $"{name}, {host}";
 
     /// <summary>Lists what the chosen GitHub connection's installation covers, for the repository suggestions.</summary>
     private async Task LoadGitHubSuggestionsAsync()
@@ -1272,9 +1285,7 @@
             return;
         }
 
-        // The rule the REST create applies: the site's last test must still have passed for Jira.
-        if (selection.Product == AtlassianSiteScopes.JiraProduct
-            && JiraSourceScope.NotReady(connection) is { } notReady)
+        if (AtlassianSiteNotReady(connection) is { } notReady)
         {
             selection.ItemsError = notReady;
             await CreateFailed("not_ready");

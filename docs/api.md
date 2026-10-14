@@ -1,4 +1,4 @@
-﻿# API Reference
+# API Reference
 
 > Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
 
@@ -1367,7 +1367,7 @@ Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connect
 |--------|-------|---------|
 | GET | `/` | Every saved site, as [site objects](#atlassian-site-object) without `scopes` |
 | POST | `/resolve` | `{ "siteUrl" }` → `{ siteUrl, cloudId }`. `400` if the address is not `https://<name>.atlassian.net`, `404` if no site is there |
-| POST | `/` | `{ "siteUrl", "clientId", "clientSecret", "product"?, "saveAnyway"? }`. `product` is `confluence` (the default) or `jira`: a site's Confluence and Jira are separate connections, so add it once as each to index both. Runs that product's site checks and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId, product, test }`, where `test` is a [test report](#atlassian-test-report). The site is named after its host, with ` (Jira)` added for a Jira connection. `400` with `field: "product"` for any other `product`. A failed check is `422` with the test report. `saveAnyway: true` saves a site whose only problem is a warning (`warning: true`: no page or no other user yet to check administrator access against); any other failure is never saved. `409` if the site already has a connection for that product |
+| POST | `/` | `{ "siteUrl", "clientId", "clientSecret", "product"?, "saveAnyway"? }`. `product` is `confluence` (the default) or `jira`: a site's Confluence and Jira are separate connections, so add it once as each to index both. Runs that product's site checks and saves the site as a connection only if all pass: `201` with `{ id, name, siteUrl, cloudId, clientId, product, test }`, where `test` is a [test report](#atlassian-test-report). The site is named after its host, with ` (Jira)` added for a Jira connection. `400` with `field: "product"` for any other `product`. A failed check is `422` with the test report. `saveAnyway: true` saves a site whose only problem is a warning (`warning: true`: nothing yet to check administrator access against, which is no page or no other user on a Confluence site, and no project, issue or other user on a Jira site); any other failure is never saved. `409` if the site already has a connection for that product |
 | GET | `/{connectionId}` | One [site object](#atlassian-site-object), with `scopes`. `404` if it isn't an Atlassian site |
 | PATCH | `/{connectionId}` | `{ "name" }` renames the site, as the Name field does. `200` with the site object. `400` if the name is blank or over 128 characters, `409` if another connection has it. Audited as `connection.updated` |
 | POST | `/{connectionId}/test` | Runs every check again with the stored secret and records the result as the site's health: `200` with a [test report](#atlassian-test-report), passed or not. `404` if the site is gone or its stored secret can't be read |
@@ -1398,7 +1398,7 @@ Returned by `/test`, inside `test` on a create or replace, and as the `422` body
 | Field | Meaning |
 |-------|---------|
 | `success` | `true` when every check passed |
-| `warning` | `true` when the only problem is a site with no page or no other user yet; `saveAnyway` can save past it |
+| `warning` | `true` when the only problem is that the site has nothing yet to check against: no page or no other user for Confluence, no project, issue or other user for Jira; `saveAnyway` can save past it |
 | `message` | What happened and what to do, as the page shows it |
 | `step` | The check that failed: `site`, `token`, `identity`, `spaces`, `content` (a scope a sync needs for comments, folders or changes is missing) or `admin`, or on a Jira connection `jira-identity`, `jira-projects`, `jira-content`, `jira-admin` or `jira-membership`; `null` on success |
 | `stepLabel` | That check in the page's words, for example "Signing in as the service account" |

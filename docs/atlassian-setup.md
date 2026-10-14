@@ -477,6 +477,15 @@ without the Jira scopes.
 account's **Jira** row to **User** (step 2.2): admin rights alone don't give access to Jira. If it is
 already User, create a new credential with the Jira scopes (step 2.5) and use **Replace credentials**.
 
+### Jira project missing
+
+**Symptom:** **New source** lists no Jira projects (*This site has no projects the service account can
+browse.*), or a project you expect isn't in the list.
+**Likely cause:** the service account can't see that space (project).
+**Fix:** on a private team-managed space, add the service account as **Viewer** under **•••** next to the
+space's name → **Space settings** → **Access**. On a company-managed space, grant it **Browse Spaces**
+(**Browse Projects**) in the space's permission scheme (step 2.4). Then reopen **New source**.
+
 ### Not Jira administrator
 
 **Symptom:** *The service account doesn't have the Administer Jira permission, so Connapse can't check

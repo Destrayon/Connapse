@@ -147,6 +147,7 @@ public static class AtlassianSiteTroubleshooting
     public const string MissingScope = "missing-scope";
     public const string NothingToCheckYet = "site-has-no-pages-or-no-other-users-yet";
     public const string CantReadJira = "cant-read-jira";
+    public const string JiraProjectMissing = "jira-project-missing";
     public const string NotJiraAdministrator = "not-jira-administrator";
     public const string CantReadJiraMembership = "cant-read-jira-membership";
 
