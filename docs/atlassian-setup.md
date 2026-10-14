@@ -100,7 +100,8 @@ choose **Jira admin settings**, and the sidebar opens on **System**. A space's o
    provider page). Enter the site URL and the new credential's client ID and secret, then **Check and
    save**. All seven checks should pass.
    - A site with no project yet only warns at **Listing Jira projects**, and can be saved with **Save
-     anyway**.
+     anyway**. A site whose projects have no issue yet warns at **Reading issues and comments** the
+     same way.
    - A site with no project role the service account can read fails at **Reading Jira groups and
      project roles**: see [Can't read Jira membership](#cant-read-jira-membership).
 6. Go to **Sources** → **New source**, choose **Jira · your-site.atlassian.net**, tick the projects,
@@ -454,14 +455,16 @@ groups**, set **Jira Administration** to **App admin** on the service account (s
 ### Site has no pages or no other users yet
 
 **Symptom:** *This site has no pages yet…* or *The site has no user other than the service account…*,
-or for Jira, *The service account can't see any Jira project yet…* or *The site has no Jira user other
-than the service account…*
+or for Jira, *The service account can't see any Jira project yet…*, *The site has no Jira user other
+than the service account…* or *The service account can't see any Jira issue yet…*
 **Likely cause:** the admin check asks Confluence whether another person can read a page, or Jira
 whether another person can browse a project, so it needs at least one page or project the service
-account can see and one other user.
+account can see and one other user. Jira's last check also reads one issue and its comments, so it
+needs a project with an issue.
 **Fix:** choose **Save anyway** to save the site now; it is marked with a warning until the check can
 run, and its spaces or projects can already be added as sources. Then, for Confluence, create a page in
-a space the service account can view; for Jira, create a space or let the service account see one (step 2.4). If the site has only one user, invite one more with
+a space the service account can view; for Jira, create an issue in a space the service account can see, or let it see a space that has
+issues (step 2.4). If the site has only one user, invite one more with
 access to that product. Then choose **Test connection**. On a Jira site with projects but no project
 role the service account can read, the test fails at **Reading Jira groups and project roles** instead:
 see [Can't read Jira membership](#cant-read-jira-membership).

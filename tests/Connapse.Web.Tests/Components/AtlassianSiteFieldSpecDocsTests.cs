@@ -96,7 +96,7 @@ public class AtlassianSiteStatusTests
     {
         AtlassianSiteStatus.Of(Site(null)).Text.Should().StartWith("Not checked yet");
         AtlassianSiteStatus.Of(Site(Check(ok: true))).Text.Should().Be("Working");
-        AtlassianSiteStatus.Of(Site(Check(ok: false, warning: true, step: "admin"))).Text.Should().Contain("not confirmed");
+        AtlassianSiteStatus.Of(Site(Check(ok: false, warning: true, step: "admin"))).Text.Should().Be("Saved with a warning: Checking access permissions couldn't finish yet");
         AtlassianSiteStatus.Of(Site(Check(ok: false, step: "spaces"))).Text.Should().Be("Last check failed: Listing spaces");
     }
 

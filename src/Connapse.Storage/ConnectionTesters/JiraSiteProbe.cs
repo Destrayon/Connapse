@@ -37,9 +37,9 @@ internal sealed class JiraSiteProbe(IHttpClientFactory httpClients, TimeProvider
 
     internal const string NotJiraAdministratorMessage =
         "The service account doesn't have the Administer Jira permission, so Connapse can't check what other people may read "
-        + "in Jira. In Atlassian Administration, go to Directory > Service accounts and set Jira to User and Jira "
+        + "in Jira. In Atlassian Administration, go to Directory → Service accounts and set Jira to User and Jira "
         + "Administration to App admin, then test again. If it still fails, add the service account to the "
-        + "jira-admins-<site> group under Directory > Groups, which holds Administer Jira, and test again.";
+        + "jira-admins-<site> group under Directory → Groups, which holds Administer Jira, and test again.";
 
     internal const string CantListUsersMessage =
         "The service account can't list Jira users, so Connapse can't find another person to check access for. Check that "

@@ -217,7 +217,8 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         body.GetProperty("field").GetString().Should().Be("connectionId");
         body.GetProperty("error").GetString().Should().Be(
             "Connection 'jira-api-wrongproduct.atlassian.net' is a Confluence connection, so it can't hold a Jira source. "
-            + "Choose this site's Jira connection, or add one on the Connections page.");
+            + "Choose this site's Jira connection, or add one on the Connections page. "
+            + "A Confluence source's scope names \"spaceId\", as in {\"spaceId\":\"98306\"}.");
         (await SourceCountAsync(confluence)).Should().Be(0);
 
         // The site's own Jira connection, added beside it, takes the project.

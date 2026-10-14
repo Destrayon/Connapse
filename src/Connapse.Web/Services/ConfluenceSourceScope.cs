@@ -44,7 +44,9 @@ public sealed class ConfluenceSourceScope : AtlassianSourceScope
     /// the same rule as for Jira, asked by the API and the New source dialog alike.
     /// </summary>
     public static string? NotReady(Connection connection) =>
-        AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.ConfluenceProduct) ? null : ConfluenceNotReady;
+        AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.ConfluenceProduct) ? null
+        : AtlassianSiteStatus.Of(connection).NeedsNewCredentials ? NeedsNewCredentials("Confluence")
+        : ConfluenceNotReady;
 
     /// <summary>
     /// A changed scope for an existing Confluence source. Its space is fixed: indexed documents are

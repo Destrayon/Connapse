@@ -19,8 +19,9 @@ public sealed record AtlassianSiteStatus(string Text, string CssClass, string Ic
             new("Needs new credentials", "text-danger", "bi-exclamation-triangle", true),
         { Health.Succeeded: true } =>
             new("Working", "text-success", "bi-check-circle", false),
-        { Health.Warning: true } =>
-            new("Saved; administrator access not confirmed yet", "text-warning-emphasis", "bi-exclamation-triangle", false),
+        { Health: { Warning: true } w } =>
+            new($"Saved with a warning: {AtlassianConnectionTester.StepLabel(w.Step)} couldn't finish yet",
+                "text-warning-emphasis", "bi-exclamation-triangle", false),
         { Health: { } h } =>
             new($"Last check failed: {AtlassianConnectionTester.StepLabel(h.Step)}", "text-danger", "bi-x-circle", false),
     };

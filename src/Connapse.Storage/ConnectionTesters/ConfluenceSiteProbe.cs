@@ -20,7 +20,7 @@ internal sealed class ConfluenceSiteProbe(IHttpClientFactory httpClients, TimePr
 
     internal const string AdminMessage =
         "The service account isn't Confluence Administrator, so Connapse can't check what other people may read. "
-        + "In Atlassian Administration, go to Directory > Service accounts, set its Confluence role to the admin role, then test again.";
+        + "In Atlassian Administration, go to Directory → Service accounts, set its Confluence role to the admin role, then test again.";
 
     internal const string MissingPermissionScopeMessage =
         "The credential is missing the " + AtlassianSiteScopes.ContentPermission + " scope, so Connapse can't check what "
