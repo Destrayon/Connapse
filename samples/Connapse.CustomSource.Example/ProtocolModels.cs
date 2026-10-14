@@ -20,3 +20,28 @@ public sealed record LinkingCapability(string LinkUrl);
 public sealed record ScopeItem(string Id, string Name, string? Description);
 
 public sealed record ScopePage(IReadOnlyList<ScopeItem> Items, string? NextPageToken);
+
+public sealed record DocumentItem(
+    string Id,
+    string Path,
+    string Title,
+    string ContentType,
+    long Size,
+    string Version,
+    DateTimeOffset ModifiedAt,
+    IReadOnlyList<string>? AccessKeys,
+    string? AccessVersion)
+{
+    public static DocumentItem From(ExampleDocument d, bool includeAccess) => new(
+        d.Id,
+        d.Path,
+        System.IO.Path.GetFileNameWithoutExtension(d.Path),
+        d.ContentType,
+        d.Size,
+        d.Version,
+        d.ModifiedAt,
+        includeAccess ? d.AccessKeys : null,
+        includeAccess ? d.AccessVersion : null);
+}
+
+public sealed record DocumentPage(IReadOnlyList<DocumentItem> Items, string? NextPageToken, string? ChangeCursor);

@@ -16,6 +16,8 @@ builder.Services.AddSingleton(sp => new ExampleDataDirectory(
     sp.GetRequiredService<IConfiguration>()["DataDirectory"]
     ?? Path.Combine(AppContext.BaseDirectory, "sample-data")));
 builder.Services.AddSingleton(sp => ExampleConfig.Load(sp.GetRequiredService<ExampleDataDirectory>().Path));
+builder.Services.AddSingleton<FolderCatalog>();
+builder.Services.AddSingleton<ChangeJournal>();
 
 WebApplication app = builder.Build();
 
