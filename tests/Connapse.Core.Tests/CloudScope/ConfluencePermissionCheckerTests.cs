@@ -34,16 +34,22 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         _cache.Dispose();
     }
 
-    internal static IConnectionStore AtlassianConnectionStore(params string[] cloudIds)
+    internal static IConnectionStore AtlassianConnectionStore(params string[] cloudIds) =>
+        AtlassianConnectionStore([AtlassianProduct.Confluence], cloudIds);
+
+    /// <summary>One connection per product per site; a Confluence one is written without a product, as before Jira.</summary>
+    internal static IConnectionStore AtlassianConnectionStore(IReadOnlyList<AtlassianProduct> products, params string[] cloudIds)
     {
         if (cloudIds.Length == 0) cloudIds = [CloudId];
         var store = Substitute.For<IConnectionStore>();
         var connections = new List<Connection>();
         foreach (string cloudId in cloudIds)
+        foreach (AtlassianProduct product in products)
         {
             var id = Guid.NewGuid();
-            connections.Add(new Connection(id, "site-" + cloudId, ConnectionProvider.Atlassian,
-                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-{{cloudId}}"}""",
+            string productJson = product == AtlassianProduct.Jira ? ",\"product\":\"jira\"" : "";
+            connections.Add(new Connection(id, $"site-{cloudId}-{product}", ConnectionProvider.Atlassian,
+                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-{{cloudId}}"{{productJson}}}""",
                 null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true));
             store.GetSecretAsync(id, Arg.Any<CancellationToken>()).Returns("secret");
         }
@@ -78,7 +84,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         (await CheckAsync()).Should().BeTrue();
 
         body.Should().Be("""{"subject":{"type":"user","identifier":"557058:abc"},"operation":"read"}""");
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
     }
 
     [Fact]
@@ -87,7 +93,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         _api.MapJson(CheckPath, new { hasPermission = false });
 
         (await CheckAsync()).Should().BeFalse();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.AllowTtl);
     }
 
     [Fact]
@@ -96,7 +102,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         _api.Map(CheckPath, _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
 
         (await CheckAsync()).Should().BeFalse();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
     }
 
     [Theory]
@@ -120,7 +126,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         (await CheckAsync()).Should().BeFalse();
         (await CheckAsync()).Should().BeFalse("the failure is cached, not retried at once");
 
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
         Checks.Should().Be(1);
     }
 
@@ -232,7 +238,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         });
 
         (await CheckAsync()).Should().BeFalse();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().Be(ConfluencePermissionChecker.FailureTtl);
     }
 
     [Theory]
@@ -254,7 +260,7 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
 
         await FluentActions.Awaiting(() => _checker.CanReadAsync(CloudId, "42", Account, cts.Token))
             .Should().ThrowAsync<OperationCanceledException>();
-        _cache.TtlOf($"atl:{CloudId}:{Account}:42").Should().BeNull();
+        _cache.TtlOf($"atl:confluence:{CloudId}:{Account}:42").Should().BeNull();
     }
 
     internal sealed class HandlerFactory(HttpMessageHandler handler) : IHttpClientFactory

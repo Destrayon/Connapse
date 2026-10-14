@@ -18,6 +18,7 @@ public sealed class AtlassianSearchResultVerifier(
     IAtlassianIdentityLinkReader links,
     IConnectionStore connections,
     ConfluencePermissionChecker checker,
+    JiraPermissionChecker jiraChecker,
     AtlassianConnectionPresence presence,
     IOptions<AtlassianVerifierSettings> settings,
     ILogger<AtlassianSearchResultVerifier> logger) : IPerSchemeResultVerifier
@@ -64,6 +65,7 @@ public sealed class AtlassianSearchResultVerifier(
         // Decide every hit that needs no call; collect the Confluence ones that do.
         var verdicts = new bool[rankedCandidates.Count];
         var pending = new List<(int Index, string CloudId, string ContentId)>();
+        var jira = new List<(int Index, JiraResource Resource)>();
         for (int i = 0; i < rankedCandidates.Count; i++)
         {
             if (!uris.TryGetValue(rankedCandidates[i].DocumentId, out string? uri))
@@ -74,15 +76,18 @@ public sealed class AtlassianSearchResultVerifier(
                 continue;
             }
             if (AtlassianUri.TryParse(uri, out string cloudId, out string contentId))
-                pending.Add((i, cloudId, contentId)); // an unparseable address stays denied
+                pending.Add((i, cloudId, contentId));
+            else if (AtlassianUri.TryParseJira(uri, out JiraResource resource))
+                jira.Add((i, resource));
+            // an unparseable address stays denied
         }
 
-        if (pending.Count == 0)
+        if (pending.Count == 0 && jira.Count == 0)
             return Survivors(rankedCandidates, verdicts);
 
         string? accountId = await LinkedAccountAsync(userId, ct);
         if (accountId is null)
-            return Survivors(rankedCandidates, verdicts); // unlinked → every Confluence hit denied, no calls
+            return Survivors(rankedCandidates, verdicts); // unlinked → every Confluence and Jira hit denied, no calls
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(1, settings.Value.BudgetMs)));
@@ -92,7 +97,34 @@ public sealed class AtlassianSearchResultVerifier(
         var pages = pending.Select(p => (p.CloudId, p.ContentId)).Distinct().ToList();
         var sites = checker.NewSiteLookup(); // one connection lookup per site for this search
         var allowed = new ConcurrentDictionary<(string CloudId, string ContentId), bool>();
-        await Task.WhenAll(pages.Select(async page =>
+        // Jira hits: one bulk check per site, each taking one slot. Chunks of one document share a resource.
+        var jiraSites = jira.Select(j => j.Resource).Distinct().GroupBy(r => r.CloudId).ToList();
+        var jiraAllowed = new ConcurrentDictionary<JiraResource, bool>();
+        Task jiraChecks = Task.WhenAll(jiraSites.Select(async site =>
+        {
+            try
+            {
+                await gate.WaitAsync(budget.Token);
+                try
+                {
+                    var resources = site.ToList();
+                    bool[] seen = await jiraChecker.CanSeeAsync(site.Key, accountId, resources, sites, budget.Token);
+                    if (seen.Length == resources.Count)
+                        for (int r = 0; r < resources.Count; r++)
+                            jiraAllowed[resources[r]] = seen[r];
+                }
+                finally { gate.Release(); }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Cut off by the budget, not by the caller → unchecked, so denied.
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Jira hit verify failed; dropping");
+            }
+        }));
+        await Task.WhenAll(jiraChecks, Task.WhenAll(pages.Select(async page =>
         {
             try
             {
@@ -108,15 +140,22 @@ public sealed class AtlassianSearchResultVerifier(
             {
                 logger.LogError(ex, "Confluence hit verify failed; dropping");
             }
-        }));
+        })));
         ct.ThrowIfCancellationRequested();
 
         if (allowed.Count < pages.Count)
             logger.LogWarning("Confluence checks ran out of time; {Unchecked} of {Total} pages denied unchecked",
                 pages.Count - allowed.Count, pages.Count);
 
+        int jiraTotal = jiraSites.Sum(site => site.Count());
+        if (jiraAllowed.Count < jiraTotal)
+            logger.LogWarning("Jira checks ran out of time or failed; {Unchecked} of {Total} documents denied unchecked",
+                jiraTotal - jiraAllowed.Count, jiraTotal);
+
         foreach (var p in pending)
             verdicts[p.Index] = allowed.GetValueOrDefault((p.CloudId, p.ContentId));
+        foreach (var j in jira)
+            verdicts[j.Index] = jiraAllowed.GetValueOrDefault(j.Resource);
         return Survivors(rankedCandidates, verdicts);
     }
 

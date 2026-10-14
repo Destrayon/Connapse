@@ -19,7 +19,8 @@ namespace Connapse.Web.Endpoints;
 /// <para>
 /// The one exception is a Confluence source's settings, which administrators edit on the Edit
 /// source page and PATCH: they come back to administrators as <see cref="Confluence"/>, under
-/// the keys <c>scopeJson</c> takes. Other providers' scopes are never returned.
+/// the keys <c>scopeJson</c> takes, and a Jira source's, as <see cref="Jira"/>. Other providers'
+/// scopes are never returned.
 /// </para>
 /// </summary>
 public record SourceResponse(
@@ -66,7 +67,12 @@ public record SourceResponse(
     /// Administrators only, beside <see cref="LastSyncError"/>: the setup guide's entry for it, as
     /// the Sources page links it. Null when there is no error or no entry for the provider.
     /// </summary>
-    string? LastSyncTroubleshootingUrl = null)
+    string? LastSyncTroubleshootingUrl = null,
+    /// <summary>
+    /// A Jira source's project and attachment settings, for administrators only, as
+    /// <see cref="Confluence"/> is for a space; null for every other source.
+    /// </summary>
+    JiraSourceSettings? Jira = null)
 {
     public static SourceResponse From(Source source, bool includeDiagnostics) => new(
         Id: source.Id,
@@ -86,7 +92,8 @@ public record SourceResponse(
         FailedDocumentCount: source.FailedDocumentCount,
         ProcessingDocumentCount: source.ProcessingDocumentCount,
         Confluence: includeDiagnostics ? ConfluenceSourceSettings.From(ScopeOf(source.ScopeJson)) : null,
-        LastSyncTroubleshootingUrl: includeDiagnostics ? TroubleshootingUrlOf(source) : null);
+        LastSyncTroubleshootingUrl: includeDiagnostics ? TroubleshootingUrlOf(source) : null,
+        Jira: includeDiagnostics ? JiraSourceSettings.From(ScopeOf(source.ScopeJson)) : null);
 
     private static JsonObject? ScopeOf(string? scopeJson)
     {
@@ -106,7 +113,7 @@ public record SourceResponse(
     {
         if (string.IsNullOrWhiteSpace(source.LastSyncError) || ScopeOf(source.ScopeJson) is not { } scope)
             return null;
-        if (ConfluenceSourceSettings.IsConfluence(scope))
+        if (ConfluenceSourceSettings.IsConfluence(scope) || JiraSourceSettings.IsJira(scope))
             return AtlassianSyncErrors.TroubleshootingUrl(source.LastSyncError);
         if (scope["owner"] is not null && scope["repo"] is not null)
             return GitHubMessages.TroubleshootingUrl;
@@ -134,18 +141,55 @@ public sealed record ConfluenceSourceSettings(
         if (scope is null || !IsConfluence(scope))
             return null;
 
+        var (include, maxMb) = AtlassianScopeFields.Attachments(scope);
+        return new ConfluenceSourceSettings(
+            AtlassianScopeFields.Str(scope, "spaceId"), AtlassianScopeFields.Str(scope, "spaceKey"),
+            AtlassianScopeFields.Str(scope, "spaceName"), include, maxMb);
+    }
+}
+
+/// <summary>Reading an Atlassian scope's fields as the API returns them, for either product.</summary>
+internal static class AtlassianScopeFields
+{
+    /// <summary>An Atlassian scope's attachment settings.</summary>
+    internal static (bool Include, int MaxMb) Attachments(JsonObject scope)
+    {
         // The same defaults the connector applies when a key is missing, so the API reads what will sync.
         bool include = scope["includeAttachments"]?.GetValueKind() != JsonValueKind.False;
         int maxMb = scope["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int mb)
             ? mb
             : ConfluenceSpaceSelection.DefaultMaxAttachmentMb;
-        return new ConfluenceSourceSettings(Str(scope, "spaceId"), Str(scope, "spaceKey"), Str(scope, "spaceName"), include, maxMb);
+        return (include, maxMb);
     }
 
-    private static string? Str(JsonObject scope, string name) => scope[name] switch
+    internal static string? Str(JsonObject scope, string name) => scope[name] switch
     {
         JsonValue v when v.TryGetValue(out string? s) => s,
         JsonValue v when v.GetValueKind() == JsonValueKind.Number => v.ToJsonString(),
         _ => null,
     };
+}
+
+/// <summary>
+/// A Jira source's settings as the API returns them, under the keys <c>scopeJson</c> takes on
+/// create and PATCH. <c>projectKey</c> and <c>projectName</c> are what the project was called when
+/// the source was added; the project itself is fixed.
+/// </summary>
+public sealed record JiraSourceSettings(
+    string? ProjectId, string? ProjectKey, string? ProjectName, bool IncludeAttachments, int MaxAttachmentMb)
+{
+    internal static bool IsJira(JsonObject scope) =>
+        scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k) && AtlassianSourceScope.IsJiraKind(k);
+
+    /// <summary>The settings, or null when <paramref name="scope"/> is not a Jira project's.</summary>
+    internal static JiraSourceSettings? From(JsonObject? scope)
+    {
+        if (scope is null || !IsJira(scope))
+            return null;
+
+        var (include, maxMb) = AtlassianScopeFields.Attachments(scope);
+        return new JiraSourceSettings(
+            AtlassianScopeFields.Str(scope, "projectId"), AtlassianScopeFields.Str(scope, "projectKey"),
+            AtlassianScopeFields.Str(scope, "projectName"), include, maxMb);
+    }
 }

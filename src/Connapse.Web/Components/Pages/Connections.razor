@@ -8,6 +8,7 @@
 @inject IJSRuntime JS
 @using Connapse.Storage.ConnectionTesters
 @using Connapse.Storage.Connectors
+@using Connapse.Storage.Connectors.Atlassian
 @using Microsoft.Extensions.Options
 @using System.Text.Json
 @using System.Text.Json.Nodes
@@ -559,7 +560,14 @@
             <div id="connection-name-help" class="form-text">
                 @if (NewAtlassianSite)
                 {
-                    <text>Atlassian sites are named after their host (for example acme.atlassian.net) when they are saved. You can rename it after saving.</text>
+                    @if (form.AtlassianProduct == AtlassianProduct.Jira)
+                    {
+                        <text>Jira sites are named after their host with (Jira) added (for example acme.atlassian.net (Jira)) when they are saved. You can rename it after saving.</text>
+                    }
+                    else
+                    {
+                        <text>Atlassian sites are named after their host (for example acme.atlassian.net) when they are saved. You can rename it after saving.</text>
+                    }
                 }
                 else
                 {
@@ -582,7 +590,7 @@
 
         <div class="col-12" style="max-width:32rem">
             <label class="form-label" for="connection-provider">Provider</label>
-            <select id="connection-provider" class="form-select" @bind="form.Provider" disabled="@(!isNew)">
+            <select id="connection-provider" class="form-select" @bind="form.ProviderChoice" disabled="@(!isNew || atlassianChecking)">
                 <option value="@ConnectionProvider.S3">Amazon S3</option>
                 <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
@@ -590,7 +598,8 @@
                 <option value="@ConnectionProvider.GitHub" disabled="@(gitHubAppConfigured == false && isNew)">
                     GitHub App installation@(gitHubAppConfigured == false ? " (set up the GitHub provider first)" : "")
                 </option>
-                <option value="@ConnectionProvider.Atlassian">Atlassian site</option>
+                <option value="@ConnectionForm.ConfluenceSiteChoice">Confluence site</option>
+                <option value="@ConnectionForm.JiraSiteChoice">Jira site</option>
             </select>
             @if (!isNew)
             {
@@ -981,10 +990,11 @@
             @* Added and re-tested through AtlassianSiteService, so a site that fails a probe is never
                saved. The people who may read it are linked on the Atlassian provider page. *@
             <div class="w-100" aria-hidden="true"></div> @* the form's width cap would otherwise let it sit beside Provider *@
-            <AtlassianConnectionForm Existing="@(isNew ? null : editing)" OnCreated="AtlassianSiteCreatedAsync"
+            <AtlassianConnectionForm Existing="@(isNew ? null : editing)" Product="@form.AtlassianProduct" OnCreated="AtlassianSiteCreatedAsync"
                                      OnUpdated="AtlassianSiteUpdatedAsync" OnCancel="CancelEdit"
                                      ReplacingChanged="@((bool open) => atlassianReplacing = open)"
-                                     StartReplacing="@atlassianStartReplacing" />
+                                     CheckingChanged="@((bool checking) => atlassianChecking = checking)"
+                                     StartReplacing="@atlassianStartReplacing" SuggestedSiteUrls="@AtlassianSitesWithout(form.AtlassianProduct)" />
         }
         else
         {
@@ -1486,6 +1496,9 @@
 
     /// <summary>Whether an Atlassian site's Replace credentials section is open, which then holds the primary action.</summary>
     private bool atlassianReplacing;
+
+    /// <summary>Whether a new Atlassian site's Check and save is running, which locks the provider list.</summary>
+    private bool atlassianChecking;
     private string? statusMessage;
     private bool statusSuccess;
     private string? testMessage;
@@ -1643,15 +1656,41 @@
     /// <summary>A new Atlassian site: its own form saves it, so the generic name and buttons step aside.</summary>
     private bool NewAtlassianSite => isNew && editing is not null && form.Provider == ConnectionProvider.Atlassian;
 
-    /// <summary>Arriving from the Atlassian provider page (<c>?new=atlassian</c>): opens a new site.</summary>
+    /// <summary>
+    /// Sites already saved for the other product and not yet for <paramref name="product"/>, so adding
+    /// that product to a site offers its address rather than asking for it again.
+    /// </summary>
+    private IReadOnlyList<string> AtlassianSitesWithout(AtlassianProduct product)
+    {
+        var sites = connections.Where(c => c.Provider == ConnectionProvider.Atlassian)
+            .Select(c => AtlassianSite.FromConfigJson(c.ConfigJson))
+            .OfType<AtlassianSite>()
+            .ToList();
+        var taken = sites.Where(s => s.Product == product).Select(s => s.CloudId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return sites.Where(s => !taken.Contains(s.CloudId)).Select(s => s.SiteUrl)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Arriving from the Atlassian provider page: <c>?new=confluence</c> or <c>?new=jira</c> opens a
+    /// new site of that product. <c>?new=atlassian</c>, from older links, opens a Confluence site.
+    /// </summary>
     private async Task OpenAtlassianFromQueryAsync()
     {
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
-        if (editing is not null || !(query.TryGetValue("new", out var kind) && kind.ToString() == "atlassian"))
+        if (editing is not null || !query.TryGetValue("new", out var kind))
+            return;
+        string? choice = kind.ToString() switch
+        {
+            "atlassian" or "confluence" => ConnectionForm.ConfluenceSiteChoice,
+            "jira" => ConnectionForm.JiraSiteChoice,
+            _ => null,
+        };
+        if (choice is null)
             return;
 
         await StartCreate();
-        form.Provider = ConnectionProvider.Atlassian;
+        form.ProviderChoice = choice;
     }
 
     /// <summary>Opened from a source that needs a permission the site's credential lacks.</summary>
@@ -1680,10 +1719,11 @@
 
     private async Task AtlassianSiteCreatedAsync(Connection created)
     {
-        string unconfirmed = created.Health is { Warning: true }
-            ? " Administrator access isn't confirmed yet: test the site again once it has a page and another user."
+        // The probe's own warning says what was left unchecked for this product, and how to finish it.
+        string unconfirmed = created.Health is { Warning: true, Message: { Length: > 0 } warning }
+            ? " " + warning
             : "";
-        Succeed($"Atlassian site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
+        Succeed($"{AtlassianSiteStatus.ProductName(created)} site '{created.Name}' added. Add a source on it to start indexing.{unconfirmed}");
         statusLink = ("Add a source", $"/sources?new={created.Id}");
         ReturnFocusToList(created.Id);
         editing = null;
@@ -2937,7 +2977,7 @@
             ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
             ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",
             ConnectionProvider.GitHub => form.GitHubAccount ?? $"installation {form.GitHubInstallationId}",
-            ConnectionProvider.Atlassian => form.AtlassianSiteHost ?? "—",
+            ConnectionProvider.Atlassian => AtlassianSiteStatus.Label(connection, form.AtlassianSiteHost ?? "—"),
             _ => "—"
         };
     }

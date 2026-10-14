@@ -8,43 +8,97 @@ using Connapse.Storage.Connectors.Atlassian;
 namespace Connapse.Storage.ConnectionTesters;
 
 /// <summary>The site and service-account credential an administrator wants to save.</summary>
-public sealed record AtlassianSiteTestRequest(string SiteUrl, string ClientId, string ClientSecret)
+/// <param name="Product">The product the connection reads; the test runs that product's probes only.</param>
+public sealed record AtlassianSiteTestRequest(
+    string SiteUrl, string ClientId, string ClientSecret, AtlassianProduct Product = AtlassianProduct.Confluence)
 {
     // The generated ToString would print the secret into any log line or message it reached.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***");
+        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***, Product = {Product}");
         return true;
     }
 }
 
 /// <summary>One scope the service account's credential needs, and what Connapse does with it.</summary>
+/// <param name="Product">The product the scope belongs to: <c>confluence</c> or <c>jira</c>.</param>
 /// <param name="Optional">Needed only by an option a source can leave off.</param>
-public sealed record AtlassianScope(string Name, string Reason, bool Optional = false);
+public sealed record AtlassianScope(string Name, string Reason, string Product, bool Optional = false);
 
 /// <summary>
-/// The Confluence scopes a site's credential needs. Comments are always indexed with their page, so
-/// their scope is required; attachments are a per-source option, so theirs is not, and the site test
-/// never fails without it.
+/// The scopes a site's credential needs, per product. Comments are always indexed with their page or
+/// issue, so their scope is required; attachments are a per-source option, so theirs is not, and the
+/// site test never fails without it.
 /// </summary>
 public static class AtlassianSiteScopes
 {
+    public const string ConfluenceProduct = "confluence";
+    public const string JiraProduct = "jira";
+
     public const string ContentPermission = "read:content.permission:confluence";
     public const string Comment = "read:comment:confluence";
     public const string Attachment = "read:attachment:confluence";
     public const string Folder = "read:folder:confluence";
     public const string ContentDetails = "read:content-details:confluence";
 
-    public static IReadOnlyList<AtlassianScope> All { get; } =
+    public const string JiraUser = "read:user:jira";
+    public const string JiraProject = "read:project:jira";
+    public const string JiraIssueDetails = "read:issue-details:jira";
+    public const string JiraIssue = "read:issue:jira";
+    public const string JiraComment = "read:comment:jira";
+    public const string JiraAttachment = "read:attachment:jira";
+    public const string JiraPermission = "read:permission:jira";
+    public const string JiraGroup = "read:group:jira";
+    public const string JiraProjectRole = "read:project-role:jira";
+
+    public static IReadOnlyList<AtlassianScope> Confluence { get; } =
     [
-        new("read:space:confluence", "list the site's spaces so you can choose which to index"),
-        new("read:page:confluence", "read page text so it can be searched"),
-        new(Comment, "read page comments, which are indexed with every page"),
-        new(Attachment, "read attached files; needed only if a source includes attachments", Optional: true),
-        new(Folder, "follow folders so each page keeps its place in the space"),
-        new(ContentDetails, "find what changed since the last sync and look up people"),
-        new(ContentPermission, "check which pages each person may read, so search shows them only those"),
+        new("read:space:confluence", "list the site's spaces so you can choose which to index", ConfluenceProduct),
+        new("read:page:confluence", "read page text so it can be searched", ConfluenceProduct),
+        new(Comment, "read page comments, which are indexed with every page", ConfluenceProduct),
+        new(Attachment, "read attached files; needed only if a source includes attachments", ConfluenceProduct, Optional: true),
+        new(Folder, "follow folders so each page keeps its place in the space", ConfluenceProduct),
+        new(ContentDetails, "find what changed since the last sync and look up people", ConfluenceProduct),
+        new(ContentPermission, "check which pages each person may read, so search shows them only those", ConfluenceProduct),
     ];
+
+    /// <summary>
+    /// The Jira scopes: every granular scope Atlassian lists for the REST v3 calls Connapse makes
+    /// (OpenAPI spec of 2026-10-12). Many are needed only because Jira returns that data with an
+    /// issue or project, and a call is refused unless the token has every scope it lists.
+    /// </summary>
+    public static IReadOnlyList<AtlassianScope> Jira { get; } =
+    [
+        new(JiraProject, "list the site's projects so you can choose which to index", JiraProduct),
+        new(JiraIssue, "read issue text so it can be searched", JiraProduct),
+        new(JiraIssueDetails, "search issues and find what changed since the last sync", JiraProduct),
+        new(JiraComment, "read issue comments, which are indexed with every issue", JiraProduct),
+        new(JiraAttachment, "read attached files; needed only if a source includes attachments", JiraProduct, Optional: true),
+        new(JiraPermission, "check which issues each person may read, so search shows them only those", JiraProduct),
+        new(JiraGroup, "read group membership, to check who may read a comment restricted to a group", JiraProduct),
+        new(JiraProjectRole, "read project role membership, to check who may read a comment restricted to a role", JiraProduct),
+        new("read:issue-security-level:jira", "read each issue's security level, to check who may read it", JiraProduct),
+        new(JiraUser, "look up people, and the service account itself", JiraProduct),
+        new("read:application-role:jira", "read people, which Jira returns with the products they can use", JiraProduct),
+        new("read:avatar:jira", "read people and projects, which Jira returns with their avatars", JiraProduct),
+        new("read:audit-log:jira", "search issues, which Jira requires it for", JiraProduct),
+        new("read:comment.property:jira", "read comments, which Jira returns with their properties", JiraProduct),
+        new("read:field:jira", "read issue fields so their text can be searched", JiraProduct),
+        new("read:field-configuration:jira", "read which fields each issue has", JiraProduct),
+        new("read:issue-meta:jira", "read issues, which Jira returns with their metadata", JiraProduct),
+        new("read:issue-type:jira", "read issue types, which Jira returns with each issue and project", JiraProduct),
+        new("read:issue-type-hierarchy:jira", "read issue parents, so each issue keeps its place", JiraProduct),
+        new("read:issue.changelog:jira", "read issues, which Jira returns with their history", JiraProduct),
+        new("read:issue.vote:jira", "read issues, which Jira returns with their votes", JiraProduct),
+        new("read:project-category:jira", "read projects, which Jira returns with their category", JiraProduct),
+        new("read:project-version:jira", "read projects and issues, which Jira returns with their versions", JiraProduct),
+        new("read:project.component:jira", "read projects and issues, which Jira returns with their components", JiraProduct),
+        new("read:project.property:jira", "read projects, which Jira returns with their properties", JiraProduct),
+        new("read:status:jira", "read each issue's status", JiraProduct),
+    ];
+
+    /// <summary>Every product's scopes, Confluence first.</summary>
+    public static IReadOnlyList<AtlassianScope> All { get; } = [.. Confluence, .. Jira];
 
     /// <summary>
     /// The scopes every passing test exercises: all the required ones. The attachment scope is
@@ -52,6 +106,25 @@ public static class AtlassianSiteScopes
     /// </summary>
     public static IReadOnlyList<string> ProvenByTest { get; } =
         ["read:space:confluence", "read:page:confluence", Comment, Folder, ContentDetails, ContentPermission];
+
+    /// <summary>
+    /// The Jira scopes a passing Jira probe names: one per call it makes. The others are confirmed
+    /// only when Atlassian lists them as granted.
+    /// </summary>
+    public static IReadOnlyList<string> JiraProvenByTest { get; } =
+        [JiraUser, JiraProject, JiraIssueDetails, JiraIssue, JiraComment, JiraPermission, JiraGroup, JiraProjectRole];
+
+    /// <summary>A product's scopes, in the order the page lists them.</summary>
+    public static IReadOnlyList<AtlassianScope> Of(string product) =>
+        product == JiraProduct ? Jira : Confluence;
+
+    /// <summary>A product's name as the page shows it.</summary>
+    public static string DisplayName(string product) => product switch
+    {
+        ConfluenceProduct => "Confluence",
+        JiraProduct => "Jira",
+        _ => product,
+    };
 
     /// <summary>The scope's reason, as the list above words it.</summary>
     public static string ReasonOf(string scope) =>
@@ -73,9 +146,16 @@ public static class AtlassianSiteTroubleshooting
     public const string NotAdministrator = "not-confluence-administrator";
     public const string MissingScope = "missing-scope";
     public const string NothingToCheckYet = "site-has-no-pages-or-no-other-users-yet";
+    public const string CantReadJira = "cant-read-jira";
+    public const string JiraProjectMissing = "jira-project-missing";
+    public const string NotJiraAdministrator = "not-jira-administrator";
+    public const string CantReadJiraMembership = "cant-read-jira-membership";
 
     /// <summary>A synced space answered 403 or 404: access was taken away, or the space was deleted.</summary>
     public const string SpaceUnreadable = "space-can-no-longer-be-read";
+
+    /// <summary>A synced Jira project answered 403 or 404: access was taken away, or the project was deleted.</summary>
+    public const string ProjectUnreadable = "project-can-no-longer-be-read";
 
     /// <summary>Atlassian could not be reached, or answered in a way that says nothing about the credential.</summary>
     public const string Unreachable = "couldnt-reach-atlassian";
@@ -90,13 +170,29 @@ public static class AtlassianSiteTroubleshooting
     public const string General = "troubleshooting";
 
     public static IReadOnlyList<string> All { get; } =
-        [SiteNotFound, CredentialsRejected, CantReadConfluence, NoSpaces, NotAdministrator, MissingScope, NothingToCheckYet, General];
+        [SiteNotFound, CredentialsRejected, CantReadConfluence, NoSpaces, NotAdministrator, MissingScope, NothingToCheckYet,
+         CantReadJira, NotJiraAdministrator, CantReadJiraMembership, General];
 
     /// <summary>The entries only sync, the spaces dialog and the linking app link to; the site test never fails with these.</summary>
-    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, Unreachable, AttachmentsSkipped];
+    public static IReadOnlyList<string> Elsewhere { get; } = [SpaceUnreadable, ProjectUnreadable, JiraProjectMissing, Unreachable, AttachmentsSkipped];
 
     public static string UrlOf(string anchor) => $"{GuideUrl}#{anchor}";
 }
+
+/// <summary>One product's probes against a site whose token already works.</summary>
+internal interface IAtlassianProductProbe
+{
+    string Product { get; }                                     // "confluence" | "jira"
+
+    /// <param name="steps">The test's run: the probe enters its steps on it, so a timeout or rate limit names them.</param>
+    Task<ProductProbeResult> RunAsync(
+        AtlassianSite site, string secret, AtlassianTokenSource tokens, AtlassianConnectionTester.Run steps, CancellationToken ct);
+}
+
+/// <summary>How one product's probe ended; <paramref name="StepMs"/> is how long its last step took.</summary>
+internal sealed record ProductProbeResult(
+    string Product, bool Passed, bool Warning, string? Step, string? Message, string? Troubleshoot, string? Detail,
+    IReadOnlyList<string> ConfirmedScopes, long StepMs = 0);
 
 /// <summary>
 /// Validates an Atlassian site's service account before it is saved. Each probe is one thing
@@ -109,6 +205,7 @@ public static class AtlassianSiteTroubleshooting
 /// or message, never a secret or token). A site that passes carries its <c>cloudId</c>,
 /// <c>siteUrl</c> and confirmed <c>scopes</c> in <c>Details</c>; so does a warning, a check that
 /// could not finish only because the site has no pages or no other user yet.
+/// A Jira connection runs Jira's probes in place of Confluence's, with the same keys.
 /// </summary>
 /// <remarks>
 /// Uses its own token cache, never the shared one: that cache is keyed by client id, so a candidate
@@ -122,9 +219,18 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     public const string SpacesStep = "spaces";
     public const string ContentStep = "content";
     public const string AdminStep = "admin";
+    public const string JiraIdentityStep = "jira-identity";
+    public const string JiraProjectsStep = "jira-projects";
+    public const string JiraContentStep = "jira-content";
+    public const string JiraAdminStep = "jira-admin";
+    public const string JiraMembershipStep = "jira-membership";
 
     /// <summary>Every step in the order the test runs them.</summary>
-    public static IReadOnlyList<string> Steps { get; } = [SiteStep, TokenStep, IdentityStep, SpacesStep, ContentStep, AdminStep];
+    public static IReadOnlyList<string> Steps { get; } =
+    [
+        SiteStep, TokenStep, IdentityStep, SpacesStep, ContentStep, AdminStep,
+        JiraIdentityStep, JiraProjectsStep, JiraContentStep, JiraAdminStep, JiraMembershipStep,
+    ];
 
     /// <summary>What a step does, in the words an admin sees.</summary>
     public static string StepLabel(string? step) => step switch
@@ -135,6 +241,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         SpacesStep => "Listing spaces",
         ContentStep => "Reading comments, folders and changes",
         AdminStep => "Checking access permissions",
+        JiraIdentityStep => "Reading Jira",
+        JiraProjectsStep => "Listing Jira projects",
+        JiraContentStep => "Reading issues and comments",
+        JiraAdminStep => "Checking Jira access permissions",
+        JiraMembershipStep => "Reading Jira groups and project roles",
         _ => "Checking the connection",
     };
 
@@ -144,7 +255,10 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         TokenStep => AtlassianSiteTroubleshooting.CredentialsRejected,
         IdentityStep => AtlassianSiteTroubleshooting.CantReadConfluence,
         SpacesStep => AtlassianSiteTroubleshooting.NoSpaces,
-        ContentStep => AtlassianSiteTroubleshooting.MissingScope,
+        ContentStep or JiraContentStep => AtlassianSiteTroubleshooting.MissingScope,
+        JiraIdentityStep or JiraProjectsStep => AtlassianSiteTroubleshooting.CantReadJira,
+        JiraAdminStep => AtlassianSiteTroubleshooting.NotJiraAdministrator,
+        JiraMembershipStep => AtlassianSiteTroubleshooting.CantReadJiraMembership,
         _ => AtlassianSiteTroubleshooting.NotAdministrator,
     };
 
@@ -153,20 +267,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         $"The credential is missing the {scope} scope, which Connapse needs to {AtlassianSiteScopes.ReasonOf(scope)}. "
         + "Create a new OAuth 2.0 credential on the service account with every scope listed in the setup steps, then enter it here.";
 
-    private enum Probe { Granted, Missing, Unanswered }
-
-    private const string UnverifiedMessage =
-        "Couldn't verify Confluence Administrator access because Atlassian didn't answer the check properly. "
-        + "Wait a minute and test again.";
-
-    private const string AdminMessage =
-        "The service account isn't Confluence Administrator, so Connapse can't check what other people may read. "
-        + "In Atlassian Administration, go to Directory > Service accounts, set its Confluence role to the admin role, then test again.";
-
-    private const string MissingPermissionScopeMessage =
-        "The credential is missing the " + AtlassianSiteScopes.ContentPermission + " scope, so Connapse can't check what "
-        + "other people may read. Create a new OAuth 2.0 credential on the service account with every scope listed in the "
-        + "setup steps, then enter it here.";
+    internal enum Probe { Granted, Missing, Unanswered }
 
     private const string CredentialsRejectedMessage =
         "Atlassian rejected the client ID or secret. Copy both again from the service account's OAuth 2.0 credential in "
@@ -175,19 +276,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     private const string SignInUnansweredMessage =
         "Atlassian's sign-in service didn't answer properly. Wait a minute and test again.";
 
-    private const string CantReadConfluenceMessage =
-        "The credential can't read Confluence on this site. Check that the service account's Confluence role isn't None "
-        + "and that its credential has every scope listed in the setup steps, then test again.";
-
-    private const string NoSpacesMessage =
-        "The service account can't see any Confluence space. Give it the Viewer role in at least one space "
-        + "(Space settings > Users), then test again.";
-
     // The probes read what Atlassian returned; any of these means this probe failed, not that the test crashed.
-    private static bool IsProbeFailure(Exception ex) =>
+    internal static bool IsProbeFailure(Exception ex) =>
         ex is HttpRequestException or AtlassianAuthException or JsonException or InvalidOperationException;
 
-    private static bool IsRefusal(Exception ex) =>
+    internal static bool IsRefusal(Exception ex) =>
         ex is AtlassianAuthException
         || ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized };
 
@@ -203,11 +296,12 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
         var run = new Run();
 
+        string product = request.Product == AtlassianProduct.Jira ? "Jira" : "Confluence";
         string? siteUrl = AtlassianSiteResolver.NormalizeSiteUrl(request.SiteUrl);
         if (siteUrl is null)
             return run.Fail(
                 "The site address must look like https://your-site.atlassian.net. Copy it from your browser's address bar "
-                + "while Confluence is open.");
+                + $"while {product} is open.");
 
         if (string.IsNullOrWhiteSpace(request.ClientId) || string.IsNullOrWhiteSpace(request.ClientSecret))
         {
@@ -223,9 +317,9 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
             if (cloudId is null)
                 return run.Fail(
                     $"Couldn't find an Atlassian Cloud site at {siteUrl}. Check the spelling: it is the address in your "
-                    + "browser when you open Confluence.");
+                    + $"browser when you open {product}.");
 
-            var site = new AtlassianSite(siteUrl, cloudId, request.ClientId.Trim());
+            var site = new AtlassianSite(siteUrl, cloudId, request.ClientId.Trim(), request.Product);
             var tokens = new AtlassianTokenSource(httpClients, time ?? TimeProvider.System);
 
             run.Enter(TokenStep);
@@ -250,207 +344,53 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 return run.Fail(SignInUnansweredMessage, AtlassianSiteTroubleshooting.General, Describe(ex));
             }
 
-            IReadOnlyList<string>? granted = tokens.GrantedScopes(site);
+            IAtlassianProductProbe probe = request.Product == AtlassianProduct.Jira
+                ? new JiraSiteProbe(httpClients, time)
+                : new ConfluenceSiteProbe(httpClients, time);
+            ProductProbeResult result = await probe.RunAsync(site, request.ClientSecret, tokens, run, linked);
 
-            using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
-            var api = new AtlassianApiClient(http, tokens, site, request.ClientSecret, time);
-
-            run.Enter(IdentityStep);
-            string? ownAccountId;
-            try
-            {
-                using var current = await api.GetJsonAsync<JsonDocument>("rest/api/user/current", linked);
-                ownAccountId = Text(current.RootElement, "accountId");
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(CantReadConfluenceMessage, detail: Describe(ex));
-            }
-
-            // Without the service account's own id the "other user" below could be the account itself,
-            // and checking yourself needs no admin rights: fail closed.
-            if (string.IsNullOrWhiteSpace(ownAccountId))
-                return run.Fail(CantReadConfluenceMessage, detail: "Atlassian didn't say which account the credential belongs to.");
-
-            run.Enter(SpacesStep);
-            try
-            {
-                using var spaces = await api.GetJsonAsync<JsonDocument>("api/v2/spaces?limit=1", linked);
-                if (FirstId(spaces.RootElement) is null)
-                    return run.Fail(NoSpacesMessage, detail: "Atlassian listed no spaces for this account.");
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(NoSpacesMessage, detail: Describe(ex));
-            }
-
-            string? pageId;
-            string? folderId;
-            try
-            {
-                using var pages = await api.GetJsonAsync<JsonDocument>("api/v2/pages?limit=1", linked);
-                pageId = FirstId(pages.RootElement);
-                folderId = FirstParentFolder(pages.RootElement);
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(
-                    "The service account can't list pages. Check that its credential has the read:page:confluence scope, "
-                    + "then test again.",
-                    AtlassianSiteTroubleshooting.MissingScope, Describe(ex));
-            }
-
-            // One cheap read per scope a sync needs that the steps around this one don't use, each the
-            // kind of call the connector makes, so a credential missing one fails here and not at sync.
-            run.Enter(ContentStep);
-            var probes = new List<(string Scope, string Path)>();
-            if (pageId is not null)
-            {
-                string page = Uri.EscapeDataString(pageId);
-                probes.Add((AtlassianSiteScopes.Comment, $"api/v2/pages/{page}/footer-comments?limit=1"));
-                // A folder the page sits in when there is one. Otherwise the page's own id: Atlassian
-                // checks the scope before it looks the folder up, so "not found" still proves the scope.
-                probes.Add((AtlassianSiteScopes.Folder, $"api/v2/folders/{Uri.EscapeDataString(folderId ?? pageId)}"));
-            }
-            probes.Add((AtlassianSiteScopes.ContentDetails, $"rest/api/user/bulk?accountId={Uri.EscapeDataString(ownAccountId)}"));
-            probes.Add((AtlassianSiteScopes.ContentDetails, $"rest/api/search?cql={Uri.EscapeDataString("type=comment")}&limit=1"));
-
-            foreach (var (scope, path) in probes)
-            {
-                var (outcome, probeDetail) = await ProbeAsync(api, path, linked);
-                if (outcome == Probe.Missing)
-                    return run.Fail(MissingScopeMessage(scope), AtlassianSiteTroubleshooting.MissingScope, probeDetail);
-                if (outcome == Probe.Unanswered)
-                    return run.Fail(
-                        $"Couldn't check the {scope} scope because Atlassian didn't answer properly. Wait a minute and test again.",
-                        AtlassianSiteTroubleshooting.General, probeDetail);
-            }
-
-            // Optional: recorded as confirmed when it passes, never a failure without it.
-            bool attachmentsConfirmed = pageId is not null
-                && (await ProbeAsync(api, $"api/v2/pages/{Uri.EscapeDataString(pageId)}/attachments?limit=1", linked)).Outcome == Probe.Granted;
-
-            run.Enter(AdminStep);
-            if (pageId is null)
-                return run.Warn(
-                    "This site has no pages yet, so Connapse can't confirm the service account is Confluence Administrator. "
-                    + "You can save anyway; the check runs again when you next test. Or create a page and test again.",
-                    siteUrl, cloudId);
-
-            string? otherUser;
-            try
-            {
-                using var users = await api.GetJsonAsync<JsonDocument>("rest/api/search/user?cql=type=user&limit=25", linked);
-                otherUser = FirstOtherAccount(users.RootElement, ownAccountId);
-            }
-            catch (Exception ex) when (IsRefusal(ex))
-            {
-                return run.Fail(AdminMessage, detail: Describe(ex));
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(UnverifiedMessage, detail: Describe(ex));
-            }
-
-            if (otherUser is null)
-                return run.Warn(
-                    "The site has no user other than the service account, so Connapse can't confirm Confluence Administrator "
-                    + "access. You can save anyway; the check runs again when you next test. Or add another user and test again.",
-                    siteUrl, cloudId);
-
-            // A missing scope and a missing role both stop the check; Atlassian names the scope when
-            // it is the cause (and, when it lists the token's scopes, the scope can be seen missing).
-            bool scopeMissing = granted is not null
-                && !granted.Contains(AtlassianSiteScopes.ContentPermission, StringComparer.OrdinalIgnoreCase);
-
-            HttpStatusCode checkStatus;
-            string? checkDetail = null;
-            bool checkAnswered = false;
-            try
-            {
-                using var check = await api.PostAsync(
-                    $"rest/api/content/{Uri.EscapeDataString(pageId)}/permission/check",
-                    new { subject = new { type = "user", identifier = otherUser }, operation = "read" }, linked);
-                checkStatus = check.StatusCode;
-                string body = await check.Content.ReadAsStringAsync(linked);
-
-                // A 200 proves nothing by itself (a login page or proxy error can be a 200): only a
-                // PermissionCheckResponse carrying a boolean hasPermission shows the check ran. Either
-                // value will do, since answering at all for another user needs administrator rights.
-                if (checkStatus == HttpStatusCode.OK)
-                {
-                    using var answer = JsonDocument.Parse(body);
-                    checkAnswered = answer.RootElement.ValueKind == JsonValueKind.Object
-                        && answer.RootElement.TryGetProperty("hasPermission", out var has)
-                        && has.ValueKind is JsonValueKind.True or JsonValueKind.False;
-                }
-                else
-                {
-                    checkDetail = DescribeAnswer(checkStatus, body);
-                    if (body.Contains("scope", StringComparison.OrdinalIgnoreCase))
-                        scopeMissing = true;
-                }
-            }
-            catch (AtlassianAuthException ex)
-            {
-                // Two 401s in a row after the same token read Confluence above: Atlassian refuses a
-                // token on one endpoint like this when its scopes don't cover that endpoint.
-                return run.Fail(MissingPermissionScopeMessage, AtlassianSiteTroubleshooting.MissingScope, ex.Detail ?? ex.Message);
-            }
-            catch (Exception ex) when (IsProbeFailure(ex))
-            {
-                return run.Fail(UnverifiedMessage, detail: Describe(ex));
-            }
-
-            if (checkStatus is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
-                return scopeMissing
-                    ? run.Fail(MissingPermissionScopeMessage, AtlassianSiteTroubleshooting.MissingScope, checkDetail)
-                    : run.Fail(AdminMessage, detail: checkDetail);
-            if (checkStatus != HttpStatusCode.OK)
-                return run.Fail($"{UnverifiedMessage} Confluence answered HTTP {(int)checkStatus}.", detail: checkDetail);
-            if (!checkAnswered)
-                return run.Fail(UnverifiedMessage, detail: "Confluence answered the check without saying whether the user may read the page.");
-
-            // What the probes proved, and anything else Atlassian says it granted.
-            var proven = new HashSet<string>(AtlassianSiteScopes.ProvenByTest, StringComparer.OrdinalIgnoreCase);
-            if (attachmentsConfirmed)
-                proven.Add(AtlassianSiteScopes.Attachment);
-            IReadOnlyList<string> confirmed = AtlassianSiteScopes.All.Select(s => s.Name)
-                .Where(n => proven.Contains(n) || (granted?.Contains(n, StringComparer.OrdinalIgnoreCase) ?? false))
-                .ToList();
-
-            return ConnectionTestResult.CreateSuccess(
-                $"Connected to {siteUrl}: found the site, signed in as the service account, read Confluence, listed spaces, "
-                + "read comments, folders and changes, and confirmed it can check what other people may read.",
-                new Dictionary<string, object> { ["cloudId"] = cloudId, ["siteUrl"] = siteUrl, ["scopes"] = confirmed.ToArray() },
-                run.Elapsed);
+            if (result.Passed)
+                return ConnectionTestResult.CreateSuccess(
+                    $"Connected to {siteUrl}: found the site, signed in as the service account, {result.Message}.",
+                    new Dictionary<string, object>
+                    {
+                        ["cloudId"] = cloudId,
+                        ["siteUrl"] = siteUrl,
+                        ["scopes"] = result.ConfirmedScopes.ToArray(),
+                    },
+                    run.Elapsed);
+            return result.Warning ? run.Warn(result, siteUrl, cloudId) : run.Fail(result);
         }
-        // None of these is about the credential, so none may point at the step's usual entry (at the
-        // sign-in step, "Client ID or secret rejected").
-        catch (AtlassianRateLimitedException ex)
+        catch (Exception ex) when (Unanswered(ex, ct) is { } failure)
         {
-            return run.Fail($"{ex.Message} Atlassian is limiting requests; wait, then test again.",
-                AtlassianSiteTroubleshooting.General);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            // This test's own time limit, or the HTTP client's.
-            return run.Fail(
-                "Atlassian didn't answer in time. Wait a minute and test again; if it keeps happening, check that this server "
-                + "can reach api.atlassian.com and auth.atlassian.com over HTTPS.",
-                AtlassianSiteTroubleshooting.General, "No answer within the time limit.");
-        }
-        catch (HttpRequestException ex)
-        {
-            return run.Fail(
-                "Couldn't reach Atlassian from this server. Check that it can reach api.atlassian.com, auth.atlassian.com and "
-                + "your site's address over HTTPS, then test again.",
-                AtlassianSiteTroubleshooting.General, Describe(ex));
+            return run.Fail(failure.Message, failure.Troubleshoot, failure.Detail);
         }
     }
 
+    /// <summary>
+    /// A rate limit, a timeout or a connection that failed, in the words a failure shows; null for
+    /// any other exception.
+    /// </summary>
+    private static (string Message, string Troubleshoot, string? Detail)? Unanswered(Exception ex, CancellationToken ct) => ex switch
+    {
+        // None of these is about the credential, so none may point at the step's usual entry (at the
+        // sign-in step, "Client ID or secret rejected").
+        AtlassianRateLimitedException =>
+            ($"{ex.Message} Atlassian is limiting requests; wait, then test again.", AtlassianSiteTroubleshooting.General, null),
+        // This test's own time limit, or the HTTP client's.
+        OperationCanceledException when !ct.IsCancellationRequested =>
+            ("Atlassian didn't answer in time. Wait a minute and test again; if it keeps happening, check that this server "
+                + "can reach api.atlassian.com and auth.atlassian.com over HTTPS.",
+                AtlassianSiteTroubleshooting.General, "No answer within the time limit."),
+        HttpRequestException =>
+            ("Couldn't reach Atlassian from this server. Check that it can reach api.atlassian.com, auth.atlassian.com and "
+                + "your site's address over HTTPS, then test again.",
+                AtlassianSiteTroubleshooting.General, Describe(ex)),
+        _ => null,
+    };
+
     /// <summary>The step being run, and the clocks for the whole test and that step.</summary>
-    private sealed class Run
+    internal sealed class Run
     {
         private readonly Stopwatch _total = Stopwatch.StartNew();
         private readonly Stopwatch _step = Stopwatch.StartNew();
@@ -459,36 +399,63 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
         public TimeSpan Elapsed => _total.Elapsed;
 
+        public long StepMs => (long)_step.Elapsed.TotalMilliseconds;
+
         public void Enter(string step)
         {
             Step = step;
             _step.Restart();
         }
 
-        public ConnectionTestResult Fail(string message, string? troubleshoot = null, string? detail = null) =>
-            ConnectionTestResult.CreateFailure(message, Details(troubleshoot, detail), _total.Elapsed);
+        /// <summary>The steps of one product's probe, entered on this run so a timeout mid-probe still names them.</summary>
+        public ProductSteps For(string product) => new(this, product);
 
-        public ConnectionTestResult Warn(string message, string siteUrl, string cloudId)
+        public ConnectionTestResult Fail(string message, string? troubleshoot = null, string? detail = null) =>
+            ConnectionTestResult.CreateFailure(message, Details(Step, StepMs, troubleshoot, detail), _total.Elapsed);
+
+        /// <summary>A product's failure, at the step and with the duration that product recorded.</summary>
+        public ConnectionTestResult Fail(ProductProbeResult product) =>
+            ConnectionTestResult.CreateFailure(product.Message ?? "",
+                Details(product.Step ?? Step, product.StepMs, product.Troubleshoot, product.Detail), _total.Elapsed);
+
+        public ConnectionTestResult Warn(ProductProbeResult product, string siteUrl, string cloudId)
         {
-            var details = Details(AtlassianSiteTroubleshooting.NothingToCheckYet, null);
+            var details = Details(product.Step ?? Step, product.StepMs, AtlassianSiteTroubleshooting.NothingToCheckYet, null);
             details["warning"] = true;
             details["siteUrl"] = siteUrl;
             details["cloudId"] = cloudId;
-            return ConnectionTestResult.CreateFailure(message, details, _total.Elapsed);
+            return ConnectionTestResult.CreateFailure(product.Message ?? "", details, _total.Elapsed);
         }
 
-        private Dictionary<string, object> Details(string? troubleshoot, string? detail)
+        private static Dictionary<string, object> Details(string step, long stepMs, string? troubleshoot, string? detail)
         {
             var details = new Dictionary<string, object>
             {
-                ["step"] = Step,
-                ["troubleshoot"] = troubleshoot ?? DefaultTroubleshooting(Step),
-                ["stepMs"] = (long)_step.Elapsed.TotalMilliseconds,
+                ["step"] = step,
+                ["troubleshoot"] = troubleshoot ?? DefaultTroubleshooting(step),
+                ["stepMs"] = stepMs,
             };
             if (!string.IsNullOrWhiteSpace(detail))
                 details["detail"] = detail;
             return details;
         }
+    }
+
+    /// <summary>One product's view of the run: it enters steps and reports how its probe ended.</summary>
+    internal sealed class ProductSteps(Run run, string product)
+    {
+        public void Enter(string step) => run.Enter(step);
+
+        public ProductProbeResult Fail(string message, string? troubleshoot = null, string? detail = null) =>
+            new(product, Passed: false, Warning: false, run.Step, message, troubleshoot ?? DefaultTroubleshooting(run.Step), detail, [],
+                run.StepMs);
+
+        public ProductProbeResult Warn(string message) =>
+            new(product, Passed: false, Warning: true, run.Step, message, AtlassianSiteTroubleshooting.NothingToCheckYet, null, [],
+                run.StepMs);
+
+        public ProductProbeResult Pass(string message, IReadOnlyList<string> confirmedScopes) =>
+            new(product, Passed: true, Warning: false, null, message, null, null, confirmedScopes, run.StepMs);
     }
 
     // What Atlassian answered, for the "Details" disclosure: a status and the exception text
@@ -508,7 +475,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     /// A refused permission check as "HTTP 403: message", from Atlassian's error fields only
     /// (<c>message</c>, <c>code</c>, <c>reason</c>), never the whole body.
     /// </summary>
-    private static string DescribeAnswer(HttpStatusCode status, string body)
+    internal static string DescribeAnswer(HttpStatusCode status, string body)
     {
         string prefix = $"HTTP {(int)status} ({status})";
         try
@@ -535,12 +502,12 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         }
     }
 
-    private static string? Text(JsonElement obj, string name) =>
+    internal static string? Text(JsonElement obj, string name) =>
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()
             : null;
 
-    private static string? FirstId(JsonElement root)
+    internal static string? FirstId(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object
             || !root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
@@ -559,23 +526,11 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         return null;
     }
 
-    /// <summary>The folder the first listed page sits in, or null when it sits elsewhere.</summary>
-    private static string? FirstParentFolder(JsonElement root)
-    {
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
-            return null;
-
-        foreach (var item in results.EnumerateArray())
-            return string.Equals(Text(item, "parentType"), "folder", StringComparison.Ordinal) ? Text(item, "parentId") : null;
-        return null;
-    }
-
     /// <summary>
     /// One GET read only for its status. Success, or a 404/400 (Atlassian checks a token's scopes
     /// before it looks anything up), shows the scope is granted; a 401 or 403 that it is missing.
     /// </summary>
-    private static async Task<(Probe Outcome, string? Detail)> ProbeAsync(AtlassianApiClient api, string path, CancellationToken ct)
+    internal static async Task<(Probe Outcome, string? Detail)> ProbeAsync(AtlassianApiClient api, string path, CancellationToken ct)
     {
         try
         {
@@ -595,25 +550,5 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         {
             return (Probe.Unanswered, Describe(ex));
         }
-    }
-
-    // search/user results look like { results: [ { user: { accountId } } ] }; a flat shape is accepted too.
-    private static string? FirstOtherAccount(JsonElement root, string? ownAccountId)
-    {
-        if (root.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
-            return null;
-
-        foreach (var item in results.EnumerateArray())
-        {
-            string? accountId = item.ValueKind == JsonValueKind.Object && item.TryGetProperty("user", out var user)
-                ? Text(user, "accountId")
-                : Text(item, "accountId");
-
-            if (!string.IsNullOrWhiteSpace(accountId) && accountId != ownAccountId)
-                return accountId;
-        }
-
-        return null;
     }
 }

@@ -21,7 +21,8 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     private readonly MemoryCache _cache = new(new MemoryCacheOptions());
     private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
     private readonly IAtlassianIdentityLinkReader _links = Substitute.For<IAtlassianIdentityLinkReader>();
-    private readonly IConnectionStore _connections = AtlassianConnectionStore();
+    private readonly IConnectionStore _connections = AtlassianConnectionStore(
+        [Connapse.Storage.Connectors.Atlassian.AtlassianProduct.Confluence, Connapse.Storage.Connectors.Atlassian.AtlassianProduct.Jira]);
     private readonly Dictionary<string, string?> _uris = [];
     private readonly Guid _user = Guid.NewGuid();
 
@@ -43,7 +44,8 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     private readonly AtlassianConnectionPresence _presence;
 
     private AtlassianSearchResultVerifier NewVerifier(HttpMessageHandler? handler = null, AtlassianVerifierSettings? settings = null) =>
-        new(_documents, _links, _connections, NewChecker(handler ?? _api, _cache, _connections), _presence,
+        new(_documents, _links, _connections, NewChecker(handler ?? _api, _cache, _connections),
+            JiraPermissionCheckerTests.NewJiraChecker(_cache), _presence,
             Options.Create(settings ?? new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
 
     private SearchHit Hit(string id, string? uri)
@@ -188,6 +190,116 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_Unlinked_JiraDeniedNoCalls()
+    {
+        new FakeJira(_api, CloudId).MapEnforcement().Browse(Account, "10001");
+        SearchHit[] hits =
+        [
+            Hit("issue", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("note", AtlassianUri.ForJiraComment(CloudId, "10001", "55", true, null)),
+            Hit("x", null),
+        ];
+
+        Ids(await NewVerifier().VerifyAsync(hits, Guid.NewGuid(), 10)).Should().Equal("x");
+        Ids(await NewVerifier().VerifyAsync(hits, null, 10)).Should().Equal("x");
+        _api.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Verify_MixedConfluenceAndJira_EachCheckedByItsOwn()
+    {
+        Allow("1", true);
+        Allow("2", false);
+        var jira = new FakeJira(_api, CloudId).MapEnforcement();
+        jira.Browse(Account, "10001");
+        SearchHit[] hits =
+        [
+            Hit("p1", AtlassianUri.ForPage(CloudId, "1")), Hit("i1", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("p2", AtlassianUri.ForPage(CloudId, "2")), Hit("i2", AtlassianUri.ForJiraIssue(CloudId, "10002")),
+            Hit("n1", AtlassianUri.ForJiraComment(CloudId, "10001", "55", true, null)), Hit("x", null),
+        ];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("p1", "i1", "x");
+
+        _api.Calls.GetValueOrDefault(PageRoot + "1/permission/check").Should().Be(1);
+        _api.Calls.GetValueOrDefault(jira.Root + "/permissions/check").Should().Be(1, "one bulk call answers every Jira hit on the site");
+        _api.Calls.Keys.Should().NotContain(k => k.Contains("/confluence/") && k.Contains("1000"));
+    }
+
+    [Fact]
+    public async Task Verify_JiraBudgetExhausted_Denied()
+    {
+        new FakeJira(_api, CloudId).MapEnforcement().Browse(Account, "10001");
+        var slow = new StallingHandler(_api);
+        SearchHit[] hits = [Hit("i1", AtlassianUri.ForJiraIssue(CloudId, "10001")), Hit("x", null)];
+
+        var started = DateTime.UtcNow;
+        var result = await NewVerifier(slow, new AtlassianVerifierSettings { BudgetMs = 200 }).VerifyAsync(hits, _user, 10);
+
+        Ids(result).Should().Equal("x");
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Verify_JiraCommentLiveRestrictionChanged_Dropped()
+    {
+        const string groupA = "6e87dc72-4f1f-421f-9382-2fee8b652487", groupB = "0b5e1b8e-56b0-4a35-9b8a-3a6b3c0c9f11";
+        var jira = new FakeJira(_api, CloudId).MapEnforcement();
+        jira.Browse(Account, "10001");
+        jira.Agent(Account, "10001");
+        jira.Groups(Account, ("engineering", groupA), ("support", groupB));
+        jira.LiveComment("10001", "51", new { type = "group", identifier = groupA });
+        jira.LiveComment("10001", "52", new { type = "group", identifier = groupB });
+        jira.LiveComment("10001", "53", jsdPublic: false);
+        var a = new JiraRestriction(JiraRestrictionType.Group, groupA);
+        SearchHit[] hits =
+        [
+            Hit("same", AtlassianUri.ForJiraComment(CloudId, "10001", "51", false, a)),
+            Hit("moved", AtlassianUri.ForJiraComment(CloudId, "10001", "52", false, a)),
+            Hit("note", AtlassianUri.ForJiraComment(CloudId, "10001", "53", true, null)),
+        ];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("same", "note");
+    }
+
+    [Fact]
+    public async Task Verify_JiraCommentReadOutlastsBudget_Denied()
+    {
+        const string groupA = "6e87dc72-4f1f-421f-9382-2fee8b652487";
+        var jira = new FakeJira(_api, CloudId).MapEnforcement();
+        jira.Browse(Account, "10001");
+        jira.Groups(Account, ("engineering", groupA));
+        jira.LiveComment("10001", "51", new { type = "group", identifier = groupA });
+        var slow = new StallingHandler(_api, uri => uri.AbsolutePath.Contains("/comment/", StringComparison.Ordinal));
+        SearchHit[] hits =
+        [
+            Hit("i1", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("c1", AtlassianUri.ForJiraComment(CloudId, "10001", "51", false, new JiraRestriction(JiraRestrictionType.Group, groupA))),
+            Hit("x", null),
+        ];
+
+        var started = DateTime.UtcNow;
+        var result = await NewVerifier(slow, new AtlassianVerifierSettings { BudgetMs = 300 }).VerifyAsync(hits, _user, 10);
+
+        // The site's checks share one call, so the stalled comment read takes its issue down with it.
+        Ids(result).Should().Equal("x");
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Verify_JiraHitBesideConfluenceHit_OnlyConfluenceIsAdmitted()
+    {
+        Allow("1", true);
+        SearchHit[] hits =
+        [
+            Hit("jira", AtlassianUri.ForJiraIssue(CloudId, "10001")),
+            Hit("p1", AtlassianUri.ForPage(CloudId, "1")),
+        ];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("p1");
+    }
+
+    [Fact]
     public async Task Verify_ManyChunksOfOnePage_ChecksEachPageOnce()
     {
         Allow("1", true);
@@ -226,7 +338,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     {
         var checkerConnections = AtlassianConnectionStore();
         var verifier = new AtlassianSearchResultVerifier(_documents, _links, _connections,
-            NewChecker(_api, _cache, checkerConnections), _presence,
+            NewChecker(_api, _cache, checkerConnections), JiraPermissionCheckerTests.NewJiraChecker(_cache), _presence,
             Options.Create(new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
         SearchHit[] hits = [.. Enumerable.Range(1, 8).Select(i =>
         {
@@ -385,12 +497,12 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
     }
 
-    /// <summary>Passes token requests through; holds every other request until it is cancelled.</summary>
-    private sealed class StallingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    /// <summary>Passes token requests through; holds every other request (or those <paramref name="stall"/> picks) until it is cancelled.</summary>
+    private sealed class StallingHandler(HttpMessageHandler inner, Func<Uri, bool>? stall = null) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (request.RequestUri!.Host != "auth.atlassian.com")
+            if (request.RequestUri!.Host != "auth.atlassian.com" && (stall is null || stall(request.RequestUri)))
                 await Task.Delay(Timeout.Infinite, ct);
             return await base.SendAsync(request, ct);
         }

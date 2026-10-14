@@ -20,7 +20,10 @@ public class AtlassianSetupGuideDocsTests
         "## 1. Linking app",
         "## 2. Service account",
         "## 3. Site connection",
+        "### Add a Confluence site",
+        "### Add a Jira site",
         "## 4. Confluence sources",
+        "## 5. Jira sources",
         "## Troubleshooting",
         "### Site not found",
         "### Client ID or secret rejected",
@@ -29,6 +32,9 @@ public class AtlassianSetupGuideDocsTests
         "### Not Confluence Administrator",
         "### Missing scope",
         "### Site has no pages or no other users yet",
+        "### Can't read Jira",
+        "### Not Jira administrator",
+        "### Can't read Jira membership",
         "### Linking app rejected",
         "### Sign-in failed",
         "### Space can no longer be read",
@@ -69,6 +75,18 @@ public class AtlassianSetupGuideDocsTests
         anchors.Should().Contain(ConfluenceSpaceSelection.GuideUrl.Split('#')[1]);
         ConfluenceSpaceSelection.MissingScopeGuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
         anchors.Should().Contain(ConfluenceSpaceSelection.MissingScopeGuideUrl.Split('#')[1]);
+        JiraProjectSelection.GuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+        anchors.Should().Contain(JiraProjectSelection.GuideUrl.Split('#')[1]);
+    }
+
+    [Fact]
+    public void SetupGuide_NamesEveryJiraSourceField()
+    {
+        string guide = Guide();
+
+        foreach (string label in JiraProjectSelection.FieldLabels)
+            guide.Should().Contain(label, $"the guide must explain the \"{label}\" field");
+        Flat(guide).Should().Contain(JiraProjectSelection.ProjectFixedNote);
     }
 
     private static HashSet<string> Anchors() => Guide().Split('\n')
@@ -123,6 +141,10 @@ public class AtlassianSetupGuideDocsTests
                      AtlassianSyncErrors.Unavailable,
                      AtlassianSyncErrors.SpaceUnreadable("ENG", 403)["Confluence space ENG ".Length..],
                      AtlassianSyncErrors.SpaceUnreadable("ENG", 404)["Confluence space ENG can no longer be read: ".Length..],
+                     AtlassianSyncErrors.JiraFreshTokenRefused,
+                     AtlassianSyncErrors.JiraProjectUnreadable("ENG", 403)["Jira project ENG ".Length..],
+                     AtlassianSyncErrors.JiraProjectUnreadable("ENG", 404)["Jira project ENG can no longer be read: ".Length..],
+                     JiraProjectConnector.AttachmentScopeNotice,
                  })
         {
             string firstSentence = message[..(message.IndexOf(". ", StringComparison.Ordinal) + 1)];
@@ -172,6 +194,43 @@ public class AtlassianSetupGuideDocsTests
         reason.Should().Be("find what changed since the last sync and look up people");
         guide.Should().Contain("| `read:content-details:confluence` | Finding what changed since the last sync and looking up people |")
             .And.NotContain("Reading page restrictions");
+    }
+
+    [Fact]
+    public void SetupGuide_JiraStep_NamesTheScopesThePermissionAndTheCommentGroups()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain(Connapse.Web.Components.Connections.AtlassianConnectionForm.RequiredJiraScopeList)
+            .And.Contain("`read:attachment:jira`")
+            .And.Contain("**Administer Jira**")
+            .And.Contain("every group and project role your team restricts comments to")
+            .And.Contain("is never indexed, and Connapse can't tell it exists");
+    }
+
+    [Fact]
+    public void SetupGuide_AddsASiteOncePerProduct_WithOneServiceAccountAndACredentialPerProduct()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain("One service account can serve both products, with one credential per product: add the site twice, once as each connection.")
+            .And.NotContain("One service account and one credential can serve both products", "one credential carrying both products' scopes is unverified")
+            .And.Contain("choose **Confluence site**")
+            .And.Contain("choose **Jira site**")
+            .And.NotContain("Not set up for this site", "a connection reads one product, so there is no other product to report")
+            .And.NotContain("choose **Atlassian site**");
+    }
+
+    [Fact]
+    public void SetupGuide_NamesJirasTwoRoleRows_NeverItsAdminRole()
+    {
+        string guide = Flat(Guide());
+
+        guide.Should().Contain("## Add Jira to an existing Confluence setup")
+            .And.Contain("**Jira Administration** to **App admin**")
+            .And.Contain("**Jira admin settings**").And.Contain("`jira-admins-<site>`")
+            .And.NotContain("Jira to its admin role")
+            .And.NotContain("Jira admin role");
     }
 
     [Fact]

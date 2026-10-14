@@ -127,6 +127,18 @@ public sealed class AtlassianApiClientTests : IDisposable
         _api.Calls[Root + "/api/v2/spaces/1"].Should().Be(2);
     }
 
+    [Theory]
+    [InlineData(AtlassianProduct.Confluence, "/ex/confluence/" + CloudId + "/wiki/rest/api/x", AtlassianSyncErrors.FreshTokenRefused)]
+    [InlineData(AtlassianProduct.Jira, "/ex/jira/" + CloudId + "/rest/api/x", AtlassianSyncErrors.JiraFreshTokenRefused)]
+    public async Task GetJsonAsync_Persistent401_MessageNamesTheClientsProduct(AtlassianProduct product, string path, string message)
+    {
+        _api.Map(path, _ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var client = new AtlassianApiClient(_api.CreateClient(), NewTokens(), _site, "secret", _clock, product: product);
+
+        (await FluentActions.Awaiting(() => client.GetJsonAsync<JsonElement>("rest/api/x", default))
+            .Should().ThrowAsync<AtlassianAuthException>()).Which.Message.Should().Be(message);
+    }
+
     [Fact]
     public async Task GetJsonAsync_TokenEndpointRefuses_ThrowsAuthException()
     {
@@ -349,6 +361,27 @@ public sealed class AtlassianApiClientTests : IDisposable
         AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://evil.example","cloudId":"{{CloudId}}","clientId":"c"}""")
             .Should().BeNull();
 
+    [Fact]
+    public void FromConfigJson_NoProduct_IsConfluence()
+    {
+        AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c"}""")!
+            .Product.Should().Be(AtlassianProduct.Confluence);
+        AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c","product":"jira"}""")!
+            .Product.Should().Be(AtlassianProduct.Jira);
+        AtlassianSite.FromConfigJson($$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c","product":"confluence"}""")!
+            .Product.Should().Be(AtlassianProduct.Confluence);
+    }
+
+    [Theory]
+    [InlineData("\"bitbucket\"")]
+    [InlineData("\"\"")]
+    [InlineData("1")]
+    [InlineData("null")]
+    public void FromConfigJson_UnknownProduct_Null(string product) =>
+        AtlassianSite.FromConfigJson(
+                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{CloudId}}","clientId":"c","product":{{product}}}""")
+            .Should().BeNull();
+
     private static HttpResponseMessage WithLink(HttpResponseMessage response, string link)
     {
         response.Headers.TryAddWithoutValidation("Link", link);
@@ -371,6 +404,217 @@ public sealed class AtlassianApiClientTests : IDisposable
         (await reader.ReadToEndAsync()).Should().Be("bytes");
         counting.Hosts.Should().Equal("api.atlassian.com", FakeConfluence.MediaHost);
     }
+
+    private const string JiraRoot = "/ex/jira/" + CloudId;
+
+    private AtlassianApiClient NewJiraClient() =>
+        new(_api.CreateClient(), NewTokens(), _site, "secret", _clock, product: AtlassianProduct.Jira);
+
+    [Fact]
+    public async Task Jira_RelativePath_PinnedToJiraSite()
+    {
+        _api.MapJson(JiraRoot + "/rest/api/3/myself", new { accountId = "a1" });
+
+        await NewJiraClient().GetJsonAsync<JsonElement>("rest/api/3/myself", default);
+
+        _api.Requests.Last().AbsolutePath.Should().Be(JiraRoot + "/rest/api/3/myself");
+    }
+
+    [Fact]
+    public async Task Jira_AbsoluteLinkToConfluenceSite_Refused()
+    {
+        var client = NewJiraClient();
+
+        Func<Task> act = () => client.GetJsonAsync<JsonElement>(
+            "https://api.atlassian.com/ex/confluence/" + CloudId + "/wiki/api/v2/spaces", default);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Jira_AbsoluteLinkToOtherCloud_Refused()
+    {
+        var client = NewJiraClient();
+
+        Func<Task> act = () => client.GetJsonAsync<JsonElement>(
+            "https://api.atlassian.com/ex/jira/99999999-2222-3333-4444-555555555555/rest/api/3/myself", default);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Confluence_DefaultProduct_Unchanged()
+    {
+        _api.MapJson(Root + "/api/v2/spaces/1", new { id = "1" });
+        var client = NewClient();
+
+        await client.GetJsonAsync<JsonElement>("/wiki/api/v2/spaces/1", default);
+
+        client.Product.Should().Be(AtlassianProduct.Confluence);
+        _api.Requests.Last().AbsolutePath.Should().Be(Root + "/api/v2/spaces/1");
+    }
+
+    [Fact]
+    public async Task PageByToken_FollowsTokenUntilAbsent()
+    {
+        _api.Map(JiraRoot + "/rest/api/3/search/jql", request =>
+        {
+            string query = request.RequestUri!.Query;
+            return query.Contains("nextPageToken=t2")
+                ? FakeAtlassianApi.Json(new { issues = new[] { new { id = "3" } }, isLast = true })
+                : query.Contains("nextPageToken=t1")
+                    ? FakeAtlassianApi.Json(new { issues = new[] { new { id = "2" } }, nextPageToken = "t2", isLast = false })
+                    : FakeAtlassianApi.Json(new { issues = new[] { new { id = "1" } }, nextPageToken = "t1", isLast = false });
+        });
+
+        var ids = new List<string>();
+        await foreach (string id in NewJiraClient().PageByTokenAsync(
+            "rest/api/3/search/jql?jql=x", Issues, default))
+            ids.Add(id);
+
+        ids.Should().Equal("1", "2", "3");
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith("/search/jql")).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PageByToken_RepeatedToken_Throws()
+    {
+        _api.MapJson(JiraRoot + "/rest/api/3/search/jql",
+            new { issues = new[] { new { id = "1" } }, nextPageToken = "same", isLast = false });
+
+        Func<Task> act = async () =>
+        {
+            await foreach (string _ in NewJiraClient().PageByTokenAsync("rest/api/3/search/jql", Issues, default)) { }
+        };
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task PageByOffset_StopsOnIsLast()
+    {
+        _api.Map(JiraRoot + "/rest/api/3/issue/K-1/comment", request => request.RequestUri!.Query.Contains("startAt=2")
+            ? FakeAtlassianApi.Json(new { startAt = 2, maxResults = 2, total = 3, isLast = true, comments = new[] { new { id = "c3" }, new { id = "c4" } } })
+            : FakeAtlassianApi.Json(new { startAt = 0, maxResults = 2, total = 4, isLast = false, comments = new[] { new { id = "c1" }, new { id = "c2" } } }));
+
+        var ids = new List<string>();
+        await foreach (string id in NewJiraClient().PageByOffsetAsync(
+            "rest/api/3/issue/K-1/comment", "comments", e => e.GetProperty("id").GetString(), 2, default))
+            ids.Add(id);
+
+        ids.Should().Equal("c1", "c2", "c3", "c4");
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith("/comment")).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task PageByOffset_StopsOnEmptyPage()
+    {
+        _api.Map(JiraRoot + "/rest/api/3/project/search", request =>
+        {
+            string query = request.RequestUri!.Query;
+            return query.Contains("startAt=3")
+                ? FakeAtlassianApi.Json(new { values = Array.Empty<object>() })
+                : query.Contains("startAt=2")
+                    ? FakeAtlassianApi.Json(new { values = new[] { new { id = "p3" } } })
+                    : FakeAtlassianApi.Json(new { values = new[] { new { id = "p1" }, new { id = "p2" } } });
+        });
+
+        var ids = new List<string>();
+        await foreach (string id in NewJiraClient().PageByOffsetAsync(
+            "rest/api/3/project/search?expand=x", "values", e => e.GetProperty("id").GetString(), 2, default))
+            ids.Add(id);
+
+        ids.Should().Equal("p1", "p2", "p3");
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith("/project/search")).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PageByOffset_ServerCapsPageSize_ReadsEverything()
+    {
+        _api.Map(JiraRoot + "/rest/api/3/project/search", request =>
+        {
+            string query = request.RequestUri!.Query;
+            int startAt = int.Parse(System.Text.RegularExpressions.Regex.Match(query, @"startAt=(\d+)").Groups[1].Value);
+            var values = Enumerable.Range(startAt, Math.Min(50, 120 - startAt)).Select(i => new { id = "p" + i }).ToArray();
+            return FakeAtlassianApi.Json(new { startAt, maxResults = 50, total = 120, values });
+        });
+
+        var ids = new List<string>();
+        await foreach (string id in NewJiraClient().PageByOffsetAsync(
+            "rest/api/3/project/search", "values", e => e.GetProperty("id").GetString(), 100, default))
+            ids.Add(id);
+
+        ids.Should().HaveCount(120);
+        ids.Should().OnlyHaveUniqueItems();
+        _api.Requests.Count(r => r.AbsolutePath.EndsWith("/project/search")).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PageByOffset_PageStartsElsewhere_Throws()
+    {
+        // Asked for startAt=2, answered from 0: the page is not the one asked for.
+        _api.Map(JiraRoot + "/rest/api/3/issue/K-1/comment", _ =>
+            FakeAtlassianApi.Json(new { startAt = 0, maxResults = 2, total = 4, comments = new[] { new { id = "c1" }, new { id = "c2" } } }));
+
+        var ids = new List<string>();
+        Func<Task> act = async () =>
+        {
+            await foreach (string id in NewJiraClient().PageByOffsetAsync(
+                "rest/api/3/issue/K-1/comment", "comments", e => e.GetProperty("id").GetString(), 2, default))
+                ids.Add(id);
+        };
+
+        await act.Should().ThrowAsync<AtlassianMalformedResponseException>();
+        ids.Should().Equal("c1", "c2");
+    }
+
+    [Theory]
+    [InlineData("""{"startAt":0,"total":3}""")]
+    [InlineData("""{"startAt":0,"total":3,"comments":null}""")]
+    [InlineData("""{"startAt":0,"total":3,"comments":{"id":"c1"}}""")]
+    [InlineData("""[]""")]
+    public async Task PageByOffset_ArrayMissingOrNotArray_Throws(string body)
+    {
+        _api.Map(JiraRoot + "/rest/api/3/issue/K-1/comment", _ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") });
+
+        Func<Task> act = async () =>
+        {
+            await foreach (string _ in NewJiraClient().PageByOffsetAsync(
+                "rest/api/3/issue/K-1/comment", "comments", e => e.GetProperty("id").GetString(), 2, default)) { }
+        };
+
+        await act.Should().ThrowAsync<AtlassianMalformedResponseException>();
+    }
+
+    [Fact]
+    public async Task PageByOffset_EmptyArray_EndsWithoutError()
+    {
+        _api.Map(JiraRoot + "/rest/api/3/issue/K-1/comment", _ =>
+            FakeAtlassianApi.Json(new { startAt = 0, maxResults = 2, total = 0, comments = Array.Empty<object>() }));
+
+        var ids = new List<string>();
+        await foreach (string id in NewJiraClient().PageByOffsetAsync(
+            "rest/api/3/issue/K-1/comment", "comments", e => e.GetProperty("id").GetString(), 2, default))
+            ids.Add(id);
+
+        ids.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PageByOffset_NonPositivePageSize_Throws()
+    {
+        Func<Task> act = async () =>
+        {
+            await foreach (string _ in NewJiraClient().PageByOffsetAsync(
+                "rest/api/3/project/search", "values", e => e.GetProperty("id").GetString(), 0, default)) { }
+        };
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    private static IEnumerable<string> Issues(JsonElement root) =>
+        root.GetProperty("issues").EnumerateArray().Select(i => i.GetProperty("id").GetString()!);
 
     private sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
     {

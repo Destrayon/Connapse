@@ -1,0 +1,240 @@
+@using Connapse.Web.Services
+@using Connapse.Storage.ConnectionTesters
+@inject AtlassianSiteService Sites
+@inject Connapse.Core.Interfaces.IAuditLogger Audit
+@inject ILogger<JiraProjectForm> Logger
+
+@* The Jira part of the New source dialog: the site's projects to tick, and what to read from each. *@
+
+<fieldset class="mb-3" id="jira-projects" aria-describedby="@ProjectsDescribedBy">
+    <legend class="form-label fs-6 mb-1">@JiraProjectSelection.ProjectsLabel</legend>
+
+    @if (loading)
+    {
+        <div class="text-muted small" role="status">
+            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Loading projects...
+        </div>
+    }
+    else if (loadError is not null)
+    {
+        <div class="alert alert-danger py-2 small mb-0" role="alert" id="jira-projects-load-error">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>@loadError
+            <a class="alert-link ms-1" href="@(loadErrorUrl ?? AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.General))"
+               target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </div>
+    }
+    else if (Selection.Available.Count == 0)
+    {
+        <div class="text-muted small" role="status" id="jira-projects-none">
+            This site has no projects the service account can browse.
+            <a href="@AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.JiraProjectMissing)" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </div>
+    }
+    else
+    {
+        <div class="border rounded p-2 @(Selection.ProjectsError is null ? "" : "border-danger")" style="max-height: 16rem; overflow-y: auto;">
+            @foreach (var project in Selection.Available)
+            {
+                bool exists = ExistingProjectIds.Contains(project.Id);
+                <div class="form-check">
+                    <input id="project-@project.Id" type="checkbox" class="form-check-input jira-project-option @(Selection.ProjectsError is null ? "" : "is-invalid")"
+                           checked="@Selection.Selected.Contains(project.Id)" disabled="@exists"
+                           aria-invalid="@(Selection.ProjectsError is null ? null : "true")"
+                           @onchange="e => Toggle(project.Id, (bool)(e.Value ?? false))" />
+                    <label for="project-@project.Id" class="form-check-label">
+                        @project.Name <span class="text-muted small">(@project.Key)</span>
+                        @if (exists)
+                        {
+                            <span class="badge text-bg-secondary ms-1">already added</span>
+                        }
+                    </label>
+                </div>
+            }
+        </div>
+    }
+    @if (Selection.ProjectsError is { } projectsError)
+    {
+        <div id="jira-projects-error" class="invalid-feedback d-block fw-semibold" role="alert">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>@projectsError
+        </div>
+    }
+    <div id="jira-projects-help" class="form-text">
+        @JiraProjectSelection.ProjectsHelp
+    </div>
+</fieldset>
+
+<fieldset id="jira-attachments-group">
+    <legend class="form-label fs-6 mb-1">@JiraProjectSelection.AttachmentsLabel</legend>
+    <div class="form-check">
+        <input id="jira-attachments" type="checkbox" class="form-check-input"
+               aria-describedby="@AttachmentsDescribedBy"
+               @bind="Selection.IncludeAttachments" @bind:after="AttachmentsChanged" />
+        <label for="jira-attachments" class="form-check-label">@JiraProjectSelection.IncludeAttachmentsLabel</label>
+        <div id="jira-attachments-help" class="form-text mt-0">
+            @JiraProjectSelection.IncludeAttachmentsHelp
+        </div>
+        @if (Selection.AttachmentScopeUnconfirmed && !Selection.IncludeAttachments)
+        {
+            <div id="jira-attachments-scope" class="form-text mt-1">
+                <span class="bi-info-circle me-1" aria-hidden="true"></span>@JiraProjectSelection.AttachmentScopeUnconfirmedNote
+                <a href="@JiraProjectSelection.MissingScopeGuideUrl" target="_blank" rel="noopener">See Missing scope in the setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>.
+            </div>
+        }
+        else if (Selection.AttachmentScopeUnconfirmed)
+        {
+            @* Turned on anyway: the permission is asked for now, with the way to add it. *@
+            <ConfluenceAttachmentScopeRoute Id="jira-attachments-scope-route" ConnectionId="ConnectionId" SiteName="@SiteName"
+                                            Scope="@JiraProjectSelection.AttachmentScope" />
+        }
+    </div>
+    <div class="ms-4 mb-0">
+        <label class="form-label small" for="jira-max-attachment-mb">@JiraProjectSelection.MaxAttachmentMbLabel</label>
+        <input id="jira-max-attachment-mb" type="number" class="form-control form-control-sm @(Selection.MaxAttachmentMbError is null ? "" : "is-invalid")"
+               min="@JiraProjectSelection.MinAttachmentMb" max="@JiraProjectSelection.MaxAttachmentMbLimit" style="max-width: 8rem;"
+               aria-describedby="@MaxSizeDescribedBy" aria-invalid="@(Selection.MaxAttachmentMbError is null ? null : "true")"
+               disabled="@(!Selection.IncludeAttachments)"
+               @bind="Selection.MaxAttachmentMb" @bind:after="ValidateMaxSize" @onblur="ValidateMaxSize" />
+        @if (Selection.MaxAttachmentMbError is { } sizeError)
+        {
+            <div id="jira-max-attachment-mb-error" class="invalid-feedback d-block fw-semibold" role="alert">
+                <span class="bi-x-circle me-1" aria-hidden="true"></span>@sizeError
+            </div>
+        }
+        <div id="jira-max-attachment-mb-help" class="form-text">
+            @JiraProjectSelection.MaxAttachmentMbHelp
+        </div>
+    </div>
+</fieldset>
+
+@code {
+    [Parameter, EditorRequired] public Guid ConnectionId { get; set; }
+
+    [Parameter, EditorRequired] public JiraProjectSelection Selection { get; set; } = null!;
+
+    /// <summary>Project ids that already have a source on this connection; they cannot be chosen again.</summary>
+    [Parameter] public IReadOnlySet<string> ExistingProjectIds { get; set; } = new HashSet<string>();
+
+    /// <summary>The site's name, for the route to add a missing permission.</summary>
+    [Parameter] public string? SiteName { get; set; }
+
+    private bool loading;
+    private string? loadError;
+    private string? loadErrorUrl;
+    private Guid loadedFor;
+    private JiraProjectSelection? loadedSelection;
+    private int generation;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ConnectionId == Guid.Empty || (loadedFor == ConnectionId && ReferenceEquals(loadedSelection, Selection)))
+            return;
+
+        await LoadAsync();
+    }
+
+    private void Toggle(string id, bool on)
+    {
+        if (on) Selection.Selected.Add(id);
+        else Selection.Selected.Remove(id);
+
+        // An error shown for an empty choice goes away once a project is ticked; any other stays until the next submit.
+        if (Selection.Selected.Count > 0 && Selection.ProjectsError == JiraProjectSelection.NoProjectChosen)
+            Selection.ProjectsError = null;
+    }
+
+    private void ValidateMaxSize() => Selection.ValidateMaxAttachmentMb();
+
+    // Turning attachments off makes the size irrelevant, so an error about it is cleared; turning them on re-checks it.
+    private void AttachmentsChanged()
+    {
+        if (Selection.MaxAttachmentMbError is not null || !Selection.IncludeAttachments)
+            Selection.ValidateMaxAttachmentMb();
+    }
+
+    private string AttachmentsDescribedBy => !Selection.AttachmentScopeUnconfirmed
+        ? "jira-attachments-help"
+        : Selection.IncludeAttachments
+            ? "jira-attachments-help jira-attachments-scope-route"
+            : "jira-attachments-help jira-attachments-scope";
+
+    private string ProjectsDescribedBy =>
+        Selection.ProjectsError is null ? "jira-projects-help" : "jira-projects-error jira-projects-help";
+
+    private string MaxSizeDescribedBy =>
+        Selection.MaxAttachmentMbError is null
+            ? "jira-max-attachment-mb-help"
+            : "jira-max-attachment-mb-error jira-max-attachment-mb-help";
+
+    /// <summary>Writes a setup event; a failure to record it never reaches the dialog.</summary>
+    private async Task RecordAsync(Func<Task> write)
+    {
+        try
+        {
+            await write();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not record a Jira source setup event");
+        }
+    }
+
+    private Task ListFailedAsync(JiraProjectSelection selection, Guid connectionId, string reason) =>
+        RecordAsync(() => AtlassianSourceSetupEvents.StepFailedAsync(
+            Audit, selection, connectionId, AtlassianSourceSetupEvents.ProjectsStep, reason));
+
+    private async Task LoadAsync()
+    {
+        // A response belongs to the connection it was requested for: one for a site the admin has
+        // since switched away from must not be shown.
+        int mine = ++generation;
+        Guid connectionId = ConnectionId;
+        var selection = Selection;
+
+        loadedFor = connectionId;
+        loadedSelection = selection;
+        loading = true;
+        (loadError, loadErrorUrl) = (null, null);
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            var listed = await Sites.ListProjectsAsync(connectionId);
+            long durationMs = (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            if (mine != generation) return;
+
+            switch (listed.Outcome)
+            {
+                case AtlassianSpacesOutcome.Listed:
+                    selection.Available = listed.Projects!;
+                    selection.Selected.IntersectWith(listed.Projects!.Select(p => p.Id));
+                    await RecordAsync(() => AtlassianSourceSetupEvents.ListedAsync(
+                        Audit, selection, connectionId, listed.Projects!.Count, durationMs));
+                    break;
+                case AtlassianSpacesOutcome.Unavailable:
+                case AtlassianSpacesOutcome.WrongProduct:
+                    selection.Available = [];
+                    (loadError, loadErrorUrl) = (listed.Error, listed.TroubleshootingUrl);
+                    await ListFailedAsync(selection, connectionId, "unavailable");
+                    break;
+                default:
+                    selection.Available = [];
+                    loadError = "That connection is not an Atlassian site.";
+                    await ListFailedAsync(selection, connectionId, "not_atlassian");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor lifecycle method tears down the circuit.
+            Logger.LogWarning(ex, "Could not list the projects of Atlassian connection {ConnectionId}", connectionId);
+            if (mine != generation) return;
+            selection.Available = [];
+            loadError = "Could not list this site's projects. Try again; if it keeps failing, test the site on the Connections page.";
+            await ListFailedAsync(selection, connectionId, "error");
+        }
+        finally
+        {
+            if (mine == generation)
+                loading = false;
+        }
+    }
+}

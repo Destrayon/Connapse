@@ -11,14 +11,29 @@ public enum AtlassianResolveOutcome { Resolved, InvalidAddress, NotFound }
 
 public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, string? SiteUrl = null, string? CloudId = null);
 
-public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict }
+public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken }
 
 public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
 
-public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable }
+/// <summary>
+/// How listing a site's spaces or projects went. <see cref="WrongProduct"/>: the connection is the
+/// site's other product's, whose credential lists nothing here; its message says what to list instead.
+/// </summary>
+public enum AtlassianSpacesOutcome { Listed, NotFound, NotAtlassian, Unavailable, WrongProduct }
+
+/// <summary>A space or project an admin can turn into a source: what the pickers share.</summary>
+public interface IAtlassianSourceItem
+{
+    string Id { get; }
+    string Name { get; }
+}
+
+/// <summary>A site's spaces or projects as one product's picker reads them, or why they could not be listed.</summary>
+public sealed record AtlassianListing<TItem>(
+    AtlassianSpacesOutcome Outcome, IReadOnlyList<TItem>? Items, string? Error, string? TroubleshootingUrl);
 
 /// <summary>A Confluence space an admin can turn into a source.</summary>
-public sealed record ConfluenceSpaceInfo(string Id, string Key, string Name, string Type);
+public sealed record ConfluenceSpaceInfo(string Id, string Key, string Name, string Type) : IAtlassianSourceItem;
 
 /// <param name="Error">What went wrong, for <see cref="AtlassianSpacesOutcome.Unavailable"/>. Never carries a secret.</param>
 /// <param name="TroubleshootingUrl">The setup guide's entry for <paramref name="Error"/>.</param>
@@ -28,14 +43,29 @@ public sealed record AtlassianSpacesResult(
     string? Error = null,
     string? TroubleshootingUrl = null);
 
+/// <summary>A Jira project an admin can turn into a source.</summary>
+public sealed record JiraProjectInfo(string Id, string Key, string Name, string ProjectTypeKey) : IAtlassianSourceItem;
+
+/// <summary>The site's Jira projects, or why they could not be listed; the outcomes are those of <see cref="AtlassianSpacesResult"/>.</summary>
+public sealed record AtlassianProjectsResult(
+    AtlassianSpacesOutcome Outcome,
+    IReadOnlyList<JiraProjectInfo>? Projects = null,
+    string? Error = null,
+    string? TroubleshootingUrl = null);
+
 /// <param name="Test">The test that ran: the failed probe for <see cref="AtlassianAddOutcome.TestFailed"/>, or a warning saved anyway.</param>
+/// <param name="Name">
+/// For <see cref="AtlassianAddOutcome.Conflict"/>, the site's connection for the same product; for
+/// <see cref="AtlassianAddOutcome.NameTaken"/>, the name this one would take, held by another connection.
+/// </param>
 public sealed record AtlassianAddResult(
     AtlassianAddOutcome Outcome,
     Connection? Connection = null,
     ConnectionTestResult? Test = null,
     string? SiteUrl = null,
     string? CloudId = null,
-    string? ClientId = null);
+    string? ClientId = null,
+    string? Name = null);
 
 /// <param name="Test">The test of the new credential, when one ran.</param>
 public sealed record AtlassianReplaceResult(
@@ -110,20 +140,28 @@ public sealed class AtlassianSiteService(
             : new AtlassianResolveResult(AtlassianResolveOutcome.Resolved, normalized, cloudId);
     }
 
+    /// <summary>The name a new site's connection is given: its host, marked for Jira.</summary>
+    public static string DefaultName(string host, AtlassianProduct product) =>
+        product == AtlassianProduct.Jira ? $"{host} (Jira)" : host;
+
     /// <param name="saveAnyway">
     /// Save a site whose only failure is a warning (no page or no other user yet to check
     /// administrator access against). Any other failure is never saved.
     /// </param>
+    /// <param name="product">
+    /// What the connection reads. A site has at most one connection per product; its Jira connection
+    /// is named apart from its Confluence one, which is named after the site's host alone.
+    /// </param>
     public async Task<AtlassianAddResult> AddAsync(
         string? siteUrl, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
-        CancellationToken ct = default)
+        AtlassianProduct product = AtlassianProduct.Confluence, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(siteUrl)
             || string.IsNullOrWhiteSpace(clientId)
             || string.IsNullOrWhiteSpace(clientSecret))
             return new AtlassianAddResult(AtlassianAddOutcome.MissingFields);
 
-        var result = await TestAsync("add", null, new AtlassianSiteTestRequest(siteUrl, clientId, clientSecret), ct);
+        var result = await TestAsync("add", null, new AtlassianSiteTestRequest(siteUrl, clientId, clientSecret, product), ct);
 
         if (!Saveable(result, saveAnyway)
             || !result.Details!.TryGetValue("cloudId", out object? cloudIdValue)
@@ -133,12 +171,20 @@ public sealed class AtlassianSiteService(
         string normalizedSite = (string)siteUrlValue;
         string cloudId = (string)cloudIdValue;
         string trimmedClientId = clientId.Trim();
-        string name = new Uri(normalizedSite).Host;
+        string host = new Uri(normalizedSite).Host;
+        string name = DefaultName(host, product);
 
-        string configJson = JsonSerializer.Serialize(new { siteUrl = normalizedSite, cloudId, clientId = trimmedClientId });
+        string configJson = JsonSerializer.Serialize(new
+        {
+            siteUrl = normalizedSite, cloudId, clientId = trimmedClientId, product = AtlassianSite.ProductValue(product),
+        });
 
         // Cancelled while the check ran: stop before anything is saved.
         ct.ThrowIfCancellationRequested();
+
+        // One connection per site and product, whatever it has been renamed to since.
+        if (await SiteConnectionAsync(cloudId, product, ct) is { } existing)
+            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: existing.Name);
 
         Connection connection;
         try
@@ -149,17 +195,29 @@ public sealed class AtlassianSiteService(
         }
         catch (InvalidOperationException)
         {
-            return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite);
+            return new AtlassianAddResult(AtlassianAddOutcome.NameTaken, SiteUrl: normalizedSite, Name: name);
         }
 
         await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),
-            new { Provider = "Atlassian", SiteUrl = normalizedSite, CloudId = cloudId, ClientId = trimmedClientId, SavedWithWarning = !result.Success }, ct);
+            new
+            {
+                Provider = "Atlassian", Product = AtlassianSite.ProductValue(product), SiteUrl = normalizedSite, CloudId = cloudId,
+                ClientId = trimmedClientId, SavedWithWarning = !result.Success,
+            }, ct);
 
         if (await connections.RecordHealthAsync(connection.Id, HealthOf(result), ct) is { } health)
             connection = connection with { Health = health };
 
         return new AtlassianAddResult(AtlassianAddOutcome.Created, connection, result, normalizedSite, cloudId, trimmedClientId);
     }
+
+    /// <summary>The site's saved connection for <paramref name="product"/>, if it has one.</summary>
+    private async Task<Connection?> SiteConnectionAsync(string cloudId, AtlassianProduct product, CancellationToken ct) =>
+        (await connections.ListAsync(take: int.MaxValue, ct: ct)).FirstOrDefault(c =>
+            c.Provider == ConnectionProvider.Atlassian
+            && AtlassianSite.FromConfigJson(c.ConfigJson) is { } site
+            && site.Product == product
+            && string.Equals(site.CloudId, cloudId, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Tests a new client ID and secret against the site's stored address and, only when they pass,
@@ -177,7 +235,7 @@ public sealed class AtlassianSiteService(
         if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return new AtlassianReplaceResult(AtlassianReplaceOutcome.MissingFields);
 
-        var result = await TestAsync("replace", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, clientId, clientSecret), ct);
+        var result = await TestAsync("replace", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, clientId, clientSecret, site.Product), ct);
         if (!Saveable(result, saveAnyway))
             return new AtlassianReplaceResult(AtlassianReplaceOutcome.TestFailed, Test: result);
 
@@ -212,53 +270,98 @@ public sealed class AtlassianSiteService(
     public async Task<AtlassianSpacesResult> ListSpacesAsync(
         Guid connectionId, bool includePersonal, CancellationToken ct = default)
     {
+        var (outcome, spaces, error, url) = await ListAsync(connectionId, AtlassianProduct.Confluence,
+            api => api.PageAsync("api/v2/spaces?status=current&limit=250", ReadSpaces, ct),
+            space => includePersonal || !string.Equals(space.Type, "personal", StringComparison.OrdinalIgnoreCase),
+            space => space.Name,
+            "Atlassian could not list this site's spaces. Check the service account's access and try again.",
+            AtlassianSiteTroubleshooting.NoSpaces, ct);
+        return new AtlassianSpacesResult(outcome, spaces, error, url);
+    }
+
+    /// <summary>
+    /// Lists the site's live Jira projects the service account can browse, as Jira itself answers
+    /// for that account. Failures are reduced to a message safe to show an admin, as for spaces.
+    /// </summary>
+    public async Task<AtlassianProjectsResult> ListProjectsAsync(Guid connectionId, CancellationToken ct = default)
+    {
+        var (outcome, projects, error, url) = await ListAsync(connectionId, AtlassianProduct.Jira,
+            api => api.PageByOffsetAsync("rest/api/3/project/search?action=browse&status=live", "values", ReadProject, 100, ct),
+            _ => true,
+            project => project.Name,
+            "Atlassian could not list this site's Jira projects. Check the service account's access and try again.",
+            AtlassianSiteTroubleshooting.CantReadJira, ct);
+        return new AtlassianProjectsResult(outcome, projects, error, url);
+    }
+
+    /// <summary>
+    /// What listing spaces and projects share: the connection is looked up and checked, the client
+    /// is pinned to <paramref name="product"/>, and every failure becomes a message without the secret.
+    /// </summary>
+    private async Task<(AtlassianSpacesOutcome Outcome, IReadOnlyList<T>? Items, string? Error, string? TroubleshootingUrl)> ListAsync<T>(
+        Guid connectionId, AtlassianProduct product, Func<AtlassianApiClient, IAsyncEnumerable<T>> list,
+        Func<T, bool> keep, Func<T, string> name, string unlistable, string refusedEntry, CancellationToken ct)
+    {
         Connection? connection = await connections.GetAsync(connectionId, ct);
         if (connection is null)
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.NotFound);
+            return (AtlassianSpacesOutcome.NotFound, null, null, null);
         if (connection.Provider != ConnectionProvider.Atlassian)
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.NotAtlassian);
+            return (AtlassianSpacesOutcome.NotAtlassian, null, null, null);
 
         AtlassianSite? site = AtlassianSite.FromConfigJson(connection.ConfigJson);
+        // Refused before the secret is read: the credential was granted for the connection's own product alone.
+        if (site is not null && site.Product != product)
+            return (AtlassianSpacesOutcome.WrongProduct, null, WrongProductMessage(site.Product), null);
+
         string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
         if (site is null || string.IsNullOrEmpty(secret))
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
-                Error: $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.");
+            return (AtlassianSpacesOutcome.Unavailable, null,
+                $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.", null);
 
         try
         {
             using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
-            var api = new AtlassianApiClient(http, tokens, site, secret);
+            var api = new AtlassianApiClient(http, tokens, site, secret, product: product);
 
-            var spaces = new List<ConfluenceSpaceInfo>();
-            await foreach (ConfluenceSpaceInfo space in api.PageAsync(
-                "api/v2/spaces?status=current&limit=250", ReadSpaces, ct))
+            var items = new List<T>();
+            await foreach (T item in list(api))
             {
-                if (includePersonal || !string.Equals(space.Type, "personal", StringComparison.OrdinalIgnoreCase))
-                    spaces.Add(space);
+                if (keep(item))
+                    items.Add(item);
             }
 
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Listed,
-                spaces.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList());
+            return (AtlassianSpacesOutcome.Listed, items.OrderBy(name, StringComparer.OrdinalIgnoreCase).ToList(), null, null);
         }
         catch (AtlassianRateLimitedException ex)
         {
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message,
-                TroubleshootingUrl: AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.General));
+            return (AtlassianSpacesOutcome.Unavailable, null, ex.Message,
+                AtlassianSiteTroubleshooting.UrlOf(AtlassianSiteTroubleshooting.General));
         }
         catch (AtlassianAuthException ex)
         {
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable, Error: ex.Message,
-                TroubleshootingUrl: AtlassianSyncErrors.TroubleshootingUrl(ex.Message));
+            return (AtlassianSpacesOutcome.Unavailable, null, ex.Message, AtlassianSyncErrors.TroubleshootingUrl(ex.Message));
         }
-        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException
+            or AtlassianMalformedResponseException)
         {
             // A refusal is the service account's access; anything else says nothing about it.
             bool refused = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound };
-            return new AtlassianSpacesResult(AtlassianSpacesOutcome.Unavailable,
-                Error: "Atlassian could not list this site's spaces. Check the service account's access and try again.",
-                TroubleshootingUrl: AtlassianSiteTroubleshooting.UrlOf(
-                    refused ? AtlassianSiteTroubleshooting.NoSpaces : AtlassianSiteTroubleshooting.Unreachable));
+            return (AtlassianSpacesOutcome.Unavailable, null, unlistable,
+                AtlassianSiteTroubleshooting.UrlOf(refused ? refusedEntry : AtlassianSiteTroubleshooting.Unreachable));
         }
+    }
+
+    private static string WrongProductMessage(AtlassianProduct actual) => actual == AtlassianProduct.Jira
+        ? "This is a Jira connection; list its projects instead."
+        : "This is a Confluence connection; list its spaces instead.";
+
+    private static JiraProjectInfo? ReadProject(JsonElement item)
+    {
+        // Ids are digits: the connector refuses any other project id, so none is offered.
+        string? id = Text(item, "id"), key = Text(item, "key");
+        if (id is not { Length: > 0 and <= 19 } || !id.All(char.IsAsciiDigit) || string.IsNullOrEmpty(key))
+            return null;
+        return new JiraProjectInfo(id, key, Text(item, "name") ?? key, Text(item, "projectTypeKey") ?? "");
     }
 
     private static IEnumerable<ConfluenceSpaceInfo> ReadSpaces(JsonElement root)
@@ -301,7 +404,7 @@ public sealed class AtlassianSiteService(
         if (secret is null)
             return null;
 
-        var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret), ct);
+        var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret, site.Product), ct);
         await connections.RecordHealthAsync(connectionId, HealthOf(result), ct);
         return result;
     }
@@ -328,9 +431,10 @@ public sealed class AtlassianSiteService(
         Guid attempt = Guid.NewGuid();
         string? host = AtlassianSiteResolver.NormalizeSiteUrl(request.SiteUrl) is { } normalized ? new Uri(normalized).Host : null;
         string? resourceId = connectionId?.ToString();
+        string product = AtlassianSite.ProductValue(request.Product);
 
         await audit.LogAsync("connection.test_started", "connection", resourceId,
-            new { Provider = "Atlassian", Mode = mode, Attempt = attempt, SiteHost = host, ClientId = request.ClientId?.Trim() }, ct);
+            new { Provider = "Atlassian", Product = product, Mode = mode, Attempt = attempt, SiteHost = host, ClientId = request.ClientId?.Trim() }, ct);
 
         var result = await tester.TestConnectionAsync(request, ct: ct);
         long totalMs = (long)(result.Duration ?? TimeSpan.Zero).TotalMilliseconds;
@@ -338,13 +442,14 @@ public sealed class AtlassianSiteService(
         if (result.Success)
         {
             await audit.LogAsync("connection.test_verified", "connection", resourceId,
-                new { Provider = "Atlassian", Mode = mode, Attempt = attempt, SiteHost = host, TotalMs = totalMs }, ct);
+                new { Provider = "Atlassian", Product = product, Mode = mode, Attempt = attempt, SiteHost = host, TotalMs = totalMs }, ct);
         }
         else
         {
             await audit.LogAsync("connection.test_step_failed", "connection", resourceId, new
             {
                 Provider = "Atlassian",
+                Product = product,
                 Mode = mode,
                 Attempt = attempt,
                 SiteHost = host,

@@ -218,31 +218,33 @@
                 case AtlassianSpacesOutcome.Listed:
                     selection.Available = listed.Spaces!;
                     selection.Selected.IntersectWith(listed.Spaces!.Select(s => s.Id));
-                    await RecordAsync(() => ConfluenceSourceSetupEvents.SpacesListedAsync(
+                    await RecordAsync(() => AtlassianSourceSetupEvents.ListedAsync(
                         Audit, selection, connectionId, listed.Spaces!.Count, durationMs));
                     break;
                 case AtlassianSpacesOutcome.Unavailable:
+                case AtlassianSpacesOutcome.WrongProduct:
                     selection.Available = [];
                     (loadError, loadErrorUrl) = (listed.Error, listed.TroubleshootingUrl);
-                    await RecordAsync(() => ConfluenceSourceSetupEvents.StepFailedAsync(
-                        Audit, selection, connectionId, ConfluenceSourceSetupEvents.SpacesStep, "unavailable"));
+                    await RecordAsync(() => AtlassianSourceSetupEvents.StepFailedAsync(
+                        Audit, selection, connectionId, AtlassianSourceSetupEvents.SpacesStep, "unavailable"));
                     break;
                 default:
                     selection.Available = [];
                     loadError = "That connection is not an Atlassian site.";
-                    await RecordAsync(() => ConfluenceSourceSetupEvents.StepFailedAsync(
-                        Audit, selection, connectionId, ConfluenceSourceSetupEvents.SpacesStep, "not_atlassian"));
+                    await RecordAsync(() => AtlassianSourceSetupEvents.StepFailedAsync(
+                        Audit, selection, connectionId, AtlassianSourceSetupEvents.SpacesStep, "not_atlassian"));
                     break;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // An exception escaping a Blazor lifecycle method tears down the circuit.
+            Logger.LogWarning(ex, "Could not list the spaces of Atlassian connection {ConnectionId}", connectionId);
             if (mine != generation) return;
             selection.Available = [];
-            loadError = "Could not list this site's spaces.";
-            await RecordAsync(() => ConfluenceSourceSetupEvents.StepFailedAsync(
-                Audit, selection, connectionId, ConfluenceSourceSetupEvents.SpacesStep, "error"));
+            loadError = "Could not list this site's spaces. Try again; if it keeps failing, test the site on the Connections page.";
+            await RecordAsync(() => AtlassianSourceSetupEvents.StepFailedAsync(
+                Audit, selection, connectionId, AtlassianSourceSetupEvents.SpacesStep, "error"));
         }
         finally
         {

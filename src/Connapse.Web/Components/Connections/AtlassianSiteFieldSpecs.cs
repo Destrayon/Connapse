@@ -1,4 +1,5 @@
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Web.Components.Providers;
 
 namespace Connapse.Web.Components.Connections;
@@ -29,6 +30,11 @@ public static class AtlassianSiteFieldSpecs
         "The address in your browser when you open Confluence, for example https://acme.atlassian.net.",
         SiteGroup, SiteConnectionSection, WhereToFind,
         Placeholder: "https://your-site.atlassian.net");
+
+    /// <summary>The Site URL field as a site of <paramref name="product"/> describes it: the address of that product.</summary>
+    public static ProviderFieldSpec SiteUrlFor(AtlassianProduct product) => product == AtlassianProduct.Jira
+        ? SiteUrl with { Help = "The address in your browser when you open Jira, for example https://acme.atlassian.net." }
+        : SiteUrl;
 
     public static readonly ProviderFieldSpec ClientId = new(
         "atlassian-client-id", "Client ID", ProviderFieldKind.Text, Required: true,

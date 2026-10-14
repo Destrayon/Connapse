@@ -6,6 +6,9 @@ using System.Text.Json;
 
 namespace Connapse.Storage.Connectors.Atlassian;
 
+/// <summary>Which of a site's APIs an <see cref="AtlassianApiClient"/> is pinned to.</summary>
+public enum AtlassianProduct { Confluence, Jira }
+
 /// <summary>
 /// Reads one Atlassian Cloud site's Confluence API as a service account. Every request is pinned
 /// to <c>https://api.atlassian.com/ex/confluence/{cloudId}</c>: a relative path is resolved
@@ -19,7 +22,7 @@ namespace Connapse.Storage.Connectors.Atlassian;
 /// </param>
 public sealed class AtlassianApiClient(
     HttpClient http, AtlassianTokenSource tokens, AtlassianSite site, string clientSecret, TimeProvider? time = null,
-    HttpClient? downloads = null)
+    HttpClient? downloads = null, AtlassianProduct product = AtlassianProduct.Confluence)
 {
     /// <summary>The name of the <see cref="IHttpClientFactory"/> client this class is built on.</summary>
     public const string HttpClientName = "Atlassian";
@@ -38,7 +41,11 @@ public sealed class AtlassianApiClient(
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
-    private string SitePath => $"/ex/confluence/{site.CloudId}";
+    public AtlassianProduct Product => product;
+
+    private string SitePath => $"/ex/{(product == AtlassianProduct.Jira ? "jira" : "confluence")}/{site.CloudId}";
+
+    public Uri JiraBase => new($"https://{ApiHost}/ex/jira/{site.CloudId}/");
 
     public Uri ConfluenceBase => new($"https://{ApiHost}{SitePath}/wiki/");
 
@@ -102,6 +109,100 @@ public sealed class AtlassianApiClient(
             next = link is null ? null : Resolve(link);
         }
     }
+
+    /// <summary>
+    /// Walks a Jira list paged by token: each response's items go through <paramref name="results"/>,
+    /// and the next page is the same GET with <c>nextPageToken</c> added, until the token is absent
+    /// or <c>isLast</c> is true.
+    /// </summary>
+    public async IAsyncEnumerable<T> PageByTokenAsync<T>(
+        string relative, Func<JsonElement, IEnumerable<T>> results, [EnumeratorCancellation] CancellationToken ct)
+    {
+        string? token = null;
+
+        // A server that hands back a token it already gave would otherwise be walked forever.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        do
+        {
+            string path = token is null ? relative : WithQuery(relative, "nextPageToken", token);
+            Uri current = Resolve(path);
+
+            using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, current), ct);
+            response.EnsureSuccessStatusCode();
+
+            using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            foreach (T item in results(doc.RootElement))
+                yield return item;
+
+            JsonElement root = doc.RootElement;
+            bool isLast = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("isLast", out var last) && last.ValueKind == JsonValueKind.True;
+            token = !isLast && root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("nextPageToken", out var next) && next.ValueKind == JsonValueKind.String
+                    ? next.GetString()
+                    : null;
+
+            if (!string.IsNullOrEmpty(token) && !seen.Add(token))
+                throw new InvalidOperationException("Atlassian repeated a paging token; refusing to loop.");
+        }
+        while (!string.IsNullOrEmpty(token));
+    }
+
+    /// <summary>
+    /// Walks a Jira list paged by offset (<c>startAt</c>, <c>maxResults</c>), reading each page's items
+    /// from <paramref name="arrayProperty"/>. <c>startAt</c> advances by the items a page returned
+    /// (Jira may cap <c>maxResults</c> below the request) until <c>isLast</c> is true, a page is empty,
+    /// or <c>startAt</c> reaches <c>total</c>. An item <paramref name="item"/> maps to null is skipped.
+    /// </summary>
+    public async IAsyncEnumerable<T> PageByOffsetAsync<T>(
+        string relative, string arrayProperty, Func<JsonElement, T?> item, int pageSize,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
+
+        for (int startAt = 0; ;)
+        {
+            string path = WithQuery(WithQuery(relative, "startAt", startAt.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                "maxResults", pageSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Uri current = Resolve(path);
+
+            using var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, current), ct);
+            response.EnsureSuccessStatusCode();
+
+            using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            JsonElement root = doc.RootElement;
+
+            // A page without its array, or one that starts somewhere other than asked, is not the
+            // page asked for: read as the end, or stepped past, it would drop items silently.
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(arrayProperty, out var array) || array.ValueKind != JsonValueKind.Array)
+                throw new AtlassianMalformedResponseException($"Atlassian returned a page with no {arrayProperty} array.");
+            if (root.TryGetProperty("startAt", out var answeredStart)
+                && !(answeredStart.ValueKind == JsonValueKind.Number && answeredStart.TryGetInt32(out int answered) && answered == startAt))
+                throw new AtlassianMalformedResponseException($"Atlassian answered a request for the page at {startAt} with another page.");
+
+            int count = 0;
+            foreach (JsonElement element in array.EnumerateArray())
+            {
+                count++;
+                if (item(element) is { } mapped)
+                    yield return mapped;
+            }
+
+            bool isLast = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("isLast", out var last) && last.ValueKind == JsonValueKind.True;
+            startAt += count;
+            bool reachedTotal = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("total", out var total) && total.ValueKind == JsonValueKind.Number
+                && total.TryGetInt32(out int totalCount) && startAt >= totalCount;
+            if (isLast || count == 0 || reachedTotal)
+                yield break;
+        }
+    }
+
+    private static string WithQuery(string relative, string name, string value) =>
+        $"{relative}{(relative.Contains('?') ? '&' : '?')}{name}={Uri.EscapeDataString(value)}";
 
     public async Task<Stream> GetStreamAsync(string relative, CancellationToken ct)
     {
@@ -219,7 +320,8 @@ public sealed class AtlassianApiClient(
             tokens.Invalidate(site, token);
             if (attempt >= 1)
                 throw new AtlassianAuthException(
-                    AtlassianSyncErrors.FreshTokenRefused, detail: "HTTP 401 twice, the second time with a new token");
+                    product == AtlassianProduct.Jira ? AtlassianSyncErrors.JiraFreshTokenRefused : AtlassianSyncErrors.FreshTokenRefused,
+                    detail: "HTTP 401 twice, the second time with a new token");
         }
     }
 
@@ -243,9 +345,11 @@ public sealed class AtlassianApiClient(
             return EnsureOnSite(absolute);
         }
 
-        Uri resolved = pathOrLink.StartsWith("/wiki/", StringComparison.Ordinal)
-            ? new Uri($"https://{ApiHost}{SitePath}{pathOrLink}")
-            : new Uri(ConfluenceBase, pathOrLink.TrimStart('/'));
+        Uri resolved = product == AtlassianProduct.Jira
+            ? new Uri(JiraBase, pathOrLink.TrimStart('/'))
+            : pathOrLink.StartsWith("/wiki/", StringComparison.Ordinal)
+                ? new Uri($"https://{ApiHost}{SitePath}{pathOrLink}")
+                : new Uri(ConfluenceBase, pathOrLink.TrimStart('/'));
 
         return EnsureOnSite(resolved);
     }

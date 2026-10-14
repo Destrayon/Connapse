@@ -32,7 +32,8 @@ public class AtlassianSiteFieldSpecDocsTests
             "2-service-account", "3-site-connection",
             "site-not-found", "client-id-or-secret-rejected", "cant-read-confluence",
             "no-confluence-access-or-no-spaces", "not-confluence-administrator", "missing-scope",
-            "site-has-no-pages-or-no-other-users-yet", "troubleshooting");
+            "site-has-no-pages-or-no-other-users-yet", "cant-read-jira", "not-jira-administrator", "cant-read-jira-membership",
+            "troubleshooting");
         AtlassianSiteFieldSpecs.All.Select(f => f.GuideUrl.Split('#')[1]).Should().BeSubsetOf(AtlassianSiteFieldSpecs.GuideAnchors);
     }
 
@@ -95,8 +96,37 @@ public class AtlassianSiteStatusTests
     {
         AtlassianSiteStatus.Of(Site(null)).Text.Should().StartWith("Not checked yet");
         AtlassianSiteStatus.Of(Site(Check(ok: true))).Text.Should().Be("Working");
-        AtlassianSiteStatus.Of(Site(Check(ok: false, warning: true, step: "admin"))).Text.Should().Contain("not confirmed");
+        AtlassianSiteStatus.Of(Site(Check(ok: false, warning: true, step: "admin"))).Text.Should().Be("Saved with a warning: Checking access permissions couldn't finish yet");
         AtlassianSiteStatus.Of(Site(Check(ok: false, step: "spaces"))).Text.Should().Be("Last check failed: Listing spaces");
+    }
+
+    [Fact]
+    public void IsReady_OnlyForTheConnectionsOwnProduct_WhenItsLastCheckPassedOrWarned()
+    {
+        AtlassianSiteStatus.IsReady(Site(null), AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse("not checked yet");
+        AtlassianSiteStatus.IsReady(Site(Check(ok: true)), AtlassianSiteScopes.ConfluenceProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: false, warning: true, step: "admin")), AtlassianSiteScopes.ConfluenceProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: false, step: "token")), AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse();
+        AtlassianSiteStatus.IsReady(Site(Check(ok: true)), AtlassianSiteScopes.JiraProduct).Should().BeFalse("a connection without a product is Confluence");
+
+        Connection jira = Site(Check(ok: true)) with { ConfigJson = JiraConfig };
+        AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.JiraProduct).Should().BeTrue();
+        AtlassianSiteStatus.IsReady(jira, AtlassianSiteScopes.ConfluenceProduct).Should().BeFalse();
+    }
+
+    private const string JiraConfig =
+        """{"siteUrl":"https://acme.atlassian.net","cloudId":"11111111-2222-3333-4444-555555555555","clientId":"x","product":"jira"}""";
+
+    [Fact]
+    public void Label_NamesTheConnectionsProduct()
+    {
+        Connection confluence = Site(null);
+        Connection jira = Site(null) with { Name = "acme.atlassian.net (Jira)", ConfigJson = JiraConfig };
+
+        AtlassianSiteStatus.ProductName(confluence).Should().Be("Confluence", "a connection without a product is Confluence");
+        AtlassianSiteStatus.ProductName(jira).Should().Be("Jira");
+        AtlassianSiteStatus.Label(confluence, "acme.atlassian.net").Should().Be("Confluence · acme.atlassian.net");
+        AtlassianSiteStatus.Label(jira, jira.Name).Should().Be("Jira · acme.atlassian.net (Jira)");
     }
 
     [Fact]
@@ -138,6 +168,29 @@ public class ConnectionsPageLifecycleTests
     public void AtlassianRows_ShowTheSiteStatus()
     {
         Markup.Should().Contain("AtlassianSiteStatus.Of(c)").And.Contain("Replace credentials");
+    }
+
+    [Fact]
+    public void AddConnection_OffersAConfluenceSiteAndAJiraSite()
+    {
+        Markup.Should().Contain("@bind=\"form.ProviderChoice\"")
+            .And.Contain("<option value=\"@ConnectionForm.ConfluenceSiteChoice\">Confluence site</option>")
+            .And.Contain("<option value=\"@ConnectionForm.JiraSiteChoice\">Jira site</option>")
+            .And.NotContain(">Atlassian site</option>");
+        Markup.Should().Contain("Product=\"@form.AtlassianProduct\"", "each add form shows its own product's scopes and steps");
+    }
+
+    [Fact]
+    public void ProviderList_IsLockedWhileAnAtlassianCheckRuns()
+    {
+        Markup.Should().Contain("@bind=\"form.ProviderChoice\" disabled=\"@(!isNew || atlassianChecking)\"")
+            .And.Contain("CheckingChanged=\"@((bool checking) => atlassianChecking = checking)\"");
+    }
+
+    [Fact]
+    public void AtlassianRows_NameTheProductBesideTheHost()
+    {
+        Markup.Should().Contain("AtlassianSiteStatus.Label(connection, form.AtlassianSiteHost ?? \"—\")");
     }
 
     [Fact]

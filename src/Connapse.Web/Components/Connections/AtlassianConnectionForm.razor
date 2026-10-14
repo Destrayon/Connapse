@@ -94,9 +94,9 @@
         </p>
 
         <details class="mb-2 small" id="atlassian-site-scopes">
-            <summary>Permissions Connapse needs (@ConfirmedCount(site) of @AtlassianSiteScopes.All.Count confirmed by the last test)</summary>
+            <summary>Permissions Connapse needs (@ConfirmedCount(site, Scopes) of @Scopes.Count confirmed by the last test)</summary>
             <ul class="list-unstyled mt-2 mb-0">
-                @foreach (AtlassianScope scope in AtlassianSiteScopes.All)
+                @foreach (AtlassianScope scope in Scopes)
                 {
                     bool confirmed = site.Health?.ConfirmedScopes?.Contains(scope.Name, StringComparer.OrdinalIgnoreCase) ?? false;
                     <li class="mb-2">
@@ -200,48 +200,107 @@
     }
     else
     {
-        <p class="small text-muted" id="atlassian-site-intro">
-            An Atlassian Cloud site, read as a service account.
-            This service account reads your site for Atlassian sources and checks each user's access.
-            The site is saved only once every check passes.
-        </p>
+        @if (IsJira)
+        {
+            <p class="small text-muted" id="atlassian-site-intro">
+                A Jira Cloud site, read as a service account.
+                This service account reads your site's Jira projects for Jira sources and checks each user's access.
+                The site is saved once every check passes, or with Save anyway when the only problem is a warning.
+            </p>
+        }
+        else
+        {
+            <p class="small text-muted" id="atlassian-site-intro">
+                A Confluence Cloud site, read as a service account.
+                This service account reads your site's Confluence spaces for Confluence sources and checks each user's access.
+                The site is saved once every check passes, or with Save anyway when the only problem is a warning.
+            </p>
+        }
 
         <details class="border rounded p-3 mb-3" open id="atlassian-service-account-guide">
             <summary class="fw-semibold small">Create the service account in Atlassian admin</summary>
             <p class="small mt-2 mb-2">
                 You need to be an organization admin, and the organization must use centralized user management.
                 Service accounts are free (five per organization) and don't take a product seat.
+                @if (IsJira)
+                {
+                    <text>For steps 3 and 4 you also need a Jira admin, to change permission schemes and space (project) roles.
+                    On Jira's Free plan, space (project) roles can't be edited, so comments can't be restricted to roles you create.</text>
+                }
                 <a href="@AtlassianSiteFieldSpecs.ServiceAccountSection" target="_blank" rel="noopener">Step-by-step guide<span class="visually-hidden"> (opens in a new tab)</span></a>
             </p>
-            <ol class="small">
-                <li>
-                    In <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian Administration<span class="visually-hidden"> (opens in a new tab)</span></a>,
-                    go to <strong>Directory</strong> &rarr; <strong>Service accounts</strong> &rarr; <strong>Create a service account</strong>.
-                    Name it (6 to 30 letters or digits, for example <code>connapse</code>).
-                </li>
-                <li>
-                    On <strong>Select app roles</strong>, set <strong>Confluence</strong> to its admin role and leave other apps at None.
-                    Connapse needs Confluence admin rights to ask what each person may read, and Check and save checks for them.
-                    If it reports the account isn't an administrator, change its Confluence role here, under
-                    <strong>Directory</strong> &rarr; <strong>Service accounts</strong>, or add it to the site's Confluence admin group
-                    under <strong>Directory</strong> &rarr; <strong>Groups</strong>.
-                </li>
-                <li>
-                    In every space you will index, give the service account (or a group it is in) at least view access. Open the
-                    space, choose <strong>&bull;&bull;&bull;</strong> next to its name in the sidebar &rarr; <strong>Space settings</strong>
-                    &rarr; <strong>Users</strong>, add the service account and give it the <strong>Viewer</strong> role. On sites without
-                    space roles the page is <strong>Permissions</strong>, where it needs <strong>View</strong>.
-                    Being an admin does not grant this. Pages with view restrictions that don't include the service account are skipped.
-                </li>
-                <li>
-                    Back on the service account, choose <strong>Create credentials</strong> &rarr; <strong>OAuth 2.0</strong>. On
-                    <strong>Select scopes</strong>, choose <strong>Copy required scopes</strong> below and paste it into the search
-                    box: the list narrows to exactly these @RequiredScopes.Count, so tick each one. Only if a source will include
-                    attachments, choose <strong>Copy with the attachments permission</strong> instead, which adds
-                    <code>@Connapse.Web.Components.Sources.ConfluenceSpaceSelection.AttachmentScope</code>; you can add it later when a source needs it.
-                    Create it, then copy the client ID and secret: the secret is shown only once.
-                </li>
-            </ol>
+            @if (IsJira)
+            {
+                <ol class="small">
+                    <li>
+                        In <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian Administration<span class="visually-hidden"> (opens in a new tab)</span></a>,
+                        go to <strong>Directory</strong> &rarr; <strong>Service accounts</strong> &rarr; <strong>Create a service account</strong>.
+                        Name it (6 to 30 letters or digits, for example <code>connapse</code>). A service account you already use for
+                        this site can serve Jira too.
+                    </li>
+                    <li>
+                        On <strong>Select app roles</strong>, set <strong>Jira</strong> to <strong>User</strong> (access to Jira) and
+                        <strong>Jira Administration</strong> to <strong>App admin</strong>, which gives the
+                        <strong>Administer Jira</strong> and <strong>Browse users and groups</strong> permissions. Connapse needs them to ask
+                        what each person may read, and Check and save checks for them. App admin doesn't add the account to any group, so
+                        Jira's <strong>Global permissions</strong> page won't list it. If the check fails, add the service account to the
+                        <strong>jira-admins-</strong><em>site</em> group under <strong>Directory</strong> &rarr; <strong>Groups</strong> and test again.
+                    </li>
+                    <li>
+                        The service account must be able to see every project you will index (on Premium sites Jira calls projects spaces).
+                        A team-managed space set to <strong>Open</strong> or <strong>Limited</strong> under <strong>&bull;&bull;&bull;</strong> next to its
+                        name &rarr; <strong>Space settings</strong> (<strong>Project settings</strong>) &rarr; <strong>Access</strong> already lets it; a <strong>Private</strong> one needs it added as
+                        <strong>Viewer</strong>. A company-managed project on the default permission scheme already grants <strong>Browse Spaces</strong>
+                        (<strong>Browse Projects</strong>) to everyone with Jira access. A project it can't see is not listed.
+                    </li>
+                    <li>
+                        Add the service account to every group and space (project) role your team restricts comments to. A comment
+                        restricted to a group or role it isn't in is never indexed, and Connapse can't tell it exists.
+                    </li>
+                    <li>
+                        Back on the service account, choose <strong>Create credentials</strong> &rarr; <strong>OAuth 2.0</strong>. On
+                        <strong>Select scopes</strong>, choose <strong>Copy required scopes</strong> below and paste it into the search
+                        box, then tick each of these @RequiredScopes.Count scopes. Only if a source will include
+                        attachments, choose <strong>Copy with the attachments permission</strong> instead, which adds
+                        <code>@Connapse.Web.Components.Sources.JiraProjectSelection.AttachmentScope</code>; you can add it later when a source needs it.
+                        Make this a credential for Jira only, not one made for another product. Its scopes can't
+                        be changed later: to change them, create a new credential, use <strong>Replace credentials</strong>, then revoke the old one.
+                        Create it, then copy the client ID and secret: the secret is shown only once.
+                    </li>
+                </ol>
+            }
+            else
+            {
+                <ol class="small">
+                    <li>
+                        In <a href="@AdminUrl" target="_blank" rel="noopener">Atlassian Administration<span class="visually-hidden"> (opens in a new tab)</span></a>,
+                        go to <strong>Directory</strong> &rarr; <strong>Service accounts</strong> &rarr; <strong>Create a service account</strong>.
+                        Name it (6 to 30 letters or digits, for example <code>connapse</code>).
+                    </li>
+                    <li>
+                        On <strong>Select app roles</strong>, set <strong>Confluence</strong> to its admin role. Leave other apps as they are: None on a new service account, or the roles it already has for another product.
+                        Connapse needs Confluence admin rights to ask what each person may read, and Check and save checks for them.
+                        If it reports the account isn't an administrator, change its Confluence role here, under
+                        <strong>Directory</strong> &rarr; <strong>Service accounts</strong>, or add it to the site's Confluence admin group
+                        under <strong>Directory</strong> &rarr; <strong>Groups</strong>.
+                    </li>
+                    <li>
+                        In every space you will index, give the service account (or a group it is in) at least view access. Open the
+                        space, choose <strong>&bull;&bull;&bull;</strong> next to its name in the sidebar &rarr; <strong>Space settings</strong>
+                        &rarr; <strong>Users</strong>, add the service account and give it the <strong>Viewer</strong> role. On sites without
+                        space roles the page is <strong>Permissions</strong>, where it needs <strong>View</strong>.
+                        Being an admin does not grant this. Pages with view restrictions that don't include the service account are skipped.
+                    </li>
+                    <li>
+                        Back on the service account, choose <strong>Create credentials</strong> &rarr; <strong>OAuth 2.0</strong>. On
+                        <strong>Select scopes</strong>, choose <strong>Copy required scopes</strong> below and paste it into the search
+                        box, then tick each of these @RequiredScopes.Count scopes. Only if a source will include
+                        attachments, choose <strong>Copy with the attachments permission</strong> instead, which adds
+                        <code>@Connapse.Web.Components.Sources.ConfluenceSpaceSelection.AttachmentScope</code>; you can add it later when a source needs it.
+                        Create it, then copy the client ID and secret: the secret is shown only once.
+                    </li>
+                </ol>
+            }
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                 <strong class="small">Scopes</strong>
                 <button type="button" id="atlassian-copy-required" class="btn btn-sm btn-outline-secondary" @onclick="CopyRequiredScopes">
@@ -252,11 +311,11 @@
                     <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy with the attachments permission
                 </button>
                 <span id="atlassian-copy-with-attachments-help" class="visually-hidden">Only if a source will include attachments.</span>
-                <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
+                <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status" id="atlassian-copy-status">@copyMessage</span>
             </div>
-            <div class="small fw-semibold mb-1">Confluence</div>
-            <ul class="list-unstyled small mb-0" id="atlassian-scopes-confluence">
-                @foreach (AtlassianScope scope in AtlassianSiteScopes.All)
+            <div class="small fw-semibold mb-1">@AtlassianSiteScopes.DisplayName(ShownProduct)</div>
+            <ul class="list-unstyled small mb-0" id="@($"atlassian-scopes-{ShownProduct}")">
+                @foreach (AtlassianScope scope in Scopes)
                 {
                     <li class="mb-2">
                         <div class="d-flex align-items-center gap-2">
@@ -278,8 +337,24 @@
 
         <h3 class="h6 mt-3">Site</h3>
         <div @onfocusout="() => { ValidateSiteUrl(blur: true); }">
-            <ProviderField Spec="AtlassianSiteFieldSpecs.SiteUrl" Small="true" Value="@siteUrl" ValueChanged="OnSiteUrlChanged"
-                           Error="@siteUrlError" Disabled="@(busy || lookingUp)" />
+            <ProviderField Spec="AtlassianSiteFieldSpecs.SiteUrlFor(Product)" Small="true" Value="@siteUrl" ValueChanged="OnSiteUrlChanged"
+                           Error="@siteUrlError" Disabled="@(busy || lookingUp)"
+                           ListId="@(SuggestedSiteUrls.Count > 0 ? "atlassian-known-sites" : null)" />
+            @if (SuggestedSiteUrls.Count > 0)
+            {
+                <datalist id="atlassian-known-sites">
+                    @foreach (string known in SuggestedSiteUrls)
+                    {
+                        <option value="@known"></option>
+                    }
+                </datalist>
+            }
+            @if (prefilledSiteUrl is not null && siteUrl == prefilledSiteUrl)
+            {
+                <div class="form-text mt-n2 mb-2" id="atlassian-site-url-prefilled">
+                    Filled in from this site's @(IsJira ? "Confluence" : "Jira") connection. Change it to add another site.
+                </div>
+            }
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
             <button type="button" id="atlassian-resolve" class="btn btn-sm btn-outline-secondary" disabled="@(busy || lookingUp)" @onclick="ResolveAsync">
@@ -355,6 +430,12 @@
     /// <summary>An Atlassian connection being edited; null to add a new site.</summary>
     [Parameter] public Connection? Existing { get; set; }
 
+    /// <summary>The product a new site's connection reads; a saved site's comes from its config.</summary>
+    [Parameter] public AtlassianProduct Product { get; set; } = AtlassianProduct.Confluence;
+
+    private AtlassianProduct? shownNewProduct;
+    private string? prefilledSiteUrl;
+
     /// <summary>Raised with the connection once a new site passes every probe and is saved.</summary>
     [Parameter] public EventCallback<Connection> OnCreated { get; set; }
 
@@ -362,6 +443,12 @@
     [Parameter] public EventCallback<Connection> OnUpdated { get; set; }
 
     [Parameter] public EventCallback OnCancel { get; set; }
+
+    /// <summary>
+    /// Raised when Check and save starts and when it ends, so the page can lock the product choice:
+    /// a switch mid-check would land one product's result or connection under the other's form.
+    /// </summary>
+    [Parameter] public EventCallback<bool> CheckingChanged { get; set; }
 
     /// <summary>Raised when the Replace credentials section opens or closes, so the page can keep one primary action.</summary>
     [Parameter] public EventCallback<bool> ReplacingChanged { get; set; }
@@ -452,10 +539,28 @@
     /// </summary>
     [Parameter] public bool StartReplacing { get; set; }
 
+    /// <summary>Sites saved for the other product only, offered in Site URL; the only one is filled in.</summary>
+    [Parameter] public IReadOnlyList<string> SuggestedSiteUrls { get; set; } = [];
+
     // Only another site replaces what is shown: the parent's copy of this one goes stale after a
     // re-test or a replace, which refresh it here.
     protected override async Task OnParametersSetAsync()
     {
+        // Choosing the other product for a new site drops the last result, which was that product's.
+        if (Product != shownNewProduct)
+        {
+            shownNewProduct = Product;
+            // A filled-in address belongs to the product it was offered for, so switching product refills it.
+            if (Existing is null && (string.IsNullOrEmpty(siteUrl) || siteUrl == prefilledSiteUrl))
+            {
+                prefilledSiteUrl = SuggestedSiteUrls.Count == 1 ? SuggestedSiteUrls[0] : null;
+                siteUrl = prefilledSiteUrl;
+            }
+            saveResult = null;
+            saveError = null;
+            copyMessage = null;
+        }
+
         if (Existing?.Id == current?.Id)
             return;
 
@@ -497,7 +602,7 @@
         }
 
         siteUrlError = AtlassianSiteResolver.NormalizeSiteUrl(siteUrl) is null
-            ? "Enter the address as https://your-site.atlassian.net, the address in your browser when you open Confluence."
+            ? InvalidAddressMessage
             : null;
         return siteUrlError is null;
     }
@@ -534,7 +639,7 @@
                     cloudId = resolved.CloudId;
                     break;
                 case AtlassianResolveOutcome.InvalidAddress:
-                    siteUrlError = "Enter the address as https://your-site.atlassian.net, the address in your browser when you open Confluence.";
+                    siteUrlError = InvalidAddressMessage;
                     break;
                 default:
                     resolveError = $"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}. Check the spelling against your browser's address bar.";
@@ -576,12 +681,13 @@
         string submittedSecret = kept!.Value;
 
         busy = true;
+        await CheckingChanged.InvokeAsync(true);
         saveCts?.Dispose();
         saveCts = new CancellationTokenSource();
         CancellationToken ct = saveCts.Token;
         try
         {
-            var added = await Sites.AddAsync(siteUrl, clientId, submittedSecret, await UserIdAsync(), saveAnyway, ct);
+            var added = await Sites.AddAsync(siteUrl, clientId, submittedSecret, await UserIdAsync(), saveAnyway, Product, ct);
             switch (added.Outcome)
             {
                 case AtlassianAddOutcome.Created:
@@ -595,7 +701,10 @@
                     ValidateCredentialFields();
                     break;
                 case AtlassianAddOutcome.Conflict:
-                    saveError = $"A connection named '{new Uri(added.SiteUrl!).Host}' already exists. Open it from the list to test it or replace its credentials.";
+                    saveError = $"A connection named '{added.Name}' already exists. Open it from the list to test it or replace its credentials.";
+                    break;
+                case AtlassianAddOutcome.NameTaken:
+                    saveError = $"Another connection is already named '{added.Name}'. Rename it, then try again.";
                     break;
                 default:
                     saveResult = added.Test;
@@ -614,6 +723,7 @@
         finally
         {
             busy = false;
+            await CheckingChanged.InvokeAsync(false);
         }
     }
 
@@ -731,8 +841,8 @@
         }
     }
 
-    private static int ConfirmedCount(Connection site) =>
-        AtlassianSiteScopes.All.Count(s => site.Health?.ConfirmedScopes?.Contains(s.Name, StringComparer.OrdinalIgnoreCase) ?? false);
+    private static int ConfirmedCount(Connection site, IReadOnlyList<AtlassianScope> scopes) =>
+        scopes.Count(s => site.Health?.ConfirmedScopes?.Contains(s.Name, StringComparer.OrdinalIgnoreCase) ?? false);
 
     private static string SourcesPhrase(Connection site) => site.SourceCount switch
     {
@@ -758,17 +868,31 @@
         }
     }
 
+    /// <summary>The product the form shows, as <c>confluence</c> or <c>jira</c>: the saved site's, or the new site's.</summary>
+    private string ShownProduct => current is { } site ? AtlassianSiteStatus.ProductOf(site) : AtlassianSite.ProductValue(Product);
+
+    private bool IsJira => ShownProduct == AtlassianSiteScopes.JiraProduct;
+
+    /// <summary>The scopes of the product the form shows; a connection's credential needs no other product's.</summary>
+    private IReadOnlyList<AtlassianScope> Scopes => AtlassianSiteScopes.Of(ShownProduct);
+
+    private string InvalidAddressMessage =>
+        $"Enter the address as https://your-site.atlassian.net, the address in your browser when you open {AtlassianSiteScopes.DisplayName(ShownProduct)}.";
+
     /// <summary>
-    /// The scopes every site needs, space separated: all but the attachment permission, which is
-    /// asked for only when a source turns attachments on.
+    /// The scopes a Confluence site needs, space separated: all but the attachment permission, which
+    /// is asked for only when a source turns attachments on. The form copies its own product's list.
     /// </summary>
-    public static string RequiredScopeList => string.Join(' ', RequiredScopes.Select(s => s.Name));
+    public static string RequiredScopeList => string.Join(' ', AtlassianSiteScopes.Confluence.Where(s => !s.Optional).Select(s => s.Name));
 
-    private static IReadOnlyList<AtlassianScope> RequiredScopes => AtlassianSiteScopes.All.Where(s => !s.Optional).ToList();
+    /// <summary>The Jira scopes a Jira site needs, space separated: all but the attachment permission.</summary>
+    public static string RequiredJiraScopeList => string.Join(' ', AtlassianSiteScopes.Jira.Where(s => !s.Optional).Select(s => s.Name));
 
-    private Task CopyRequiredScopes() => CopyAsync(RequiredScopeList);
+    private IReadOnlyList<AtlassianScope> RequiredScopes => Scopes.Where(s => !s.Optional).ToList();
 
-    private Task CopyAllScopes() => CopyAsync(ConfluenceScopeList);
+    private Task CopyRequiredScopes() => CopyAsync(string.Join(' ', RequiredScopes.Select(s => s.Name)));
+
+    private Task CopyAllScopes() => CopyAsync(string.Join(' ', Scopes.Select(s => s.Name)));
 
     // Through the shared helper: navigator.clipboard is undefined outside a secure context, and
     // Connapse is routinely served over plain HTTP on a LAN.

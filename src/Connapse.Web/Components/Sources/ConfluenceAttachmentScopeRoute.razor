@@ -7,13 +7,13 @@
 <div id="@Id" class="alert alert-warning py-2 small mt-2 mb-0" role="status">
     <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
     <strong>Attachments need one more permission.</strong>
-    The last test of @(SiteName ?? "this site") didn't confirm <code>@ConfluenceSpaceSelection.AttachmentScope</code>,
-    so attachments would be skipped while pages and comments keep syncing. To add it:
+    The last test of @(SiteName ?? "this site") didn't confirm <code>@Scope</code>,
+    so attachments would be skipped while @(Scope == ConfluenceSpaceSelection.AttachmentScope ? "pages" : "issues") and comments keep syncing. To add it:
     <ol class="mb-1 mt-1 ps-3">
         <li>
             In <a href="https://admin.atlassian.com" target="_blank" rel="noopener">Atlassian Administration<span class="visually-hidden"> (opens in a new tab)</span></a>,
             create a new OAuth 2.0 credential on the service account with the site's scopes plus
-            <code>@ConfluenceSpaceSelection.AttachmentScope</code>.
+            <code>@Scope</code>.
         </li>
         <li>
             <a id="@($"{Id}-replace")" href="@ConfluenceSpaceSelection.ReplaceCredentialsUrl(ConnectionId)" target="_blank" rel="noopener">Replace credentials on @(SiteName ?? "the site")<span class="visually-hidden"> (opens in a new tab)</span></a>
@@ -30,4 +30,7 @@
     [Parameter, EditorRequired] public Guid ConnectionId { get; set; }
 
     [Parameter] public string? SiteName { get; set; }
+
+    /// <summary>The permission to add: Confluence's unless a Jira source asks for its own.</summary>
+    [Parameter] public string Scope { get; set; } = ConfluenceSpaceSelection.AttachmentScope;
 }

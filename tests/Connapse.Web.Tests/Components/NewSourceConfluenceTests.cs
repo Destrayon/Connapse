@@ -49,11 +49,13 @@ public class NewSourceConfluenceTests : IDisposable
         Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
             ConfirmedScopes: ["read:space:confluence", "read:page:confluence", ConfluenceSpaceSelection.AttachmentScope]));
 
-    /// <summary>A site whose last test confirmed no attachment scope (it has never been tested).</summary>
+    /// <summary>A site whose last test passed but confirmed no attachment scope.</summary>
     private readonly Connection otherConnection = new(
         Guid.NewGuid(), "globex.atlassian.net", ConnectionProvider.Atlassian,
         $$"""{"siteUrl":"https://globex.atlassian.net","cloudId":"{{OtherCloudId}}","clientId":"client-2"}""",
-        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+        null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true,
+        Health: new ConnectionHealth(DateTime.UtcNow, Succeeded: true, Step: null, Message: null, Origin: "test",
+            ConfirmedScopes: ["read:space:confluence", "read:page:confluence"]));
 
     public NewSourceConfluenceTests()
     {
@@ -185,16 +187,16 @@ public class NewSourceConfluenceTests : IDisposable
         cut.Find("#space-100").Change(true);
         cut.Find("#space-200").Change(true);
         cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
-        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(ConfluenceSourceSetupEvents.Completed));
+        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(AtlassianSourceSetupEvents.Completed));
 
         var setup = SetupEvents();
-        setup.Select(e => e.Action).Should().StartWith([ConfluenceSourceSetupEvents.Started, ConfluenceSourceSetupEvents.SpacesListed])
-            .And.EndWith(ConfluenceSourceSetupEvents.Completed);
+        setup.Select(e => e.Action).Should().StartWith([AtlassianSourceSetupEvents.Started, AtlassianSourceSetupEvents.SpacesListed])
+            .And.EndWith(AtlassianSourceSetupEvents.Completed);
         setup.Should().OnlyContain(e => e.ResourceId == connection.Id.ToString());
         setup.Select(e => Detail(e.Details, "Attempt").GetString()).Distinct().Should().ContainSingle(
             "every event of one dialog shares its attempt, so drop-off can be counted");
 
-        var listed = setup.First(e => e.Action == ConfluenceSourceSetupEvents.SpacesListed).Details;
+        var listed = setup.First(e => e.Action == AtlassianSourceSetupEvents.SpacesListed).Details;
         Detail(listed, "Count").GetInt32().Should().Be(2);
         Detail(listed, "DurationMs").GetInt64().Should().BeGreaterThanOrEqualTo(0);
         var completed = setup.Last().Details;
@@ -212,11 +214,11 @@ public class NewSourceConfluenceTests : IDisposable
 
         cut.Find("#new-source-dialog .modal-footer button.btn-primary").Click();
 
-        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(ConfluenceSourceSetupEvents.StepFailed));
-        var failed = SetupEvents().Single(e => e.Action == ConfluenceSourceSetupEvents.StepFailed).Details;
-        Detail(failed, "Step").GetString().Should().Be(ConfluenceSourceSetupEvents.CreateStep);
+        cut.WaitForAssertion(() => SetupEvents().Select(e => e.Action).Should().Contain(AtlassianSourceSetupEvents.StepFailed));
+        var failed = SetupEvents().Single(e => e.Action == AtlassianSourceSetupEvents.StepFailed).Details;
+        Detail(failed, "Step").GetString().Should().Be(AtlassianSourceSetupEvents.CreateStep);
         Detail(failed, "Reason").GetString().Should().Be("invalid");
-        SetupEvents().Select(e => e.Action).Should().NotContain(ConfluenceSourceSetupEvents.Completed);
+        SetupEvents().Select(e => e.Action).Should().NotContain(AtlassianSourceSetupEvents.Completed);
     }
 
     [Fact]
@@ -257,7 +259,7 @@ public class NewSourceConfluenceTests : IDisposable
         var cut = OpenDialog();
         cut.WaitForAssertion(() => cut.FindAll(".confluence-space-option").Should().HaveCount(2));
 
-        var guide = cut.Find("#confluence-setup-guide");
+        var guide = cut.Find("#atlassian-setup-guide");
         guide.GetAttribute("href").Should().Be(
             "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
         guide.ParentElement!.ClassList.Should().Contain("modal-header", "the link sits in the dialog's title row");
@@ -418,6 +420,27 @@ public class NewSourceConfluenceTests : IDisposable
 
         cut.Find("#confluence-attachments").HasAttribute("checked").Should().BeTrue();
         cut.FindAll("#confluence-attachments-scope").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Dialog_SiteWhoseLastTestFailed_SaysSoBeforeAnySpaceIsTickedAndLinksTheSite()
+    {
+        var failing = otherConnection with
+        {
+            Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token", Message: "rejected", Origin: "test"),
+        };
+        connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([connection, failing]));
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>()
+            .NavigateTo($"/sources?new={failing.Id}");
+
+        var cut = ctx.Render<SourcesPage>();
+
+        cut.WaitForAssertion(() => cut.Find("#atlassian-site-not-ready").TextContent
+            .Should().Contain(ConfluenceSourceScope.ConfluenceNotReady));
+        cut.Find("#atlassian-site-not-ready a").GetAttribute("href").Should().Be($"/connections?edit={failing.Id}");
+        cut.FindAll(".confluence-space-option").Should().BeEmpty();
+        cut.Find("#new-source-dialog .modal-footer button.btn-primary").HasAttribute("disabled").Should().BeTrue();
     }
 
     [Fact]

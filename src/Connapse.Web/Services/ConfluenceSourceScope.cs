@@ -1,8 +1,8 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Storage.ConnectionTesters;
+using Connapse.Web.Components.Connections;
 using Connapse.Web.Components.Sources;
 
 namespace Connapse.Web.Services;
@@ -14,158 +14,45 @@ namespace Connapse.Web.Services;
 /// Atlassian's answer, so an API-created source matches a UI-created one. Field names are the
 /// scope keys the dialog writes: <c>spaceId</c>, <c>includeAttachments</c>, <c>maxAttachmentMb</c>.
 /// </summary>
-public static class ConfluenceSourceScope
+public sealed class ConfluenceSourceScope : AtlassianSourceScope
 {
-    public enum Outcome { Valid, Invalid, Duplicate, Unavailable }
+    public const string ConfluenceNotReady = "Confluence sources can be added once this site passes a test. Choose Test connection on the Connections page.";
 
-    /// <summary>The checked scope and default name, or what is wrong and with which field.</summary>
-    public sealed record Result(Outcome Outcome, string? ScopeJson = null, string? DefaultName = null, string? Error = null, string? Field = null)
+    private static readonly ScopeTexts Texts = new(
+        NotAnObject: "The scope must be a JSON object naming spaceId, as in {\"spaceId\":\"98306\"}.",
+        IdError: "\"spaceId\" must be a Confluence space id, a string of digits such as \"98306\".",
+        MissingId: connectionId =>
+            $"A Confluence source's scope needs \"spaceId\": the id of a space on the site. List them with GET /api/v1/atlassian/sites/{connectionId}/spaces.",
+        Unavailable: "Could not check the space against this site. Try again.",
+        NotOnSite: (spaceId, connectionId) =>
+            $"Space {spaceId} is not a space the site's service account can view. Give the service account the Viewer role in that space, "
+            + $"or pick an id from GET /api/v1/atlassian/sites/{connectionId}/spaces.",
+        Duplicate: name => $"Space '{name}' already has a source on this connection.",
+        IdFixed: "A Confluence source's space cannot be changed. Add the space as a new source.");
+
+    private ConfluenceSourceScope()
     {
-        public static Result Fail(Outcome outcome, string field, string error) => new(outcome, Error: error, Field: field);
     }
 
-    public static async Task<Result> ResolveAsync(
-        string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore, CancellationToken ct)
-    {
-        if (Read(scopeJson) is not { } parsed)
-            return Result.Fail(Outcome.Invalid, "scopeJson", "The scope must be a JSON object naming spaceId, as in {\"spaceId\":\"98306\"}.");
-        if (parsed.Error is not null)
-            return Result.Fail(Outcome.Invalid, parsed.Field!, parsed.Error);
-        if (parsed.SpaceId is not { } spaceId)
-            return Result.Fail(Outcome.Invalid, "spaceId",
-                $"A Confluence source's scope needs \"spaceId\": the id of a space on the site. List them with GET /api/v1/atlassian/sites/{connection.Id}/spaces.");
+    public static Task<Result> ResolveAsync(
+        string? scopeJson, Connection connection, AtlassianSiteService sites, ISourceStore sourceStore, CancellationToken ct) =>
+        ResolveAsync<ConfluenceSpaceInfo, ConfluenceSpaceSelection>(scopeJson, connection, sites, sourceStore, Texts, AtlassianProduct.Confluence,
+            NotReady(connection), ct);
 
-        var selection = new ConfluenceSpaceSelection
-        {
-            // Left out, attachments are on only when the site's last test confirmed their scope, as on the dialog.
-            IncludeAttachments = parsed.IncludeAttachments ?? ConfluenceSpaceSelection.AttachmentScopeConfirmed(connection.Health),
-            MaxAttachmentMb = parsed.MaxAttachmentMb ?? ConfluenceSpaceSelection.DefaultMaxAttachmentMb,
-        };
-        selection.Selected.Add(spaceId);
-        if (selection.Validate() is not null)
-            return Result.Fail(Outcome.Invalid, "maxAttachmentMb", selection.MaxAttachmentMbError!);
-
-        if (AtlassianSite.FromConfigJson(connection.ConfigJson) is not { } site)
-            return Result.Fail(Outcome.Invalid, "connectionId",
-                $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.");
-
-        // Asked now, as the site's service account, exactly as the dialog asks before it creates anything.
-        var onSite = await sites.ListSpacesAsync(connection.Id, includePersonal: true, ct);
-        if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
-            return Result.Fail(Outcome.Unavailable, "spaceId",
-                onSite.Error ?? "Could not check the space against this site. Try again.");
-
-        var verified = selection.VerifiedAgainst(onSite.Spaces!, out var refused);
-        if (refused.Count > 0)
-            return Result.Fail(Outcome.Invalid, "spaceId",
-                $"Space {spaceId} is not a space the site's service account can view. Give the service account the Viewer role in that space, "
-                + $"or pick an id from GET /api/v1/atlassian/sites/{connection.Id}/spaces.");
-
-        var existing = ConfluenceSpaceSelection.SpaceIdsOf(await sourceStore.ListByConnectionAsync(connection.Id, ct));
-        var requests = verified.ToRequests(connection.Id, new Uri(site.SiteUrl).Host, existing, out var skipped);
-        if (skipped.Count > 0)
-            return Result.Fail(Outcome.Duplicate, "spaceId", $"Space '{skipped[0]}' already has a source on this connection.");
-
-        var request = requests.Single();
-        return new Result(Outcome.Valid, request.ScopeJson, request.Name);
-    }
+    /// <summary>
+    /// Why no Confluence source may be added on <paramref name="connection"/> now, or null when one may:
+    /// the same rule as for Jira, asked by the API and the New source dialog alike.
+    /// </summary>
+    public static string? NotReady(Connection connection) =>
+        AtlassianSiteStatus.IsReady(connection, AtlassianSiteScopes.ConfluenceProduct) ? null
+        : AtlassianSiteStatus.Of(connection).NeedsNewCredentials ? NeedsNewCredentials("Confluence")
+        : ConfluenceNotReady;
 
     /// <summary>
     /// A changed scope for an existing Confluence source. Its space is fixed: indexed documents are
     /// keyed to it, so moving a source to another space in place is refused. Only what to read from
     /// the space may change, under the same rules as when it was created.
     /// </summary>
-    public static Result Update(string currentScopeJson, string? newScopeJson)
-    {
-        if (Read(newScopeJson) is not { } parsed)
-            return Result.Fail(Outcome.Invalid, "scopeJson", "The scope must be a JSON object.");
-        if (parsed.Error is not null)
-            return Result.Fail(Outcome.Invalid, parsed.Field!, parsed.Error);
-
-        JsonObject current;
-        try
-        {
-            current = JsonNode.Parse(currentScopeJson) as JsonObject ?? [];
-        }
-        catch (JsonException)
-        {
-            current = [];
-        }
-
-        string? currentSpaceId = Read(currentScopeJson)?.SpaceId;
-        if (parsed.SpaceId is { } spaceId && !string.Equals(spaceId, currentSpaceId, StringComparison.Ordinal))
-            return Result.Fail(Outcome.Invalid, "spaceId",
-                "A Confluence source's space cannot be changed. Add the space as a new source.");
-
-        bool includeAttachments = parsed.IncludeAttachments
-            ?? (current["includeAttachments"]?.GetValueKind() is JsonValueKind.False ? false : true);
-        int storedMb = current["maxAttachmentMb"] is JsonValue v && v.TryGetValue(out int stored)
-            ? ConfluenceSpaceSelection.StorableMaxAttachmentMb(stored)
-            : ConfluenceSpaceSelection.DefaultMaxAttachmentMb;
-        int maxAttachmentMb = parsed.MaxAttachmentMb ?? storedMb;
-
-        var selection = new ConfluenceSpaceSelection { IncludeAttachments = includeAttachments, MaxAttachmentMb = maxAttachmentMb };
-        if (!selection.ValidateMaxAttachmentMb())
-            return Result.Fail(Outcome.Invalid, "maxAttachmentMb", selection.MaxAttachmentMbError!);
-
-        // Not checked with attachments off, so an out-of-range size then keeps the stored one.
-        maxAttachmentMb = ConfluenceSpaceSelection.StorableMaxAttachmentMb(maxAttachmentMb, storedMb);
-
-        current["includeAttachments"] = includeAttachments;
-        current["maxAttachmentMb"] = maxAttachmentMb;
-        return new Result(Outcome.Valid, current.ToJsonString());
-    }
-
-    private sealed record Parsed(string? SpaceId, bool? IncludeAttachments, int? MaxAttachmentMb, string? Error = null, string? Field = null);
-
-    /// <summary>The scope's fields, or null when it is not a JSON object. A field of the wrong type is reported, not ignored.</summary>
-    private static Parsed? Read(string? scopeJson)
-    {
-        JsonObject? scope;
-        try
-        {
-            scope = JsonNode.Parse(string.IsNullOrWhiteSpace(scopeJson) ? "{}" : scopeJson) as JsonObject;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        if (scope is null)
-            return null;
-
-        string? spaceId = null;
-        if (scope["spaceId"] is { } id)
-        {
-            spaceId = id.GetValueKind() switch
-            {
-                JsonValueKind.String => id.GetValue<string>().Trim(),
-                JsonValueKind.Number => id.ToJsonString(),
-                _ => null,
-            };
-            // The connector's own rule for a content id: digits only, which is all it will sync.
-            if (spaceId is not { Length: > 0 and <= 19 } || !spaceId.All(char.IsAsciiDigit))
-                return new Parsed(null, null, null, "\"spaceId\" must be a Confluence space id, a string of digits such as \"98306\".", "spaceId");
-        }
-
-        bool? includeAttachments = null;
-        if (scope["includeAttachments"] is { } include)
-        {
-            if (include.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False))
-                return new Parsed(null, null, null, "\"includeAttachments\" must be true or false.", "includeAttachments");
-            includeAttachments = include.GetValue<bool>();
-        }
-
-        int? maxAttachmentMb = null;
-        if (scope["maxAttachmentMb"] is { } max)
-        {
-            if (max is not JsonValue value || !value.TryGetValue(out int mb))
-                return new Parsed(null, null, null,
-                    $"\"maxAttachmentMb\" must be a whole number from {ConfluenceSpaceSelection.MinAttachmentMb} to {ConfluenceSpaceSelection.MaxAttachmentMbLimit}.",
-                    "maxAttachmentMb");
-            maxAttachmentMb = mb;
-        }
-
-        return new Parsed(spaceId, includeAttachments, maxAttachmentMb);
-    }
+    public static Result Update(string currentScopeJson, string? newScopeJson) =>
+        Update(currentScopeJson, newScopeJson, "spaceId", Texts);
 }
