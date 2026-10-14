@@ -85,3 +85,15 @@ public class ConnectionSecretUnavailableException(Guid connectionId, Exception i
 {
     public Guid ConnectionId { get; } = connectionId;
 }
+
+/// <summary>
+/// A source's own stored credential could not be decrypted — the same lost or unshared key ring as
+/// <see cref="ConnectionSecretUnavailableException"/>, for a credential a source holds without a connection.
+/// </summary>
+public class SourceSecretUnavailableException(Guid sourceId, Exception inner)
+    : Exception($"The stored secret for source '{sourceId}' could not be decrypted. " +
+                "The DataProtection key ring that encrypted it is unavailable, so the credential " +
+                "must be re-entered.", inner)
+{
+    public Guid SourceId { get; } = sourceId;
+}

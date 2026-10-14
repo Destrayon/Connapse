@@ -590,6 +590,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("settings_overrides")
                 .HasColumnType("jsonb");
 
+            entity.Property(e => e.SecretProtected)
+                .HasColumnName("secret_protected");
+
             entity.Property(e => e.Enabled)
                 .HasColumnName("enabled")
                 .HasDefaultValue(true);

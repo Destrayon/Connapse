@@ -78,6 +78,14 @@ public class CustomSourceModelTests
     }
 
     [Fact]
+    public void CreateSourceRequest_ToString_NeverPrintsTheSecret()
+    {
+        CreateSourceRequest request = new("s", null, "{}", Provider: ConnectionProvider.Custom, Secret: "hunter2-token");
+
+        request.ToString().Should().NotContain("hunter2-token").And.Contain("***");
+    }
+
+    [Fact]
     public void SyncDelta_DeletedPrefixes_DefaultsToNone()
     {
         SyncDelta delta = new([], [], "c", RequiresFullResync: false);
