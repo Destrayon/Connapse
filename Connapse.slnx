@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Connapse.CustomSource.Example/Connapse.CustomSource.Example.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Connapse.Agents/Connapse.Agents.csproj" />
     <Project Path="src/Connapse.Background/Connapse.Background.csproj" />
@@ -21,5 +24,6 @@
     <Project Path="tests/Connapse.Web.Tests/Connapse.Web.Tests.csproj" />
     <Project Path="tests/Connapse.Eval/Connapse.Eval.csproj" />
     <Project Path="tests/Connapse.Eval.Tests/Connapse.Eval.Tests.csproj" />
+    <Project Path="tests/Connapse.CustomSource.Example.Tests/Connapse.CustomSource.Example.Tests.csproj" />
   </Folder>
 </Solution>

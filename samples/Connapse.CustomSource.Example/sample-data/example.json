@@ -1,0 +1,23 @@
+{
+  "name": "Example folder bridge",
+  "token": "change-me-example-token",
+  "page_size": 100,
+  "permissions_enabled": true,
+  "max_check_batch": 100,
+  "link_secret": "change-me-link-secret-at-least-32-characters",
+  "connapse_issuer": "http://localhost:5001",
+  "provider_id": "paste-the-connapse-provider-id-here",
+  "scopes": [
+    { "id": "eng", "name": "Engineering", "description": "Engineering handbook and design notes" },
+    { "id": "ops", "name": "Operations", "description": "Runbooks" }
+  ],
+  "grants": {
+    "alice": ["folder:eng/", "folder:eng/design"],
+    "bob": ["folder:eng/", "folder:ops/"]
+  },
+  "denies": {
+    "alice": ["eng/design/incident-review.md"]
+  },
+  "preset_links": {},
+  "users": ["alice", "bob"]
+}
