@@ -26,6 +26,7 @@
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
 @inject Connapse.Storage.Connectors.GitHub.GitHubCredentialPool GitHubPool
 @inject IProviderCredentialStore CredentialStore
+@inject ICustomProviderStore CustomProviders
 @inject NavigationManager Navigation
 @inject IAuditLogger AuditLogger
 @inject ConnectionAdminService Admin
@@ -600,6 +601,9 @@
                 </option>
                 <option value="@ConnectionForm.ConfluenceSiteChoice">Confluence site</option>
                 <option value="@ConnectionForm.JiraSiteChoice">Jira site</option>
+                <option value="@ConnectionProvider.Custom" disabled="@(customProviders is { Count: 0 } && isNew)">
+                    Custom provider (permission checks)@(customProviders is { Count: 0 } ? " (add a custom provider first)" : "")
+                </option>
             </select>
             @if (!isNew)
             {
@@ -904,6 +908,36 @@
                                 Syncing stops if this stops matching.
                             </span>
                         }
+                    </div>
+                }
+            </div>
+        }
+        else if (form.Provider == ConnectionProvider.Custom)
+        {
+            @* A custom connection holds no credential: it names the custom provider whose middle man
+               answers the permission questions for the custom sources that use it. *@
+            <div class="col-12" style="max-width:32rem">
+                <label class="form-label" for="custom-provider">Custom provider</label>
+                @if (customProviders is { Count: 0 })
+                {
+                    <div class="alert alert-info py-2 small mb-0" role="status">
+                        No custom providers yet. <a class="alert-link" href="/admin/providers/custom/new">Add one</a> first.
+                    </div>
+                }
+                else
+                {
+                    <select id="custom-provider" class="form-select" value="@form.CustomProviderId"
+                            @onchange="e => form.CustomProviderId = Guid.TryParse(e.Value?.ToString(), out Guid id) ? id : null"
+                            disabled="@(!isNew)" aria-describedby="custom-provider-help">
+                        <option value="">Choose a custom provider</option>
+                        @foreach (var provider in customProviders ?? [])
+                        {
+                            <option value="@provider.Id">@provider.Name (@provider.BaseUrl)</option>
+                        }
+                    </select>
+                    <div id="custom-provider-help" class="form-text">
+                        Custom sources on this connection are searched with this provider's live permission check.
+                        Each source still enters its own token.
                     </div>
                 }
             </div>
@@ -1519,6 +1553,7 @@
     protected override async Task OnInitializedAsync()
     {
         allowedRoots = SourceSecurity.CurrentValue.AllowedFilesystemRoots;
+        customProviders = await CustomProviders.ListAsync();
         await LoadAsync();
     }
 
@@ -1527,6 +1562,9 @@
 
     /// <summary>Null until checked. GitHub connections are installations of the provider's App, so none can exist without it.</summary>
     private bool? gitHubAppConfigured;
+
+    /// <summary>The custom providers a Custom connection may name.</summary>
+    private IReadOnlyList<CustomProvider>? customProviders;
 
     /// <summary>GitHub's page for installing the App somewhere new; it returns here with the installation.</summary>
     private string? gitHubInstallUrl;

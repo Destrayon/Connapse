@@ -40,6 +40,9 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     /// <summary>How the next evaluations call misbehaves, if at all.</summary>
     public EvaluationQuirk Quirk { get; set; }
 
+    /// <summary>Answers requests whatever token they carry, as a carelessly built middle man might.</summary>
+    public bool AcceptAnyToken { get; set; }
+
     /// <summary>Every paged response repeats the same next-page token, as a broken middle man might.</summary>
     public bool RepeatPageToken { get; set; }
     public HttpStatusCode? FailNextWith { get; set; }
@@ -90,7 +93,7 @@ public sealed class FakeMiddleMan : HttpMessageHandler
             return failed;
         }
 
-        if (LastAuthorization != $"Bearer {Token}")
+        if (!AcceptAnyToken && LastAuthorization != $"Bearer {Token}")
             return new HttpResponseMessage(HttpStatusCode.Unauthorized);
 
         string path = request.RequestUri.AbsolutePath;
