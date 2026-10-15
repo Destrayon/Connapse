@@ -139,7 +139,7 @@ public sealed class RevokedSourceTests(SharedWebAppFixture fixture)
         public IConnector Create(Source source, Connection connection, string? secret = null) =>
             throw new InvalidOperationException("connection-less only");
 
-        public IConnector Create(Source source) => new Connector(this);
+        public IConnector Create(Source source, string? secret = null) => new Connector(this);
 
         private sealed class Connector(SwitchableFactory owner) : ISyncCursorConnector
         {

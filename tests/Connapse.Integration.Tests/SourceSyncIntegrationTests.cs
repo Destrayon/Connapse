@@ -182,7 +182,7 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     private sealed class FixedConnectorFactory(IConnector connector) : IConnectorFactory
     {
         public IConnector Create(Source source, Connection connection, string? secret = null) => connector;
-        public IConnector Create(Source source) =>
+        public IConnector Create(Source source, string? secret = null) =>
             throw new NotSupportedException("connection-less sources are not exercised by this fixture");
     }
 
