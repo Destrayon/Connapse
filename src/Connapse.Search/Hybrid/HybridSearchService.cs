@@ -112,8 +112,6 @@ public class HybridSearchService : IKnowledgeSearch
         // AWS-only/non-cloud deployments (Azure AD not configured) the multiplier is 1, so this
         // costs nothing extra and VerifyAsync passes every hit through untouched.
         var verifier = scope.ServiceProvider.GetRequiredService<ISearchResultVerifier>();
-        int overFetch = Math.Max(1, verifier.CandidateMultiplier);
-        SearchOptions retrieveOptions = options with { TopK = options.TopK * overFetch };
 
         // One resolution per search, taken here because this is where the query fans out. Doing it
         // inside each leaf would mean two answers for one query, and hybrid would be the mode in
@@ -136,6 +134,11 @@ public class HybridSearchService : IKnowledgeSearch
         }
 
         scopes = ScopeResolution.Guard(scopes, options.UserId);
+
+        // Sized after resolving: resolvers record which connections exist, and a verifier's multiplier
+        // read before that would under-fetch on the first search after start-up.
+        int overFetch = Math.Max(1, verifier.CandidateMultiplier);
+        SearchOptions retrieveOptions = options with { TopK = options.TopK * overFetch };
 
         switch (mode)
         {

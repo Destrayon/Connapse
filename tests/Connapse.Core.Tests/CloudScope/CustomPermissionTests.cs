@@ -234,12 +234,20 @@ public class CustomPermissionTests
     }
 
     [Fact]
-    public void CandidateMultiplier_OverFetchesUnlessCustomConnectionsAreKnownAbsent()
+    public void CandidateMultiplier_OverFetchesOnlyOnceACustomConnectionIsKnown()
     {
-        Verifier().CandidateMultiplier.Should().Be(3);
+        Verifier().CandidateMultiplier.Should().Be(1);
         _presence.Record(false);
         Verifier().CandidateMultiplier.Should().Be(1);
         _presence.Record(true);
+        Verifier().CandidateMultiplier.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task CandidateMultiplier_AfterTheFirstResolveWithACustomConnection_OverFetches()
+    {
+        await Resolver().ResolveAsync(Alice);
+
         Verifier().CandidateMultiplier.Should().Be(3);
     }
 
