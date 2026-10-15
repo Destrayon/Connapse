@@ -101,6 +101,9 @@ public class JiraProjectFormTests : IDisposable
                 lock (events) events.Add((c.ArgAt<string>(0), JsonSerializer.Serialize(c.ArgAt<object?>(3))));
             });
         ctx.Services.AddSingleton(audit);
+        ctx.Services.AddSingleton(new Connapse.Web.Services.CustomSourceSetup(
+            NSubstitute.Substitute.For<IHttpClientFactory>(),
+            NSubstitute.Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.CustomSourceSettings>>()));
         ctx.Services.AddSingleton(new AtlassianSiteService(
             http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens));
         var authorization = Substitute.For<IAuthorizationService>();
