@@ -39,6 +39,11 @@ public class PostgresSourceStore(
         if (request.ConnectionId is not null && request.Provider is not null)
             throw new ArgumentException("a source must have exactly one of a connection or a provider", nameof(request));
 
+        // The URL rules depend on deployment settings and are applied where those are read (the setup
+        // check and the connector factory); the store only refuses a scope that names no middle man.
+        if (request.Provider is ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
+            throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+
         await using var context = await factory.CreateDbContextAsync(ct);
 
         if (request.ConnectionId is Guid cid)
