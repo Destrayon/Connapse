@@ -787,9 +787,12 @@ public class IngestionPipeline : IKnowledgeIngester
         // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
         // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
         // rather than being swallowed.
-        string? secret = connection.HasSecret
-            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
-            : null;
+        // A custom connection holds no credential; its sources read content with their own token.
+        string? secret = connection.Provider == ConnectionProvider.Custom
+            ? source.HasSecret ? await _sourceStore.GetSecretAsync(source.Id, ct) : null
+            : connection.HasSecret
+                ? await _connectionStore.GetSecretAsync(connection.Id, ct)
+                : null;
 
         return _connectorFactory.Create(source, connection, secret);
     }

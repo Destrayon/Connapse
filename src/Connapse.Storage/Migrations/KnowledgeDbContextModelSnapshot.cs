@@ -378,6 +378,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.PrimitiveCollection<string[]>("AccessKeys")
+                        .HasColumnType("text[]")
+                        .HasColumnName("access_keys");
+
                     b.Property<int>("AttemptCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -500,6 +504,11 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("summary_status");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccessKeys")
+                        .HasDatabaseName("idx_documents_access_keys");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("AccessKeys"), "gin");
 
                     b.HasIndex("ContainerId")
                         .HasDatabaseName("idx_documents_container_id");

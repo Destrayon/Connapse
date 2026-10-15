@@ -270,7 +270,8 @@ public sealed record CustomDocument(
     long? Size,
     string? Version,
     DateTimeOffset? ModifiedAt,
-    string? Url);
+    string? Url,
+    IReadOnlyList<string>? AccessKeys = null);
 
 public sealed record CustomListingPage(IReadOnlyList<CustomDocument>? Items, string? NextPageToken, string? ChangeCursor);
 

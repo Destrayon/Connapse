@@ -204,10 +204,14 @@ public class SourceSyncService(
             }
             else
             {
-                string? secret = connection.HasSecret
-                    ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
-                        .GetSecretAsync(connection.Id, ct)
-                    : null;
+                // A custom connection holds no credential: its sources read content with their own token,
+                // exactly as they would without the connection.
+                string? secret = connection.Provider == ConnectionProvider.Custom
+                    ? source.HasSecret ? await sourceStore.GetSecretAsync(source.Id, ct) : null
+                    : connection.HasSecret
+                        ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
+                            .GetSecretAsync(connection.Id, ct)
+                        : null;
 
                 connector = connectorFactory.Create(source, connection, secret);
             }
@@ -691,6 +695,7 @@ public class SourceSyncService(
         // is exactly the case that matters: a stable source is the one that would otherwise never
         // acquire coordinates at all.
         int located = 0;
+        int rekeyedCount = 0;
 
         foreach (var file in files)
         {
@@ -703,14 +708,28 @@ public class SourceSyncService(
             //
             // Rows arrive AsNoTracking, so a stub carries the single changed column rather than
             // the whole entity, and rides the SaveChangesAsync already at the end of this method.
-            if (existing is not null &&
-                file.ResourceUri is not null &&
-                !string.Equals(existing.ResourceUri, file.ResourceUri, StringComparison.Ordinal))
+            //
+            // A connected custom source's access keys ride the same stub, and are compared as a whole and
+            // replaced, never merged: a key the middle man stopped listing must stop matching. Updating
+            // them here rather than through ingestion is what keeps a permission change from re-embedding.
+            bool relocated = existing is not null && file.ResourceUri is not null
+                && !string.Equals(existing.ResourceUri, file.ResourceUri, StringComparison.Ordinal);
+            bool rekeyed = existing is not null && file.AccessKeys is not null
+                && !SameKeys(existing.AccessKeys, file.AccessKeys);
+            if (relocated || rekeyed)
             {
-                var stub = new DocumentEntity { Id = existing.Id };
+                var stub = new DocumentEntity { Id = existing!.Id };
                 context.Documents.Attach(stub);
-                stub.ResourceUri = file.ResourceUri;
-                located++;
+                if (relocated)
+                {
+                    stub.ResourceUri = file.ResourceUri;
+                    located++;
+                }
+                if (rekeyed)
+                {
+                    stub.AccessKeys = [.. file.AccessKeys!];
+                    rekeyedCount++;
+                }
             }
 
             // Without this the fallback path re-ingests the entire remote on every cycle:
@@ -748,6 +767,7 @@ public class SourceSyncService(
                     ContentType = file.ContentType,
                     Path = file.Path,
                     ResourceUri = file.ResourceUri,
+                    AccessKeys = file.AccessKeys is null ? null : [.. file.AccessKeys],
                     ContentHash = string.Empty,
                     SizeBytes = file.SizeBytes,
                     CreatedAt = DateTime.UtcNow,
@@ -764,7 +784,7 @@ public class SourceSyncService(
 
         // One round trip, and before any enqueue: a claim that did not persist must not have a
         // job pointing at it.
-        if (claims.Count > 0 || due.Count > 0 || located > 0)
+        if (claims.Count > 0 || due.Count > 0 || located > 0 || rekeyedCount > 0)
             await context.SaveChangesAsync(ct);
 
         foreach (var file in due)
@@ -921,6 +941,9 @@ public class SourceSyncService(
         }
         return paths;
     }
+
+    private static bool SameKeys(string[]? stored, IReadOnlyList<string> listed) =>
+        stored is not null && stored.ToHashSet(StringComparer.Ordinal).SetEquals(listed);
 
     private async Task<int> DeleteByPathsAsync(
         Source source, IReadOnlyList<string> paths, KnowledgeDbContext context,

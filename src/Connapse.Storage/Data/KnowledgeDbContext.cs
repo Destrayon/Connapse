@@ -254,6 +254,14 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasDatabaseName("idx_documents_resource_uri")
                 .HasOperators("text_pattern_ops");
 
+            // Searched with && (overlap) against the keys a user holds, which GIN answers.
+            entity.Property(e => e.AccessKeys)
+                .HasColumnName("access_keys")
+                .HasColumnType("text[]");
+            entity.HasIndex(e => e.AccessKeys)
+                .HasDatabaseName("idx_documents_access_keys")
+                .HasMethod("gin");
+
             entity.HasOne(e => e.Container)
                 .WithMany(c => c.Documents)
                 .HasForeignKey(e => e.ContainerId)

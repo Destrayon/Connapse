@@ -47,7 +47,10 @@ public record ConnectorFile(
     string? ContentType,
     string? ResourceUri = null,
     IReadOnlyDictionary<string, string>? Metadata = null,
-    ChunkingStrategy? Strategy = null);
+    ChunkingStrategy? Strategy = null,
+    // The middle man's access keys for a connected custom source's document, written to
+    // documents.access_keys so search can rank only what a user may hold. Null for every other source.
+    IReadOnlyList<string>? AccessKeys = null);
 public record ConnectorFileEvent(ConnectorFileEventType EventType, string Path, string? OldPath = null);
 public enum ConnectorFileEventType { Created, Changed, Deleted, Renamed }
 

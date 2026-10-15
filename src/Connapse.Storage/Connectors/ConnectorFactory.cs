@@ -146,6 +146,10 @@ public class ConnectorFactory(
 
             ConnectionProvider.Atlassian => CreateAtlassian(source, scope, connection, secret),
 
+            // The same connector a content-only custom source uses, with its own token; the custom
+            // connection only adds the URIs and keys its documents are checked by.
+            ConnectionProvider.Custom => CreateCustomSource(source, secret, permissionsFor: source.Id),
+
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };
     }
@@ -181,7 +185,7 @@ public class ConnectorFactory(
     /// A content-only custom source. The URL rules are checked again here, not only when the source is
     /// saved, so a tightened <c>CustomSources:AllowedHttpHosts</c> stops an existing source from syncing.
     /// </summary>
-    private Custom.CustomSourceConnector CreateCustomSource(Source source, string? secret)
+    private Custom.CustomSourceConnector CreateCustomSource(Source source, string? secret, Guid? permissionsFor = null)
     {
         CustomSourceScope scope = CustomSourceScope.TryParse(source.ScopeJson)
             ?? throw new InvalidOperationException(
@@ -197,7 +201,7 @@ public class ConnectorFactory(
 
         Custom.CustomSourceClient client = new(
             httpClientFactory.CreateClient(Custom.CustomSourceClient.HttpClientName), baseUrl, secret);
-        return new Custom.CustomSourceConnector(client, scope with { BaseUrl = baseUrl });
+        return new Custom.CustomSourceConnector(client, scope with { BaseUrl = baseUrl }, permissionsFor);
     }
 
     /// <summary>

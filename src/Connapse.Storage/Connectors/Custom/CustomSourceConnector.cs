@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 
 namespace Connapse.Storage.Connectors.Custom;
 
@@ -14,11 +15,15 @@ namespace Connapse.Storage.Connectors.Custom;
 /// <c>/{escaped id}/</c>. The file name carries the extension the parsers are chosen by.
 /// </para>
 /// <para>
-/// Content-only documents carry no resource URI, like public GitHub documents: everyone who can search
-/// sources may read them, and a URI would put them behind a permission resolver none of them has.
+/// One connector for every custom source. Without a connection (<paramref name="permissionsFor"/> null) its
+/// documents carry no resource URI, like public GitHub documents: everyone who can search sources may read
+/// them. On a custom connection they carry <c>custom://{source}/{id}</c> and the middle man's access keys,
+/// which is what search filters and checks them by.
 /// </para>
 /// </summary>
-public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourceScope scope) : ISyncCursorConnector
+/// <param name="permissionsFor">The source's ID when it is on a custom connection; null when content only.</param>
+public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourceScope scope, Guid? permissionsFor = null)
+    : ISyncCursorConnector
 {
     private static readonly Dictionary<string, string> ExtensionByContentType = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -33,6 +38,9 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
     };
 
     public ConnectorType Type => ConnectorType.Custom;
+
+    /// <summary>The source whose documents carry URIs and keys, when it is on a custom connection.</summary>
+    public Guid? PermissionsFor => permissionsFor;
 
     public bool SupportsLiveWatch => false;
 
@@ -157,7 +165,7 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
             DeletedPrefixes: order.Select(PrefixOf).ToList());
     }
 
-    private static ConnectorFile? ToFile(CustomDocument item)
+    private ConnectorFile? ToFile(CustomDocument item)
     {
         if (string.IsNullOrEmpty(item.Id)) return null;
 
@@ -166,7 +174,8 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
             SizeBytes: item.Size ?? 0,
             LastModified: Signature(item),
             ContentType: item.ContentType,
-            ResourceUri: null);
+            ResourceUri: permissionsFor is { } sourceId ? CustomResourceUri.For(sourceId, item.Id) : null,
+            AccessKeys: permissionsFor is null ? null : (item.AccessKeys ?? []).Where(k => k.Length > 0).Distinct(StringComparer.Ordinal).ToList());
     }
 
     /// <summary>
