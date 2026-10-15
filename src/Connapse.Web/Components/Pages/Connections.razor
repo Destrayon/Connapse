@@ -495,6 +495,11 @@
                                                 <span class="text-muted">GitHub App installation</span>
                                             }
                                         }
+                                        else if (c.Provider == ConnectionProvider.Custom)
+                                        {
+                                            @* No credential of its own: each source keeps its token, and the provider answers permissions. *@
+                                            <span class="text-muted">Permission checks by @CustomProviderName(c)</span>
+                                        }
                                         else
                                         {
                                             <span class="text-muted">From environment</span>
@@ -1565,6 +1570,12 @@
 
     /// <summary>The custom providers a Custom connection may name.</summary>
     private IReadOnlyList<CustomProvider>? customProviders;
+
+    private string CustomProviderName(Connection connection) =>
+        CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } id
+        && customProviders?.FirstOrDefault(p => p.Id == id) is { } provider
+            ? provider.Name
+            : "a custom provider that no longer exists";
 
     /// <summary>GitHub's page for installing the App somewhere new; it returns here with the installation.</summary>
     private string? gitHubInstallUrl;
