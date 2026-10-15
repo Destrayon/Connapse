@@ -48,9 +48,13 @@ public class PostgresSourceStore(
 
         if (request.ConnectionId is Guid cid)
         {
-            bool connectionExists = await context.Connections.AnyAsync(c => c.Id == cid, ct);
-            if (!connectionExists)
+            int? connectionProvider = await context.Connections.Where(c => c.Id == cid).Select(c => (int?)c.Provider).FirstOrDefaultAsync(ct);
+            if (connectionProvider is null)
                 throw new InvalidOperationException($"Connection '{request.ConnectionId}' does not exist.");
+
+            // A custom source is the same with or without a custom connection: its scope must name the middle man.
+            if (connectionProvider == (int)ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
+                throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
         }
 
         bool nameTaken = await context.Sources.AnyAsync(s => s.Name == name, ct);
