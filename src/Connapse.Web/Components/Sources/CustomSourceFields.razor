@@ -1,16 +1,26 @@
 @using Connapse.Web.Services
 @inject CustomSourceSetup Setup
 
-@* A content-only custom source: no connection, so the middle man's address and token are entered here
-   and checked by loading the scopes it offers. *@
-<div class="alert alert-info py-2 small" id="custom-source-content-only" role="note">
-    <span class="bi-info-circle me-1" aria-hidden="true"></span>
-    Signed-in users with access to this source see all of its content — nothing is checked against the source system.
-</div>
+@* One custom source, with or without a custom connection: the middle man's address and token are entered
+   here and checked by loading the scopes it offers. The connection only adds the permission check. *@
+@if (Draft.PermissionsBy is { } checker)
+{
+    <div class="alert alert-info py-2 small" id="custom-source-permissions" role="note">
+        <span class="bi-shield-check me-1" aria-hidden="true"></span>
+        Searches show a result from this source only when @checker says the person searching may read it.
+    </div>
+}
+else
+{
+    <div class="alert alert-info py-2 small" id="custom-source-content-only" role="note">
+        <span class="bi-info-circle me-1" aria-hidden="true"></span>
+        Signed-in users with access to this source see all of its content — nothing is checked against the source system.
+    </div>
+}
 
 <div class="mb-3">
     <label class="form-label" for="custom-source-url">Middle man address</label>
-    <input id="custom-source-url" class="form-control font-monospace" value="@Draft.BaseUrl"
+    <input id="custom-source-url" class="form-control font-monospace" value="@Draft.BaseUrl" readonly="@(Draft.FixedBaseUrl is not null)"
            @onchange="e => Draft.BaseUrl = e.Value?.ToString() ?? string.Empty"
            placeholder="https://bridge.example.com" aria-describedby="custom-source-url-help" />
     @if (Draft.ErrorField == "baseUrl" && Draft.Error is not null)
@@ -18,7 +28,14 @@
         <div id="custom-source-url-error" class="text-danger small mt-1" role="alert">@Draft.Error</div>
     }
     <div id="custom-source-url-help" class="form-text">
-        A server you run that speaks the Connapse custom source protocol.
+        @if (Draft.FixedBaseUrl is not null)
+        {
+            <text>The connection's provider's middle man: a source on this connection reads the documents it answers for.</text>
+        }
+        else
+        {
+            <text>A server you run that speaks the Connapse custom source protocol.</text>
+        }
     </div>
 </div>
 

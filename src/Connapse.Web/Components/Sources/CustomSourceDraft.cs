@@ -20,4 +20,13 @@ public sealed class CustomSourceDraft
     public string? ErrorField { get; set; }
 
     public bool Loading { get; set; }
+
+    /// <summary>
+    /// Set when the source is on a custom connection: the provider's middle man, which the source must read
+    /// so the documents it lists are the ones the provider answers for. Empty when the provider is missing.
+    /// </summary>
+    public string? FixedBaseUrl { get; set; }
+
+    /// <summary>The custom provider that checks this source's results, when it is on a custom connection.</summary>
+    public string? PermissionsBy { get; set; }
 }

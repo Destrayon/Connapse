@@ -47,6 +47,7 @@ public class SourcesSyncStatusTests : IDisposable
         ctx.Services.AddSingleton(sources);
         ctx.Services.AddSingleton(connections);
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
+        ctx.Services.AddSingleton(NSubstitute.Substitute.For<Connapse.Core.Interfaces.ICustomProviderStore>());
         ctx.Services.AddSingleton(new Connapse.Web.Services.CustomSourceSetup(
             NSubstitute.Substitute.For<IHttpClientFactory>(),
             NSubstitute.Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.CustomSourceSettings>>()));

@@ -14,6 +14,7 @@
 @inject ISourceStore SourceStore
 @inject Connapse.Web.Services.AtlassianSiteService AtlassianSites
 @inject Connapse.Web.Services.CustomSourceSetup CustomSources
+@inject ICustomProviderStore CustomProviderStore
 @inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
 @inject IConnectionStore ConnectionStore
 @inject SourceSyncService SyncService
@@ -354,7 +355,7 @@
 
                     <div class="mb-3">
                         <label class="form-label" for="source-connection">Connection</label>
-                        <select id="source-connection" class="form-select" value="@(customDraft is not null ? CustomChoice : form.ConnectionId.ToString())" disabled="@creating"
+                        <select id="source-connection" class="form-select" value="@(customDraft is not null && form.ConnectionId == Guid.Empty ? CustomChoice : form.ConnectionId.ToString())" disabled="@creating"
                                 aria-describedby="source-connection-help" @onchange="OnConnectionChanged">
                             @foreach (var connection in connections)
                             {
@@ -1170,6 +1171,25 @@
 
     private Task BeginCreate() => connections.Count == 0 ? BeginCustomCreate() : BeginCreate(connections.First().Id);
 
+    /// <summary>
+    /// The custom source fields for a custom connection — the same as without one, with the address fixed to
+    /// the connection's provider's middle man. Null for any other connection.
+    /// </summary>
+    private async Task<CustomSourceDraft?> DraftForConnectionAsync(Connection? connection)
+    {
+        if (connection is not { Provider: ConnectionProvider.Custom }) return null;
+
+        CustomProvider? provider = CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } providerId
+            ? await CustomProviderStore.GetAsync(providerId)
+            : null;
+        return new CustomSourceDraft
+        {
+            BaseUrl = provider?.BaseUrl ?? "",
+            FixedBaseUrl = provider?.BaseUrl ?? "",
+            PermissionsBy = provider?.Name ?? "a custom provider that no longer exists",
+        };
+    }
+
     /// <summary>Opens the dialog on a content-only custom source: the only kind that needs no connection.</summary>
     private Task BeginCustomCreate()
     {
@@ -1191,8 +1211,8 @@
         createError = null;
         createWarning = null;
         ClearRepoError();
-        customDraft = null;
         form = new SourceForm { ConnectionId = connectionId };
+        customDraft = await DraftForConnectionAsync(SelectedConnection);
         githubForm = new GitHubRepositoryForm();
         await LoadGitHubSuggestionsAsync();
         await ResetConfluenceAsync();
@@ -1221,9 +1241,9 @@
             return;
         }
 
-        customDraft = null;
         if (Guid.TryParse(args.Value?.ToString(), out var id))
             form.ConnectionId = id;
+        customDraft = await DraftForConnectionAsync(SelectedConnection);
 
         // The scope fields differ per provider, so anything typed for the previous one is now
         // meaningless — carrying a bucket name over into a filesystem source would write a key
@@ -1522,6 +1542,12 @@
     /// </summary>
     private async Task CreateCustomSourceAsync(CustomSourceDraft draft)
     {
+        if (draft.FixedBaseUrl is "")
+        {
+            createError = "This connection's custom provider no longer exists. Choose another connection.";
+            return;
+        }
+
         if (draft.Scopes.Count == 0 || draft.ScopeId is null)
         {
             createError = "Enter the middle man's address and token, then press Load scopes and pick a scope.";
@@ -1557,19 +1583,27 @@
                 return;
             }
 
+            if (draft.FixedBaseUrl is not null && !string.Equals(probe.BaseUrl, draft.FixedBaseUrl, StringComparison.Ordinal))
+            {
+                createError = $"A custom source on this connection must read its provider's middle man ({draft.FixedBaseUrl}).";
+                return;
+            }
+
             if (probe.Scopes.All(s => s.Id != draft.ScopeId))
             {
                 createError = $"The middle man no longer offers the scope '{draft.ScopeId}'. Load scopes again.";
                 return;
             }
 
+            // The same source either way; a custom connection only adds the permission check.
+            Guid? connectionId = form?.ConnectionId is { } chosen && chosen != Guid.Empty ? chosen : null;
             var created = await SourceStore.CreateAsync(new CreateSourceRequest(
                 draft.Name.Trim(),
-                ConnectionId: null,
+                connectionId,
                 new CustomSourceScope(probe.BaseUrl!, draft.ScopeId).ToJson(),
                 string.IsNullOrWhiteSpace(draft.Description) ? null : draft.Description.Trim(),
                 draft.SyncIntervalSeconds,
-                ConnectionProvider.Custom,
+                connectionId is null ? ConnectionProvider.Custom : null,
                 draft.Token.Trim()));
 
             form = null;

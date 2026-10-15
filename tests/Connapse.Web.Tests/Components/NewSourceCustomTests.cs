@@ -25,6 +25,8 @@ public class NewSourceCustomTests : IDisposable
     private readonly ISourceStore sources = Substitute.For<ISourceStore>();
     private readonly IConnectionStore connections = Substitute.For<IConnectionStore>();
     private readonly List<CreateSourceRequest> created = [];
+    private readonly List<Connection> connectionList = [];
+    private readonly ICustomProviderStore customProviders = Substitute.For<ICustomProviderStore>();
 
     public NewSourceCustomTests()
     {
@@ -38,7 +40,10 @@ public class NewSourceCustomTests : IDisposable
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(remote, disposeHandler: false));
 
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Connection>>([]));
+            .Returns(_ => Task.FromResult<IReadOnlyList<Connection>>(connectionList.ToList()));
+        sources.ListByConnectionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
+        ctx.Services.AddSingleton(customProviders);
         sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
         sources.CreateAsync(Arg.Any<CreateSourceRequest>(), Arg.Any<CancellationToken>())
@@ -47,7 +52,7 @@ public class NewSourceCustomTests : IDisposable
                 var request = call.Arg<CreateSourceRequest>();
                 created.Add(request);
                 return Task.FromResult(new Source(
-                    Guid.NewGuid(), request.Name, null, null, request.ScopeJson, DateTime.UtcNow, DateTime.UtcNow,
+                    Guid.NewGuid(), request.Name, null, request.ConnectionId, request.ScopeJson, DateTime.UtcNow, DateTime.UtcNow,
                     Provider: request.Provider, HasSecret: request.Secret is not null));
             });
 
@@ -159,5 +164,51 @@ public class NewSourceCustomTests : IDisposable
         cut.WaitForAssertion(() => cut.Find("#source-connection").HasAttribute("disabled").Should().BeTrue());
         remote.Hold.SetResult();
         cut.WaitForAssertion(() => created.Should().ContainSingle());
+    }
+
+    private Connection AddCustomConnection(string providerUrl = FakeMiddleMan.BaseUrl)
+    {
+        CustomProvider provider = new(Guid.NewGuid(), "Acme bridge", providerUrl, true, 100, true, null,
+            DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow);
+        customProviders.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Connection connection = new(Guid.NewGuid(), "Acme permissions", ConnectionProvider.Custom,
+            CustomConnectionConfig.ToJson(provider.Id), null, DateTime.UtcNow, DateTime.UtcNow);
+        connectionList.Add(connection);
+        connections.GetAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(connection);
+        return connection;
+    }
+
+    [Fact]
+    public void NewSource_CustomConnection_ShowsTheSameFieldsWithItsProvidersAddressAndChecks()
+    {
+        Connection connection = AddCustomConnection();
+        var cut = OpenDialog();
+
+        cut.Find("#source-connection").Change(connection.Id.ToString());
+
+        cut.WaitForAssertion(() => cut.Find("#custom-source-permissions").TextContent.Should().Contain("Acme bridge"));
+        cut.FindAll("#custom-source-content-only").Should().BeEmpty();
+        cut.Find("#custom-source-url").GetAttribute("value").Should().Be(FakeMiddleMan.BaseUrl);
+        cut.Find("#custom-source-url").HasAttribute("readonly").Should().BeTrue();
+    }
+
+    [Fact]
+    public void NewSource_CustomConnection_CreatesTheSourceWithItsConnectionAndToken()
+    {
+        Connection connection = AddCustomConnection();
+        var cut = OpenDialog();
+        cut.Find("#source-connection").Change(connection.Id.ToString());
+        cut.WaitForAssertion(() => cut.Find("#custom-source-permissions"));
+
+        cut.Find("#custom-source-token").Change(FakeMiddleMan.Token);
+        cut.Find("#custom-source-load").Click();
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scope"));
+        cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
+
+        cut.WaitForAssertion(() => created.Should().ContainSingle());
+        created[0].ConnectionId.Should().Be(connection.Id);
+        created[0].Provider.Should().BeNull();
+        created[0].Secret.Should().Be(FakeMiddleMan.Token);
+        CustomSourceScope.TryParse(created[0].ScopeJson).Should().Be(new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope));
     }
 }
