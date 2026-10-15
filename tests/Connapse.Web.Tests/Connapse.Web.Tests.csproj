@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Connapse.Core.Tests\Connectors\FakeMiddleMan.cs" Link="Fakes\FakeMiddleMan.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Connapse.Web\Connapse.Web.csproj" />
   </ItemGroup>
 
