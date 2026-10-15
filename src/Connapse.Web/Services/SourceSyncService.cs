@@ -192,10 +192,15 @@ public class SourceSyncService(
             // key ring that cannot decrypt throws, which the catch below records as a sync
             // failure — the right outcome, since retrying will not help.
             //
-            // A null connection is a connection-less source, which has no secret to fetch.
+            // A null connection is a connection-less source. Only a content-only custom source holds a
+            // secret of its own; the same HasSecret check keeps every other one free of a query.
             if (connection is null)
             {
-                connector = connectorFactory.Create(source);
+                string? secret = source.HasSecret
+                    ? await sourceStore.GetSecretAsync(source.Id, ct)
+                    : null;
+
+                connector = connectorFactory.Create(source, secret);
             }
             else
             {
@@ -340,6 +345,16 @@ public class SourceSyncService(
 
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
+
+        // Deletions named by prefix become ordinary deleted paths here, so every branch below applies
+        // them under the same guard. A path upserted in this delta is kept: a renamed document's
+        // prefix covers its new path too.
+        if (delta.DeletedPrefixes is { Count: > 0 } prefixes)
+        {
+            IReadOnlyList<string> byPrefix = await PathsUnderPrefixesAsync(
+                context, source.Id, prefixes, delta.Upserted.Select(f => f.Path).ToHashSet(StringComparer.Ordinal), ct);
+            delta = delta with { DeletedPaths = delta.DeletedPaths.Concat(byPrefix).Distinct(StringComparer.Ordinal).ToList() };
+        }
 
         var validator = sp.GetRequiredService<IFileTypeValidator>();
         var (supported, unsupported) = PartitionSupported(delta.Upserted, validator);
@@ -889,6 +904,22 @@ public class SourceSyncService(
         if (approved is not null)
             await sourceStore.UpdateWithheldDeletionsAsync(source.Id, null, ct);
         return (deleted, 0);
+    }
+
+    private static async Task<IReadOnlyList<string>> PathsUnderPrefixesAsync(
+        KnowledgeDbContext context, Guid sourceId, IReadOnlyList<string> prefixes, HashSet<string> keep, CancellationToken ct)
+    {
+        List<string> paths = [];
+        foreach (string prefix in prefixes.Where(p => p.Length > 1).Distinct(StringComparer.Ordinal))
+        {
+            List<string> found = await context.Documents
+                .AsNoTracking()
+                .Where(d => d.SourceId == sourceId && d.Path.StartsWith(prefix))
+                .Select(d => d.Path)
+                .ToListAsync(ct);
+            paths.AddRange(found.Where(p => !keep.Contains(p)));
+        }
+        return paths;
     }
 
     private async Task<int> DeleteByPathsAsync(
