@@ -41,7 +41,16 @@ public sealed class FakeMiddleMan : HttpMessageHandler
         _journal.Add((id, true));
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    /// <summary>When set, every request waits for it before answering, so a caller can be caught mid-request.</summary>
+    public TaskCompletionSource? Hold { get; set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (Hold is { } hold) await hold.Task;
+        return await Respond(request);
+    }
+
+    private Task<HttpResponseMessage> Respond(HttpRequestMessage request)
     {
         string pathAndQuery = request.RequestUri!.PathAndQuery;
         Requests.Add(pathAndQuery);

@@ -354,7 +354,7 @@
 
                     <div class="mb-3">
                         <label class="form-label" for="source-connection">Connection</label>
-                        <select id="source-connection" class="form-select" value="@(customDraft is not null ? CustomChoice : form.ConnectionId.ToString())"
+                        <select id="source-connection" class="form-select" value="@(customDraft is not null ? CustomChoice : form.ConnectionId.ToString())" disabled="@creating"
                                 aria-describedby="source-connection-help" @onchange="OnConnectionChanged">
                             @foreach (var connection in connections)
                             {
@@ -1544,6 +1544,11 @@
         try
         {
             Connapse.Web.Services.CustomSourceProbe probe = await CustomSources.ProbeAsync(draft.BaseUrl, draft.Token, CancellationToken.None);
+
+            // The dialog may have been closed while the middle man answered; save nothing then.
+            if (!ReferenceEquals(customDraft, draft))
+                return;
+
             if (probe.Error is not null)
             {
                 draft.Error = probe.Error;

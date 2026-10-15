@@ -143,4 +143,21 @@ public class NewSourceCustomTests : IDisposable
         cut.WaitForAssertion(() => cut.Find("#new-source-dialog .alert-danger").TextContent.Should().Contain("Load scopes"));
         created.Should().BeEmpty();
     }
+
+    [Fact]
+    public void NewSource_CustomSourceBeingSaved_LocksTheConnectionChoiceUntilItFinishes()
+    {
+        var cut = OpenDialog();
+        cut.Find("#custom-source-url").Change(FakeMiddleMan.BaseUrl);
+        cut.Find("#custom-source-token").Change(FakeMiddleMan.Token);
+        cut.Find("#custom-source-load").Click();
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scope"));
+
+        remote.Hold = new TaskCompletionSource();
+        cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
+
+        cut.WaitForAssertion(() => cut.Find("#source-connection").HasAttribute("disabled").Should().BeTrue());
+        remote.Hold.SetResult();
+        cut.WaitForAssertion(() => created.Should().ContainSingle());
+    }
 }

@@ -103,4 +103,21 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
         response.StatusCode.Should().Be(status, body);
         JsonDocument.Parse(body).RootElement.GetProperty("field").GetString().Should().Be(field);
     }
+
+    [Fact]
+    public async Task Update_CustomSourceScope_IsRefusedSoItsTokenCannotBeRedirected()
+    {
+        HttpResponseMessage created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body());
+        Guid id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new
+        {
+            scopeJson = JsonSerializer.Serialize(new { baseUrl = "https://attacker.example", scopeId = FakeMiddleMan.Scope }),
+        });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "scope");
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        Source source = (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(id))!;
+        CustomSourceScope.TryParse(source.ScopeJson)!.BaseUrl.Should().Be(FakeMiddleMan.BaseUrl);
+    }
 }

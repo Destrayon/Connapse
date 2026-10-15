@@ -261,6 +261,20 @@ public static class SourcesEndpoints
                 });
             }
 
+            // A custom source's scope names where its stored token is sent. Changing it in place would
+            // let anyone who may edit sources point the token at another server, so it is fixed at
+            // creation; to read elsewhere, create a new source and enter the token again.
+            if (request.ScopeJson is not null
+                && await sourceStore.GetAsync(sourceId, ct) is { Provider: ConnectionProvider.Custom } custom
+                && CustomSourceScope.TryParse(request.ScopeJson) != CustomSourceScope.TryParse(custom.ScopeJson))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "A custom source's middle man and scope cannot be changed. Create a new source and enter its token again.",
+                    field = "scope",
+                });
+            }
+
             // A Confluence source keeps its space; what it reads from it is checked as on creation.
             // A Jira source, known by its stored kind, keeps its project the same way.
             if (request.ScopeJson is not null
