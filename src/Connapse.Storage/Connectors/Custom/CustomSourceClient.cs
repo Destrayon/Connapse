@@ -30,16 +30,17 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
     public async Task<IReadOnlyList<CustomScopeItem>> ListScopesAsync(CancellationToken ct)
     {
         List<CustomScopeItem> scopes = [];
+        PageGuard guard = new("scopes");
         string? token = null;
-        do
+        while (true)
         {
             CustomPage<CustomScopeItem> page = await GetJsonAsync<CustomPage<CustomScopeItem>>(
                 "/v1/scopes" + Query(("page_token", token)), ct);
             scopes.AddRange(page.Items ?? []);
+            if (string.IsNullOrEmpty(page.NextPageToken)) return scopes;
+            guard.Next(page.NextPageToken);
             token = page.NextPageToken;
         }
-        while (!string.IsNullOrEmpty(token));
-        return scopes;
     }
 
     public Task<CustomListingPage> ListDocumentsAsync(string scope, string? pageToken, CancellationToken ct) =>

@@ -40,9 +40,11 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
     {
         try
         {
-            // Read every sync: a middle man may gain or lose its change feed between cycles.
+            // Read every sync: a middle man may gain or lose its change feed between cycles. The feed is
+            // used only when it also reports deletions; otherwise a completed full listing is the only way
+            // to find them, so every sync lists in full.
             CustomDiscovery discovery = await client.GetDiscoveryAsync(ct);
-            bool changes = discovery.Capabilities?.Changes == true;
+            bool changes = discovery.Capabilities is { Changes: true, Tombstones: true };
 
             return cursor is null || !changes
                 ? await FullListingAsync(changes, ct)
@@ -94,6 +96,7 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
     private async Task<SyncDelta> FullListingAsync(bool keepCursor, CancellationToken ct)
     {
         List<ConnectorFile> files = [];
+        PageGuard guard = new("the document listing");
         string? pageToken = null;
         string? changeCursor;
         while (true)
@@ -105,6 +108,7 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
                 changeCursor = page.ChangeCursor;
                 break;
             }
+            guard.Next(page.NextPageToken);
             pageToken = page.NextPageToken;
         }
 
@@ -113,8 +117,11 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
 
     private async Task<SyncDelta> ChangesSinceAsync(string cursor, CancellationToken ct)
     {
-        List<ConnectorFile> upserted = [];
-        List<string> prefixes = [];
+        // Only each ID's last change counts: an update followed by a deletion is a deletion, and two renames
+        // leave only the second name. Kept in first-seen order so the delta is stable.
+        Dictionary<string, CustomDocument> last = new(StringComparer.Ordinal);
+        List<string> order = [];
+        PageGuard guard = new("the change feed");
         string? pageToken = null;
         string? nextCursor;
         while (true)
@@ -122,11 +129,9 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
             CustomChangePage page = await client.ListChangesAsync(scope.ScopeId, cursor, pageToken, ct);
             foreach (CustomDocument item in page.Items ?? [])
             {
-                // Every change clears whatever the ID was indexed under before: a deletion, or a rename
-                // that moved the document to a new file name. The sync keeps the path upserted alongside.
-                prefixes.Add(PrefixOf(item.Id));
-                if (item.Op == "upsert" && ToFile(item) is { } file)
-                    upserted.Add(file);
+                if (string.IsNullOrEmpty(item.Id)) continue;
+                if (!last.ContainsKey(item.Id)) order.Add(item.Id);
+                last[item.Id] = item;
             }
 
             if (string.IsNullOrEmpty(page.NextPageToken))
@@ -134,12 +139,22 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
                 nextCursor = page.NextCursor;
                 break;
             }
+            guard.Next(page.NextPageToken);
             pageToken = page.NextPageToken;
         }
 
+        // Every changed ID clears whatever it was indexed under before — a deletion, or a rename that moved
+        // the document to a new file name. The sync keeps the path upserted alongside.
+        List<ConnectorFile> upserted = order
+            .Select(id => last[id])
+            .Where(item => item.Op == "upsert")
+            .Select(ToFile)
+            .OfType<ConnectorFile>()
+            .ToList();
+
         return new SyncDelta(
             upserted, [], nextCursor ?? cursor, RequiresFullResync: false,
-            DeletedPrefixes: prefixes.Distinct(StringComparer.Ordinal).ToList());
+            DeletedPrefixes: order.Select(PrefixOf).ToList());
     }
 
     private static ConnectorFile? ToFile(CustomDocument item)
