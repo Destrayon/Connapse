@@ -130,6 +130,16 @@ public class CustomPermissionTests
     }
 
     [Fact]
+    public async Task Resolve_MoreKeysThanConnapseReads_GrantsTheBarePrefixForTheCheckToDecide()
+    {
+        _remote.Grants[Alice.ToString()] = Enumerable.Range(0, CustomSearchScopeResolver.MaxKeys + 1).Select(i => $"k{i}").ToList();
+
+        GrantMatch match = (await Resolver().ResolveAsync(Alice)).Matches.Should().ContainSingle().Subject;
+
+        match.AccessKeys.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Resolve_ConnectionWhoseProviderIsGone_GrantsNothing()
     {
         _providers.GetAsync(_provider.Id, Arg.Any<CancellationToken>()).Returns((CustomProvider?)null);
@@ -227,7 +237,17 @@ public class CustomPermissionTests
     public void CandidateMultiplier_OverFetchesOnlyOnceACustomConnectionIsKnown()
     {
         Verifier().CandidateMultiplier.Should().Be(1);
+        _presence.Record(false);
+        Verifier().CandidateMultiplier.Should().Be(1);
         _presence.Record(true);
+        Verifier().CandidateMultiplier.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task CandidateMultiplier_AfterTheFirstResolveWithACustomConnection_OverFetches()
+    {
+        await Resolver().ResolveAsync(Alice);
+
         Verifier().CandidateMultiplier.Should().Be(3);
     }
 
