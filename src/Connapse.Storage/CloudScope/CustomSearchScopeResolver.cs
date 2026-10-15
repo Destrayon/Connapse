@@ -51,6 +51,12 @@ public sealed class CustomSearchScopeResolver(
             foreach (Source source in await sources.ListByConnectionAsync(connection.Id, ct))
             {
                 if (CustomSourceScope.TryParse(source.ScopeJson) is not { } scope) continue;
+
+                // The provider answers for the documents of its own middle man only. A source still reading
+                // another one (the provider's address changed under it) is granted nothing.
+                if (!CustomSourceEndpoint.TryNormalize(scope.BaseUrl, settings.CurrentValue.AllowedHttpHosts, out string sourceUrl, out _)
+                    || !string.Equals(sourceUrl, baseUrl, StringComparison.Ordinal))
+                    continue;
                 string prefix = CustomResourceUri.SourcePrefix(source.Id);
 
                 if (!provider.SupportsAccessKeys)

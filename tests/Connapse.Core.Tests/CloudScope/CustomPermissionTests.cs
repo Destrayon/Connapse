@@ -230,4 +230,20 @@ public class CustomPermissionTests
         _presence.Record(true);
         Verifier().CandidateMultiplier.Should().Be(3);
     }
+
+    [Fact]
+    public async Task Verify_SourceReadingADifferentMiddleManThanItsProvider_IsDenied()
+    {
+        _provider = _provider with { BaseUrl = "https://elsewhere.acme.test" };
+
+        Ids(await Verifier().VerifyScopedAsync(Hits(), Alice, 10)).Should().NotContain(["doc-a", "doc-b", "doc-c"]);
+    }
+
+    [Fact]
+    public async Task Resolve_SourceReadingADifferentMiddleManThanItsProvider_GrantsNothing()
+    {
+        _provider = _provider with { BaseUrl = "https://elsewhere.acme.test" };
+
+        (await Resolver().ResolveAsync(Alice)).Matches.Should().BeEmpty();
+    }
 }

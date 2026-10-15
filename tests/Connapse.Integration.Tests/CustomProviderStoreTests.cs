@@ -67,4 +67,20 @@ public class CustomProviderStoreTests(SharedWebAppFixture fixture)
         (await store.DeleteAsync(provider.Id)).Should().BeTrue();
         (await store.GetAsync(provider.Id)).Should().BeNull();
     }
+
+    [Fact]
+    public async Task Update_ChangingTheAddressWhileAConnectionUsesIt_IsRefused()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        ICustomProviderStore store = scope.ServiceProvider.GetRequiredService<ICustomProviderStore>();
+        CustomProvider provider = await store.CreateAsync(Request());
+        await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(new CreateConnectionRequest(
+            $"custom-conn-{Guid.NewGuid():N}"[..24], ConnectionProvider.Custom, CustomConnectionConfig.ToJson(provider.Id)), null);
+
+        Func<Task> moved = () => store.UpdateAsync(provider.Id, Request(name: provider.Name) with { BaseUrl = "https://elsewhere.acme.test" });
+        Func<Task> same = () => store.UpdateAsync(provider.Id, Request(name: provider.Name) with { MaxCheckBatch = 7 });
+
+        await moved.Should().ThrowAsync<InvalidOperationException>().WithMessage("*address*");
+        await same.Should().NotThrowAsync();
+    }
 }

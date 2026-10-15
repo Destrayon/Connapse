@@ -59,6 +59,14 @@ public sealed class PostgresCustomProviderStore(
         if (await context.CustomProviders.AnyAsync(p => p.Name == name && p.Id != id, ct))
             throw new InvalidOperationException($"A custom provider named '{name}' already exists.");
 
+        // Its sources' documents were listed by this middle man; pointing the provider elsewhere would let
+        // another system approve them. Moving it means new connections and sources.
+        if (!string.Equals(entity.BaseUrl, request.BaseUrl, StringComparison.Ordinal)
+            && await ConnectionCountAsync(context, id, ct) > 0)
+            throw new InvalidOperationException(
+                "A custom provider's address cannot change while connections use it: their sources' documents came from the "
+                + "current middle man. Add a new provider for the new address instead.");
+
         entity.Name = name;
         entity.BaseUrl = request.BaseUrl;
         if (!string.IsNullOrEmpty(request.Token))
@@ -111,12 +119,7 @@ public sealed class PostgresCustomProviderStore(
         CustomProviderEntity? entity = await context.CustomProviders.FirstOrDefaultAsync(p => p.Id == id, ct);
         if (entity is null) return false;
 
-        // Few custom connections exist, so reading their configuration beats a JSON query here.
-        var configs = await context.Connections.AsNoTracking()
-            .Where(c => c.Provider == (int)ConnectionProvider.Custom)
-            .Select(c => c.ConfigJson)
-            .ToListAsync(ct);
-        int inUse = configs.Count(c => CustomConnectionConfig.ProviderIdOf(c?.RootElement.GetRawText()) == id);
+        int inUse = await ConnectionCountAsync(context, id, ct);
         if (inUse > 0)
             throw new InvalidOperationException(
                 $"Cannot delete this custom provider: {inUse} connection(s) still use it. Delete those connections first.");
@@ -125,6 +128,16 @@ public sealed class PostgresCustomProviderStore(
         await context.SaveChangesAsync(ct);
         logger.LogInformation("Deleted custom provider {ProviderId}", id);
         return true;
+    }
+
+    // Few custom connections exist, so reading their configuration beats a JSON query here.
+    private static async Task<int> ConnectionCountAsync(KnowledgeDbContext context, Guid providerId, CancellationToken ct)
+    {
+        var configs = await context.Connections.AsNoTracking()
+            .Where(c => c.Provider == (int)ConnectionProvider.Custom)
+            .Select(c => c.ConfigJson)
+            .ToListAsync(ct);
+        return configs.Count(c => CustomConnectionConfig.ProviderIdOf(c?.RootElement.GetRawText()) == providerId);
     }
 
     private static string ValidName(SaveCustomProviderRequest request)

@@ -95,6 +95,11 @@ public sealed class CustomSearchResultVerifier(
                 || !CustomSourceEndpoint.TryNormalize(provider.BaseUrl, settings.CurrentValue.AllowedHttpHosts, out string baseUrl, out _))
                 return null;
 
+            // The documents were listed by the source's middle man; only that same middle man may approve them.
+            if (!CustomSourceEndpoint.TryNormalize(scope.BaseUrl, settings.CurrentValue.AllowedHttpHosts, out string sourceUrl, out _)
+                || !string.Equals(sourceUrl, baseUrl, StringComparison.Ordinal))
+                return null;
+
             CustomSourceClient client = new(httpClients.CreateClient(CustomSourceClient.HttpClientName), baseUrl, token);
             return await client.EvaluateAsync(userId.ToString(), scope.ScopeId, documentIds, Math.Max(1, provider.MaxCheckBatch), budget);
         }
