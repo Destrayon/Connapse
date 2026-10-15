@@ -156,6 +156,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
+builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
 builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();

@@ -10,7 +10,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// connector: discovery, the full listing (paged by last ID), the change feed (410 for a cursor it did not
 /// issue), and content. Rate limiting and server errors can be forced on the next request.
 /// </summary>
-internal sealed class FakeMiddleMan : HttpMessageHandler
+public sealed class FakeMiddleMan : HttpMessageHandler
 {
     public const string BaseUrl = "https://bridge.acme.test/api";
     public const string Scope = "eng";

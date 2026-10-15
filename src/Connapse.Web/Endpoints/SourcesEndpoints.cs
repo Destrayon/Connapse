@@ -91,9 +91,15 @@ public static class SourcesEndpoints
             [FromServices] IAuditLogger auditLogger,
             [FromServices] Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup gitHubRepositories,
             [FromServices] AtlassianSiteService atlassianSites,
+            [FromServices] CustomSourceSetup customSources,
             CancellationToken ct) =>
         {
             string? scopeJson = request.ScopeJson;
+
+            // Only a content-only custom source holds a credential of its own; anything else
+            // authenticates through its connection, so a secret here would be silently dropped.
+            if (request.Secret is not null && request.Provider is not ConnectionProvider.Custom)
+                return Results.BadRequest(new { error = "Only a custom source without a connection takes a secret.", field = "secret" });
             string name = request.Name?.Trim() ?? "";
 
             // Only a Confluence source may leave its name out: like the dialog, it is then named after the site and space.
@@ -156,6 +162,28 @@ public static class SourcesEndpoints
             {
                 return Results.BadRequest(new { error = "a source needs a connectionId or a provider" });
             }
+            else if (request.Provider is ConnectionProvider.Custom)
+            {
+                // The same checks the New source dialog makes: the URL rules, the token, protocol
+                // version 1, and a scope the middle man actually offers. The URL stored is the
+                // normalised one, so the connector reaches exactly what was checked.
+                CustomSourceScope? scope = CustomSourceScope.TryParse(scopeJson);
+                if (scope is null)
+                    return Results.BadRequest(new { error = "The scope must name the middle man's baseUrl and scopeId.", field = "scope" });
+
+                CustomSourceProbe probe = await customSources.ProbeAsync(scope.BaseUrl, request.Secret, ct);
+                if (probe.Error is not null)
+                {
+                    return probe.Unreachable
+                        ? Results.Json(new { error = probe.Error, field = probe.Field }, statusCode: StatusCodes.Status502BadGateway)
+                        : Results.BadRequest(new { error = probe.Error, field = probe.Field });
+                }
+
+                if (!probe.Scopes.Any(s => s.Id == scope.ScopeId))
+                    return Results.BadRequest(new { error = $"The middle man offers no scope '{scope.ScopeId}'.", field = "scopeId" });
+
+                scopeJson = (scope with { BaseUrl = probe.BaseUrl! }).ToJson();
+            }
             else if (request.Provider is ConnectionProvider.GitHub)
             {
                 // Refused rather than stored: the connector no longer reads GitHub anonymously, so
@@ -184,7 +212,8 @@ public static class SourcesEndpoints
                 created = await sourceStore.CreateAsync(
                     new CreateSourceRequest(
                         name, request.ConnectionId, scopeJson ?? "{}",
-                        request.Description, request.SyncIntervalSeconds, request.Provider), ct);
+                        request.Description, request.SyncIntervalSeconds, request.Provider,
+                        request.Provider is ConnectionProvider.Custom ? request.Secret?.Trim() : null), ct);
             }
             catch (ArgumentException ex)
             {
@@ -418,4 +447,14 @@ public record CreateSourceApiRequest(
     string? ScopeJson = null,
     string? Description = null,
     int? SyncIntervalSeconds = null,
-    ConnectionProvider? Provider = null);
+    ConnectionProvider? Provider = null,
+    string? Secret = null)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Description = {Description}, ")
+            .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Provider = {Provider}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}

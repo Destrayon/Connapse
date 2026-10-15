@@ -1,0 +1,106 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Core.Tests.Connectors;
+using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace Connapse.Integration.Tests;
+
+/// <summary>Creating a content-only custom source over <c>POST /api/sources</c>.</summary>
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
+public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
+{
+    private static object Body(
+        string? baseUrl = FakeMiddleMan.BaseUrl,
+        string scopeId = FakeMiddleMan.Scope,
+        string? secret = FakeMiddleMan.Token,
+        string provider = "Custom") => new
+        {
+            name = $"custom-{Guid.NewGuid():N}"[..20],
+            provider,
+            scopeJson = JsonSerializer.Serialize(new { baseUrl, scopeId }),
+            secret,
+        };
+
+    [Fact]
+    public async Task Create_ContentOnlyCustomSource_StoresItWithItsToken()
+    {
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(baseUrl: FakeMiddleMan.BaseUrl + "/"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        string body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(FakeMiddleMan.Token);
+        Guid id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetGuid();
+
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        ISourceStore store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        Source source = (await store.GetAsync(id))!;
+        source.Provider.Should().Be(ConnectionProvider.Custom);
+        source.ConnectionId.Should().BeNull();
+        source.HasSecret.Should().BeTrue();
+        CustomSourceScope.TryParse(source.ScopeJson).Should().Be(new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope));
+        (await store.GetSecretAsync(id)).Should().Be(FakeMiddleMan.Token);
+    }
+
+    [Fact]
+    public async Task Create_CustomSourceWithoutToken_IsRefused()
+    {
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: null));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+    }
+
+    [Fact]
+    public async Task Create_CustomSourceOverPlainHttp_IsRefused()
+    {
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(baseUrl: "http://bridge.acme.test/api"));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "baseUrl");
+    }
+
+    [Fact]
+    public async Task Create_CustomSourceTheMiddleManRefusesTheTokenFor_IsRefused()
+    {
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: "wrong"));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+    }
+
+    [Fact]
+    public async Task Create_CustomSourceForAScopeTheMiddleManDoesNotHave_IsRefused()
+    {
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(scopeId: "nope"));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "scopeId");
+    }
+
+    [Fact]
+    public async Task Create_CustomSourceWhoseMiddleManIsDown_Answers502()
+    {
+        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body());
+
+        await ExpectRefusal(response, HttpStatusCode.BadGateway, "baseUrl");
+    }
+
+    [Fact]
+    public async Task Create_SecretForANonCustomSource_IsRefused()
+    {
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(provider: "S3"));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+    }
+
+    private static async Task ExpectRefusal(HttpResponseMessage response, HttpStatusCode status, string field)
+    {
+        string body = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(status, body);
+        JsonDocument.Parse(body).RootElement.GetProperty("field").GetString().Should().Be(field);
+    }
+}

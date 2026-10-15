@@ -116,7 +116,7 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
                 + (retryAfter is { } wait ? $" {Math.Ceiling(wait.TotalSeconds)} s" : "") + ".", retryAfter),
             _ when status is >= 300 and < 400 => new CustomSourceException(
                 $"The middle man answered {path} with a {status} redirect, which Connapse does not follow."),
-            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceException(
+            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceUnauthorizedException(
                 $"The middle man refused the token ({status}). Check the token entered for this source."),
             _ => new CustomSourceException($"The middle man answered {path} with {status}{detail}."),
         };
@@ -173,6 +173,9 @@ public sealed record CustomChangePage(IReadOnlyList<CustomDocument>? Items, stri
 
 /// <summary>The middle man failed or answered outside the protocol.</summary>
 public class CustomSourceException(string message, Exception? inner = null) : IOException(message, inner);
+
+/// <summary>A 401 or 403: the middle man refused the token.</summary>
+public sealed class CustomSourceUnauthorizedException(string message) : CustomSourceException(message);
 
 /// <summary>A 410: the cursor or page token is no longer valid, so the source must be listed again.</summary>
 public sealed class CustomSourceCursorExpiredException(string message) : CustomSourceException(message);
