@@ -67,9 +67,86 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         return await response.Content.ReadAsStreamAsync(ct);
     }
 
+    /// <summary>
+    /// The access keys <paramref name="userId"/> holds in <paramref name="scope"/>
+    /// (<c>POST /access/v1/search/resource</c>), stopping after <paramref name="maxKeys"/>.
+    /// </summary>
+    public async Task<CustomAccessKeys> SearchAccessKeysAsync(string scope, string userId, int maxKeys, CancellationToken ct)
+    {
+        List<string> keys = [];
+        PageGuard guard = new("access keys");
+        string token = "";
+        while (true)
+        {
+            CustomKeySearchResponse page = await PostJsonAsync<CustomKeySearchResponse>("/access/v1/search/resource", new
+            {
+                subject = new { type = "user", id = userId },
+                action = new { name = "read" },
+                resource = new { type = "access_key", properties = new { scope } },
+                page = new { token, limit = Math.Min(1000, maxKeys) },
+            }, ct);
+
+            foreach (CustomResourceRef result in page.Results ?? [])
+            {
+                if (result.Type != "access_key" || string.IsNullOrEmpty(result.Id)) continue;
+                if (keys.Count == maxKeys) return new CustomAccessKeys(keys, Truncated: true);
+                keys.Add(result.Id);
+            }
+
+            string? next = page.Page?.NextToken;
+            if (string.IsNullOrEmpty(next)) return new CustomAccessKeys(keys, Truncated: false);
+            if (keys.Count == maxKeys) return new CustomAccessKeys(keys, Truncated: true);
+            guard.Next(next);
+            token = next;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="userId"/> may read each document, in order (<c>POST /access/v1/evaluations</c>),
+    /// in batches of at most <paramref name="maxBatch"/>. Only an explicit <c>decision: true</c> with no
+    /// <c>context.error</c> is true. An answer that cannot be matched to the request — a failed call, or a
+    /// different number of results — throws, so the caller denies every document in it.
+    /// </summary>
+    public async Task<IReadOnlyList<bool>> EvaluateAsync(
+        string userId, string scope, IReadOnlyList<string> documentIds, int maxBatch, CancellationToken ct)
+    {
+        List<bool> decisions = new(documentIds.Count);
+        foreach (string[] batch in documentIds.Chunk(Math.Max(1, maxBatch)))
+        {
+            CustomEvaluationsResponse response = await PostJsonAsync<CustomEvaluationsResponse>("/access/v1/evaluations", new
+            {
+                subject = new { type = "user", id = userId },
+                action = new { name = "read" },
+                evaluations = batch.Select(id => new
+                {
+                    resource = new { type = "document", id, properties = new { scope } },
+                }).ToArray(),
+            }, ct);
+
+            IReadOnlyList<CustomDecision?> results = response.Evaluations ?? [];
+            if (results.Count != batch.Length)
+                throw new CustomSourceException(
+                    $"The middle man answered {results.Count} decision(s) for {batch.Length} document(s); none can be trusted.");
+
+            decisions.AddRange(results.Select(r => r is { Decision: true } && r.Context?.Error is null));
+        }
+        return decisions;
+    }
+
+    private async Task<T> PostJsonAsync<T>(string path, object body, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await SendAsync(path, HttpCompletionOption.ResponseContentRead, ct, JsonContent.Create(body, options: Json));
+        return await ReadJsonAsync<T>(response, path, ct);
+    }
+
     private async Task<T> GetJsonAsync<T>(string path, CancellationToken ct)
     {
         using HttpResponseMessage response = await SendAsync(path, HttpCompletionOption.ResponseContentRead, ct);
+        return await ReadJsonAsync<T>(response, path, ct);
+    }
+
+    private static async Task<T> ReadJsonAsync<T>(HttpResponseMessage response, string path, CancellationToken ct)
+    {
         await EnsureSuccessAsync(response, path, ct);
         try
         {
@@ -82,9 +159,11 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         }
     }
 
-    private async Task<HttpResponseMessage> SendAsync(string path, HttpCompletionOption completion, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendAsync(
+        string path, HttpCompletionOption completion, CancellationToken ct, HttpContent? content = null)
     {
-        using HttpRequestMessage request = new(HttpMethod.Get, _baseUrl + path);
+        using HttpRequestMessage request = new(content is null ? HttpMethod.Get : HttpMethod.Post, _baseUrl + path);
+        request.Content = content;
         if (!string.IsNullOrEmpty(token))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -151,7 +230,32 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
 
 public sealed record CustomDiscovery(IReadOnlyList<string>? ProtocolVersions, string? Name, CustomCapabilities? Capabilities);
 
-public sealed record CustomCapabilities(bool Changes, bool Tombstones, int? MinSyncIntervalSeconds, int? MaxPageSize);
+public sealed record CustomCapabilities(
+    bool Changes, bool Tombstones, int? MinSyncIntervalSeconds, int? MaxPageSize, CustomPermissionCapabilities? Permissions = null);
+
+/// <summary>The <c>permissions</c> capabilities; <c>Check</c> absent means the middle man answers no permission questions.</summary>
+public sealed record CustomPermissionCapabilities(CustomCheckCapability? Check, CustomAccessKeysCapability? AccessKeys, CustomLinkingCapability? Linking);
+
+public sealed record CustomCheckCapability(int MaxBatch);
+
+public sealed record CustomAccessKeysCapability(int CacheTtlSeconds);
+
+public sealed record CustomLinkingCapability(string? LinkUrl);
+
+/// <summary>The keys a user holds in a scope; <c>Truncated</c> when there were more than Connapse reads.</summary>
+public sealed record CustomAccessKeys(IReadOnlyList<string> Keys, bool Truncated);
+
+public sealed record CustomResourceRef(string? Type, string? Id);
+
+public sealed record CustomPageOut(string? NextToken);
+
+public sealed record CustomKeySearchResponse(IReadOnlyList<CustomResourceRef>? Results, CustomPageOut? Page);
+
+public sealed record CustomDecisionContext(string? Error);
+
+public sealed record CustomDecision(bool? Decision, CustomDecisionContext? Context);
+
+public sealed record CustomEvaluationsResponse(IReadOnlyList<CustomDecision?>? Evaluations);
 
 public sealed record CustomScopeItem(string Id, string Name, string? Description);
 

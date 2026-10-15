@@ -9,6 +9,11 @@ namespace Connapse.Core.Tests.Connectors;
 /// An in-memory custom source middle man for one scope, speaking just enough of protocol v1 for the
 /// connector: discovery, the full listing (paged by last ID), the change feed (410 for a cursor it did not
 /// issue), and content. Rate limiting and server errors can be forced on the next request.
+/// <para>
+/// It also answers the permission endpoints: a document's access keys default to its top-level folder
+/// (<c>folder:design</c>, or <c>folder:</c> at the root); <see cref="Grants"/> says which keys each Connapse
+/// user holds, and <see cref="Denies"/> names documents a user may not read even with the key.
+/// </para>
 /// </summary>
 public sealed class FakeMiddleMan : HttpMessageHandler
 {
@@ -22,6 +27,18 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     public int PageSize { get; set; } = 2;
     public bool SupportsChanges { get; set; } = true;
     public bool SupportsTombstones { get; set; } = true;
+    public bool SupportsPermissions { get; set; } = true;
+    public bool SupportsAccessKeys { get; set; } = true;
+    public int MaxCheckBatch { get; set; } = 100;
+
+    /// <summary>Connapse user ID → access keys the user holds.</summary>
+    public Dictionary<string, List<string>> Grants { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Connapse user ID → document IDs denied despite a matching key.</summary>
+    public Dictionary<string, HashSet<string>> Denies { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>How the next evaluations call misbehaves, if at all.</summary>
+    public EvaluationQuirk Quirk { get; set; }
 
     /// <summary>Every paged response repeats the same next-page token, as a broken middle man might.</summary>
     public bool RepeatPageToken { get; set; }
@@ -29,9 +46,16 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     public List<string> Requests { get; } = [];
     public string? LastAuthorization { get; private set; }
 
-    public void Put(string id, string path, string content, string contentType = "text/markdown", string? version = null)
+    /// <summary>The number of evaluations calls answered.</summary>
+    public int EvaluationCalls { get; private set; }
+
+    public void Put(
+        string id, string path, string content, string contentType = "text/markdown", string? version = null,
+        IReadOnlyList<string>? keys = null)
     {
-        _documents[id] = new FakeDocument(id, path, content, contentType, version ?? Hash(content));
+        int slash = path.IndexOf('/');
+        keys ??= [slash < 0 ? "folder:" : $"folder:{path[..slash]}"];
+        _documents[id] = new FakeDocument(id, path, content, contentType, version ?? Hash(content), keys);
         _journal.Add((id, false));
     }
 
@@ -47,10 +71,11 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         if (Hold is { } hold) await hold.Task;
-        return await Respond(request);
+        string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+        return Respond(request, body);
     }
 
-    private Task<HttpResponseMessage> Respond(HttpRequestMessage request)
+    private HttpResponseMessage Respond(HttpRequestMessage request, string? body)
     {
         string pathAndQuery = request.RequestUri!.PathAndQuery;
         Requests.Add(pathAndQuery);
@@ -62,27 +87,22 @@ public sealed class FakeMiddleMan : HttpMessageHandler
             HttpResponseMessage failed = new(status);
             if (status == HttpStatusCode.TooManyRequests || status == HttpStatusCode.ServiceUnavailable)
                 failed.Headers.TryAddWithoutValidation("Retry-After", "30");
-            return Task.FromResult(failed);
+            return failed;
         }
 
         if (LastAuthorization != $"Bearer {Token}")
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized);
 
         string path = request.RequestUri.AbsolutePath;
         string prefix = new Uri(BaseUrl).AbsolutePath;
         if (!path.StartsWith(prefix, StringComparison.Ordinal))
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
         path = path[prefix.Length..];
         Dictionary<string, string> query = ParseQuery(request.RequestUri.Query);
 
-        return Task.FromResult(path switch
+        return path switch
         {
-            "/.well-known/connapse-source" => Json(new JsonObject
-            {
-                ["protocol_versions"] = new JsonArray("1"),
-                ["name"] = "Fake",
-                ["capabilities"] = new JsonObject { ["changes"] = SupportsChanges, ["tombstones"] = SupportsChanges && SupportsTombstones },
-            }),
+            "/.well-known/connapse-source" => Json(Discovery()),
             "/v1/scopes" => Json(new JsonObject
             {
                 ["items"] = new JsonArray(new JsonObject { ["id"] = Scope, ["name"] = "Engineering" }),
@@ -92,8 +112,65 @@ public sealed class FakeMiddleMan : HttpMessageHandler
             $"/v1/scopes/{Scope}/changes" => Changes(query.GetValueOrDefault("page_token") ?? query.GetValueOrDefault("cursor")),
             _ when path.StartsWith($"/v1/scopes/{Scope}/documents/", StringComparison.Ordinal) && path.EndsWith("/content", StringComparison.Ordinal)
                 => Content(Uri.UnescapeDataString(path[$"/v1/scopes/{Scope}/documents/".Length..^"/content".Length])),
+            "/access/v1/search/resource" when SupportsPermissions && SupportsAccessKeys => SearchKeys(JsonNode.Parse(body ?? "{}")!),
+            "/access/v1/evaluations" when SupportsPermissions => Evaluate(JsonNode.Parse(body ?? "{}")!),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        };
+    }
+
+    private JsonObject Discovery()
+    {
+        JsonObject capabilities = new() { ["changes"] = SupportsChanges, ["tombstones"] = SupportsChanges && SupportsTombstones };
+        if (SupportsPermissions)
+        {
+            JsonObject permissions = new() { ["check"] = new JsonObject { ["max_batch"] = MaxCheckBatch } };
+            if (SupportsAccessKeys) permissions["access_keys"] = new JsonObject { ["cache_ttl_seconds"] = 0 };
+            capabilities["permissions"] = permissions;
+        }
+
+        return new JsonObject { ["protocol_versions"] = new JsonArray("1"), ["name"] = "Fake", ["capabilities"] = capabilities };
+    }
+
+    private HttpResponseMessage SearchKeys(JsonNode request)
+    {
+        string user = request["subject"]?["id"]?.GetValue<string>() ?? "";
+        List<string> keys = Grants.GetValueOrDefault(user) ?? [];
+        string token = request["page"]?["token"]?.GetValue<string>() ?? "";
+        int offset = int.TryParse(token, out int parsed) ? parsed : 0;
+        int limit = Math.Min(request["page"]?["limit"]?.GetValue<int>() ?? PageSize, PageSize);
+        List<string> page = keys.Skip(offset).Take(limit).ToList();
+        string next = RepeatPageToken ? "again" : offset + page.Count < keys.Count ? (offset + page.Count).ToString() : "";
+        return Json(new JsonObject
+        {
+            ["results"] = new JsonArray(page.Select(k => (JsonNode)new JsonObject { ["type"] = "access_key", ["id"] = k }).ToArray()),
+            ["page"] = new JsonObject { ["next_token"] = next },
         });
+    }
+
+    private HttpResponseMessage Evaluate(JsonNode request)
+    {
+        EvaluationCalls++;
+        if (Quirk == EvaluationQuirk.ServerError) return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+
+        string user = request["subject"]?["id"]?.GetValue<string>() ?? "";
+        JsonArray items = request["evaluations"]?.AsArray() ?? [];
+        if (items.Count > MaxCheckBatch) return new HttpResponseMessage(HttpStatusCode.BadRequest);
+
+        HashSet<string> held = [.. Grants.GetValueOrDefault(user) ?? []];
+        HashSet<string> denied = Denies.GetValueOrDefault(user) ?? [];
+        JsonArray decisions = [];
+        foreach (JsonNode? item in items)
+        {
+            string? id = item?["resource"]?["id"]?.GetValue<string>();
+            bool allowed = id is not null && _documents.TryGetValue(id, out FakeDocument? d)
+                && d.Keys.Any(held.Contains) && !denied.Contains(id);
+            decisions.Add(Quirk == EvaluationQuirk.ErrorAlongsideTrue
+                ? new JsonObject { ["decision"] = true, ["context"] = new JsonObject { ["error"] = "timeout" } }
+                : new JsonObject { ["decision"] = allowed });
+        }
+
+        if (Quirk == EvaluationQuirk.WrongCount && decisions.Count > 0) decisions.RemoveAt(decisions.Count - 1);
+        return Json(new JsonObject { ["evaluations"] = decisions });
     }
 
     private HttpResponseMessage Listing(string? pageToken)
@@ -130,18 +207,27 @@ public sealed class FakeMiddleMan : HttpMessageHandler
             ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(d.Content, Encoding.UTF8, d.ContentType) }
             : new HttpResponseMessage(HttpStatusCode.NotFound);
 
-    private static JsonObject Item(FakeDocument d) => new()
+    private JsonObject Item(FakeDocument d)
     {
-        ["id"] = d.Id,
-        ["path"] = d.Path,
-        ["title"] = d.Path,
-        ["content_type"] = d.ContentType,
-        ["size"] = Encoding.UTF8.GetByteCount(d.Content),
-        ["version"] = d.Version,
-        ["modified_at"] = "2026-10-13T19:20:00Z",
-    };
+        JsonObject item = new()
+        {
+            ["id"] = d.Id,
+            ["path"] = d.Path,
+            ["title"] = d.Path,
+            ["content_type"] = d.ContentType,
+            ["size"] = Encoding.UTF8.GetByteCount(d.Content),
+            ["version"] = d.Version,
+            ["modified_at"] = "2026-10-13T19:20:00Z",
+        };
+        if (SupportsPermissions && SupportsAccessKeys)
+        {
+            item["access_keys"] = new JsonArray(d.Keys.Select(k => (JsonNode)k).ToArray());
+            item["access_version"] = Hash(string.Join('\n', d.Keys));
+        }
+        return item;
+    }
 
-    private static JsonObject Upsert(FakeDocument d)
+    private JsonObject Upsert(FakeDocument d)
     {
         JsonObject item = Item(d);
         item["op"] = "upsert";
@@ -159,5 +245,14 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     private static string Hash(string content) => Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(content)))[..12];
 
-    private sealed record FakeDocument(string Id, string Path, string Content, string ContentType, string Version);
+    private sealed record FakeDocument(string Id, string Path, string Content, string ContentType, string Version, IReadOnlyList<string> Keys);
+}
+
+/// <summary>Ways a middle man's evaluations answer can be wrong.</summary>
+public enum EvaluationQuirk
+{
+    None,
+    ErrorAlongsideTrue,
+    WrongCount,
+    ServerError,
 }
