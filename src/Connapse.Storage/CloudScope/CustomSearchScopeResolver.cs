@@ -86,8 +86,12 @@ public sealed class CustomSearchScopeResolver(
         {
             CustomAccessKeys keys = await client.SearchAccessKeysAsync(scopeId, userId.ToString(), MaxKeys, budget.Token);
             if (keys.Truncated)
-                logger.LogWarning("Custom source {SourceId}: more than {MaxKeys} access keys for one user; searching with the first {MaxKeys}",
-                    sourceId, MaxKeys, MaxKeys);
+            {
+                // Filtering by a partial set would hide documents keyed only by the rest, so the check decides.
+                logger.LogWarning("Custom source {SourceId}: more than {MaxKeys} access keys for one user; every hit will be checked",
+                    sourceId, MaxKeys);
+                return null;
+            }
             return keys.Keys;
         }
         catch (Exception ex) when (ex is CustomSourceException or HttpRequestException

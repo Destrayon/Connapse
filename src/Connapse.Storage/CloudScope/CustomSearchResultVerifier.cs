@@ -27,8 +27,11 @@ public sealed class CustomSearchResultVerifier(
     private const int OverFetch = 3;
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(3);
 
-    /// <summary>Over-fetch only once a custom connection is known to exist; before that 1, which can only reduce backfill.</summary>
-    public int CandidateMultiplier => presence.Known == true ? OverFetch : 1;
+    /// <summary>
+    /// Over-fetch unless custom connections are known to be absent. Search reads this before the resolver
+    /// records presence, so the first search after start-up must assume they exist.
+    /// </summary>
+    public int CandidateMultiplier => presence.Known == false ? 1 : OverFetch;
 
     public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
