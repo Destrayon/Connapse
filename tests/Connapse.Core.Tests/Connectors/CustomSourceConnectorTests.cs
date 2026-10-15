@@ -191,4 +191,56 @@ public class CustomSourceConnectorTests
         connector.SupportsLiveWatch.Should().BeFalse();
         connector.ResolveJobPath("/a/a.md").Should().Be("/a/a.md");
     }
+
+    [Fact]
+    public async Task GetChanges_ChangeFeedWithoutTombstones_ListsInFullSoDeletionsAreFound()
+    {
+        _remote.SupportsTombstones = false;
+        _remote.Put("a", "a.md", "a");
+
+        SyncDelta delta = await Connector().GetChangesAsync("c1");
+
+        delta.IsFullListing.Should().BeTrue("only a completed full listing reveals deletions without tombstones");
+        _remote.Requests.Should().NotContain(r => r.Contains("/changes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetChanges_DocumentUpdatedThenDeletedAcrossPages_EndsDeleted()
+    {
+        _remote.Put("a", "a.md", "a");
+        _remote.Put("b", "b.md", "b");
+        string cursor = (await Connector().GetChangesAsync(null)).NextCursor!;
+        _remote.PageSize = 1;
+
+        _remote.Put("a", "a.md", "a, edited");
+        _remote.Remove("a");
+        _remote.Put("b", "first-name.md", "b");
+        _remote.Put("b", "second-name.md", "b");
+        SyncDelta delta = await Connector().GetChangesAsync(cursor);
+
+        delta.Upserted.Select(f => f.Path).Should().Equal("/b/second-name.md");
+        delta.DeletedPrefixes.Should().BeEquivalentTo("/a/", "/b/");
+    }
+
+    [Fact]
+    public async Task GetChanges_RepeatedPageToken_FailsInsteadOfLooping()
+    {
+        _remote.Put("a", "a.md", "a");
+        _remote.RepeatPageToken = true;
+
+        Func<Task> act = () => Connector().GetChangesAsync(null);
+
+        await act.Should().ThrowAsync<CustomSourceException>().WithMessage("*repeated*");
+    }
+
+    [Fact]
+    public async Task ListScopes_RepeatedPageToken_FailsInsteadOfLooping()
+    {
+        _remote.RepeatPageToken = true;
+        CustomSourceClient client = new(new HttpClient(_remote), FakeMiddleMan.BaseUrl, FakeMiddleMan.Token);
+
+        Func<Task> act = () => client.ListScopesAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<CustomSourceException>().WithMessage("*repeated*");
+    }
 }

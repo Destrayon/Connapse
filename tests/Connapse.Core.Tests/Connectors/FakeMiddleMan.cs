@@ -21,6 +21,10 @@ public sealed class FakeMiddleMan : HttpMessageHandler
 
     public int PageSize { get; set; } = 2;
     public bool SupportsChanges { get; set; } = true;
+    public bool SupportsTombstones { get; set; } = true;
+
+    /// <summary>Every paged response repeats the same next-page token, as a broken middle man might.</summary>
+    public bool RepeatPageToken { get; set; }
     public HttpStatusCode? FailNextWith { get; set; }
     public List<string> Requests { get; } = [];
     public string? LastAuthorization { get; private set; }
@@ -68,11 +72,12 @@ public sealed class FakeMiddleMan : HttpMessageHandler
             {
                 ["protocol_versions"] = new JsonArray("1"),
                 ["name"] = "Fake",
-                ["capabilities"] = new JsonObject { ["changes"] = SupportsChanges, ["tombstones"] = SupportsChanges },
+                ["capabilities"] = new JsonObject { ["changes"] = SupportsChanges, ["tombstones"] = SupportsChanges && SupportsTombstones },
             }),
             "/v1/scopes" => Json(new JsonObject
             {
                 ["items"] = new JsonArray(new JsonObject { ["id"] = Scope, ["name"] = "Engineering" }),
+                ["next_page_token"] = RepeatPageToken ? "again" : null,
             }),
             $"/v1/scopes/{Scope}/documents" => Listing(query.GetValueOrDefault("page_token")),
             $"/v1/scopes/{Scope}/changes" => Changes(query.GetValueOrDefault("page_token") ?? query.GetValueOrDefault("cursor")),
@@ -88,7 +93,8 @@ public sealed class FakeMiddleMan : HttpMessageHandler
         List<FakeDocument> remaining = _documents.Values.Where(d => string.CompareOrdinal(d.Id, after) > 0).ToList();
         List<FakeDocument> page = remaining.Take(PageSize).ToList();
         JsonObject body = new() { ["items"] = new JsonArray(page.Select(Item).ToArray<JsonNode?>()) };
-        if (remaining.Count > page.Count) body["next_page_token"] = page[^1].Id;
+        if (RepeatPageToken) body["next_page_token"] = "again";
+        else if (remaining.Count > page.Count) body["next_page_token"] = page[^1].Id;
         else body["change_cursor"] = $"c{_journal.Count}";
         return Json(body);
     }

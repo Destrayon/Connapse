@@ -53,4 +53,19 @@ public class SourceSecretStoreTests(SharedWebAppFixture fixture)
         source.HasSecret.Should().BeFalse();
         (await store.GetSecretAsync(source.Id)).Should().BeNull();
     }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"baseUrl":"https://bridge.acme.test"}""")]
+    public async Task CreateAsync_CustomSourceWhoseScopeNamesNoMiddleMan_IsRefused(string scopeJson)
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        ISourceStore store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        Func<Task> act = () => store.CreateAsync(new CreateSourceRequest(
+            $"custom-badscope-{Guid.NewGuid():N}"[..24], ConnectionId: null, scopeJson,
+            Provider: ConnectionProvider.Custom, Secret: "t"));
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
 }
