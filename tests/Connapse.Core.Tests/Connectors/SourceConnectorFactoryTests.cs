@@ -788,6 +788,47 @@ public class SourceConnectorFactoryTests
         act.Should().Throw<ArgumentException>();
     }
 
+    private static Source MakeCustomSource(string baseUrl, string scopeId = "eng") =>
+        MakeSource(Guid.NewGuid(), new CustomSourceScope(baseUrl, scopeId).ToJson()) with
+        {
+            ConnectionId = null,
+            Provider = ConnectionProvider.Custom,
+        };
+
+    [Fact]
+    public void Create_ContentOnlyCustomSource_BuildsACustomConnector()
+    {
+        IConnector connector = _factory.Create(MakeCustomSource("https://bridge.acme.test"), secret: "token");
+
+        connector.Should().BeOfType<Connapse.Storage.Connectors.Custom.CustomSourceConnector>();
+    }
+
+    [Fact]
+    public void Create_CustomSourceOverPlainHttpToAHostNotAllowed_IsRefused()
+    {
+        Action act = () => _factory.Create(MakeCustomSource("http://bridge.acme.test"), secret: "token");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*HTTPS*");
+    }
+
+    [Fact]
+    public void Create_CustomSourceWithoutItsToken_IsRefused()
+    {
+        Action act = () => _factory.Create(MakeCustomSource("https://bridge.acme.test"));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*token*");
+    }
+
+    [Fact]
+    public void Create_CustomSourceWithAMalformedScope_IsRefused()
+    {
+        Source source = MakeCustomSource("https://bridge.acme.test") with { ScopeJson = """{"baseUrl":"https://x.test"}""" };
+
+        Action act = () => _factory.Create(source, secret: "token");
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
     private const string AtlassianCloudId = "11111111-2222-3333-4444-555555555555";
 
     private static readonly Connection AtlassianConnection = MakeConnection(

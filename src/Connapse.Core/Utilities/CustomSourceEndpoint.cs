@@ -7,7 +7,7 @@ namespace Connapse.Core.Utilities;
 /// </summary>
 public static class CustomSourceEndpoint
 {
-    public const string AllowedHttpHostsKey = "CustomSources:AllowedHttpHosts";
+    public const string AllowedHttpHostsKey = CustomSourceSettings.SectionName + ":AllowedHttpHosts";
 
     /// <param name="normalized">Scheme and host lower-cased, default port dropped, no trailing slash.</param>
     public static bool TryNormalize(
