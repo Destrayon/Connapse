@@ -40,14 +40,19 @@ are a list with an **Add custom provider** button, and each opens its own page a
 3. *Account linking (optional)* — shown when discovery lists `permissions.linking`; Connapse generates the
    link secret and shows it once for the admin to paste into the middle man.
 
-**Custom connection** — on the Connections page; the admin picks a custom provider and names it. It uses
-the provider's URL and token, so it holds no credential of its own. Its scopes come from `/v1/scopes`.
+**Custom connection** — on the Connections page; the admin picks a custom provider and names it. It
+holds no credential of its own: it is what turns on permission checks for the sources that use it, through
+its provider's permission endpoints.
 
-**Custom source** — on the Sources page's New source dialog:
-- *Under a connection*: pick the connection and a scope. Searches apply the live check.
-- *Without a connection (content only)*: enter the middle man's URL and token, then pick a scope. The
-  middle man needs only discovery, scopes and content. The source dialog and source page say "Signed-in
-  users with access to this source see all of its content — nothing is checked against the source system."
+**Custom source** — one kind of source, whether or not it has a connection (owner decision, 2026-10-15). It
+is created the same way, holds the same things, and syncs through the same connector either way: the
+middle man's URL and token, a scope chosen from `/v1/scopes`, the same document paths and the same sync.
+**The only difference is whether its connection is filled in:**
+- *No connection (content only)*: signed-in users with access to the source see all of its content. The
+  source dialog and source page say "Signed-in users with access to this source see all of its content —
+  nothing is checked against the source system."
+- *A custom connection*: searches apply the live permission check (and keys, when offered) through the
+  connection's provider, and its documents carry a resource URI and access keys so they can be checked.
 
 Whether a source checks permissions is decided by its structure, never by what the middle man
 advertises:
@@ -257,8 +262,9 @@ Errors use RFC 9457 problem details (`application/problem+json`) with an optiona
 - A custom provider record holds base URL, bearer token (encrypted like other credentials), link secret
   (when linking is used), and the last discovery document. Several custom providers may exist.
 - `ConnectionProvider.Custom` connections reference one custom provider and hold no credential.
-- A content-only custom source sets `Provider = Custom`, leaves `ConnectionId` null, and stores its own
-  URL and encrypted token.
+- Every custom source stores its own URL (in its scope) and encrypted token, with or without a connection.
+  Without one it sets `Provider = Custom`; with one it sets `ConnectionId` and its provider is the
+  connection's, as the existing `ck_sources_connection_xor_provider` constraint requires.
 - Each custom source stores its scope ID. Documents gain `access_keys text[]` (GIN index) and
   `access_version text`, populated only for connected custom sources. Resource URIs are
   `custom://{sourceId}/{documentId}`.
