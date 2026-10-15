@@ -50,7 +50,11 @@ public record Source(
 
     // Documents queued for or undergoing ingestion. Beside FailedDocumentCount so the page can
     // tell "still working" from "done" without reading every row.
-    int ProcessingDocumentCount = 0);
+    int ProcessingDocumentCount = 0,
+
+    // Whether the source holds its own credential — a content-only custom source's middle-man
+    // token. The secret itself never appears on the read model; see ISourceStore.GetSecretAsync.
+    bool HasSecret = false);
 
 /// <summary>
 /// The remote refused to let this source read it any more — a public repository made private,
@@ -66,7 +70,17 @@ public record CreateSourceRequest(
     string ScopeJson,
     string? Description = null,
     int? SyncIntervalSeconds = null,
-    ConnectionProvider? Provider = null);
+    ConnectionProvider? Provider = null,
+    string? Secret = null)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Description = {Description}, ")
+            .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Provider = {Provider}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}
 
 public record UpdateSourceRequest(
     string? Name = null,

@@ -46,6 +46,12 @@ public static class SourceScopeSummary
         if (ConfluenceSpace(node, siteHost) is { } space)
             return space;
 
+        // A content-only custom source: the scope and the middle man it is read from. The token is
+        // never in the scope, and the URL's path adds nothing a reader needs here.
+        if (Str(node, "scopeId") is { } scopeId && Str(node, "baseUrl") is { } baseUrl
+            && Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? middleMan))
+            return $"{scopeId} · {middleMan.Authority}";
+
         if (JiraProject(node, siteHost) is { } project)
             return project;
 

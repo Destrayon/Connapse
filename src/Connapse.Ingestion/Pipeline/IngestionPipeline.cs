@@ -771,10 +771,13 @@ public class IngestionPipeline : IKnowledgeIngester
     {
         if (source.ConnectionId is not Guid connectionId)
         {
-            return source.Provider is not null
-                ? _connectorFactory.Create(source)
-                : throw new InvalidOperationException(
+            if (source.Provider is null)
+                throw new InvalidOperationException(
                     $"IngestByIdAsync: source {source.Id} has neither a connection nor a provider for document {documentId}");
+
+            // A content-only custom source holds its own token; every other connection-less source has none.
+            string? ownSecret = source.HasSecret ? await _sourceStore.GetSecretAsync(source.Id, ct) : null;
+            return _connectorFactory.Create(source, ownSecret);
         }
 
         Connection connection = await _connectionStore.GetAsync(connectionId, ct)
@@ -784,9 +787,12 @@ public class IngestionPipeline : IKnowledgeIngester
         // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
         // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
         // rather than being swallowed.
-        string? secret = connection.HasSecret
-            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
-            : null;
+        // A custom connection holds no credential; its sources read content with their own token.
+        string? secret = connection.Provider == ConnectionProvider.Custom
+            ? source.HasSecret ? await _sourceStore.GetSecretAsync(source.Id, ct) : null
+            : connection.HasSecret
+                ? await _connectionStore.GetSecretAsync(connection.Id, ct)
+                : null;
 
         return _connectorFactory.Create(source, connection, secret);
     }

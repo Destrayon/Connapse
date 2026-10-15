@@ -41,8 +41,10 @@ public sealed class PrivateSourceVisibility(
         HashSet<Guid>? atlassianConnections;
         try
         {
+            // Custom connections too: a custom source's name and summary describe documents each user is
+            // checked for one by one, so its listing is for administrators as Confluence's is.
             atlassianConnections = (await connections.ListAsync(take: int.MaxValue, ct: ct))
-                .Where(c => c.Provider == ConnectionProvider.Atlassian)
+                .Where(c => c.Provider is ConnectionProvider.Atlassian or ConnectionProvider.Custom)
                 .Select(c => c.Id)
                 .ToHashSet();
         }
@@ -96,7 +98,9 @@ public sealed class PrivateSourceVisibility(
     /// unsearchable; being hidden is its permission answer.
     /// </summary>
     /// <remarks>A Jira project is the same: every hit is checked against Jira per user.</remarks>
-    public static bool IsSearchableWhenHidden(Source source) => IsAtlassianContent(source.ScopeJson);
+    /// <remarks>A connected custom source is the same: every hit is checked live with its provider.</remarks>
+    public static bool IsSearchableWhenHidden(Source source) =>
+        IsAtlassianContent(source.ScopeJson) || CustomSourceScope.TryParse(source.ScopeJson) is not null;
 
     /// <summary>A Confluence space or a Jira project: an Atlassian kind whose hits are checked live per user.</summary>
     private static bool IsAtlassianContent(string? scopeJson)

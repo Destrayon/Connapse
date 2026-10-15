@@ -12,6 +12,12 @@ public interface ISourceStore
     Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
+    /// The credential the source holds itself, decrypted, or null when it has none. Throws
+    /// <see cref="SourceSecretUnavailableException"/> when the ciphertext cannot be decrypted.
+    /// </summary>
+    Task<string?> GetSecretAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
     /// Unconditionally persists the sync cursor and outcome. Passing a null cursor clears
     /// it, which is what a RequiresFullResync response demands.
     /// <para>

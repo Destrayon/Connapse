@@ -17,6 +17,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<ConnectionEntity> Connections => Set<ConnectionEntity>();
     public DbSet<ProviderCredentialEntity> ProviderCredentials => Set<ProviderCredentialEntity>();
     public DbSet<SourceEntity> Sources => Set<SourceEntity>();
+    public DbSet<CustomProviderEntity> CustomProviders => Set<CustomProviderEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,6 +35,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureBatchDocuments(modelBuilder);
         ConfigureConnections(modelBuilder);
         ConfigureSources(modelBuilder);
+        ConfigureCustomProviders(modelBuilder);
     }
 
     private static void ConfigureContainers(ModelBuilder modelBuilder)
@@ -251,6 +253,14 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.ResourceUri)
                 .HasDatabaseName("idx_documents_resource_uri")
                 .HasOperators("text_pattern_ops");
+
+            // Searched with && (overlap) against the keys a user holds, which GIN answers.
+            entity.Property(e => e.AccessKeys)
+                .HasColumnName("access_keys")
+                .HasColumnType("text[]");
+            entity.HasIndex(e => e.AccessKeys)
+                .HasDatabaseName("idx_documents_access_keys")
+                .HasMethod("gin");
 
             entity.HasOne(e => e.Container)
                 .WithMany(c => c.Documents)
@@ -557,6 +567,26 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         });
     }
 
+    private static void ConfigureCustomProviders(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CustomProviderEntity>(entity =>
+        {
+            entity.ToTable("custom_providers");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(128).IsRequired();
+            entity.HasIndex(e => e.Name).IsUnique().HasDatabaseName("idx_custom_providers_name");
+            entity.Property(e => e.BaseUrl).HasColumnName("base_url").HasMaxLength(2048).IsRequired();
+            entity.Property(e => e.TokenProtected).HasColumnName("token_protected");
+            entity.Property(e => e.MaxCheckBatch).HasColumnName("max_check_batch");
+            entity.Property(e => e.SupportsAccessKeys).HasColumnName("supports_access_keys");
+            entity.Property(e => e.LinkUrl).HasColumnName("link_url").HasMaxLength(2048);
+            entity.Property(e => e.VerifiedAt).HasColumnName("verified_at");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        });
+    }
+
     private static void ConfigureSources(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<SourceEntity>(entity =>
@@ -589,6 +619,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.SettingsOverridesJson)
                 .HasColumnName("settings_overrides")
                 .HasColumnType("jsonb");
+
+            entity.Property(e => e.SecretProtected)
+                .HasColumnName("secret_protected");
 
             entity.Property(e => e.Enabled)
                 .HasColumnName("enabled")

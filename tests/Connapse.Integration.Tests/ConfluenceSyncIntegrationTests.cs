@@ -81,7 +81,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
                 fileTypes: fileTypes);
         }
 
-        public IConnector Create(Source source) => throw new InvalidOperationException("Confluence sources have a connection");
+        public IConnector Create(Source source, string? secret = null) => throw new InvalidOperationException("Confluence sources have a connection");
     }
 
     private (SourceSyncService Service, RecordingIngestionQueue Queue) BuildService(IServiceProvider sp)

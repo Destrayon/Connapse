@@ -43,7 +43,7 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
         public IConnector Create(Source source, Connection connection, string? secret = null) =>
             throw new InvalidOperationException("a public GitHub source has no connection");
 
-        public IConnector Create(Source source) => new GitHubConnector(new GitHubConnectorConfig
+        public IConnector Create(Source source, string? secret = null) => new GitHubConnector(new GitHubConnectorConfig
         {
             Owner = "octocat",
             Repo = "docs",

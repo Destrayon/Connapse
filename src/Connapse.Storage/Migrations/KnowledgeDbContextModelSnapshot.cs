@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.7")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -313,6 +313,63 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("containers", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.CustomProviderEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BaseUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("base_url");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("LinkUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("link_url");
+
+                    b.Property<int>("MaxCheckBatch")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_check_batch");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("SupportsAccessKeys")
+                        .HasColumnType("boolean")
+                        .HasColumnName("supports_access_keys");
+
+                    b.Property<string>("TokenProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("token_protected");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("idx_custom_providers_name");
+
+                    b.ToTable("custom_providers", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.DocumentEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -320,6 +377,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.PrimitiveCollection<string[]>("AccessKeys")
+                        .HasColumnType("text[]")
+                        .HasColumnName("access_keys");
 
                     b.Property<int>("AttemptCount")
                         .ValueGeneratedOnAdd()
@@ -443,6 +504,11 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("summary_status");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccessKeys")
+                        .HasDatabaseName("idx_documents_access_keys");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("AccessKeys"), "gin");
 
                     b.HasIndex("ContainerId")
                         .HasDatabaseName("idx_documents_container_id");
@@ -649,6 +715,10 @@ namespace Connapse.Storage.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("scope");
+
+                    b.Property<string>("SecretProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("secret_protected");
 
                     b.Property<JsonDocument>("SettingsOverridesJson")
                         .HasColumnType("jsonb")

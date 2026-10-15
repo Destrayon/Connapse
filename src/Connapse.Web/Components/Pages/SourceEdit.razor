@@ -89,7 +89,7 @@
                 <h2 class="h6 mb-2">Reads from</h2>
                 <dl class="row small mb-0">
                     <dt class="col-sm-3 fw-normal text-muted">Connection</dt>
-                    <dd class="col-sm-9">@(connection?.Name ?? (source.Provider is { } p ? $"{p} (no connection)" : "(missing connection)"))</dd>
+                    <dd class="col-sm-9">@(connection?.Name ?? (source.Provider is { } p ? $"{(p == ConnectionProvider.Custom ? "Custom source" : p.ToString())} (no connection)" : "(missing connection)"))</dd>
                     <dt class="col-sm-3 fw-normal text-muted">Scope</dt>
                     <dd class="col-sm-9 font-monospace">@(SourceScopeSummary.Describe(source.ScopeJson, SiteHost) ?? "—")</dd>
                 </dl>

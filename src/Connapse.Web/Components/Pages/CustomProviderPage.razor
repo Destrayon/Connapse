@@ -1,0 +1,265 @@
+@page "/admin/providers/custom/new"
+@page "/admin/providers/custom/{Id:guid}"
+@attribute [Authorize(Policy = "RequireAdmin")]
+@rendermode InteractiveServer
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Web.Components.Providers
+@using Connapse.Web.Services
+@inject CustomProviderSetup Setup
+@inject ICustomProviderStore Store
+@inject IAuditLogger AuditLogger
+@inject NavigationManager Navigation
+
+<PageTitle>@(existing?.Name ?? "New custom provider") - Connapse</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb small">
+        <li class="breadcrumb-item"><a href="/admin/providers">Providers</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@(existing?.Name ?? "New custom provider")</li>
+    </ol>
+</nav>
+
+<h1 class="mb-1"><span class="bi-hdd-network me-2" aria-hidden="true"></span>@(existing?.Name ?? "New custom provider")</h1>
+<p class="text-muted">
+    A middle man you run that answers, live, what each Connapse user may read. Custom sources on a connection that
+    uses this provider show a search result only when the middle man says that user may read it.
+</p>
+
+@if (loadError is not null)
+{
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else
+{
+    @if (message is not null)
+    {
+        <div class="alert alert-success py-2 small" role="status">@message</div>
+    }
+    @if (error is not null)
+    {
+        <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-error">@error</div>
+    }
+
+    <ProviderStepCard Id="custom-endpoint"
+                      Title="Middle man"
+                      Description="The address and token Connapse uses to ask your middle man about permissions. It must refuse any request without its token."
+                      Status="@EndpointStatus"
+                      StatusLabel="@(check?.EndpointOk == true ? "Reachable" : "Not checked")"
+                      @bind-Expanded="editEndpoint"
+                      EditLabel="Change address or token"
+                      EasyTitle="Try it with the example server">
+        <Summary>
+            <span class="font-monospace">@(check?.BaseUrl ?? existing?.BaseUrl)</span>
+        </Summary>
+        <ManualContent>
+            <div class="mb-3">
+                <label class="form-label" for="custom-provider-name">Name</label>
+                <input id="custom-provider-name" class="form-control" value="@name"
+                       @onchange="e => name = e.Value?.ToString() ?? string.Empty" placeholder="Acme bridge" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="custom-provider-url">Address</label>
+                <input id="custom-provider-url" class="form-control font-monospace" value="@baseUrl"
+                       @onchange="e => { baseUrl = e.Value?.ToString() ?? string.Empty; check = null; }"
+                       placeholder="https://bridge.example.com" />
+                @if (check?.Field == "baseUrl" && check.Error is not null)
+                {
+                    <div id="custom-provider-url-error" class="text-danger small mt-1" role="alert">@check.Error</div>
+                }
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="custom-provider-token">Token</label>
+                <input id="custom-provider-token" type="password" class="form-control" autocomplete="off" value="@token"
+                       @onchange="e => { token = e.Value?.ToString() ?? string.Empty; check = null; }"
+                       placeholder="@(existing?.HasToken == true ? "Leave empty to keep the stored token" : "")" />
+                @if (check?.Field == "secret" && check.Error is not null)
+                {
+                    <div id="custom-provider-token-error" class="text-danger small mt-1" role="alert">@check.Error</div>
+                }
+                <div class="form-text">Sent as a bearer token on every permission question. Stored encrypted and never shown again.</div>
+            </div>
+            <button id="custom-provider-check" type="button" class="btn btn-outline-secondary btn-sm" @onclick="CheckAsync" disabled="@checking">
+                @if (checking)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                }
+                Check middle man
+            </button>
+        </ManualContent>
+        <EasyContent>
+            <p class="small mb-2">
+                The example server in <code>samples/Connapse.CustomSource.Example</code> answers every part of the
+                protocol from a folder of files. Run it on Connapse's Docker network:
+            </p>
+            <pre class="small mb-2"><code>docker build -t connapse-custom-source-example samples/Connapse.CustomSource.Example
+docker run -d --name cs-example --network &lt;connapse-project&gt;_backend connapse-custom-source-example</code></pre>
+            <p class="small mb-0">
+                Then use the address <code>http://cs-example:8080</code> and the token <code>change-me-example-token</code>,
+                and list <code>cs-example</code> in <code>CustomSources:AllowedHttpHosts</code> so plain HTTP is allowed.
+            </p>
+        </EasyContent>
+    </ProviderStepCard>
+
+    <ProviderStepCard Id="custom-permissions"
+                      Title="Permission check"
+                      Description="Your middle man must answer live permission checks. Connapse asks it before showing any search result from this provider's sources, and shows nothing it cannot confirm."
+                      Status="@PermissionsStatus"
+                      StatusLabel="@(check?.PermissionsOk == true ? "Answering" : check?.EndpointOk == true ? "Not answering" : "Waiting for the middle man")">
+        <Summary>
+            @if (check?.PermissionsOk == true)
+            {
+                <span>Checks up to @check.MaxCheckBatch documents per request.</span>
+                <span>@(check.SupportsAccessKeys ? " Offers access keys, so searches rank only what each user may hold." : " Offers no access keys, so every result is checked.")</span>
+            }
+        </Summary>
+        <ManualContent>
+            @if (check is { EndpointOk: true, PermissionsOk: false, Error: { } permissionError })
+            {
+                <div id="custom-provider-permissions-error" class="text-danger small" role="alert">@permissionError</div>
+            }
+            else
+            {
+                <p class="small text-muted mb-0">Checked together with the middle man above.</p>
+            }
+        </ManualContent>
+    </ProviderStepCard>
+
+    <div class="d-flex gap-2 mt-3">
+        <button id="custom-provider-save" class="btn btn-primary" @onclick="SaveAsync"
+                disabled="@(saving || check is not { EndpointOk: true, PermissionsOk: true })">
+            @(existing is null ? "Save provider" : "Save changes")
+        </button>
+        <a class="btn btn-secondary" href="/admin/providers">Cancel</a>
+        @if (existing is not null)
+        {
+            <button id="custom-provider-delete" class="btn btn-outline-danger ms-auto" @onclick="DeleteAsync" disabled="@saving">Delete provider</button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private CustomProvider? existing;
+    private string name = "";
+    private string baseUrl = "";
+    private string token = "";
+    private CustomProviderCheck? check;
+    private bool checking;
+    private bool saving;
+    private bool editEndpoint;
+    private string? message;
+    private string? error;
+    private string? loadError;
+
+    private RequirementStatus EndpointStatus => check?.EndpointOk == true ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
+
+    private RequirementStatus PermissionsStatus => check switch
+    {
+        { PermissionsOk: true } => RequirementStatus.Satisfied,
+        { EndpointOk: true } => RequirementStatus.Failed,
+        _ => RequirementStatus.NotConfigured,
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Id is not { } id) return;
+
+        existing = await Store.GetAsync(id);
+        if (existing is null)
+        {
+            loadError = "No such custom provider.";
+            return;
+        }
+
+        name = existing.Name;
+        baseUrl = existing.BaseUrl;
+    }
+
+    private async Task CheckAsync()
+    {
+        checking = true;
+        error = null;
+        message = null;
+        try
+        {
+            // A blank token on an existing provider means "the stored one", which must still pass the check.
+            string? tokenToCheck = token.Length > 0 || existing is null ? token : await Store.GetTokenAsync(existing.Id);
+            check = await Setup.CheckAsync(baseUrl, tokenToCheck, CancellationToken.None);
+            if (check.BaseUrl is { } normalized) baseUrl = normalized;
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping an event handler would end the circuit.
+            check = new CustomProviderCheck(null, false, false, Error: ex.Message, Field: "baseUrl");
+        }
+        finally
+        {
+            checking = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (check is not { EndpointOk: true, PermissionsOk: true, BaseUrl: { } checkedUrl } passed) return;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            error = "A name is required.";
+            return;
+        }
+
+        saving = true;
+        error = null;
+        try
+        {
+            SaveCustomProviderRequest request = new(
+                name.Trim(), checkedUrl, token.Length > 0 ? token.Trim() : null,
+                passed.MaxCheckBatch, passed.SupportsAccessKeys, passed.LinkUrl);
+
+            CustomProvider? result = existing is null
+                ? await Store.CreateAsync(request)
+                : await Store.UpdateAsync(existing.Id, request);
+            if (result is null)
+            {
+                error = "This custom provider no longer exists.";
+                return;
+            }
+
+            await AuditLogger.LogAsync(existing is null ? "custom_provider.created" : "custom_provider.updated",
+                "custom_provider", result.Id.ToString(), new { result.Name, result.BaseUrl });
+            existing = result;
+            token = "";
+            message = $"'{result.Name}' saved. Add a Custom connection that uses it on the Connections page.";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (existing is null) return;
+        saving = true;
+        error = null;
+        try
+        {
+            await Store.DeleteAsync(existing.Id);
+            await AuditLogger.LogAsync("custom_provider.deleted", "custom_provider", existing.Id.ToString(), new { existing.Name });
+            Navigation.NavigateTo("/admin/providers");
+        }
+        catch (InvalidOperationException ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

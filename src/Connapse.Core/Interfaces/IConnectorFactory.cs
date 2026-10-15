@@ -26,8 +26,11 @@ public interface IConnectorFactory
 
     /// <summary>
     /// Builds a read-only connector for a connection-less source (one with no owning Connection),
-    /// using the source's own <see cref="Source.Provider"/>. For providers that read public,
-    /// unauthenticated resources (public GitHub). Throws ArgumentException if the source has no Provider.
+    /// using the source's own <see cref="Source.Provider"/>. Throws ArgumentException if the source has no Provider.
     /// </summary>
-    IConnector Create(Source source);
+    /// <param name="secret">
+    /// The credential the source holds itself (<see cref="ISourceStore.GetSecretAsync"/>) — a content-only
+    /// custom source's middle-man token. Null for providers that need none.
+    /// </param>
+    IConnector Create(Source source, string? secret = null);
 }

@@ -11,6 +11,13 @@ public class SourceEntity
     public int? Provider { get; set; } // maps ConnectionProvider?
     public JsonDocument ScopeJson { get; set; } = null!; // JSONB: bucket prefix, root subpath, space key
     public JsonDocument? SettingsOverridesJson { get; set; }
+
+    /// <summary>
+    /// DataProtection ciphertext (purpose <c>Source.v1</c>) of a credential the source holds itself — a
+    /// content-only custom source's middle-man token. Null for every source that authenticates through a
+    /// connection.
+    /// </summary>
+    public string? SecretProtected { get; set; }
     public bool Enabled { get; set; } = true;
 
     // Sync state

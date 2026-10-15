@@ -6,7 +6,7 @@ namespace Connapse.Core;
 /// ManagedStorage is deliberately absent: it is Connapse's own backend, not an
 /// external system requiring credentials.
 /// </summary>
-public enum ConnectionProvider { Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6, Atlassian = 7 }
+public enum ConnectionProvider { Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6, Atlassian = 7, Custom = 8 }
 
 public record Connection(
     Guid Id,
@@ -84,4 +84,16 @@ public class ConnectionSecretUnavailableException(Guid connectionId, Exception i
                 "must be re-entered.", inner)
 {
     public Guid ConnectionId { get; } = connectionId;
+}
+
+/// <summary>
+/// A source's own stored credential could not be decrypted — the same lost or unshared key ring as
+/// <see cref="ConnectionSecretUnavailableException"/>, for a credential a source holds without a connection.
+/// </summary>
+public class SourceSecretUnavailableException(Guid sourceId, Exception inner)
+    : Exception($"The stored secret for source '{sourceId}' could not be decrypted. " +
+                "The DataProtection key ring that encrypted it is unavailable, so the credential " +
+                "must be re-entered.", inner)
+{
+    public Guid SourceId { get; } = sourceId;
 }

@@ -1,8 +1,10 @@
-﻿using System.Text.Json;
+﻿using System.Security.Cryptography;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using static Connapse.Core.Utilities.LogSanitizer;
@@ -16,8 +18,11 @@ namespace Connapse.Storage.Sources;
 /// </summary>
 public class PostgresSourceStore(
     IDbContextFactory<KnowledgeDbContext> factory,
+    IDataProtectionProvider dataProtection,
     ILogger<PostgresSourceStore> logger) : ISourceStore
 {
+    private IDataProtector Protector => dataProtection.CreateProtector("Source.v1");
+
     private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNameCaseInsensitive = true };
 
     public async Task<Source> CreateAsync(CreateSourceRequest request, CancellationToken ct = default)
@@ -34,13 +39,22 @@ public class PostgresSourceStore(
         if (request.ConnectionId is not null && request.Provider is not null)
             throw new ArgumentException("a source must have exactly one of a connection or a provider", nameof(request));
 
+        // The URL rules depend on deployment settings and are applied where those are read (the setup
+        // check and the connector factory); the store only refuses a scope that names no middle man.
+        if (request.Provider is ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
+            throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+
         await using var context = await factory.CreateDbContextAsync(ct);
 
         if (request.ConnectionId is Guid cid)
         {
-            bool connectionExists = await context.Connections.AnyAsync(c => c.Id == cid, ct);
-            if (!connectionExists)
+            int? connectionProvider = await context.Connections.Where(c => c.Id == cid).Select(c => (int?)c.Provider).FirstOrDefaultAsync(ct);
+            if (connectionProvider is null)
                 throw new InvalidOperationException($"Connection '{request.ConnectionId}' does not exist.");
+
+            // A custom source is the same with or without a custom connection: its scope must name the middle man.
+            if (connectionProvider == (int)ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
+                throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
         }
 
         bool nameTaken = await context.Sources.AnyAsync(s => s.Name == name, ct);
@@ -55,6 +69,7 @@ public class PostgresSourceStore(
             ConnectionId = request.ConnectionId,
             Provider = (int?)request.Provider,
             ScopeJson = JsonDocument.Parse(string.IsNullOrEmpty(request.ScopeJson) ? "{}" : request.ScopeJson),
+            SecretProtected = string.IsNullOrEmpty(request.Secret) ? null : Protector.Protect(request.Secret),
             SyncIntervalSeconds = request.SyncIntervalSeconds,
             Enabled = true,
             LastSyncStatus = (int)SyncStatus.Never,
@@ -70,6 +85,30 @@ public class PostgresSourceStore(
         // A source that was created a line ago owns no documents, so every count is genuinely
         // zero rather than merely unknown.
         return MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
+    }
+
+    public async Task<string?> GetSecretAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        string? ciphertext = await context.Sources
+            .AsNoTracking()
+            .Where(s => s.Id == id)
+            .Select(s => s.SecretProtected)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrEmpty(ciphertext)) return null;
+
+        try
+        {
+            return Protector.Unprotect(ciphertext);
+        }
+        catch (CryptographicException ex)
+        {
+            logger.LogError(ex,
+                "Failed to decrypt secret for source {SourceId}; the DataProtection key ring is unavailable", id);
+            throw new SourceSecretUnavailableException(id, ex);
+        }
     }
 
     public async Task<Source?> GetAsync(Guid id, CancellationToken ct = default)
@@ -344,7 +383,8 @@ public class PostgresSourceStore(
         Provider: (ConnectionProvider?)entity.Provider,
         SyncHeldSince: entity.SyncHeldSince,
         AccessRevokedAt: entity.AccessRevokedAt,
-        ProcessingDocumentCount: processingDocumentCount);
+        ProcessingDocumentCount: processingDocumentCount,
+        HasSecret: entity.SecretProtected is not null);
 
     public async Task UpdateWithheldDeletionsAsync(Guid id, int? withheld, CancellationToken ct = default)
     {

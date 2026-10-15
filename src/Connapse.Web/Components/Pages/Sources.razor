@@ -13,6 +13,8 @@
 @using Connapse.Web.Components.Connections
 @inject ISourceStore SourceStore
 @inject Connapse.Web.Services.AtlassianSiteService AtlassianSites
+@inject Connapse.Web.Services.CustomSourceSetup CustomSources
+@inject ICustomProviderStore CustomProviderStore
 @inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
 @inject IConnectionStore ConnectionStore
 @inject SourceSyncService SyncService
@@ -56,7 +58,7 @@
                 <a class="btn btn-outline-secondary" href="/connections">
                     <span class="bi-plug me-1"></span> Connections
                 </a>
-                <button class="btn btn-primary" @onclick="BeginCreate" disabled="@(connections.Count == 0)">
+                <button class="btn btn-primary" @onclick="BeginCreate">
                     <span class="bi-plus-lg me-1"></span> New source
                 </button>
             </div>
@@ -77,12 +79,13 @@
 
     @if (isAdmin && connections.Count == 0 && !loading)
     {
-        @* A source only exists inside a connection, so offering the button with nothing to
-           attach it to would open a modal whose first field has no options. *@
+        @* Without a connection the only source there is to make is a content-only custom one, which the
+           New source button opens on; anything else needs a connection first. *@
         <div class="alert alert-info">
             <span class="bi-info-circle me-2"></span>
-            No connections yet. <a href="/connections" class="alert-link">Add one</a> before creating a source —
-            a connection holds the credential, a source picks a scope inside it.
+            No connections yet. <a href="/connections" class="alert-link">Add one</a> to read from a bucket, a
+            repository or a site — a connection holds the credential, a source picks a scope inside it. A custom
+            source needs no connection: press New source.
         </div>
     }
 
@@ -352,19 +355,31 @@
 
                     <div class="mb-3">
                         <label class="form-label" for="source-connection">Connection</label>
-                        <select id="source-connection" class="form-select" value="@form.ConnectionId"
+                        <select id="source-connection" class="form-select" value="@(customDraft is not null && form.ConnectionId == Guid.Empty ? CustomChoice : form.ConnectionId.ToString())" disabled="@creating"
                                 aria-describedby="source-connection-help" @onchange="OnConnectionChanged">
                             @foreach (var connection in connections)
                             {
                                 <option value="@connection.Id">@ConnectionLabel(connection)</option>
                             }
+                            <option value="@CustomChoice">Custom source — no connection</option>
                         </select>
                         <div id="source-connection-help" class="form-text">
-                            The connection holds the credential. This source picks a scope inside it.
+                            @if (customDraft is not null)
+                            {
+                                <text>A middle man you run supplies the content; no connection is involved.</text>
+                            }
+                            else
+                            {
+                                <text>The connection holds the credential. This source picks a scope inside it.</text>
+                            }
                         </div>
                     </div>
 
-                    @if (selectedProvider is ConnectionProvider.GitHub && githubForm is not null)
+                    @if (customDraft is not null)
+                    {
+                        <CustomSourceFields Draft="customDraft" />
+                    }
+                    else if (selectedProvider is ConnectionProvider.GitHub && githubForm is not null)
                     {
                         @* A GitHub connection is one App installation. The repository is named by
                            address, and becomes up to two sources — its docs and its issues — named
@@ -701,6 +716,10 @@
 
     private SourceForm? form;
     private GitHubRepositoryForm? githubForm;
+
+    /// <summary>Set while the dialog's choice is a content-only custom source, which has no connection.</summary>
+    private CustomSourceDraft? customDraft;
+    private const string CustomChoice = "custom";
     private ConfluenceSpaceSelection? confluenceForm;
 
     /// <summary>Space ids the chosen Atlassian connection already has a source for.</summary>
@@ -719,7 +738,7 @@
     private string? createError;
     private string? createWarning;
 
-    private ConnectionProvider? selectedProvider => SelectedConnection?.Provider;
+    private ConnectionProvider? selectedProvider => customDraft is not null ? ConnectionProvider.Custom : SelectedConnection?.Provider;
 
     private Connection? SelectedConnection =>
         connections.FirstOrDefault(c => c.Id == form?.ConnectionId);
@@ -870,6 +889,7 @@
         ConnectionProvider.AzureBlob => "Azure Blob Storage",
         ConnectionProvider.S3 => "Amazon S3",
         ConnectionProvider.Sftp => "SFTP",
+        ConnectionProvider.Custom => "Custom source",
         _ => provider.ToString(),
     };
 
@@ -991,7 +1011,7 @@
     /// <summary>The connection a source reads through, or its provider when it has none.</summary>
     private string Origin(Source source) =>
         source.ConnectionId is null && source.Provider is { } provider
-            ? $"{provider} (public, no connection)"
+            ? provider == ConnectionProvider.Custom ? "Custom source (no connection)" : $"{provider} (public, no connection)"
             : ConnectionName(source.ConnectionId);
 
     private string ConnectionName(Guid? connectionId) =>
@@ -1149,7 +1169,40 @@
         }
     }
 
-    private Task BeginCreate() => BeginCreate(connections.First().Id);
+    private Task BeginCreate() => connections.Count == 0 ? BeginCustomCreate() : BeginCreate(connections.First().Id);
+
+    /// <summary>
+    /// The custom source fields for a custom connection — the same as without one, with the address fixed to
+    /// the connection's provider's middle man. Null for any other connection.
+    /// </summary>
+    private async Task<CustomSourceDraft?> DraftForConnectionAsync(Connection? connection)
+    {
+        if (connection is not { Provider: ConnectionProvider.Custom }) return null;
+
+        CustomProvider? provider = CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } providerId
+            ? await CustomProviderStore.GetAsync(providerId)
+            : null;
+        return new CustomSourceDraft
+        {
+            BaseUrl = provider?.BaseUrl ?? "",
+            FixedBaseUrl = provider?.BaseUrl ?? "",
+            PermissionsBy = provider?.Name ?? "a custom provider that no longer exists",
+        };
+    }
+
+    /// <summary>Opens the dialog on a content-only custom source: the only kind that needs no connection.</summary>
+    private Task BeginCustomCreate()
+    {
+        message = null;
+        privateNote = null;
+        createError = null;
+        createWarning = null;
+        ClearRepoError();
+        form = new SourceForm { ConnectionId = Guid.Empty };
+        githubForm = new GitHubRepositoryForm();
+        customDraft = new CustomSourceDraft();
+        return Task.CompletedTask;
+    }
 
     private async Task BeginCreate(Guid connectionId)
     {
@@ -1159,6 +1212,7 @@
         createWarning = null;
         ClearRepoError();
         form = new SourceForm { ConnectionId = connectionId };
+        customDraft = await DraftForConnectionAsync(SelectedConnection);
         githubForm = new GitHubRepositoryForm();
         await LoadGitHubSuggestionsAsync();
         await ResetConfluenceAsync();
@@ -1167,6 +1221,7 @@
     private void CancelCreate()
     {
         form = null;
+        customDraft = null;
         createError = null;
         createWarning = null;
         ClearRepoError();
@@ -1176,8 +1231,19 @@
     {
         if (form is null) return;
 
+        if (args.Value?.ToString() == CustomChoice)
+        {
+            form.ConnectionId = Guid.Empty;
+            customDraft = new CustomSourceDraft();
+            createError = null;
+            createWarning = null;
+            ClearRepoError();
+            return;
+        }
+
         if (Guid.TryParse(args.Value?.ToString(), out var id))
             form.ConnectionId = id;
+        customDraft = await DraftForConnectionAsync(SelectedConnection);
 
         // The scope fields differ per provider, so anything typed for the previous one is now
         // meaningless — carrying a bucket name over into a filesystem source would write a key
@@ -1470,12 +1536,108 @@
         }
     }
 
+    /// <summary>
+    /// A content-only custom source. The middle man is checked again at save, because the address or
+    /// token may have changed since the scopes were loaded; the URL stored is the one that was checked.
+    /// </summary>
+    private async Task CreateCustomSourceAsync(CustomSourceDraft draft)
+    {
+        if (draft.FixedBaseUrl is "")
+        {
+            createError = "This connection's custom provider no longer exists. Choose another connection.";
+            return;
+        }
+
+        if (draft.Scopes.Count == 0 || draft.ScopeId is null)
+        {
+            createError = "Enter the middle man's address and token, then press Load scopes and pick a scope.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.Name))
+        {
+            createError = "Source name is required.";
+            return;
+        }
+
+        if (draft.SyncIntervalSeconds is < 60)
+        {
+            createError = "The minimum sync interval is 60 seconds.";
+            return;
+        }
+
+        creating = true;
+        try
+        {
+            Connapse.Web.Services.CustomSourceProbe probe = await CustomSources.ProbeAsync(draft.BaseUrl, draft.Token, CancellationToken.None);
+
+            // The dialog may have been closed while the middle man answered; save nothing then.
+            if (!ReferenceEquals(customDraft, draft))
+                return;
+
+            if (probe.Error is not null)
+            {
+                draft.Error = probe.Error;
+                draft.ErrorField = probe.Field;
+                createError = probe.Error;
+                return;
+            }
+
+            if (draft.FixedBaseUrl is not null && !string.Equals(probe.BaseUrl, draft.FixedBaseUrl, StringComparison.Ordinal))
+            {
+                createError = $"A custom source on this connection must read its provider's middle man ({draft.FixedBaseUrl}).";
+                return;
+            }
+
+            if (probe.Scopes.All(s => s.Id != draft.ScopeId))
+            {
+                createError = $"The middle man no longer offers the scope '{draft.ScopeId}'. Load scopes again.";
+                return;
+            }
+
+            // The same source either way; a custom connection only adds the permission check.
+            Guid? connectionId = form?.ConnectionId is { } chosen && chosen != Guid.Empty ? chosen : null;
+            var created = await SourceStore.CreateAsync(new CreateSourceRequest(
+                draft.Name.Trim(),
+                connectionId,
+                new CustomSourceScope(probe.BaseUrl!, draft.ScopeId).ToJson(),
+                string.IsNullOrWhiteSpace(draft.Description) ? null : draft.Description.Trim(),
+                draft.SyncIntervalSeconds,
+                connectionId is null ? ConnectionProvider.Custom : null,
+                draft.Token.Trim()));
+
+            form = null;
+            customDraft = null;
+            Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync.");
+
+            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
+                new { created.Name, created.ConnectionId, created.Provider });
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // Duplicate name is the expected case; any exception escaping the handler would end the circuit.
+            createError = ex.Message;
+        }
+        finally
+        {
+            creating = false;
+        }
+    }
+
     private async Task Create()
     {
         if (form is null) return;
 
         createError = null;
         createWarning = null;
+
+        if (customDraft is not null)
+        {
+            await CreateCustomSourceAsync(customDraft);
+            return;
+        }
 
         var connection = connections.FirstOrDefault(c => c.Id == form.ConnectionId);
         if (connection is null)

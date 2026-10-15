@@ -118,7 +118,10 @@ public sealed record ConnectionForm
     /// <summary>True for a provider whose config this form can rebuild from its own fields.</summary>
     public bool OwnsConfig =>
         Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.Filesystem
-            or ConnectionProvider.Sftp or ConnectionProvider.GitHub;
+            or ConnectionProvider.Sftp or ConnectionProvider.GitHub or ConnectionProvider.Custom;
+
+    /// <summary>Custom only: the custom provider this connection checks permissions with.</summary>
+    public Guid? CustomProviderId { get; set; }
 
     /// <summary>GitHub only: the organisation or user the installation is on, for display.</summary>
     public string? GitHubAccount { get; set; }
@@ -236,6 +239,8 @@ public sealed record ConnectionForm
     public static ConnectionForm FromConnection(Connection connection)
     {
         var form = new ConnectionForm { Name = connection.Name, Provider = connection.Provider };
+        if (connection.Provider == ConnectionProvider.Custom)
+            form.CustomProviderId = CustomConnectionConfig.ProviderIdOf(connection.ConfigJson);
 
         if (!form.OwnsConfig)
             form.unownedConfigJson = connection.ConfigJson;
@@ -353,6 +358,11 @@ public sealed record ConnectionForm
             // One installation of the App. No secret: tokens are minted from the App itself,
             // which lives on the Providers page, the way S3 connections borrow Connapse's AWS
             // identity rather than carrying their own.
+            // Only which custom provider answers the permission questions; its address and token
+            // live on the provider, and each source keeps its own token for content.
+            case ConnectionProvider.Custom:
+                return CustomProviderId is { } providerId ? CustomConnectionConfig.ToJson(providerId) : "{}";
+
             case ConnectionProvider.GitHub:
                 if (GitHubInstallationId is { } installationId) node["installationId"] = installationId;
                 if (!Blank(GitHubAccount)) node["account"] = GitHubAccount!.Trim();
@@ -467,6 +477,8 @@ public sealed record ConnectionForm
             ConnectionProvider.Sftp when isNew && Blank(PrivateKey) => "A private key is required.",
 
             ConnectionProvider.GitHub when GitHubInstallationId is not > 0 => "Choose the installation this connection reads through.",
+
+            ConnectionProvider.Custom when CustomProviderId is null => "Choose the custom provider this connection checks permissions with.",
 
             _ => null
         };

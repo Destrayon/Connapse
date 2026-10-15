@@ -21,6 +21,12 @@ namespace Connapse.Core.Interfaces;
 /// is rate limiting: the delta is empty and the cursor unchanged. It proves nothing about the
 /// credential or access, so the caller must not clear a failed sign-in or a revoked source on it.
 /// </para>
+/// <para>
+/// <c>DeletedPrefixes</c> is for remotes whose deletions name a document but not its path: each entry is a
+/// path prefix, and every indexed path under it — except a path upserted in the same delta — is deleted,
+/// under the same deletion guard as <c>DeletedPaths</c>. A custom source's path is <c>/{id}/{name}</c>, and
+/// its change feed reports a deletion by ID alone; the same prefix also clears a renamed document's old path.
+/// </para>
 /// </summary>
 public record SyncDelta(
     IReadOnlyList<ConnectorFile> Upserted,
@@ -29,7 +35,8 @@ public record SyncDelta(
     bool RequiresFullResync,
     bool IsFullListing = false,
     string? Notice = null,
-    bool Deferred = false);
+    bool Deferred = false,
+    IReadOnlyList<string>? DeletedPrefixes = null);
 
 /// <summary>
 /// A connector that can report what changed since a durable cursor, rather than requiring
