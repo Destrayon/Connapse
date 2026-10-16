@@ -26,17 +26,18 @@ public sealed class PostgresCustomLinkRemovalStore(
             .Where(p => p.LinkUrl != null || p.LinkSecretProtected != null)
             .Select(p => new { p.Id, p.BaseUrl, p.TokenProtected })
             .ToListAsync(ct);
+        DateTime now = DateTime.UtcNow;
+
+        // A retried deletion owns the entries an earlier attempt left waiting: restart their clock, so the
+        // job's one-day cleanup cannot remove them while this attempt runs. Refreshed before reading what is
+        // queued, so an entry cleanup removes in between is not counted and is queued again below.
+        await context.CustomLinkRemovals.Where(r => r.UserId == userId && r.NextAttemptAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.CreatedAt, now), ct);
+
         HashSet<Guid> queued = [.. await context.CustomLinkRemovals.AsNoTracking()
             .Where(r => r.UserId == userId)
             .Select(r => r.ProviderId)
             .ToListAsync(ct)];
-
-        DateTime now = DateTime.UtcNow;
-
-        // A retried deletion owns the entries an earlier attempt left waiting: restart their clock, so the
-        // job's one-day cleanup cannot remove them while this attempt runs.
-        await context.CustomLinkRemovals.Where(r => r.UserId == userId && r.NextAttemptAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(r => r.CreatedAt, now), ct);
 
         List<CustomLinkRemovalEntity> added = providers.Where(p => !queued.Contains(p.Id)).Select(p => new CustomLinkRemovalEntity
         {
