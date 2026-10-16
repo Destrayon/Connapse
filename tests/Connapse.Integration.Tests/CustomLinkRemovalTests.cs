@@ -166,8 +166,11 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
         Guid user = Guid.NewGuid();
         Remote.Links[user.ToString()] = "gone@acme";
         await QueueDeletedAsync(user);
+        var audit = Substitute.For<IAuditLogger>();
 
-        await RunJobAsync();
+        await RunJobAsync(audit);
+
+        await audit.Received().LogAsync(Connapse.Web.Endpoints.CustomLinkEndpoints.UnlinkedEvent, "user", user.ToString(), Arg.Any<object?>(), Arg.Any<CancellationToken>());
 
         Remote.Links.Should().NotContainKey(user.ToString());
         Remote.Unlinked.Should().Contain(user.ToString());

@@ -43,6 +43,8 @@ public sealed class CustomLinkRemovalJob(
             {
                 await links.UnlinkQueuedAsync(removal, ct);
                 await removals.CompleteAsync(removal.Id, ct);
+                await audit.LogAsync(Endpoints.CustomLinkEndpoints.UnlinkedEvent, "user", removal.UserId.ToString(),
+                    new { removal.ProviderId, Reason = "user_deleted" }, ct);
                 logger.LogInformation("Custom provider {ProviderId} removed the link of deleted user {UserId}", removal.ProviderId, removal.UserId);
             }
             catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
