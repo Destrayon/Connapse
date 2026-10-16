@@ -20,6 +20,7 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     public const string BaseUrl = "https://bridge.acme.test/api";
     public const string Scope = "eng";
     public const string Token = "fake-token";
+    public const string LinkUrl = "https://bridge.acme.test/link";
 
     private readonly SortedDictionary<string, FakeDocument> _documents = new(StringComparer.Ordinal);
     private readonly List<(string Id, bool Deleted)> _journal = [];
@@ -30,6 +31,16 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     public bool SupportsPermissions { get; set; } = true;
     public bool SupportsAccessKeys { get; set; } = true;
     public int MaxCheckBatch { get; set; } = 100;
+    public bool SupportsLinking { get; set; }
+
+    /// <summary>Connapse user ID → the linked account's display name: the middle man's own link table.</summary>
+    public Dictionary<string, string> Links { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>One-time code → the pending link it activates, as the linking page leaves it.</summary>
+    public Dictionary<string, (string ConnapseUserId, string DisplayName)> PendingLinks { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Every user ID an unlink call named, in order.</summary>
+    public List<string> Unlinked { get; } = [];
 
     /// <summary>Connapse user ID → access keys the user holds.</summary>
     public Dictionary<string, List<string>> Grants { get; } = new(StringComparer.Ordinal);
@@ -117,6 +128,9 @@ public sealed class FakeMiddleMan : HttpMessageHandler
                 => Content(Uri.UnescapeDataString(path[$"/v1/scopes/{Scope}/documents/".Length..^"/content".Length])),
             "/access/v1/search/resource" when SupportsPermissions && SupportsAccessKeys => SearchKeys(JsonNode.Parse(body ?? "{}")!),
             "/access/v1/evaluations" when SupportsPermissions => Evaluate(JsonNode.Parse(body ?? "{}")!),
+            "/v1/links/confirm" when SupportsLinking && request.Method == HttpMethod.Post => ConfirmLink(JsonNode.Parse(body ?? "{}")!),
+            _ when SupportsLinking && path.StartsWith("/v1/links/", StringComparison.Ordinal)
+                => LinkStatus(request.Method, Uri.UnescapeDataString(path["/v1/links/".Length..])),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         };
     }
@@ -128,10 +142,34 @@ public sealed class FakeMiddleMan : HttpMessageHandler
         {
             JsonObject permissions = new() { ["check"] = new JsonObject { ["max_batch"] = MaxCheckBatch } };
             if (SupportsAccessKeys) permissions["access_keys"] = new JsonObject { ["cache_ttl_seconds"] = 0 };
+            if (SupportsLinking) permissions["linking"] = new JsonObject { ["link_url"] = LinkUrl };
             capabilities["permissions"] = permissions;
         }
 
         return new JsonObject { ["protocol_versions"] = new JsonArray("1"), ["name"] = "Fake", ["capabilities"] = capabilities };
+    }
+
+    private HttpResponseMessage ConfirmLink(JsonNode request)
+    {
+        string code = request["code"]?.GetValue<string>() ?? "";
+        string user = request["connapse_user_id"]?.GetValue<string>() ?? "";
+        // Spent either way, as the protocol requires: a refused code cannot be retried by its rightful user.
+        if (!PendingLinks.Remove(code, out var pending) || pending.ConnapseUserId != user)
+            return new HttpResponseMessage(HttpStatusCode.Conflict);
+
+        Links[user] = pending.DisplayName;
+        return Json(new JsonObject { ["linked"] = true, ["display_name"] = pending.DisplayName });
+    }
+
+    private HttpResponseMessage LinkStatus(HttpMethod method, string user)
+    {
+        if (method == HttpMethod.Delete)
+        {
+            Unlinked.Add(user);
+            return new HttpResponseMessage(Links.Remove(user) ? HttpStatusCode.NoContent : HttpStatusCode.NotFound);
+        }
+
+        return Json(new JsonObject { ["linked"] = Links.ContainsKey(user), ["display_name"] = Links.GetValueOrDefault(user) });
     }
 
     private HttpResponseMessage SearchKeys(JsonNode request)

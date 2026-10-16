@@ -133,6 +133,33 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         return decisions;
     }
 
+    /// <summary>
+    /// Asks the middle man to activate the pending link behind <paramref name="code"/> for this Connapse user
+    /// (<c>POST /v1/links/confirm</c>). Null when it refuses: the code is unknown, used, expired or was issued
+    /// for another user (<c>409</c>).
+    /// </summary>
+    public async Task<CustomLinkStatus?> ConfirmLinkAsync(string code, string connapseUserId, CancellationToken ct)
+    {
+        const string path = "/v1/links/confirm";
+        using HttpResponseMessage response = await SendAsync(path, HttpCompletionOption.ResponseContentRead, ct,
+            JsonContent.Create(new { code, connapseUserId }, options: Json));
+        if (response.StatusCode == HttpStatusCode.Conflict) return null;
+        return await ReadJsonAsync<CustomLinkStatus>(response, path, ct);
+    }
+
+    /// <summary>Whether this Connapse user is linked, read live (<c>GET /v1/links/{id}</c>).</summary>
+    public Task<CustomLinkStatus> GetLinkAsync(string connapseUserId, CancellationToken ct) =>
+        GetJsonAsync<CustomLinkStatus>($"/v1/links/{Uri.EscapeDataString(connapseUserId)}", ct);
+
+    /// <summary>Removes this Connapse user's link (<c>DELETE /v1/links/{id}</c>); a <c>404</c> counts as done.</summary>
+    public async Task UnlinkAsync(string connapseUserId, CancellationToken ct)
+    {
+        string path = $"/v1/links/{Uri.EscapeDataString(connapseUserId)}";
+        using HttpResponseMessage response = await SendAsync(path, HttpCompletionOption.ResponseContentRead, ct, method: HttpMethod.Delete);
+        if (response.StatusCode == HttpStatusCode.NotFound) return;
+        await EnsureSuccessAsync(response, path, ct);
+    }
+
     private async Task<T> PostJsonAsync<T>(string path, object body, CancellationToken ct)
     {
         using HttpResponseMessage response = await SendAsync(path, HttpCompletionOption.ResponseContentRead, ct, JsonContent.Create(body, options: Json));
@@ -160,9 +187,9 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
     }
 
     private async Task<HttpResponseMessage> SendAsync(
-        string path, HttpCompletionOption completion, CancellationToken ct, HttpContent? content = null)
+        string path, HttpCompletionOption completion, CancellationToken ct, HttpContent? content = null, HttpMethod? method = null)
     {
-        using HttpRequestMessage request = new(content is null ? HttpMethod.Get : HttpMethod.Post, _baseUrl + path);
+        using HttpRequestMessage request = new(method ?? (content is null ? HttpMethod.Get : HttpMethod.Post), _baseUrl + path);
         request.Content = content;
         if (!string.IsNullOrEmpty(token))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -256,6 +283,9 @@ public sealed record CustomDecisionContext(string? Error);
 public sealed record CustomDecision(bool? Decision, CustomDecisionContext? Context);
 
 public sealed record CustomEvaluationsResponse(IReadOnlyList<CustomDecision?>? Evaluations);
+
+/// <summary>A user's link as the middle man reports it; <c>DisplayName</c> names their account in its system.</summary>
+public sealed record CustomLinkStatus(bool Linked, string? DisplayName);
 
 public sealed record CustomScopeItem(string Id, string Name, string? Description);
 

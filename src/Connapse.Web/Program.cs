@@ -158,6 +158,7 @@ builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
+builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
 builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
@@ -407,6 +408,7 @@ var api = app.MapGroup("").DisableAntiforgery()
     .RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
 api.MapAuthEndpoints();
 api.MapCloudIdentityEndpoints();
+api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapSourcesEndpoints();
