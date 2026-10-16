@@ -9,17 +9,20 @@ namespace Connapse.Core.Interfaces;
 public interface ICustomLinkRemovalStore
 {
     /// <summary>
-    /// Queues an unlink for this user at every custom provider that offers linking, waiting for the deletion:
-    /// nothing is sent until <see cref="ActivateForUserAsync"/>. Written before the user is deleted, so a crash
-    /// after the deletion cannot lose it. Returns how many were queued.
+    /// Queues an unlink for this user at every custom provider that offers linking or ever had a link secret,
+    /// waiting for the deletion: nothing is sent until <see cref="ActivateForUserAsync"/>. Written before the
+    /// user is deleted, so a crash after the deletion cannot lose it. Returns how many were queued.
     /// </summary>
     Task<int> EnqueueForUserAsync(Guid userId, CancellationToken ct = default);
 
     /// <summary>The user is deleted: their waiting unlinks are due now.</summary>
     Task ActivateForUserAsync(Guid userId, CancellationToken ct = default);
 
-    /// <summary>Drops this user's waiting unlinks: the deletion they were queued for did not happen.</summary>
-    Task CancelForUserAsync(Guid userId, CancellationToken ct = default);
+    /// <summary>
+    /// Drops this user's waiting unlinks, or only those queued before <paramref name="queuedBefore"/>: the
+    /// deletion they were queued for did not happen.
+    /// </summary>
+    Task CancelForUserAsync(Guid userId, DateTime? queuedBefore = null, CancellationToken ct = default);
 
     /// <summary>Users with unlinks still waiting for a deletion queued before <paramref name="queuedBefore"/>.</summary>
     Task<IReadOnlyList<Guid>> WaitingUsersAsync(DateTime queuedBefore, CancellationToken ct = default);

@@ -107,7 +107,7 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
     }
 
     [Fact]
-    public async Task Job_EntryLeftWaiting_IsSentWhenTheUserIsGoneAndDroppedWhenTheUserRemains()
+    public async Task Job_EntryLeftWaiting_IsSentWhenTheUserIsGone_AndKeptForADayWhileTheUserRemains()
     {
         await ProviderAsync();
         Guid gone = Guid.NewGuid();
@@ -118,12 +118,34 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
             await store.EnqueueForUserAsync(gone);
             await store.EnqueueForUserAsync(present);
         }
-        await BackdateAsync(gone, present);
+        await BackdateAsync(CustomLinkRemovalJob.SettleWaitingAfter, gone, present);
 
         await RunJobAsync();
 
         Remote.Unlinked.Should().Contain(gone.ToString()).And.NotContain(present.ToString());
-        (await RowsAsync(present)).Should().BeEmpty("the deletion never happened, so nothing is owed");
+        (await RowsAsync(present)).Should().NotBeEmpty("a slow deletion may still succeed and activate them");
+
+        await BackdateAsync(CustomLinkRemovalJob.DropWaitingAfter, present);
+        await RunJobAsync();
+
+        (await RowsAsync(present)).Should().BeEmpty("a day on, the deletion failed and nothing is owed");
+        Remote.Unlinked.Should().NotContain(present.ToString());
+    }
+
+    [Fact]
+    public async Task Enqueue_ProviderThatStoppedOfferingLinking_IsStillOwedAnUnlink()
+    {
+        CustomProvider provider = await ProviderAsync();
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        ICustomProviderStore providers = scope.ServiceProvider.GetRequiredService<ICustomProviderStore>();
+        await providers.GenerateLinkSecretAsync(provider.Id);
+        await providers.UpdateAsync(provider.Id, new SaveCustomProviderRequest(
+            provider.Name, provider.BaseUrl, null, 100, true, LinkUrl: null));
+        Guid user = Guid.NewGuid();
+
+        await scope.ServiceProvider.GetRequiredService<ICustomLinkRemovalStore>().EnqueueForUserAsync(user);
+
+        (await RowsAsync(user)).Should().Contain(r => r.ProviderId == provider.Id);
     }
 
     [Fact]
@@ -149,12 +171,12 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
         return (await users.FindByEmailAsync(SharedWebAppFixture.AdminEmail))!.Id.ToString();
     }
 
-    private async Task BackdateAsync(params Guid[] userIds)
+    private async Task BackdateAsync(TimeSpan by, params Guid[] userIds)
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();
         await using KnowledgeDbContext context = await scope.ServiceProvider
             .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
-        DateTime past = DateTime.UtcNow - CustomLinkRemovalJob.SettleWaitingAfter - TimeSpan.FromMinutes(1);
+        DateTime past = DateTime.UtcNow - by - TimeSpan.FromMinutes(1);
         await context.CustomLinkRemovals.Where(r => userIds.Contains(r.UserId))
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.CreatedAt, past));
     }
@@ -162,7 +184,7 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
     [Fact]
     public async Task Job_MiddleManAcknowledges_RemovesTheLinkAndTheEntry()
     {
-        await ProviderAsync();
+        CustomProvider provider = await ProviderAsync();
         Guid user = Guid.NewGuid();
         Remote.Links[user.ToString()] = "gone@acme";
         await QueueDeletedAsync(user);
@@ -174,7 +196,7 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
 
         Remote.Links.Should().NotContainKey(user.ToString());
         Remote.Unlinked.Should().Contain(user.ToString());
-        (await RowsAsync(user)).Should().BeEmpty();
+        (await RowsAsync(user)).Should().NotContain(r => r.ProviderId == provider.Id);
     }
 
     [Fact]

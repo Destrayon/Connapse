@@ -27,6 +27,12 @@ public sealed class CustomLinkRemovalJob(
 
     /// <summary>How long an entry may wait for its deletion to be confirmed before the job checks the user itself.</summary>
     public static readonly TimeSpan SettleWaitingAfter = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How long an entry waits while its user still exists before it is dropped. Far beyond any deletion, so
+    /// a slow one that then succeeds still finds its entries to activate.
+    /// </summary>
+    public static readonly TimeSpan DropWaitingAfter = TimeSpan.FromDays(1);
     private static readonly TimeSpan MaxWait = TimeSpan.FromHours(1);
     private const int BatchSize = 100;
 
@@ -71,7 +77,8 @@ public sealed class CustomLinkRemovalJob(
         }
     }
 
-    // A user still present means the deletion failed or never ran: nothing is owed. A user gone means it ran.
+    // A user gone means the deletion ran: send. A user still present may be mid-deletion, so their entries
+    // wait; only a day later is the deletion taken to have failed and the entries dropped.
     private async Task SettleWaitingAsync(DateTime now, CancellationToken ct)
     {
         foreach (Guid userId in await removals.WaitingUsersAsync(now - SettleWaitingAfter, ct))
@@ -79,7 +86,7 @@ public sealed class CustomLinkRemovalJob(
             if (await users.FindByIdAsync(userId.ToString()) is null)
                 await removals.ActivateForUserAsync(userId, ct);
             else
-                await removals.CancelForUserAsync(userId, ct);
+                await removals.CancelForUserAsync(userId, now - DropWaitingAfter, ct);
         }
     }
 

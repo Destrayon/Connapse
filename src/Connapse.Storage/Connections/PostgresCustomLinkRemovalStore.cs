@@ -20,8 +20,10 @@ public sealed class PostgresCustomLinkRemovalStore(
     public async Task<int> EnqueueForUserAsync(Guid userId, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
+        // A link secret means linking was used, even if the middle man has since stopped offering it: links
+        // made before then are still in its storage.
         var providers = await context.CustomProviders.AsNoTracking()
-            .Where(p => p.LinkUrl != null)
+            .Where(p => p.LinkUrl != null || p.LinkSecretProtected != null)
             .Select(p => new { p.Id, p.BaseUrl, p.TokenProtected })
             .ToListAsync(ct);
         HashSet<Guid> queued = [.. await context.CustomLinkRemovals.AsNoTracking()
@@ -52,10 +54,12 @@ public sealed class PostgresCustomLinkRemovalStore(
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.NextAttemptAt, now), ct);
     }
 
-    public async Task CancelForUserAsync(Guid userId, CancellationToken ct = default)
+    public async Task CancelForUserAsync(Guid userId, DateTime? queuedBefore = null, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
-        await context.CustomLinkRemovals.Where(r => r.UserId == userId && r.NextAttemptAt == null).ExecuteDeleteAsync(ct);
+        await context.CustomLinkRemovals
+            .Where(r => r.UserId == userId && r.NextAttemptAt == null && (queuedBefore == null || r.CreatedAt < queuedBefore))
+            .ExecuteDeleteAsync(ct);
     }
 
     public async Task<IReadOnlyList<Guid>> WaitingUsersAsync(DateTime queuedBefore, CancellationToken ct = default)

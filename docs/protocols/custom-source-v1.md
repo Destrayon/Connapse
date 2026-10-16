@@ -245,6 +245,9 @@ Also serve:
 - `DELETE /v1/links/{connapse_user_id}` → `204`, also when there was no link. Connapse calls it when the
   user unlinks and when a Connapse user is deleted, and retries until it succeeds.
 
+Connapse keeps no record of who linked. If an administrator deletes the custom provider or points it at a
+different address, the links in the old middle man stay there; clearing them is up to whoever runs it.
+
 ## Testing your middle man
 
 The example server in `samples/Connapse.CustomSource.Example` implements every capability, and
