@@ -264,12 +264,28 @@ public static class SourcesEndpoints
         // PATCH /api/sources/{sourceId}
         group.MapPatch("/{sourceId:guid}", async (
             Guid sourceId,
-            [FromBody] UpdateSourceRequest request,
+            [FromBody] JsonElement body,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
+            [FromServices] CustomSourceTokenReplacement tokens,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
             CancellationToken ct) =>
         {
+            // Read raw, so a token replacement can be held to exactly one property: fields this server does not
+            // know would otherwise be dropped silently while the token changed.
+            if (body.ValueKind != JsonValueKind.Object)
+                return Results.BadRequest(new { error = "The body must be a JSON object." });
+            UpdateSourceRequest request;
+            try
+            {
+                request = body.Deserialize<UpdateSourceRequest>(jsonOptions.Value.SerializerOptions) ?? new UpdateSourceRequest();
+            }
+            catch (JsonException ex)
+            {
+                return Results.BadRequest(new { error = $"Invalid request: {ex.Message}" });
+            }
+
             if (!string.IsNullOrWhiteSpace(request.ScopeJson))
             {
                 // Disposed: JsonDocument rents pooled buffers, and this runs per request.
@@ -324,6 +340,30 @@ public static class SourcesEndpoints
                 request = request with { ScopeJson = atlassian.ScopeJson };
             }
 
+            // A custom source's new token, when its middle man rotated the old one: checked against the source's
+            // fixed middle man and scope before it replaces the stored one. It travels alone, so a request either
+            // replaces the token or changes the other fields, never half of both.
+            if (request.Secret is not null)
+            {
+                if (body.EnumerateObject().Count() != 1)
+                    return Results.BadRequest(new { error = "Replace the token in a request of its own, without other changes.", field = "secret" });
+
+                CustomTokenReplacement replaced = await tokens.ReplaceAsync(sourceId, request.Secret, ct);
+                if (replaced.NotFound)
+                    return Results.NotFound(new { error = replaced.Error });
+                if (replaced.Error is not null)
+                {
+                    return replaced.Unreachable
+                        ? Results.Json(new { error = replaced.Error, field = replaced.Field }, statusCode: StatusCodes.Status502BadGateway)
+                        : Results.BadRequest(new { error = replaced.Error, field = replaced.Field });
+                }
+
+                Source? rotated = await sourceStore.GetAsync(sourceId, ct);
+                return rotated is null
+                    ? Results.NotFound(new { error = $"Source {sourceId} not found" })
+                    : Results.Ok(SourceResponse.From(rotated, includeDiagnostics: true));
+            }
+
             var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
             if (updated is null)
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
@@ -333,8 +373,9 @@ public static class SourcesEndpoints
 
             return Results.Ok(SourceResponse.From(updated, includeDiagnostics: true));
         })
+        .Accepts<UpdateSourceRequest>("application/json")
         .WithName("UpdateSource")
-        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state.")
+        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state, or replace a custom source's token (secret).")
         .RequireAuthorization("RequireAdmin");
 
         // DELETE /api/sources/{sourceId}

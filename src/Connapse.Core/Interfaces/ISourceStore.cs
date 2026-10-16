@@ -17,6 +17,9 @@ public interface ISourceStore
     /// </summary>
     Task<string?> GetSecretAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>Stores a new secret for the source, encrypted, replacing the old one. False when there is no such source.</summary>
+    Task<bool> ReplaceSecretAsync(Guid id, string secret, CancellationToken ct = default);
+
     /// <summary>
     /// Unconditionally persists the sync cursor and outcome. Passing a null cursor clears
     /// it, which is what a RequiresFullResync response demands.

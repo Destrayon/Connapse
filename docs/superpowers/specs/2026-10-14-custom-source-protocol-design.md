@@ -249,7 +249,8 @@ Errors use RFC 9457 problem details (`application/problem+json`) with an optiona
   decision, a result count that does not match the request, or an item with `context.error` means no access
   for that document.
 - The check has a deadline (default 2 s, admin-configurable). When it fails, the source's results are
-  dropped and the search shows "results from <source> are unavailable"; other sources are unaffected.
+  dropped silently; other sources are unaffected. No notice names the source: a user who may not see it
+  must not learn it exists (owner, 2026-10-16; #753 closed).
 - When the keys call fails, Connapse skips the pre-filter for that source (check-only) rather than
   denying outright — the check still decides. If both fail, the source contributes nothing.
 - A caller that is not a person (no Connapse user) gets nothing from custom sources.

@@ -179,4 +179,132 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
 
         await ExpectRefusal(response, HttpStatusCode.BadRequest, "scope");
     }
+
+    private async Task<Guid> ContentOnlySourceAsync(string token)
+    {
+        fixture.CustomSource.AcceptAnyToken = true;
+        try
+        {
+            HttpResponseMessage created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: token));
+            created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
+            return JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+        }
+        finally
+        {
+            fixture.CustomSource.AcceptAnyToken = false;
+        }
+    }
+
+    private async Task<string?> StoredSecretAsync(Guid id)
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetSecretAsync(id);
+    }
+
+    [Fact]
+    public async Task Update_CustomSourceTokenTheMiddleManAccepts_ReplacesTheStoredOne()
+    {
+        Guid id = await ContentOnlySourceAsync("rotated-away-token");
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = FakeMiddleMan.Token });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(FakeMiddleMan.Token);
+        (await StoredSecretAsync(id)).Should().Be(FakeMiddleMan.Token);
+    }
+
+    [Fact]
+    public async Task Update_CustomSourceTokenTheMiddleManRefuses_KeepsTheStoredOne()
+    {
+        Guid id = await ContentOnlySourceAsync("still-the-old-token");
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = "wrong" });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+        (await StoredSecretAsync(id)).Should().Be("still-the-old-token");
+    }
+
+    [Fact]
+    public async Task Update_ConnectedCustomSourceToken_ReplacesIt()
+    {
+        Connection connection = await CustomConnectionAsync();
+        HttpResponseMessage created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", ConnectedBody(connection.Id));
+        Guid id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = $"  {FakeMiddleMan.Token}  " });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await StoredSecretAsync(id)).Should().Be(FakeMiddleMan.Token);
+    }
+
+    [Fact]
+    public async Task Update_SecretOnASourceThatIsNotCustom_IsRefused()
+    {
+        Source source;
+        using (IServiceScope scope = fixture.Factory.Services.CreateScope())
+        {
+            IConnectionStore connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+            Connection s3 = await connections.CreateAsync(new CreateConnectionRequest(
+                $"s3-{Guid.NewGuid():N}"[..20], ConnectionProvider.S3, """{"bucketName":"b","region":"us-east-1"}"""), null);
+            source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+                $"s3src-{Guid.NewGuid():N}"[..20], s3.Id, "{}"));
+        }
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{source.Id}", new { secret = "anything" });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+    }
+
+    [Fact]
+    public async Task Update_TokenTogetherWithOtherChanges_IsRefusedAndChangesNothing()
+    {
+        Guid id = await ContentOnlySourceAsync("kept-token");
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}",
+            new { secret = FakeMiddleMan.Token, description = "changed" });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+        (await StoredSecretAsync(id)).Should().Be("kept-token");
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(id))!.Description.Should().NotBe("changed");
+    }
+
+    [Fact]
+    public async Task Update_MiddleManEchoingTheToken_DoesNotReturnIt()
+    {
+        Guid id = await ContentOnlySourceAsync("kept-token");
+        const string echoed = "token-the-middle-man-echoes";
+        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
+        fixture.CustomSource.FailNextTitle = $"bad bearer {echoed}";
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = echoed });
+
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(echoed);
+        (await StoredSecretAsync(id)).Should().Be("kept-token");
+    }
+
+    [Fact]
+    public async Task Update_TokenWithAFieldThisServerDoesNotKnow_IsRefused()
+    {
+        Guid id = await ContentOnlySourceAsync("kept-token");
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}",
+            new { secret = FakeMiddleMan.Token, someFutureField = "x" });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+        (await StoredSecretAsync(id)).Should().Be("kept-token");
+    }
+
+    [Fact]
+    public async Task Create_MiddleManEchoingAnEncodedToken_DoesNotReturnIt()
+    {
+        const string token = "ab+cd/ef";
+        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
+        fixture.CustomSource.FailNextTitle = $"bad bearer {Uri.EscapeDataString(token)}";
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: token));
+
+        string body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(Uri.EscapeDataString(token)).And.NotContain("bad bearer");
+    }
 }

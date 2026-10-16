@@ -225,7 +225,8 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
                 $"The middle man answered {path} with a {status} redirect, which Connapse does not follow."),
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceUnauthorizedException(
                 $"The middle man refused the token ({status}). Check the token entered for this source."),
-            _ => new CustomSourceException($"The middle man answered {path} with {status}{detail}."),
+            _ => new CustomSourceException($"The middle man answered {path} with {status}{detail}.",
+                safeMessage: $"The middle man answered {path} with {status}."),
         };
     }
 
@@ -308,7 +309,14 @@ public sealed record CustomListingPage(IReadOnlyList<CustomDocument>? Items, str
 public sealed record CustomChangePage(IReadOnlyList<CustomDocument>? Items, string? NextPageToken, string? NextCursor);
 
 /// <summary>The middle man failed or answered outside the protocol.</summary>
-public class CustomSourceException(string message, Exception? inner = null) : IOException(message, inner);
+public class CustomSourceException(string message, Exception? inner = null, string? safeMessage = null) : IOException(message, inner)
+{
+    /// <summary>
+    /// The error without anything the middle man wrote itself, for showing beside a credential just entered:
+    /// a middle man may quote the bearer token, in any encoding, in its problem title.
+    /// </summary>
+    public string SafeMessage { get; } = safeMessage ?? message;
+}
 
 /// <summary>A 401 or 403: the middle man refused the token.</summary>
 public sealed class CustomSourceUnauthorizedException(string message) : CustomSourceException(message);
