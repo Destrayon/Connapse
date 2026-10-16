@@ -45,18 +45,12 @@ public sealed class CustomSourceSetup(IHttpClientFactory httpClients, IOptionsMo
         }
         catch (CustomSourceUnauthorizedException ex)
         {
-            return new CustomSourceProbe(normalized, [], Scrub(ex.Message, token), "secret");
+            return new CustomSourceProbe(normalized, [], ex.SafeMessage, "secret");
         }
         catch (CustomSourceException ex)
         {
-            return new CustomSourceProbe(normalized, [], Scrub(ex.Message, token), "baseUrl", Unreachable: true);
+            // Never the middle man's own words: they could quote the token just entered, in any encoding.
+            return new CustomSourceProbe(normalized, [], ex.SafeMessage, "baseUrl", Unreachable: true);
         }
     }
-
-    /// <summary>
-    /// An error that may quote the middle man's own words, with the token taken out: a middle man that
-    /// echoes the bearer token in an error title must not have it shown back on a page or in a response.
-    /// </summary>
-    public static string Scrub(string message, string? token) =>
-        string.IsNullOrWhiteSpace(token) ? message : message.Replace(token.Trim(), "***", StringComparison.Ordinal);
 }

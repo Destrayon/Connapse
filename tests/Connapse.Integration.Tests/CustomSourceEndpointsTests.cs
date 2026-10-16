@@ -282,4 +282,29 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
         (await response.Content.ReadAsStringAsync()).Should().NotContain(echoed);
         (await StoredSecretAsync(id)).Should().Be("kept-token");
     }
+
+    [Fact]
+    public async Task Update_TokenWithAFieldThisServerDoesNotKnow_IsRefused()
+    {
+        Guid id = await ContentOnlySourceAsync("kept-token");
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}",
+            new { secret = FakeMiddleMan.Token, someFutureField = "x" });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+        (await StoredSecretAsync(id)).Should().Be("kept-token");
+    }
+
+    [Fact]
+    public async Task Create_MiddleManEchoingAnEncodedToken_DoesNotReturnIt()
+    {
+        const string token = "ab+cd/ef";
+        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
+        fixture.CustomSource.FailNextTitle = $"bad bearer {Uri.EscapeDataString(token)}";
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: token));
+
+        string body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain(Uri.EscapeDataString(token)).And.NotContain("bad bearer");
+    }
 }
