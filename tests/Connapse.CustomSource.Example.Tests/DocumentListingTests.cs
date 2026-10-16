@@ -73,13 +73,13 @@ public class DocumentListingTests
     }
 
     [Fact]
-    public async Task Listing_MalformedPageToken_Returns400()
+    public async Task Listing_UnrecognisedPageToken_Returns410()
     {
         using ExampleServer server = new(files: Files);
 
         HttpResponseMessage response = await server.Client().GetAsync("/v1/scopes/eng/documents?page_token=%%%");
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.Gone);
     }
 
     [Fact]

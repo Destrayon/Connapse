@@ -32,6 +32,19 @@ Or without Docker:
 dotnet run --project samples/Connapse.CustomSource.Example --urls http://localhost:8080
 ```
 
+## Check it with the conformance tool
+
+`conformance_hooks.py` holds the commands the conformance tool needs to change documents and finish a
+sign-in here. With the server running on `http://localhost:8080` over `sample-data` (set `link_secret`,
+`connapse_issuer`, `provider_id` and `public_base_url` in `example.json` first):
+
+```bash
+dotnet run --project tools/Connapse.CustomSource.Conformance -- --url http://localhost:8080 --token change-me-example-token --scope eng --user connapse-alice --link-secret "<link_secret>" --provider-id "<provider_id>" --issuer "<connapse_issuer>" --create-command "python samples/Connapse.CustomSource.Example/conformance_hooks.py create samples/Connapse.CustomSource.Example/sample-data" --delete-command "python samples/Connapse.CustomSource.Example/conformance_hooks.py delete samples/Connapse.CustomSource.Example/sample-data" --sign-in-command "python samples/Connapse.CustomSource.Example/conformance_hooks.py sign-in samples/Connapse.CustomSource.Example/sample-data"
+```
+
+`connapse-alice` must be in `preset_links`. The same suite runs in CI against the server in-process
+(`tests/Connapse.CustomSource.Example.Tests/ConformanceTests.cs`).
+
 ## Settings in `example.json`
 
 | Member | Meaning |
