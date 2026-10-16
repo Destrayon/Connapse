@@ -125,6 +125,45 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         </ManualContent>
     </ProviderStepCard>
 
+    @if (existing is not null && LinkUrl is not null)
+    {
+        <ProviderStepCard Id="custom-linking"
+                          Title="Account linking"
+                          Description="Your middle man runs a page where each user links their Connapse account to their account in your system. Connapse signs the request with a link secret only it and your middle man know."
+                          Status="@(existing.HasLinkSecret ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured)"
+                          StatusLabel="@(existing.HasLinkSecret ? "Link secret set" : "No link secret")"
+                          @bind-Expanded="editLinking"
+                          EditLabel="Show linking values">
+            <Summary>
+                <span>Users link from their profile's integrations page at <span class="font-monospace">@LinkUrl</span>.</span>
+            </Summary>
+            <ManualContent>
+                <p class="small mb-2">Configure your middle man with these values. Link tokens are HS256, signed with the UTF-8 bytes of the link secret.</p>
+                <dl class="row small mb-2">
+                    <dt class="col-sm-4">Issuer (Connapse address)</dt>
+                    <dd class="col-sm-8 font-monospace" id="custom-link-issuer">@ConnapseAddress</dd>
+                    <dt class="col-sm-4">Audience (provider ID)</dt>
+                    <dd class="col-sm-8 font-monospace" id="custom-link-audience">@existing.Id</dd>
+                </dl>
+                @if (newLinkSecret is not null)
+                {
+                    <div class="alert alert-warning small mb-2" role="status">
+                        Copy this link secret into your middle man now. It is not shown again.
+                        <input id="custom-link-secret" class="form-control form-control-sm font-monospace mt-2" readonly value="@newLinkSecret" />
+                    </div>
+                }
+                <button id="custom-link-generate" type="button" class="btn btn-outline-secondary btn-sm"
+                        @onclick="GenerateLinkSecretAsync" disabled="@saving">
+                    @(existing.HasLinkSecret ? "Replace link secret" : "Generate link secret")
+                </button>
+                @if (existing.HasLinkSecret)
+                {
+                    <div class="form-text">Replacing it stops new links until your middle man has the new one. Existing links stay, because your middle man keeps them.</div>
+                }
+            </ManualContent>
+        </ProviderStepCard>
+    }
+
     <div class="d-flex gap-2 mt-3">
         <button id="custom-provider-save" class="btn btn-primary" @onclick="SaveAsync"
                 disabled="@(saving || check is not { EndpointOk: true, PermissionsOk: true })">
@@ -152,6 +191,14 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     private string? message;
     private string? error;
     private string? loadError;
+    private string? newLinkSecret;
+    private bool editLinking;
+
+    /// <summary>The middle man's linking page, from the latest check or the saved provider.</summary>
+    private string? LinkUrl => check?.EndpointOk == true ? check.LinkUrl : existing?.LinkUrl;
+
+    /// <summary>The <c>iss</c> of link tokens: this Connapse's address as the browser reaches it.</summary>
+    private string ConnapseAddress => Navigation.BaseUri.TrimEnd('/');
 
     private RequirementStatus EndpointStatus => check?.EndpointOk == true ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
 
@@ -235,6 +282,31 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             error = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task GenerateLinkSecretAsync()
+    {
+        if (existing is null) return;
+        saving = true;
+        error = null;
+        message = null;
+        try
+        {
+            newLinkSecret = await Store.GenerateLinkSecretAsync(existing.Id);
+            if (newLinkSecret is null)
+            {
+                error = "This custom provider no longer exists.";
+                return;
+            }
+
+            await AuditLogger.LogAsync("custom_provider.link_secret_generated", "custom_provider", existing.Id.ToString(), new { existing.Name });
+            existing = await Store.GetAsync(existing.Id) ?? existing;
+            editLinking = true; // keep the new secret on screen once the step shows as done
         }
         finally
         {

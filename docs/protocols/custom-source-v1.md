@@ -225,7 +225,7 @@ the link in your own storage; Connapse stores nothing about it.
 
 1. The user clicks **Link** in Connapse. Connapse sends the browser to `link_url` with an auto-submitting
    form POST carrying `token`, an HS256 JWT signed with the provider's **link secret** (Connapse generates
-   it and shows it to the admin once). Claims: `iss` (Connapse's base URL), `sub` (Connapse user ID),
+   it and shows it to the admin once; the HMAC key is the UTF-8 bytes of the secret exactly as shown). Claims: `iss` (Connapse's base URL), `sub` (Connapse user ID),
    `aud` (Connapse's provider ID), `jti`, `exp` (5 minutes), `return_url`.
 2. Verify the signature, `iss`, `aud` and `exp` (allow at most 60 seconds of clock skew), and refuse a
    `jti` you have already seen. Accept only `HS256`: reject any token whose header names another
@@ -244,6 +244,9 @@ Also serve:
 - `GET /v1/links/{connapse_user_id}` → `{ "linked": true, "display_name": "alice@acme" }`
 - `DELETE /v1/links/{connapse_user_id}` → `204`, also when there was no link. Connapse calls it when the
   user unlinks and when a Connapse user is deleted, and retries until it succeeds.
+
+Connapse keeps no record of who linked. If an administrator deletes the custom provider or points it at a
+different address, the links in the old middle man stay there; clearing them is up to whoever runs it.
 
 ## Testing your middle man
 

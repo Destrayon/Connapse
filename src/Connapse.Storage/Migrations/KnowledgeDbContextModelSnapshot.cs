@@ -313,6 +313,64 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("containers", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.CustomLinkRemovalEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("AlertedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("alerted_at");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("BaseUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("base_url");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("TokenProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("token_protected");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("idx_custom_link_removals_next_attempt");
+
+                    b.HasIndex("ProviderId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("idx_custom_link_removals_provider_user");
+
+                    b.ToTable("custom_link_removals", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.CustomProviderEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -329,6 +387,10 @@ namespace Connapse.Storage.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("LinkSecretProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("link_secret_protected");
 
                     b.Property<string>("LinkUrl")
                         .HasMaxLength(2048)

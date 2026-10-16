@@ -91,4 +91,47 @@ public class CustomProviderPageTests : IDisposable
         cut.Find("#custom-permissions").ClassList.Should().NotContain("provider-step--satisfied");
         cut.Find("#custom-provider-save").HasAttribute("disabled").Should().BeTrue();
     }
+
+    private CustomProvider Saved(string? linkUrl, bool hasLinkSecret = false) => new(
+        Guid.NewGuid(), "Acme bridge", FakeMiddleMan.BaseUrl, true, 100, true, linkUrl,
+        DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow, hasLinkSecret);
+
+    [Fact]
+    public void SavedProviderOfferingLinking_ShowsTheValuesTheMiddleManNeeds()
+    {
+        CustomProvider provider = Saved("https://bridge.acme.test/link");
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+
+        cut.Find("#custom-link-audience").TextContent.Should().Be(provider.Id.ToString());
+        cut.Find("#custom-link-issuer").TextContent.Should().Be("http://localhost");
+        cut.FindAll("#custom-link-secret").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GenerateLinkSecret_ShowsItOnceAndMarksTheStepDone()
+    {
+        CustomProvider provider = Saved("https://bridge.acme.test/link");
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider, provider with { HasLinkSecret = true });
+        store.GenerateLinkSecretAsync(provider.Id, Arg.Any<CancellationToken>()).Returns("s3cret-value");
+
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+        cut.Find("#custom-link-generate").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-link-secret").GetAttribute("value").Should().Be("s3cret-value"));
+        cut.Find("#custom-linking").ClassList.Should().Contain("provider-step--satisfied");
+        cut.Find("#custom-link-generate").TextContent.Trim().Should().Be("Replace link secret");
+    }
+
+    [Fact]
+    public void SavedProviderWithoutLinking_HasNoLinkingStep()
+    {
+        CustomProvider provider = Saved(linkUrl: null);
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+
+        cut.FindAll("#custom-linking").Should().BeEmpty();
+    }
 }
