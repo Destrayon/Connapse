@@ -15,6 +15,7 @@ public sealed partial class ConformanceSuite
 
     private async Task RunPermissionChecksAsync(CancellationToken ct)
     {
+        await RunCheckAsync("permissions.declared", "A middle man declaring any permission capability declares check with a positive max_batch", PermissionsDeclaredAsync, ct);
         await RunCheckAsync("check.missing-token", "A permission check without a token is refused with 401", CheckMissingTokenAsync, ct);
         await RunCheckAsync("check.unknown-user", "An unknown user is denied every document", CheckUnknownUserAsync, ct);
         await RunCheckAsync("check.unknown-document", "An unknown document is denied", CheckUnknownDocumentAsync, ct);
@@ -25,10 +26,27 @@ public sealed partial class ConformanceSuite
         await RunCheckAsync("keys.pagination", "Key pages end, repeat nothing, and add up to the same keys at any page size", KeysPaginationAsync, ct);
     }
 
+    private Task PermissionsDeclaredAsync(CancellationToken ct)
+    {
+        _ = Documents;
+        if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only middle man.");
+        if (Permissions["check"] is not JsonObject)
+            throw new CheckFailedException("Discovery declares permissions without permissions.check, which every custom provider needs.");
+        if (MaxBatch is not > 0)
+            throw new CheckFailedException("permissions.check declares no positive max_batch.");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A content-only middle man (no <c>permissions</c>) skips the permission checks. Declaring any permission
+    /// capability makes it a custom provider, which must answer them: a missing check fails, never skips.
+    /// </summary>
     private void RequireCheck()
     {
         _ = Documents;
-        if (Permissions?["check"] is null) throw new CheckSkippedException("Discovery declares no permissions.check: a content-only middle man.");
+        if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only middle man.");
+        if (Permissions["check"] is not JsonObject || MaxBatch is not > 0)
+            throw new CheckFailedException("Discovery declares permissions without permissions.check and a positive max_batch.");
     }
 
     private void RequireKeys()
@@ -48,15 +66,34 @@ public sealed partial class ConformanceSuite
         evaluations = documentIds.Select(id => new { resource = new { type = "document", id, properties = new { scope = Scope } } }).ToArray(),
     };
 
-    /// <summary>Each item's effective decision: true only for an explicit true without context.error.</summary>
-    private async Task<List<bool>> EvaluateAsync(string userId, IReadOnlyList<string> documentIds, CancellationToken ct)
+    /// <summary>One result as answered: its boolean decision, and whether it carried <c>context.error</c>.</summary>
+    private sealed record Decision(bool Value, bool HasError)
+    {
+        /// <summary>What Connapse shows: an explicit true without context.error.</summary>
+        public bool Allowed => Value && !HasError;
+    }
+
+    /// <summary>The results, refusing any that lacks a boolean decision: a malformed result is not a denial to pass.</summary>
+    private async Task<List<Decision>> EvaluateAsync(string userId, IReadOnlyList<string> documentIds, CancellationToken ct)
     {
         using HttpResponseMessage response = await SendAsync(HttpMethod.Post, EvaluationsPath, ct, EvaluationsBody(userId, documentIds));
         JsonObject body = await ExpectJsonAsync(response, HttpStatusCode.OK);
         List<JsonObject> results = Items(body, "evaluations");
         if (results.Count != documentIds.Count)
             throw new CheckFailedException($"A batch of {documentIds.Count} was answered with {results.Count} results.");
-        return results.Select(r => r["decision"]?.GetValueKind() == JsonValueKind.True && r["context"]?["error"] is null).ToList();
+        return results.Select((r, i) => r["decision"]?.GetValueKind() switch
+        {
+            JsonValueKind.True => new Decision(true, r["context"]?["error"] is not null),
+            JsonValueKind.False => new Decision(false, r["context"]?["error"] is not null),
+            _ => throw new CheckFailedException($"Result {i} has no boolean decision."),
+        }).ToList();
+    }
+
+    /// <summary>Requires an explicit <c>"decision": false</c> for each item, as the protocol asks of a denial.</summary>
+    private static void ExpectDenied(List<Decision> decisions, string what)
+    {
+        if (decisions.Any(d => d.Allowed)) throw new CheckFailedException($"{what} was allowed.");
+        if (decisions.Any(d => d.Value)) throw new CheckFailedException($"{what} was answered true (with context.error), not an explicit false.");
     }
 
     private List<string> SampleIds(int count) =>
@@ -73,17 +110,14 @@ public sealed partial class ConformanceSuite
     private async Task CheckUnknownUserAsync(CancellationToken ct)
     {
         RequireCheck();
-        List<string> ids = SampleIds(10);
-        if ((await EvaluateAsync(UnknownUser(), ids, ct)).Any(allowed => allowed))
-            throw new CheckFailedException("A user the middle man cannot know was allowed to read a document.");
+        ExpectDenied(await EvaluateAsync(UnknownUser(), SampleIds(10), ct), "A user the middle man cannot know");
     }
 
     private async Task CheckUnknownDocumentAsync(CancellationToken ct)
     {
         RequireCheck();
         string user = options.UserId ?? UnknownUser();
-        if ((await EvaluateAsync(user, ["connapse-conformance-" + Guid.NewGuid().ToString("N")], ct))[0])
-            throw new CheckFailedException("A document that does not exist was allowed.");
+        ExpectDenied(await EvaluateAsync(user, ["connapse-conformance-" + Guid.NewGuid().ToString("N")], ct), "A document that does not exist");
     }
 
     private async Task CheckOrderAsync(CancellationToken ct)
@@ -94,23 +128,23 @@ public sealed partial class ConformanceSuite
         string unknown = "connapse-conformance-" + Guid.NewGuid().ToString("N");
         ids.Insert(Math.Min(1, ids.Count), unknown);
 
-        List<bool> batch = await EvaluateAsync(reader, ids, ct);
-        if (batch[ids.IndexOf(unknown)]) throw new CheckFailedException("A document that does not exist was allowed in a batch.");
-        if (!batch.Any(allowed => allowed))
+        List<Decision> batch = await EvaluateAsync(reader, ids, ct);
+        ExpectDenied([batch[ids.IndexOf(unknown)]], "A document that does not exist, in a batch,");
+        if (!batch.Any(d => d.Allowed))
             throw new CheckFailedException($"The reader '{reader}' may read none of the first listed documents; give --user a user who can read some.");
 
         for (int i = 0; i < ids.Count; i++)
         {
-            bool single = (await EvaluateAsync(reader, [ids[i]], ct))[0];
-            if (single != batch[i])
-                throw new CheckFailedException($"Document '{ids[i]}' was {(batch[i] ? "allowed" : "denied")} at position {i} of a batch but {(single ? "allowed" : "denied")} on its own: results are out of order.");
+            bool single = (await EvaluateAsync(reader, [ids[i]], ct))[0].Allowed;
+            if (single != batch[i].Allowed)
+                throw new CheckFailedException($"Document '{ids[i]}' was {(batch[i].Allowed ? "allowed" : "denied")} at position {i} of a batch but {(single ? "allowed" : "denied")} on its own: results are out of order.");
         }
     }
 
     private async Task CheckOverBatchAsync(CancellationToken ct)
     {
         RequireCheck();
-        if (MaxBatch is not { } max) throw new CheckFailedException("permissions.check declares no max_batch.");
+        int max = MaxBatch!.Value;
         string id = Documents[0]["id"]!.GetValue<string>();
         using HttpResponseMessage response = await SendAsync(HttpMethod.Post, EvaluationsPath, ct,
             EvaluationsBody(options.UserId ?? UnknownUser(), Enumerable.Repeat(id, max + 1)));

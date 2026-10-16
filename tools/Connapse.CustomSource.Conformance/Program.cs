@@ -20,13 +20,15 @@ const string Usage = """
       --sign-in-command <cmd>   Finishes the middle man's sign-in for $CONNAPSE_LINK_TOKEN posted to
                                 $CONNAPSE_LINK_URL and prints the code (or the URL it redirected to).
       --json                    Print the results as JSON.
+      --allow-http              Allow plain HTTP to a host other than localhost, such as a
+                                middle man on a Docker network. The token travels unencrypted.
 
     Checks whose capability, option or command is missing are skipped. Exit code: 0 when nothing failed,
     1 when a check failed, 2 for a usage error.
     """;
 
 Dictionary<string, string> values = new(StringComparer.Ordinal);
-bool json = false;
+bool json = false, allowHttp = false;
 for (int i = 0; i < args.Length; i++)
 {
     string arg = args[i];
@@ -38,6 +40,11 @@ for (int i = 0; i < args.Length; i++)
     if (arg == "--json")
     {
         json = true;
+        continue;
+    }
+    if (arg == "--allow-http")
+    {
+        allowHttp = true;
         continue;
     }
     if (!arg.StartsWith("--", StringComparison.Ordinal) || i + 1 >= args.Length)
@@ -54,6 +61,13 @@ string? Option(string name, string? environment = null) =>
 if (Option("url") is not { } url || !Uri.TryCreate(url, UriKind.Absolute, out Uri? baseUrl) || Option("token", "CONNAPSE_SOURCE_TOKEN") is not { } token)
 {
     Console.Error.WriteLine($"--url and --token are required.\n\n{Usage}");
+    return 2;
+}
+
+// The token is a credential: it goes over HTTPS, as the protocol requires, or stays on this machine.
+if (baseUrl.Scheme != Uri.UriSchemeHttps && !(baseUrl.Scheme == Uri.UriSchemeHttp && (baseUrl.IsLoopback || allowHttp)))
+{
+    Console.Error.WriteLine($"Refusing to send the token to {baseUrl}: use https, a localhost address, or --allow-http.");
     return 2;
 }
 

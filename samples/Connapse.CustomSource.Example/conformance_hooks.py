@@ -19,9 +19,17 @@ if action == "create":
     with open(path, "w") as f:
         f.write("# Created by the conformance suite")
 elif action == "delete":
+    # The ID comes from the middle man under test, so only a file this script created, directly inside
+    # the scope folder, is ever removed.
     doc = os.environ["CONNAPSE_DOCUMENT_ID"]
     rel = base64.urlsafe_b64decode(doc + "=" * (-len(doc) % 4)).decode()
-    os.remove(os.path.join(DATA, "scopes", scope, rel))
+    if not re.fullmatch(r"conformance-[0-9a-f]{32}\.md", rel):
+        sys.exit(f"refusing to delete '{rel}': not a file this hook created")
+    scope_dir = os.path.realpath(os.path.join(DATA, "scopes", scope))
+    target = os.path.realpath(os.path.join(scope_dir, rel))
+    if os.path.dirname(target) != scope_dir:
+        sys.exit(f"refusing to delete '{rel}': outside the scope folder")
+    os.remove(target)
 elif action == "sign-in":
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *a, **k):

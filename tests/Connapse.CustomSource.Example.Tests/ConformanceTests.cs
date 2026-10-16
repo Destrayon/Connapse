@@ -84,7 +84,9 @@ public sealed partial class ConformanceTests
 
         public Task<bool> DeleteDocumentAsync(string scope, string documentId, CancellationToken ct)
         {
+            // Only a file this hook created: the ID comes from the server under test.
             DocumentId.TryDecode(documentId, out string path).Should().BeTrue();
+            CreatedFile().IsMatch(path).Should().BeTrue($"'{path}' is not a file the hook created");
             server.DeleteFile($"{scope}/{path}");
             return Task.FromResult(true);
         }
@@ -100,6 +102,9 @@ public sealed partial class ConformanceTests
             return CodeParameter().Match(done.Headers.Location!.ToString()).Groups[1].Value;
         }
     }
+
+    [GeneratedRegex(@"^conformance-[0-9a-f]{32}\.md$")]
+    private static partial Regex CreatedFile();
 
     [GeneratedRegex("name=\"state\" value=\"([^\"]+)\"")]
     private static partial Regex StateField();

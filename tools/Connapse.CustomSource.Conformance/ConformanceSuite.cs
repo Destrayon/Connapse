@@ -34,6 +34,7 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         await RunCheckAsync("listing.pages", "A full listing pages to one end marker with every required member", ListingAsync, ct);
         await RunCheckAsync("listing.page-size", "No listing page holds more than max_page_size items", PageSizeAsync, ct);
         await RunCheckAsync("listing.stable-token", "A listing page token returns the same page when sent again", StableTokenAsync, ct);
+        await RunCheckAsync("listing.deletion-while-paging", "Deleting a document on an earlier page drops no unchanged document from the rest of the listing", DeletionWhilePagingAsync, ct);
         await RunCheckAsync("listing.unknown-token", "An unknown listing page token is answered with 410", UnknownPageTokenAsync, ct);
         await RunCheckAsync("listing.unknown-scope", "An unknown scope is answered with 404", UnknownScopeAsync, ct);
         await RunCheckAsync("content.etag", "Content carries Content-Type and ETag, and If-None-Match is answered with 304", ContentEtagAsync, ct);
@@ -223,6 +224,82 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         List<string> second = await PageIdsAsync();
         if (!first.SequenceEqual(second, StringComparer.Ordinal))
             throw new CheckFailedException("The same page token returned different documents the second time.");
+    }
+
+    /// <summary>
+    /// The failure the protocol warns of: with offset page tokens, deleting a document on a page already read
+    /// shifts an unchanged one back across the boundary, so it appears in no page and Connapse removes it.
+    /// Documents the hook creates are deleted mid-listing, and every other document must still appear once.
+    /// </summary>
+    private async Task DeletionWhilePagingAsync(CancellationToken ct)
+    {
+        _ = Documents;
+        HashSet<string> before = [.. (await ListIdsAsync(ct)).SelectMany(p => p)];
+        for (int i = 0; i < 3; i++)
+        {
+            if (!await _hooks.CreateDocumentAsync(Scope, ct))
+                throw new CheckSkippedException("No hook to create a document (--create-command).");
+        }
+
+        List<string> after = (await ListIdsAsync(ct)).SelectMany(p => p).ToList();
+        List<string> created = after.Where(id => !before.Contains(id)).ToList();
+        if (created.Count == 0) throw new CheckFailedException("The create hook ran, but the listing shows no new document.");
+
+        List<string> deleted = [];
+        try
+        {
+            List<string> seen = [];
+            string? pageToken = null;
+            for (int page = 0; ; page++)
+            {
+                if (page == MaxPages) throw new CheckFailedException($"The listing did not end within {MaxPages} pages.");
+                using HttpResponseMessage response = await SendAsync(HttpMethod.Get, DocumentsPath(Scope) + Query(("page_token", pageToken)), ct);
+                JsonObject body = await ExpectJsonAsync(response, HttpStatusCode.OK);
+                List<string> ids = Items(body, "items").Select(i => RequiredString(i, "id", "document")).ToList();
+                seen.AddRange(ids);
+                string? next = OptionalString(body, "next_page_token");
+                if (string.IsNullOrEmpty(next)) break;
+
+                if (deleted.Count == 0 && ids.FirstOrDefault(created.Contains) is { } victim)
+                {
+                    if (!await _hooks.DeleteDocumentAsync(Scope, victim, ct))
+                        throw new CheckSkippedException("No hook to delete a document (--delete-command).");
+                    deleted.Add(victim);
+                }
+
+                pageToken = next;
+            }
+
+            if (deleted.Count == 0)
+                throw new CheckSkippedException("No created document landed on a page before the last; this needs a listing of several pages.");
+
+            string? missing = after.Except(deleted).FirstOrDefault(id => seen.Count(s => s == id) != 1);
+            if (missing is not null)
+                throw new CheckFailedException(
+                    $"Document '{missing}' appeared {seen.Count(s => s == missing)} times after a document on an earlier page was deleted: page tokens shift like offsets.");
+        }
+        finally
+        {
+            foreach (string id in created.Except(deleted))
+                await _hooks.DeleteDocumentAsync(Scope, id, ct);
+        }
+    }
+
+    /// <summary>The listing's document IDs, page by page.</summary>
+    private async Task<List<List<string>>> ListIdsAsync(CancellationToken ct)
+    {
+        List<List<string>> pages = [];
+        string? pageToken = null;
+        for (int page = 0; ; page++)
+        {
+            if (page == MaxPages) throw new CheckFailedException($"The listing did not end within {MaxPages} pages.");
+            using HttpResponseMessage response = await SendAsync(HttpMethod.Get, DocumentsPath(Scope) + Query(("page_token", pageToken)), ct);
+            JsonObject body = await ExpectJsonAsync(response, HttpStatusCode.OK);
+            pages.Add(Items(body, "items").Select(i => RequiredString(i, "id", "document")).ToList());
+            string? next = OptionalString(body, "next_page_token");
+            if (string.IsNullOrEmpty(next)) return pages;
+            pageToken = next;
+        }
     }
 
     private async Task UnknownPageTokenAsync(CancellationToken ct)
