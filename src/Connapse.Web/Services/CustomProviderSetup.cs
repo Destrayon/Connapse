@@ -44,11 +44,11 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
         }
         catch (CustomSourceUnauthorizedException ex)
         {
-            return new CustomProviderCheck(normalized, false, false, Error: ex.Message, Field: "secret");
+            return new CustomProviderCheck(normalized, false, false, Error: CustomSourceSetup.Scrub(ex.Message, token), Field: "secret");
         }
         catch (CustomSourceException ex)
         {
-            return new CustomProviderCheck(normalized, false, false, Error: ex.Message, Field: "baseUrl");
+            return new CustomProviderCheck(normalized, false, false, Error: CustomSourceSetup.Scrub(ex.Message, token), Field: "baseUrl");
         }
 
         if (discovery.ProtocolVersions?.Contains("1") != true)
@@ -74,7 +74,7 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
         }
         catch (CustomSourceException ex)
         {
-            return new CustomProviderCheck(normalized, true, false, Error: $"A test permission check failed: {ex.Message}");
+            return new CustomProviderCheck(normalized, true, false, Error: $"A test permission check failed: {CustomSourceSetup.Scrub(ex.Message, token)}");
         }
 
         return new CustomProviderCheck(

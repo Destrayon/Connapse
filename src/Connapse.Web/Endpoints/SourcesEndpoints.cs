@@ -326,9 +326,13 @@ public static class SourcesEndpoints
             }
 
             // A custom source's new token, when its middle man rotated the old one: checked against the source's
-            // fixed middle man and scope before it replaces the stored one.
+            // fixed middle man and scope before it replaces the stored one. It travels alone, so a request either
+            // replaces the token or changes the other fields, never half of both.
             if (request.Secret is not null)
             {
+                if (request with { Secret = null } != new UpdateSourceRequest())
+                    return Results.BadRequest(new { error = "Replace the token in a request of its own, without other changes.", field = "secret" });
+
                 CustomTokenReplacement replaced = await tokens.ReplaceAsync(sourceId, request.Secret, ct);
                 if (replaced.NotFound)
                     return Results.NotFound(new { error = replaced.Error });
@@ -338,9 +342,14 @@ public static class SourcesEndpoints
                         ? Results.Json(new { error = replaced.Error, field = replaced.Field }, statusCode: StatusCodes.Status502BadGateway)
                         : Results.BadRequest(new { error = replaced.Error, field = replaced.Field });
                 }
+
+                Source? rotated = await sourceStore.GetAsync(sourceId, ct);
+                return rotated is null
+                    ? Results.NotFound(new { error = $"Source {sourceId} not found" })
+                    : Results.Ok(SourceResponse.From(rotated, includeDiagnostics: true));
             }
 
-            var updated = await sourceStore.UpdateAsync(sourceId, request with { Secret = null }, ct);
+            var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
             if (updated is null)
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
 

@@ -41,8 +41,13 @@ public sealed class CustomSourceTokenReplacement(
 
         string trimmed = token.Trim();
         CustomSourceProbe probe = await setup.ProbeAsync(scope.BaseUrl, trimmed, ct);
+        // Fixed wording, never the middle man's own: what it answered could quote the token just entered.
         if (probe.Error is not null)
-            return new CustomTokenReplacement(probe.Error, probe.Field, probe.Unreachable);
+            return probe.Field == "secret"
+                ? new CustomTokenReplacement("The middle man refused this token.", "secret")
+                : new CustomTokenReplacement(
+                    "Could not check the token: the middle man did not answer as the protocol requires. Try again; the old token is still in use.",
+                    "secret", Unreachable: true);
         if (!probe.Scopes.Any(s => s.Id == scope.ScopeId))
             return new CustomTokenReplacement($"With this token the middle man offers no scope '{scope.ScopeId}'.", "secret");
 

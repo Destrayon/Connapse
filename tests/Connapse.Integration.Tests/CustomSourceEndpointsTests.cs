@@ -254,4 +254,32 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
 
         await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
     }
+
+    [Fact]
+    public async Task Update_TokenTogetherWithOtherChanges_IsRefusedAndChangesNothing()
+    {
+        Guid id = await ContentOnlySourceAsync("kept-token");
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}",
+            new { secret = FakeMiddleMan.Token, description = "changed" });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+        (await StoredSecretAsync(id)).Should().Be("kept-token");
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(id))!.Description.Should().NotBe("changed");
+    }
+
+    [Fact]
+    public async Task Update_MiddleManEchoingTheToken_DoesNotReturnIt()
+    {
+        Guid id = await ContentOnlySourceAsync("kept-token");
+        const string echoed = "token-the-middle-man-echoes";
+        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
+        fixture.CustomSource.FailNextTitle = $"bad bearer {echoed}";
+
+        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = echoed });
+
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(echoed);
+        (await StoredSecretAsync(id)).Should().Be("kept-token");
+    }
 }

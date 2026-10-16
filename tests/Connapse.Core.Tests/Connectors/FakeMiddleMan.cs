@@ -57,6 +57,9 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     /// <summary>Every paged response repeats the same next-page token, as a broken middle man might.</summary>
     public bool RepeatPageToken { get; set; }
     public HttpStatusCode? FailNextWith { get; set; }
+
+    /// <summary>The problem-details title sent with <see cref="FailNextWith"/>, if any.</summary>
+    public string? FailNextTitle { get; set; }
     public List<string> Requests { get; } = [];
     public string? LastAuthorization { get; private set; }
 
@@ -99,6 +102,11 @@ public sealed class FakeMiddleMan : HttpMessageHandler
         {
             FailNextWith = null;
             HttpResponseMessage failed = new(status);
+            if (FailNextTitle is { } title)
+            {
+                failed.Content = new StringContent(new JsonObject { ["title"] = title }.ToJsonString(), System.Text.Encoding.UTF8, "application/problem+json");
+                FailNextTitle = null;
+            }
             if (status == HttpStatusCode.TooManyRequests || status == HttpStatusCode.ServiceUnavailable)
                 failed.Headers.TryAddWithoutValidation("Retry-After", "30");
             return failed;
