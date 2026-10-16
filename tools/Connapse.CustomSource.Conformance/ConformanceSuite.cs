@@ -237,7 +237,8 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         await WithOwnedDocumentsAsync(async owned =>
         {
             List<string> expected = (await ListIdsAsync(ct)).SelectMany(p => p).ToList();
-            for (int i = 0; i < 3; i++) expected.Add(await CreateOwnedAsync(owned, ct));
+            HashSet<string> existing = [.. expected];
+            for (int i = 0; i < 3; i++) expected.Add(await CreateOwnedAsync(owned, existing, ct));
 
             List<string> seen = [];
             string? deleted = null;
@@ -282,6 +283,7 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
 
         List<string> owned = [];
         Exception? failure = null;
+        List<string> left = [];
         try
         {
             await body(owned);
@@ -290,17 +292,20 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         {
             failure = ex;
         }
-
-        List<string> left = [];
-        foreach (string id in owned)
+        finally
         {
-            try
+            // Its own deadline, not the run's: a cancelled run still removes what it made.
+            using CancellationTokenSource cleanup = new(TimeSpan.FromMinutes(2));
+            foreach (string id in owned)
             {
-                if (!await _hooks.DeleteDocumentAsync(Scope, id, ct)) left.Add(id);
-            }
-            catch (CheckFailedException)
-            {
-                left.Add(id);
+                try
+                {
+                    if (!await _hooks.DeleteDocumentAsync(Scope, id, cleanup.Token)) left.Add(id);
+                }
+                catch (Exception ex) when (ex is CheckFailedException or OperationCanceledException)
+                {
+                    left.Add(id);
+                }
             }
         }
 
@@ -318,17 +323,27 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         }
     }
 
-    private async Task<string> CreateOwnedAsync(List<string> owned, CancellationToken ct)
+    /// <summary>
+    /// Creates a document and takes ownership of the ID the hook reports, unless that ID was already in the
+    /// listing: deleting it later would remove someone's document, not the test's.
+    /// </summary>
+    private async Task<string> CreateOwnedAsync(List<string> owned, IReadOnlySet<string> existing, CancellationToken ct)
     {
         string id = await _hooks.CreateDocumentAsync(Scope, ct)
             ?? throw new CheckFailedException("The create hook returned no document ID.");
+        if (existing.Contains(id))
+            throw new CheckFailedException($"The create hook reported '{id}', which existed before it ran; the test will not delete it.");
         owned.Add(id);
         return id;
     }
 
+    /// <summary>Deletes an owned document and confirms it is gone, so a hook that only claims success cannot pass a check.</summary>
     private async Task DeleteOwnedAsync(List<string> owned, string id, CancellationToken ct)
     {
         if (!await _hooks.DeleteDocumentAsync(Scope, id, ct)) throw new CheckFailedException($"The delete hook could not delete '{id}'.");
+        using HttpResponseMessage gone = await SendAsync(HttpMethod.Get, ContentPath(id), ct);
+        if (gone.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.Gone))
+            throw new CheckFailedException($"The delete hook reported '{id}' deleted, but its content still answered {(int)gone.StatusCode}.");
         owned.Remove(id);
     }
 
@@ -423,7 +438,8 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         {
             // The cursor is read before the change, so the change must come after it.
             (_, string cursor) = await ReadChangesAsync(_changeCursor!, ct);
-            string newId = await CreateOwnedAsync(owned, ct);
+            HashSet<string> existing = [.. (await ListIdsAsync(ct)).SelectMany(p => p)];
+            string newId = await CreateOwnedAsync(owned, existing, ct);
 
             (List<JsonObject> created, string afterCreate) = await ReadChangesAsync(cursor, ct);
             JsonObject upsert = created.LastOrDefault(c => OptionalString(c, "op") == "upsert" && OptionalString(c, "id") == newId)

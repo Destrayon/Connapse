@@ -72,6 +72,26 @@ public sealed class ConformanceNegativeTests
     }
 
     [Fact]
+    public async Task CreateHookReportingAnExistingId_FailsAndLeavesThatDocumentAlone()
+    {
+        BrokenMiddleMan server = new() { ReportExistingId = true };
+
+        CheckResult result = await Run(server, "listing.deletion-while-paging");
+
+        result.Outcome.Should().Be(CheckOutcome.Fail);
+        server.Holds("doc-a").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteHookThatOnlyClaimsSuccess_FailsThePagingCheck()
+    {
+        CheckResult result = await Run(new BrokenMiddleMan { PretendToDelete = true }, "listing.deletion-while-paging");
+
+        result.Outcome.Should().Be(CheckOutcome.Fail);
+        result.Detail.Should().Contain("still answered");
+    }
+
+    [Fact]
     public async Task TestDocumentsThatCannotBeDeleted_AreReported()
     {
         CheckResult result = await Run(new BrokenMiddleMan { RefuseDeletes = true }, "listing.deletion-while-paging");
@@ -101,6 +121,8 @@ public sealed class ConformanceNegativeTests
         public bool OmitCheckCapability { get; init; }
         public bool MalformedPermissions { get; init; }
         public bool RefuseDeletes { get; init; }
+        public bool ReportExistingId { get; init; }
+        public bool PretendToDelete { get; init; }
 
         public bool CanChangeDocuments => true;
 
@@ -110,11 +132,13 @@ public sealed class ConformanceNegativeTests
             string id = $"a-created-{_created++}";
             _ids.Add(id);
             _ids.Sort(StringComparer.Ordinal);
-            return Task.FromResult<string?>(id);
+            return Task.FromResult<string?>(ReportExistingId ? "doc-a" : id);
         }
 
         public Task<bool> DeleteDocumentAsync(string scope, string documentId, CancellationToken ct) =>
-            Task.FromResult(!RefuseDeletes && _ids.Remove(documentId));
+            Task.FromResult(!RefuseDeletes && (PretendToDelete || _ids.Remove(documentId)));
+
+        public bool Holds(string id) => _ids.Contains(id);
 
         /// <summary>Every document IDs created and not yet deleted, for checking cleanup.</summary>
         public IEnumerable<string> Created => _ids.Where(id => id.StartsWith("a-created-", StringComparison.Ordinal));
@@ -145,6 +169,10 @@ public sealed class ConformanceNegativeTests
                 }),
                 "/v1/scopes" => Json(new JsonObject { ["items"] = new JsonArray(new JsonObject { ["id"] = "s", ["name"] = "S" }) }),
                 "/v1/scopes/s/documents" => Listing(pageToken),
+                _ when path.StartsWith("/v1/scopes/s/documents/", StringComparison.Ordinal) && path.EndsWith("/content", StringComparison.Ordinal)
+                    => _ids.Contains(Uri.UnescapeDataString(path["/v1/scopes/s/documents/".Length..^"/content".Length]))
+                        ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("x") }
+                        : new HttpResponseMessage(HttpStatusCode.NotFound),
                 "/access/v1/evaluations" => await Evaluate(request, ct),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound),
             };
