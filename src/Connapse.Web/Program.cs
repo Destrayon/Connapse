@@ -157,6 +157,7 @@ builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
+builder.Services.AddScoped<Connapse.Web.Services.CustomSourceTokenReplacement>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkRemovalJob>();
