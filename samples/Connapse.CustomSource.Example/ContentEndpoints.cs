@@ -48,7 +48,9 @@ public static class ContentEndpoints
         if (string.IsNullOrEmpty(pageToken))
             cursor = journal.HeadCursor(scope);
         else if (!ListingToken.TryParse(pageToken, out lastId, out cursor))
-            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Malformed page_token.");
+            // A token this server did not issue is one it no longer recognises: the protocol answers 410, and
+            // Connapse then starts a new listing.
+            return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This page_token is not recognised; start the listing again.");
 
         // The listing is ordered by ID, so "after the last ID returned" is stable while files come and go.
         List<ExampleDocument> remaining = catalog.List(scope)

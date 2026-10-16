@@ -252,3 +252,27 @@ different address, the links in the old middle man stay there; clearing them is 
 
 The example server in `samples/Connapse.CustomSource.Example` implements every capability, and
 `custom-source-v1.openapi.json` describes every endpoint above.
+
+`connapse-source-check` (`tools/Connapse.CustomSource.Conformance`) runs against your middle man and checks
+each requirement in this document, skipping those for capabilities your discovery document does not declare.
+It exits 1 when any check fails.
+
+```bash
+dotnet run --project tools/Connapse.CustomSource.Conformance -- --url https://bridge.acme.internal --token "$TOKEN"
+```
+
+Some checks need more than an address and a token:
+
+- `--user <id>`: a Connapse user ID you map to an account that can read documents in the scope. Used by the
+  check-order and access-key checks.
+- `--link-secret`, `--provider-id`, `--issuer`: the values from Connapse's provider page, so the tool can sign
+  link tokens, including forged ones your linking page must refuse.
+- `--create-command`, `--delete-command`: commands that add a document to `$CONNAPSE_SCOPE` and print its ID,
+  and delete `$CONNAPSE_DOCUMENT_ID`, so the tool can watch the change feed report them. The tool deletes only
+  documents its create command reported, and tells you if any could not be deleted.
+- `--sign-in-command`: a command that posts `$CONNAPSE_LINK_TOKEN` to `$CONNAPSE_LINK_URL`, finishes your
+  sign-in as a browser would, and prints the code (or the URL you redirected to). The tool then checks that a
+  code is refused for another user and spent afterwards.
+
+Without one of these, the checks that need it are skipped. `--json` prints the results for a CI job.
+`samples/Connapse.CustomSource.Example/conformance_hooks.py` holds the three commands for the example server.

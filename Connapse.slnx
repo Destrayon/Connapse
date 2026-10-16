@@ -2,6 +2,9 @@
   <Folder Name="/samples/">
     <Project Path="samples/Connapse.CustomSource.Example/Connapse.CustomSource.Example.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Connapse.CustomSource.Conformance/Connapse.CustomSource.Conformance.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Connapse.Agents/Connapse.Agents.csproj" />
     <Project Path="src/Connapse.Background/Connapse.Background.csproj" />

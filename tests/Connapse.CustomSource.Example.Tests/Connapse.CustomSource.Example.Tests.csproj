@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\samples\Connapse.CustomSource.Example\Connapse.CustomSource.Example.csproj" />
+    <ProjectReference Include="..\..\tools\Connapse.CustomSource.Conformance\Connapse.CustomSource.Conformance.csproj" />
   </ItemGroup>
 
 </Project>
