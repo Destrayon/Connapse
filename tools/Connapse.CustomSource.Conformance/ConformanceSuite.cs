@@ -295,14 +295,17 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         finally
         {
             // Its own deadline, not the run's: a cancelled run still removes what it made.
+            // Each document is attempted whatever happened to the one before, and counts as removed only once
+            // the middle man stops serving it: a hook's own word is not enough.
             using CancellationTokenSource cleanup = new(TimeSpan.FromMinutes(2));
             foreach (string id in owned)
             {
                 try
                 {
                     if (!await _hooks.DeleteDocumentAsync(Scope, id, cleanup.Token)) left.Add(id);
+                    else if (!await GoneAsync(id, cleanup.Token)) left.Add(id);
                 }
-                catch (Exception ex) when (ex is CheckFailedException or OperationCanceledException)
+                catch (Exception)
                 {
                     left.Add(id);
                 }
@@ -332,7 +335,8 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         string id = await _hooks.CreateDocumentAsync(Scope, ct)
             ?? throw new CheckFailedException("The create hook returned no document ID.");
         if (existing.Contains(id))
-            throw new CheckFailedException($"The create hook reported '{id}', which existed before it ran; the test will not delete it.");
+            throw new CheckFailedException(
+                $"The create hook reported '{id}', which existed before it ran, so the test will not delete it. Whatever the hook did create was not cleaned up; check the scope by hand.");
         owned.Add(id);
         return id;
     }
@@ -341,10 +345,15 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
     private async Task DeleteOwnedAsync(List<string> owned, string id, CancellationToken ct)
     {
         if (!await _hooks.DeleteDocumentAsync(Scope, id, ct)) throw new CheckFailedException($"The delete hook could not delete '{id}'.");
-        using HttpResponseMessage gone = await SendAsync(HttpMethod.Get, ContentPath(id), ct);
-        if (gone.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.Gone))
-            throw new CheckFailedException($"The delete hook reported '{id}' deleted, but its content still answered {(int)gone.StatusCode}.");
+        if (!await GoneAsync(id, ct))
+            throw new CheckFailedException($"The delete hook reported '{id}' deleted, but its content still answered.");
         owned.Remove(id);
+    }
+
+    private async Task<bool> GoneAsync(string id, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await SendAsync(HttpMethod.Get, ContentPath(id), ct);
+        return response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone;
     }
 
     /// <summary>The listing's document IDs, page by page.</summary>

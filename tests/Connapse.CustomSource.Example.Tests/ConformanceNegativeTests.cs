@@ -88,7 +88,7 @@ public sealed class ConformanceNegativeTests
         CheckResult result = await Run(new BrokenMiddleMan { PretendToDelete = true }, "listing.deletion-while-paging");
 
         result.Outcome.Should().Be(CheckOutcome.Fail);
-        result.Detail.Should().Contain("still answered");
+        result.Detail.Should().Contain("still answered").And.Contain("remove them by hand");
     }
 
     [Fact]
