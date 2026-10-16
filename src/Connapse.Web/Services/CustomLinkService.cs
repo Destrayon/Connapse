@@ -85,6 +85,28 @@ public sealed class CustomLinkService(
     public async Task UnlinkAsync(Guid providerId, Guid userId, CancellationToken ct) =>
         await (await ClientAsync(providerId, ct)).UnlinkAsync(userId.ToString(), ct);
 
+    /// <summary>
+    /// Sends an unlink queued for a deleted user to the middle man it was queued for. The provider's current
+    /// token is used while the provider still points at that same address, so a rotated token still works;
+    /// otherwise the token from when it was queued.
+    /// </summary>
+    public async Task UnlinkQueuedAsync(CustomLinkRemoval removal, CancellationToken ct)
+    {
+        IReadOnlyCollection<string> allowed = settings.CurrentValue.AllowedHttpHosts;
+        if (!CustomSourceEndpoint.TryNormalize(removal.BaseUrl, allowed, out string baseUrl, out string? error))
+            throw new CustomSourceException(error ?? "The middle man's address is not allowed.");
+
+        string? token = removal.Token;
+        CustomProvider? provider = await providers.GetAsync(removal.ProviderId, ct);
+        if (provider is not null
+            && CustomSourceEndpoint.TryNormalize(provider.BaseUrl, allowed, out string current, out _)
+            && string.Equals(current, baseUrl, StringComparison.Ordinal))
+            token = await providers.GetTokenAsync(provider.Id, ct) ?? token;
+
+        CustomSourceClient client = new(httpClients.CreateClient(CustomSourceClient.HttpClientName), baseUrl, token);
+        await client.UnlinkAsync(removal.UserId.ToString(), ct);
+    }
+
     private async Task<CustomSourceClient> ClientAsync(Guid providerId, CancellationToken ct)
     {
         CustomProvider provider = await providers.GetAsync(providerId, ct)

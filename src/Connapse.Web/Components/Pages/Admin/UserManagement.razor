@@ -372,10 +372,13 @@
             }
 
             // Custom providers keep their links in their own middle men, so each is owed an unlink. Queued
-            // first, so a crash after the deletion cannot lose it; dropped again if the deletion fails.
+            // first but held until the deletion succeeds, so a crash cannot lose it and a failed deletion
+            // never unlinks a user who still exists; the removal job settles anything left waiting.
             await CustomLinkRemovals.EnqueueForUserAsync(userId);
             var result = await UserManager.DeleteAsync(user);
-            if (!result.Succeeded)
+            if (result.Succeeded)
+                await CustomLinkRemovals.ActivateForUserAsync(userId);
+            else
             {
                 await CustomLinkRemovals.CancelForUserAsync(userId);
                 statusMessage = "Failed to delete user.";

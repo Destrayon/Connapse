@@ -328,6 +328,12 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("attempts");
 
+                    b.Property<string>("BaseUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("base_url");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -337,13 +343,17 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("last_error");
 
-                    b.Property<DateTime>("NextAttemptAt")
+                    b.Property<DateTime?>("NextAttemptAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("next_attempt_at");
 
                     b.Property<Guid>("ProviderId")
                         .HasColumnType("uuid")
                         .HasColumnName("provider_id");
+
+                    b.Property<string>("TokenProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("token_protected");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
@@ -870,15 +880,6 @@ namespace Connapse.Storage.Migrations
                     b.Navigation("Chunk");
 
                     b.Navigation("Document");
-                });
-
-            modelBuilder.Entity("Connapse.Storage.Data.Entities.CustomLinkRemovalEntity", b =>
-                {
-                    b.HasOne("Connapse.Storage.Data.Entities.CustomProviderEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ProviderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.DocumentEntity", b =>
