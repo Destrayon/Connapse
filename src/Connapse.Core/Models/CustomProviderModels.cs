@@ -4,8 +4,9 @@ namespace Connapse.Core;
 
 /// <summary>
 /// A customer-run middle man registered for permissions: the address and token Connapse uses to ask it,
-/// live, what each user may read. Several may exist. Its token never appears on this read model.
+/// live, what each user may read. Several may exist. Its token and link secret never appear on this read model.
 /// </summary>
+/// <param name="HasLinkSecret">Whether a link secret was generated, so users can link their accounts.</param>
 public sealed record CustomProvider(
     Guid Id,
     string Name,
@@ -16,7 +17,8 @@ public sealed record CustomProvider(
     string? LinkUrl,
     DateTime? VerifiedAt,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    bool HasLinkSecret = false);
 
 /// <summary>What a custom provider is saved with, after its middle man was checked.</summary>
 /// <param name="Token">The bearer token; null on an update keeps the stored one.</param>

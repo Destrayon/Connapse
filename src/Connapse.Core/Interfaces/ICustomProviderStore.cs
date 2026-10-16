@@ -16,6 +16,15 @@ public interface ICustomProviderStore
     Task<string?> GetTokenAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
+    /// Generates and stores a new link secret, replacing any earlier one, and returns it: the only time it is
+    /// readable outside the store. Null when there is no such provider.
+    /// </summary>
+    Task<string?> GenerateLinkSecretAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>The decrypted link secret, or null when none was generated.</summary>
+    Task<string?> GetLinkSecretAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
     /// False when there is no such provider. Throws <see cref="InvalidOperationException"/> while a connection
     /// uses it: the connection's sources would otherwise lose their permission checks.
     /// </summary>

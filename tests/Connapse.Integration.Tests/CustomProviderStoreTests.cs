@@ -83,4 +83,21 @@ public class CustomProviderStoreTests(SharedWebAppFixture fixture)
         await moved.Should().ThrowAsync<InvalidOperationException>().WithMessage("*address*");
         await same.Should().NotThrowAsync();
     }
+
+    [Fact]
+    public async Task GenerateLinkSecret_StoresItEncryptedAndReplacesTheOldOne()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        ICustomProviderStore store = scope.ServiceProvider.GetRequiredService<ICustomProviderStore>();
+        CustomProvider provider = await store.CreateAsync(Request());
+        (await store.GetLinkSecretAsync(provider.Id)).Should().BeNull();
+
+        string? first = await store.GenerateLinkSecretAsync(provider.Id);
+        string? second = await store.GenerateLinkSecretAsync(provider.Id);
+
+        first.Should().NotBeNullOrEmpty().And.NotBe(second);
+        (await store.GetLinkSecretAsync(provider.Id)).Should().Be(second);
+        (await store.GetAsync(provider.Id))!.HasLinkSecret.Should().BeTrue();
+        (await store.GenerateLinkSecretAsync(Guid.NewGuid())).Should().BeNull();
+    }
 }

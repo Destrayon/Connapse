@@ -225,7 +225,7 @@ the link in your own storage; Connapse stores nothing about it.
 
 1. The user clicks **Link** in Connapse. Connapse sends the browser to `link_url` with an auto-submitting
    form POST carrying `token`, an HS256 JWT signed with the provider's **link secret** (Connapse generates
-   it and shows it to the admin once). Claims: `iss` (Connapse's base URL), `sub` (Connapse user ID),
+   it and shows it to the admin once; the HMAC key is the UTF-8 bytes of the secret exactly as shown). Claims: `iss` (Connapse's base URL), `sub` (Connapse user ID),
    `aud` (Connapse's provider ID), `jti`, `exp` (5 minutes), `return_url`.
 2. Verify the signature, `iss`, `aud` and `exp` (allow at most 60 seconds of clock skew), and refuse a
    `jti` you have already seen. Accept only `HS256`: reject any token whose header names another

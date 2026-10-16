@@ -20,6 +20,7 @@ public sealed class PostgresCustomProviderStore(
     ILogger<PostgresCustomProviderStore> logger) : ICustomProviderStore
 {
     private IDataProtector Protector => dataProtection.CreateProtector("CustomProvider.v1");
+    private IDataProtector LinkProtector => dataProtection.CreateProtector("CustomProviderLink.v1");
 
     public async Task<CustomProvider> CreateAsync(SaveCustomProviderRequest request, CancellationToken ct = default)
     {
@@ -113,6 +114,39 @@ public sealed class PostgresCustomProviderStore(
         }
     }
 
+    public async Task<string?> GenerateLinkSecretAsync(Guid id, CancellationToken ct = default)
+    {
+        await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
+        CustomProviderEntity? entity = await context.CustomProviders.FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (entity is null) return null;
+
+        string secret = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        entity.LinkSecretProtected = LinkProtector.Protect(secret);
+        entity.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+        logger.LogInformation("Generated a new link secret for custom provider {ProviderId}", id);
+        return secret;
+    }
+
+    public async Task<string?> GetLinkSecretAsync(Guid id, CancellationToken ct = default)
+    {
+        await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
+        string? ciphertext = await context.CustomProviders.AsNoTracking()
+            .Where(p => p.Id == id).Select(p => p.LinkSecretProtected).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrEmpty(ciphertext)) return null;
+
+        try
+        {
+            return LinkProtector.Unprotect(ciphertext);
+        }
+        catch (CryptographicException ex)
+        {
+            logger.LogError(ex, "Failed to decrypt the link secret for custom provider {ProviderId}", id);
+            throw new InvalidOperationException(
+                $"The stored link secret for custom provider '{id}' could not be decrypted; generate a new one.", ex);
+        }
+    }
+
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
@@ -148,7 +182,10 @@ public sealed class PostgresCustomProviderStore(
         return name;
     }
 
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
     private static CustomProvider ToModel(CustomProviderEntity e) => new(
         e.Id, e.Name, e.BaseUrl, e.TokenProtected is not null, e.MaxCheckBatch, e.SupportsAccessKeys, e.LinkUrl,
-        e.VerifiedAt, e.CreatedAt, e.UpdatedAt);
+        e.VerifiedAt, e.CreatedAt, e.UpdatedAt, e.LinkSecretProtected is not null);
 }

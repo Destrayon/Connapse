@@ -581,6 +581,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.MaxCheckBatch).HasColumnName("max_check_batch");
             entity.Property(e => e.SupportsAccessKeys).HasColumnName("supports_access_keys");
             entity.Property(e => e.LinkUrl).HasColumnName("link_url").HasMaxLength(2048);
+            entity.Property(e => e.LinkSecretProtected).HasColumnName("link_secret_protected");
             entity.Property(e => e.VerifiedAt).HasColumnName("verified_at");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");

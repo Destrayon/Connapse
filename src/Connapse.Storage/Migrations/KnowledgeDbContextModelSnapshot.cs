@@ -330,6 +330,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("LinkSecretProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("link_secret_protected");
+
                     b.Property<string>("LinkUrl")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)")
