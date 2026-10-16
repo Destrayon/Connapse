@@ -133,6 +133,25 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
     }
 
     [Fact]
+    public async Task Enqueue_RetriedDeletionADayLater_KeepsTheEarlierWaitingEntriesFromCleanup()
+    {
+        CustomProvider provider = await ProviderAsync();
+        Guid present = Guid.Parse(await AdminIdAsync());
+        using (IServiceScope scope = fixture.Factory.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<ICustomLinkRemovalStore>().EnqueueForUserAsync(present);
+        await BackdateAsync(CustomLinkRemovalJob.DropWaitingAfter, present);
+
+        // The retry enqueues, then the job runs while the retry's deletion is still in progress.
+        using (IServiceScope scope = fixture.Factory.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<ICustomLinkRemovalStore>().EnqueueForUserAsync(present);
+        await RunJobAsync();
+
+        (await RowsAsync(present)).Should().Contain(r => r.ProviderId == provider.Id && r.NextAttemptAt == null);
+        using (IServiceScope scope = fixture.Factory.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<ICustomLinkRemovalStore>().CancelForUserAsync(present);
+    }
+
+    [Fact]
     public async Task Enqueue_ProviderThatStoppedOfferingLinking_IsStillOwedAnUnlink()
     {
         CustomProvider provider = await ProviderAsync();
