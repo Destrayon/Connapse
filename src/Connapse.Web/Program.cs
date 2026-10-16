@@ -159,6 +159,7 @@ builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
+builder.Services.AddScoped<Connapse.Web.Services.CustomLinkRemovalJob>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
 builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
@@ -375,6 +376,12 @@ using (var scope = app.Services.CreateScope())
         recurringJobId: Connapse.Web.Services.AtlassianLinkAppCheckJob.RecurringJobId,
         methodCall: j => j.RunAsync(default),
         cronExpression: Cron.Daily());
+
+    // Every minute: tell custom providers' middle men about deleted users' links until each acknowledges.
+    recurringJobManager.AddOrUpdate<Connapse.Web.Services.CustomLinkRemovalJob>(
+        recurringJobId: Connapse.Web.Services.CustomLinkRemovalJob.RecurringJobId,
+        methodCall: j => j.RunAsync(default),
+        cronExpression: Cron.Minutely());
 
     // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
     // in the database independently of the code that registered them. Left in place, the old

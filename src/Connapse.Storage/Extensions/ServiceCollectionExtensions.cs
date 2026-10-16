@@ -155,6 +155,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContainerStore, PostgresContainerStore>();
         services.AddScoped<IConnectionStore, PostgresConnectionStore>();
         services.AddScoped<ICustomProviderStore, Connections.PostgresCustomProviderStore>();
+        services.AddScoped<ICustomLinkRemovalStore, Connections.PostgresCustomLinkRemovalStore>();
         services.AddScoped<ISourceStore, PostgresSourceStore>();
 
         // Folder store

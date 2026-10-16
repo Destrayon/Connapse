@@ -18,6 +18,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<ProviderCredentialEntity> ProviderCredentials => Set<ProviderCredentialEntity>();
     public DbSet<SourceEntity> Sources => Set<SourceEntity>();
     public DbSet<CustomProviderEntity> CustomProviders => Set<CustomProviderEntity>();
+    public DbSet<CustomLinkRemovalEntity> CustomLinkRemovals => Set<CustomLinkRemovalEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -36,6 +37,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureConnections(modelBuilder);
         ConfigureSources(modelBuilder);
         ConfigureCustomProviders(modelBuilder);
+        ConfigureCustomLinkRemovals(modelBuilder);
     }
 
     private static void ConfigureContainers(ModelBuilder modelBuilder)
@@ -585,6 +587,27 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.VerifiedAt).HasColumnName("verified_at");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        });
+    }
+
+    private static void ConfigureCustomLinkRemovals(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CustomLinkRemovalEntity>(entity =>
+        {
+            entity.ToTable("custom_link_removals");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ProviderId).HasColumnName("provider_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.Attempts).HasColumnName("attempts");
+            entity.Property(e => e.NextAttemptAt).HasColumnName("next_attempt_at");
+            entity.Property(e => e.LastError).HasColumnName("last_error").HasMaxLength(1000);
+            entity.Property(e => e.AlertedAt).HasColumnName("alerted_at");
+            entity.HasIndex(e => new { e.ProviderId, e.UserId }).IsUnique().HasDatabaseName("idx_custom_link_removals_provider_user");
+            entity.HasIndex(e => e.NextAttemptAt).HasDatabaseName("idx_custom_link_removals_next_attempt");
+            // A deleted provider owes nothing: its links went with its middle man's registration.
+            entity.HasOne<CustomProviderEntity>().WithMany().HasForeignKey(e => e.ProviderId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

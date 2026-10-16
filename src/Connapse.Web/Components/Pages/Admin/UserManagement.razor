@@ -9,6 +9,7 @@
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
+@inject Connapse.Core.Interfaces.ICustomLinkRemovalStore CustomLinkRemovals
 @rendermode InteractiveServer
 
 <PageTitle>User Management - Connapse</PageTitle>
@@ -370,9 +371,13 @@
                 return;
             }
 
+            // Custom providers keep their links in their own middle men, so each is owed an unlink. Queued
+            // first, so a crash after the deletion cannot lose it; dropped again if the deletion fails.
+            await CustomLinkRemovals.EnqueueForUserAsync(userId);
             var result = await UserManager.DeleteAsync(user);
             if (!result.Succeeded)
             {
+                await CustomLinkRemovals.CancelForUserAsync(userId);
                 statusMessage = "Failed to delete user.";
                 statusSuccess = false;
                 return;
