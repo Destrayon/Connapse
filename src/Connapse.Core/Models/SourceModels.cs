@@ -82,9 +82,20 @@ public record CreateSourceRequest(
     }
 }
 
+/// <param name="Secret">A custom source's new token, replacing the stored one; refused for any other source.</param>
 public record UpdateSourceRequest(
     string? Name = null,
     string? Description = null,
     string? ScopeJson = null,
     int? SyncIntervalSeconds = null,
-    bool? Enabled = null);
+    bool? Enabled = null,
+    string? Secret = null)
+{
+    // The generated ToString would print the token into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, Description = {Description}, ScopeJson = {ScopeJson}, ")
+            .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Enabled = {Enabled}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}

@@ -267,6 +267,7 @@ public static class SourcesEndpoints
             [FromBody] UpdateSourceRequest request,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
+            [FromServices] CustomSourceSetup customSources,
             [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
@@ -324,9 +325,50 @@ public static class SourcesEndpoints
                 request = request with { ScopeJson = atlassian.ScopeJson };
             }
 
-            var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
+            // A custom source's new token, when its middle man rotated the old one. It is checked as on creation,
+            // against the source's own middle man and scope, which stay fixed, before it replaces the stored one.
+            string? newSecret = null;
+            if (request.Secret is not null)
+            {
+                Source? target = await sourceStore.GetAsync(sourceId, ct);
+                if (target is null)
+                    return Results.NotFound(new { error = $"Source {sourceId} not found" });
+
+                bool isCustom = target.Provider is ConnectionProvider.Custom
+                    || (target.ConnectionId is Guid targetConnectionId
+                        && await connectionStore.GetAsync(targetConnectionId, ct) is { Provider: ConnectionProvider.Custom });
+                if (!isCustom)
+                    return Results.BadRequest(new { error = "Only a custom source takes a secret.", field = "secret" });
+                if (string.IsNullOrWhiteSpace(request.Secret))
+                    return Results.BadRequest(new { error = "Enter the token the middle man expects.", field = "secret" });
+                if (CustomSourceScope.TryParse(target.ScopeJson) is not { } targetScope)
+                    return Results.BadRequest(new { error = "This custom source's scope names no middle man.", field = "scope" });
+
+                newSecret = request.Secret.Trim();
+                CustomSourceProbe probe = await customSources.ProbeAsync(targetScope.BaseUrl, newSecret, ct);
+                if (probe.Error is not null)
+                {
+                    return probe.Unreachable
+                        ? Results.Json(new { error = probe.Error, field = probe.Field }, statusCode: StatusCodes.Status502BadGateway)
+                        : Results.BadRequest(new { error = probe.Error, field = probe.Field });
+                }
+                if (!probe.Scopes.Any(s => s.Id == targetScope.ScopeId))
+                    return Results.BadRequest(new
+                    {
+                        error = $"With this token the middle man offers no scope '{targetScope.ScopeId}'.",
+                        field = "secret",
+                    });
+            }
+
+            var updated = await sourceStore.UpdateAsync(sourceId, request with { Secret = null }, ct);
             if (updated is null)
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
+
+            if (newSecret is not null)
+            {
+                await sourceStore.ReplaceSecretAsync(sourceId, newSecret, ct);
+                await auditLogger.LogAsync("source.secret_replaced", "source", sourceId.ToString(), new { updated.Name }, ct);
+            }
 
             await auditLogger.LogAsync("source.updated", "source", sourceId.ToString(),
                 new { updated.Name }, ct);
@@ -334,7 +376,7 @@ public static class SourcesEndpoints
             return Results.Ok(SourceResponse.From(updated, includeDiagnostics: true));
         })
         .WithName("UpdateSource")
-        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state.")
+        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state, or replace a custom source's token (secret).")
         .RequireAuthorization("RequireAdmin");
 
         // DELETE /api/sources/{sourceId}
