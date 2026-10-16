@@ -178,11 +178,11 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         try
         {
             return await response.Content.ReadFromJsonAsync<T>(Json, ct)
-                ?? throw new CustomSourceException($"The middle man answered {path} with an empty body.");
+                ?? throw new CustomSourceException($"The middle man answered {Describe(path)} with an empty body.");
         }
         catch (JsonException ex)
         {
-            throw new CustomSourceException($"The middle man answered {path} with JSON that does not match the protocol.", ex);
+            throw new CustomSourceException($"The middle man answered {Describe(path)} with JSON that does not match the protocol.", ex);
         }
     }
 
@@ -211,40 +211,46 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
 
         TimeSpan? retryAfter = response.Headers.RetryAfter?.Delta
             ?? (response.Headers.RetryAfter?.Date is { } date ? date - DateTimeOffset.UtcNow : null);
-        string detail = await ProblemTitleAsync(response, ct);
         int status = (int)response.StatusCode;
+
+        // Only Connapse's own words: these messages reach sync errors, logs and the unlink queue, and a middle
+        // man's problem title could quote the bearer token it was sent.
 
         throw response.StatusCode switch
         {
             HttpStatusCode.Gone => new CustomSourceCursorExpiredException(
-                $"The middle man answered {path} with 410: its cursor or page token is no longer valid."),
+                $"The middle man answered {Describe(path)} with 410: its cursor or page token is no longer valid."),
             HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable => new CustomSourceRateLimitedException(
                 $"The middle man answered {status} and asked Connapse to wait"
                 + (retryAfter is { } wait ? $" {Math.Ceiling(wait.TotalSeconds)} s" : "") + ".", retryAfter),
             _ when status is >= 300 and < 400 => new CustomSourceException(
-                $"The middle man answered {path} with a {status} redirect, which Connapse does not follow."),
+                $"The middle man answered {Describe(path)} with a {status} redirect, which Connapse does not follow."),
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceUnauthorizedException(
                 $"The middle man refused the token ({status}). Check the token entered for this source."),
-            _ => new CustomSourceException($"The middle man answered {path} with {status}{detail}.",
-                safeMessage: $"The middle man answered {path} with {status}."),
+            _ => new CustomSourceException($"The middle man answered {Describe(path)} with {status}."),
         };
     }
 
-    private static async Task<string> ProblemTitleAsync(HttpResponseMessage response, CancellationToken ct)
+    /// <summary>
+    /// The endpoint a request went to, by name. Never the path itself: its scope, document ID, page token and
+    /// cursor are values the middle man chose, and a message can reach sync errors, logs and the setup screens.
+    /// </summary>
+    private static string Describe(string path)
     {
-        if (response.Content.Headers.ContentType?.MediaType is not ("application/problem+json" or "application/json"))
-            return "";
-        try
+        string bare = path.Split('?')[0];
+        return bare switch
         {
-            using JsonDocument problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-            return problem.RootElement.TryGetProperty("title", out JsonElement title) && title.ValueKind == JsonValueKind.String
-                ? $": {title.GetString()}"
-                : "";
-        }
-        catch (JsonException)
-        {
-            return "";
-        }
+            "/.well-known/connapse-source" => "the discovery request",
+            "/v1/scopes" => "the scopes listing",
+            "/access/v1/evaluations" => "the permission check",
+            "/access/v1/search/resource" => "the access key search",
+            "/v1/links/confirm" => "the link confirmation",
+            _ when bare.StartsWith("/v1/links/", StringComparison.Ordinal) => "a link request",
+            _ when bare.EndsWith("/content", StringComparison.Ordinal) => "a document content request",
+            _ when bare.EndsWith("/changes", StringComparison.Ordinal) => "the change feed",
+            _ when bare.EndsWith("/documents", StringComparison.Ordinal) => "the document listing",
+            _ => "a request",
+        };
     }
 
     private static string Query(params (string Name, string? Value)[] parameters)
@@ -309,14 +315,7 @@ public sealed record CustomListingPage(IReadOnlyList<CustomDocument>? Items, str
 public sealed record CustomChangePage(IReadOnlyList<CustomDocument>? Items, string? NextPageToken, string? NextCursor);
 
 /// <summary>The middle man failed or answered outside the protocol.</summary>
-public class CustomSourceException(string message, Exception? inner = null, string? safeMessage = null) : IOException(message, inner)
-{
-    /// <summary>
-    /// The error without anything the middle man wrote itself, for showing beside a credential just entered:
-    /// a middle man may quote the bearer token, in any encoding, in its problem title.
-    /// </summary>
-    public string SafeMessage { get; } = safeMessage ?? message;
-}
+public class CustomSourceException(string message, Exception? inner = null) : IOException(message, inner);
 
 /// <summary>A 401 or 403: the middle man refused the token.</summary>
 public sealed class CustomSourceUnauthorizedException(string message) : CustomSourceException(message);

@@ -53,8 +53,9 @@ public sealed class CustomLinkRemovalJob(
                     new { removal.ProviderId, Reason = "user_deleted" }, ct);
                 logger.LogInformation("Custom provider {ProviderId} removed the link of deleted user {UserId}", removal.ProviderId, removal.UserId);
             }
-            catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
+                // Any failure is this entry's alone: it is retried and reported, and the batch goes on.
                 int attempts = removal.Attempts + 1;
                 TimeSpan wait = WaitAfter(attempts);
                 bool alert = removal.AlertedAt is null && now - removal.CreatedAt >= AlertAfter;

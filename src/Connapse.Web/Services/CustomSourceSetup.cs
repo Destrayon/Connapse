@@ -45,12 +45,12 @@ public sealed class CustomSourceSetup(IHttpClientFactory httpClients, IOptionsMo
         }
         catch (CustomSourceUnauthorizedException ex)
         {
-            return new CustomSourceProbe(normalized, [], ex.SafeMessage, "secret");
+            return new CustomSourceProbe(normalized, [], ex.Message, "secret");
         }
         catch (CustomSourceException ex)
         {
             // Never the middle man's own words: they could quote the token just entered, in any encoding.
-            return new CustomSourceProbe(normalized, [], ex.SafeMessage, "baseUrl", Unreachable: true);
+            return new CustomSourceProbe(normalized, [], ex.Message, "baseUrl", Unreachable: true);
         }
     }
 }

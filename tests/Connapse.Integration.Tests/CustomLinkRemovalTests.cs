@@ -257,6 +257,28 @@ public sealed class CustomLinkRemovalTests(SharedWebAppFixture fixture) : IAsync
     }
 
     [Fact]
+    public async Task Job_ProviderTokenThatCannotBeDecrypted_UsesTheQueuedTokenAndDoesNotStopTheBatch()
+    {
+        CustomProvider broken = await ProviderAsync();
+        CustomProvider healthy = await ProviderAsync();
+        Guid user = Guid.NewGuid();
+        await QueueDeletedAsync(user);
+        using (IServiceScope scope = fixture.Factory.Services.CreateScope())
+        {
+            // The provider's own token is now unreadable; the copy captured when the unlink was queued is not.
+            await using KnowledgeDbContext context = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            await context.CustomProviders.Where(p => p.Id == broken.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.TokenProtected, "not-a-protected-payload"));
+        }
+
+        await RunJobAsync();
+
+        (await RowsAsync(user)).Should().NotContain(r => r.ProviderId == broken.Id || r.ProviderId == healthy.Id);
+        Remote.Unlinked.Count(u => u == user.ToString()).Should().BeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
     public void WaitAfter_DoublesUpToAnHour()
     {
         CustomLinkRemovalJob.WaitAfter(1).Should().Be(TimeSpan.FromMinutes(2));
