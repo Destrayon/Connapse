@@ -178,11 +178,11 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         try
         {
             return await response.Content.ReadFromJsonAsync<T>(Json, ct)
-                ?? throw new CustomSourceException($"The middle man answered {path} with an empty body.");
+                ?? throw new CustomSourceException($"The middle man answered {Describe(path)} with an empty body.");
         }
         catch (JsonException ex)
         {
-            throw new CustomSourceException($"The middle man answered {path} with JSON that does not match the protocol.", ex);
+            throw new CustomSourceException($"The middle man answered {Describe(path)} with JSON that does not match the protocol.", ex);
         }
     }
 
@@ -219,15 +219,37 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         throw response.StatusCode switch
         {
             HttpStatusCode.Gone => new CustomSourceCursorExpiredException(
-                $"The middle man answered {path} with 410: its cursor or page token is no longer valid."),
+                $"The middle man answered {Describe(path)} with 410: its cursor or page token is no longer valid."),
             HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable => new CustomSourceRateLimitedException(
                 $"The middle man answered {status} and asked Connapse to wait"
                 + (retryAfter is { } wait ? $" {Math.Ceiling(wait.TotalSeconds)} s" : "") + ".", retryAfter),
             _ when status is >= 300 and < 400 => new CustomSourceException(
-                $"The middle man answered {path} with a {status} redirect, which Connapse does not follow."),
+                $"The middle man answered {Describe(path)} with a {status} redirect, which Connapse does not follow."),
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceUnauthorizedException(
                 $"The middle man refused the token ({status}). Check the token entered for this source."),
-            _ => new CustomSourceException($"The middle man answered {path} with {status}."),
+            _ => new CustomSourceException($"The middle man answered {Describe(path)} with {status}."),
+        };
+    }
+
+    /// <summary>
+    /// The endpoint a request went to, by name. Never the path itself: its scope, document ID, page token and
+    /// cursor are values the middle man chose, and a message can reach sync errors, logs and the setup screens.
+    /// </summary>
+    private static string Describe(string path)
+    {
+        string bare = path.Split('?')[0];
+        return bare switch
+        {
+            "/.well-known/connapse-source" => "the discovery request",
+            "/v1/scopes" => "the scopes listing",
+            "/access/v1/evaluations" => "the permission check",
+            "/access/v1/search/resource" => "the access key search",
+            "/v1/links/confirm" => "the link confirmation",
+            _ when bare.StartsWith("/v1/links/", StringComparison.Ordinal) => "a link request",
+            _ when bare.EndsWith("/content", StringComparison.Ordinal) => "a document content request",
+            _ when bare.EndsWith("/changes", StringComparison.Ordinal) => "the change feed",
+            _ when bare.EndsWith("/documents", StringComparison.Ordinal) => "the document listing",
+            _ => "a request",
         };
     }
 

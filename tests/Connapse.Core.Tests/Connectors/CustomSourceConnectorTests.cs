@@ -127,6 +127,24 @@ public class CustomSourceConnectorTests
             .Should().NotContain(FakeMiddleMan.Token).And.NotContain("Authorization").And.Contain("500");
     }
 
+    [Fact]
+    public async Task ErrorAfterAMiddleManChosenPageToken_DoesNotQuoteTheToken()
+    {
+        _remote.Put("a", "a.md", "a");
+        Func<Task> act = () => new CustomSourceClient(new HttpClient(new FailingWithPath()), FakeMiddleMan.BaseUrl, FakeMiddleMan.Token)
+            .ListChangesAsync(FakeMiddleMan.Scope, "cursor", FakeMiddleMan.Token, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<CustomSourceException>()).Which.Message
+            .Should().NotContain(FakeMiddleMan.Token).And.Contain("the change feed");
+    }
+
+    /// <summary>Answers 500 to everything, so the error is about the request the client made.</summary>
+    private sealed class FailingWithPath : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.TooManyRequests)]
     [InlineData(HttpStatusCode.ServiceUnavailable)]
