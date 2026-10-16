@@ -101,7 +101,16 @@ public sealed class CustomLinkService(
         if (provider is not null
             && CustomSourceEndpoint.TryNormalize(provider.BaseUrl, allowed, out string current, out _)
             && string.Equals(current, baseUrl, StringComparison.Ordinal))
-            token = await providers.GetTokenAsync(provider.Id, ct) ?? token;
+        {
+            try
+            {
+                token = await providers.GetTokenAsync(provider.Id, ct) ?? token;
+            }
+            catch (InvalidOperationException)
+            {
+                // The stored token cannot be decrypted; the one captured when the unlink was queued may still work.
+            }
+        }
 
         CustomSourceClient client = new(httpClients.CreateClient(CustomSourceClient.HttpClientName), baseUrl, token);
         await client.UnlinkAsync(removal.UserId.ToString(), ct);

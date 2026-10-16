@@ -114,6 +114,19 @@ public class CustomSourceConnectorTests
         delta.NextCursor.Should().BeNull();
     }
 
+    [Fact]
+    public async Task MiddleManErrorQuotingTheToken_NeverReachesTheExceptionMessage()
+    {
+        _remote.Put("a", "a.md", "a");
+        _remote.FailNextWith = HttpStatusCode.InternalServerError;
+        _remote.FailNextTitle = $"bad request, Authorization: Bearer {FakeMiddleMan.Token}";
+
+        Func<Task> act = () => Connector().GetChangesAsync(null);
+
+        (await act.Should().ThrowAsync<CustomSourceException>()).Which.Message
+            .Should().NotContain(FakeMiddleMan.Token).And.NotContain("Authorization").And.Contain("500");
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.TooManyRequests)]
     [InlineData(HttpStatusCode.ServiceUnavailable)]
