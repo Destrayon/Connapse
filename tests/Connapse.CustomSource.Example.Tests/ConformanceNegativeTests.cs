@@ -53,6 +53,34 @@ public sealed class ConformanceNegativeTests
     }
 
     [Fact]
+    public async Task MalformedPermissions_FailInsteadOfCountingAsContentOnly()
+    {
+        BrokenMiddleMan server = new() { MalformedPermissions = true };
+
+        (await Run(server, "permissions.declared")).Outcome.Should().Be(CheckOutcome.Fail);
+        (await Run(server, "check.unknown-user")).Outcome.Should().Be(CheckOutcome.Fail);
+    }
+
+    [Fact]
+    public async Task KeysetPaging_LeavesNoTestDocumentsBehind()
+    {
+        BrokenMiddleMan server = new();
+
+        await Run(server, "listing.deletion-while-paging");
+
+        server.Created.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TestDocumentsThatCannotBeDeleted_AreReported()
+    {
+        CheckResult result = await Run(new BrokenMiddleMan { RefuseDeletes = true }, "listing.deletion-while-paging");
+
+        result.Outcome.Should().Be(CheckOutcome.Fail);
+        result.Detail.Should().Contain("remove them by hand");
+    }
+
+    [Fact]
     public async Task PermissionsWithoutCheck_FailInsteadOfSkipping()
     {
         BrokenMiddleMan server = new() { OmitCheckCapability = true };
@@ -71,17 +99,25 @@ public sealed class ConformanceNegativeTests
         public bool OffsetTokens { get; init; }
         public bool EmptyDecisions { get; init; }
         public bool OmitCheckCapability { get; init; }
+        public bool MalformedPermissions { get; init; }
+        public bool RefuseDeletes { get; init; }
 
-        public Task<bool> CreateDocumentAsync(string scope, CancellationToken ct)
+        public bool CanChangeDocuments => true;
+
+        public Task<string?> CreateDocumentAsync(string scope, CancellationToken ct)
         {
             // Sorts first, so a created document lands on the first page.
-            _ids.Add($"a-created-{_created++}");
+            string id = $"a-created-{_created++}";
+            _ids.Add(id);
             _ids.Sort(StringComparer.Ordinal);
-            return Task.FromResult(true);
+            return Task.FromResult<string?>(id);
         }
 
         public Task<bool> DeleteDocumentAsync(string scope, string documentId, CancellationToken ct) =>
-            Task.FromResult(_ids.Remove(documentId));
+            Task.FromResult(!RefuseDeletes && _ids.Remove(documentId));
+
+        /// <summary>Every document IDs created and not yet deleted, for checking cleanup.</summary>
+        public IEnumerable<string> Created => _ids.Where(id => id.StartsWith("a-created-", StringComparison.Ordinal));
 
         public Task<string?> CompleteSignInAsync(Uri linkUrl, string linkToken, Uri returnUrl, CancellationToken ct) =>
             Task.FromResult<string?>(null);
@@ -100,9 +136,11 @@ public sealed class ConformanceNegativeTests
                     ["capabilities"] = new JsonObject
                     {
                         ["max_page_size"] = PageSize,
-                        ["permissions"] = OmitCheckCapability
-                            ? new JsonObject { ["access_keys"] = new JsonObject() }
-                            : new JsonObject { ["check"] = new JsonObject { ["max_batch"] = 10 } },
+                        ["permissions"] = MalformedPermissions
+                            ? JsonValue.Create(true)
+                            : OmitCheckCapability
+                                ? new JsonObject { ["access_keys"] = new JsonObject() }
+                                : new JsonObject { ["check"] = new JsonObject { ["max_batch"] = 10 } },
                     },
                 }),
                 "/v1/scopes" => Json(new JsonObject { ["items"] = new JsonArray(new JsonObject { ["id"] = "s", ["name"] = "S" }) }),

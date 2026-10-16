@@ -26,9 +26,13 @@ public sealed partial class ConformanceSuite
         await RunCheckAsync("keys.pagination", "Key pages end, repeat nothing, and add up to the same keys at any page size", KeysPaginationAsync, ct);
     }
 
+    /// <summary>A <c>permissions</c> member present but not an object: malformed, never content-only.</summary>
+    private bool PermissionsMalformed => _capabilities?["permissions"] is { } node && node is not JsonObject;
+
     private Task PermissionsDeclaredAsync(CancellationToken ct)
     {
         _ = Documents;
+        if (PermissionsMalformed) throw new CheckFailedException("Discovery's permissions member is not an object.");
         if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only middle man.");
         if (Permissions["check"] is not JsonObject)
             throw new CheckFailedException("Discovery declares permissions without permissions.check, which every custom provider needs.");
@@ -44,6 +48,7 @@ public sealed partial class ConformanceSuite
     private void RequireCheck()
     {
         _ = Documents;
+        if (PermissionsMalformed) throw new CheckFailedException("Discovery's permissions member is not an object.");
         if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only middle man.");
         if (Permissions["check"] is not JsonObject || MaxBatch is not > 0)
             throw new CheckFailedException("Discovery declares permissions without permissions.check and a positive max_batch.");

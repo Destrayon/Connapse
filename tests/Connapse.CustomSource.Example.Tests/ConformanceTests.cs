@@ -76,10 +76,13 @@ public sealed partial class ConformanceTests
     /// <summary>The example server's system is a folder, so its hooks write and delete files, and sign in as alice.</summary>
     private sealed class ExampleHooks(ExampleServer server) : IConformanceHooks
     {
-        public Task<bool> CreateDocumentAsync(string scope, CancellationToken ct)
+        public bool CanChangeDocuments => true;
+
+        public Task<string?> CreateDocumentAsync(string scope, CancellationToken ct)
         {
-            server.WriteFile($"{scope}/conformance-{Guid.NewGuid():N}.md", "# Created by the conformance suite");
-            return Task.FromResult(true);
+            string path = $"conformance-{Guid.NewGuid():N}.md";
+            server.WriteFile($"{scope}/{path}", "# Created by the conformance suite");
+            return Task.FromResult<string?>(DocumentId.Encode(path));
         }
 
         public Task<bool> DeleteDocumentAsync(string scope, string documentId, CancellationToken ct)

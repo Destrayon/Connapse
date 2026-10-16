@@ -5,7 +5,7 @@ Usage, as the --create-command, --delete-command and --sign-in-command of connap
     python conformance_hooks.py delete  <data-folder>
     python conformance_hooks.py sign-in <data-folder>
 
-create adds a file to $CONNAPSE_SCOPE; delete removes $CONNAPSE_DOCUMENT_ID (the base64url of its path);
+create adds a file to $CONNAPSE_SCOPE and prints its document ID; delete removes $CONNAPSE_DOCUMENT_ID (the base64url of its path);
 sign-in posts $CONNAPSE_LINK_TOKEN to $CONNAPSE_LINK_URL, signs in as alice and prints the redirect URL.
 """
 import base64, http.cookiejar, os, re, sys, urllib.parse, urllib.request, uuid
@@ -15,9 +15,11 @@ action = sys.argv[1]
 scope = os.environ.get("CONNAPSE_SCOPE", "")
 
 if action == "create":
-    path = os.path.join(DATA, "scopes", scope, f"conformance-{uuid.uuid4().hex}.md")
-    with open(path, "w") as f:
+    rel = f"conformance-{uuid.uuid4().hex}.md"
+    with open(os.path.join(DATA, "scopes", scope, rel), "w") as f:
         f.write("# Created by the conformance suite")
+    # The example server's document ID is the base64url of the path inside the scope.
+    print(base64.urlsafe_b64encode(rel.encode()).decode().rstrip("="))
 elif action == "delete":
     # The ID comes from the middle man under test, so only a file this script created, directly inside
     # the scope folder, is ever removed.

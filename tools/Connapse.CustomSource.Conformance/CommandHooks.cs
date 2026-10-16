@@ -5,7 +5,8 @@ namespace Connapse.CustomSource.Conformance;
 
 /// <summary>
 /// Hooks that run shell commands the user supplies. Inputs arrive as environment variables:
-/// <c>CONNAPSE_SCOPE</c> and <c>CONNAPSE_DOCUMENT_ID</c> for the change commands; <c>CONNAPSE_LINK_URL</c>,
+/// <c>CONNAPSE_SCOPE</c> and <c>CONNAPSE_DOCUMENT_ID</c> for the change commands (the create command prints
+/// the new document's ID); <c>CONNAPSE_LINK_URL</c>,
 /// <c>CONNAPSE_LINK_TOKEN</c> and <c>CONNAPSE_RETURN_URL</c> for the sign-in command, which prints either the
 /// code or the URL the middle man redirected to. A missing command makes its hook unsupported; a command that
 /// exits non-zero fails the check that called it.
@@ -14,11 +15,14 @@ public sealed partial class CommandHooks(string? createCommand, string? deleteCo
 {
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(2);
 
-    public async Task<bool> CreateDocumentAsync(string scope, CancellationToken ct)
+    public bool CanChangeDocuments => createCommand is not null && deleteCommand is not null;
+
+    public async Task<string?> CreateDocumentAsync(string scope, CancellationToken ct)
     {
-        if (createCommand is null) return false;
-        await RunAsync(createCommand, new() { ["CONNAPSE_SCOPE"] = scope }, ct);
-        return true;
+        if (createCommand is null) return null;
+        string output = await RunAsync(createCommand, new() { ["CONNAPSE_SCOPE"] = scope }, ct);
+        string? id = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+        return string.IsNullOrEmpty(id) ? throw new CheckFailedException("The create command printed no document ID.") : id;
     }
 
     public async Task<bool> DeleteDocumentAsync(string scope, string documentId, CancellationToken ct)

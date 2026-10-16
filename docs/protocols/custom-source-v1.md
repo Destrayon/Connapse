@@ -267,8 +267,9 @@ Some checks need more than an address and a token:
   check-order and access-key checks.
 - `--link-secret`, `--provider-id`, `--issuer`: the values from Connapse's provider page, so the tool can sign
   link tokens, including forged ones your linking page must refuse.
-- `--create-command`, `--delete-command`: commands that add a document to `$CONNAPSE_SCOPE` and delete
-  `$CONNAPSE_DOCUMENT_ID`, so the tool can watch the change feed report them.
+- `--create-command`, `--delete-command`: commands that add a document to `$CONNAPSE_SCOPE` and print its ID,
+  and delete `$CONNAPSE_DOCUMENT_ID`, so the tool can watch the change feed report them. The tool deletes only
+  documents its create command reported, and tells you if any could not be deleted.
 - `--sign-in-command`: a command that posts `$CONNAPSE_LINK_TOKEN` to `$CONNAPSE_LINK_URL`, finishes your
   sign-in as a browser would, and prints the code (or the URL you redirected to). The tool then checks that a
   code is refused for another user and spent afterwards.

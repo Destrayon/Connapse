@@ -35,8 +35,14 @@ public sealed record ConformanceOptions
 /// </summary>
 public interface IConformanceHooks
 {
-    /// <summary>Adds a new readable document to the scope.</summary>
-    Task<bool> CreateDocumentAsync(string scope, CancellationToken ct);
+    /// <summary>Whether both <see cref="CreateDocumentAsync"/> and <see cref="DeleteDocumentAsync"/> work: the change checks create nothing without both.</summary>
+    bool CanChangeDocuments { get; }
+
+    /// <summary>
+    /// Adds a new readable document to the scope and returns the ID the middle man gives it. The suite deletes
+    /// only IDs returned here, never a document it merely did not see before.
+    /// </summary>
+    Task<string?> CreateDocumentAsync(string scope, CancellationToken ct);
 
     /// <summary>Deletes the document with this ID from the scope.</summary>
     Task<bool> DeleteDocumentAsync(string scope, string documentId, CancellationToken ct);
@@ -51,7 +57,8 @@ public interface IConformanceHooks
 /// <summary>Hooks for a middle man the suite cannot drive: every check that needs one is skipped.</summary>
 public sealed class NoHooks : IConformanceHooks
 {
-    public Task<bool> CreateDocumentAsync(string scope, CancellationToken ct) => Task.FromResult(false);
+    public bool CanChangeDocuments => false;
+    public Task<string?> CreateDocumentAsync(string scope, CancellationToken ct) => Task.FromResult<string?>(null);
     public Task<bool> DeleteDocumentAsync(string scope, string documentId, CancellationToken ct) => Task.FromResult(false);
     public Task<string?> CompleteSignInAsync(Uri linkUrl, string linkToken, Uri returnUrl, CancellationToken ct) => Task.FromResult<string?>(null);
 }

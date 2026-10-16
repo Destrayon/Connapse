@@ -234,21 +234,13 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
     private async Task DeletionWhilePagingAsync(CancellationToken ct)
     {
         _ = Documents;
-        HashSet<string> before = [.. (await ListIdsAsync(ct)).SelectMany(p => p)];
-        for (int i = 0; i < 3; i++)
+        await WithOwnedDocumentsAsync(async owned =>
         {
-            if (!await _hooks.CreateDocumentAsync(Scope, ct))
-                throw new CheckSkippedException("No hook to create a document (--create-command).");
-        }
+            List<string> expected = (await ListIdsAsync(ct)).SelectMany(p => p).ToList();
+            for (int i = 0; i < 3; i++) expected.Add(await CreateOwnedAsync(owned, ct));
 
-        List<string> after = (await ListIdsAsync(ct)).SelectMany(p => p).ToList();
-        List<string> created = after.Where(id => !before.Contains(id)).ToList();
-        if (created.Count == 0) throw new CheckFailedException("The create hook ran, but the listing shows no new document.");
-
-        List<string> deleted = [];
-        try
-        {
             List<string> seen = [];
+            string? deleted = null;
             string? pageToken = null;
             for (int page = 0; ; page++)
             {
@@ -260,29 +252,84 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
                 string? next = OptionalString(body, "next_page_token");
                 if (string.IsNullOrEmpty(next)) break;
 
-                if (deleted.Count == 0 && ids.FirstOrDefault(created.Contains) is { } victim)
+                if (deleted is null && ids.FirstOrDefault(owned.Contains) is { } victim)
                 {
-                    if (!await _hooks.DeleteDocumentAsync(Scope, victim, ct))
-                        throw new CheckSkippedException("No hook to delete a document (--delete-command).");
-                    deleted.Add(victim);
+                    await DeleteOwnedAsync(owned, victim, ct);
+                    deleted = victim;
                 }
 
                 pageToken = next;
             }
 
-            if (deleted.Count == 0)
-                throw new CheckSkippedException("No created document landed on a page before the last; this needs a listing of several pages.");
+            if (deleted is null)
+                throw new CheckSkippedException("No test document landed on a page before the last, so paging during a deletion went untested; it needs a listing of several pages.");
 
-            string? missing = after.Except(deleted).FirstOrDefault(id => seen.Count(s => s == id) != 1);
+            string? missing = expected.Where(id => id != deleted).FirstOrDefault(id => seen.Count(s => s == id) != 1);
             if (missing is not null)
                 throw new CheckFailedException(
                     $"Document '{missing}' appeared {seen.Count(s => s == missing)} times after a document on an earlier page was deleted: page tokens shift like offsets.");
-        }
-        finally
+        }, ct);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="body"/> with a list of the documents it creates, then deletes whichever are left,
+    /// reporting any that could not be: test documents must not stay behind in someone's source.
+    /// </summary>
+    private async Task WithOwnedDocumentsAsync(Func<List<string>, Task> body, CancellationToken ct)
+    {
+        if (!_hooks.CanChangeDocuments)
+            throw new CheckSkippedException("Needs hooks to create and delete documents (--create-command and --delete-command).");
+
+        List<string> owned = [];
+        Exception? failure = null;
+        try
         {
-            foreach (string id in created.Except(deleted))
-                await _hooks.DeleteDocumentAsync(Scope, id, ct);
+            await body(owned);
         }
+        catch (Exception ex) when (ex is CheckFailedException or CheckSkippedException or HttpRequestException or JsonException or InvalidOperationException)
+        {
+            failure = ex;
+        }
+
+        List<string> left = [];
+        foreach (string id in owned)
+        {
+            try
+            {
+                if (!await _hooks.DeleteDocumentAsync(Scope, id, ct)) left.Add(id);
+            }
+            catch (CheckFailedException)
+            {
+                left.Add(id);
+            }
+        }
+
+        string leftover = left.Count == 0 ? "" : $" Test documents {string.Join(", ", left)} could not be deleted; remove them by hand.";
+        switch (failure)
+        {
+            case CheckSkippedException skipped when left.Count == 0:
+                throw skipped;
+            case null when left.Count == 0:
+                return;
+            case null:
+                throw new CheckFailedException(leftover.Trim());
+            default:
+                throw new CheckFailedException((failure is CheckFailedException or CheckSkippedException ? failure.Message : $"{failure.GetType().Name}: {failure.Message}") + leftover);
+        }
+    }
+
+    private async Task<string> CreateOwnedAsync(List<string> owned, CancellationToken ct)
+    {
+        string id = await _hooks.CreateDocumentAsync(Scope, ct)
+            ?? throw new CheckFailedException("The create hook returned no document ID.");
+        owned.Add(id);
+        return id;
+    }
+
+    private async Task DeleteOwnedAsync(List<string> owned, string id, CancellationToken ct)
+    {
+        if (!await _hooks.DeleteDocumentAsync(Scope, id, ct)) throw new CheckFailedException($"The delete hook could not delete '{id}'.");
+        owned.Remove(id);
     }
 
     /// <summary>The listing's document IDs, page by page.</summary>
@@ -372,36 +419,29 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
     private async Task ChangeRoundTripAsync(CancellationToken ct)
     {
         RequireChanges();
-        HashSet<string> listed = [.. Documents.Select(d => d["id"]!.GetValue<string>())];
-
-        // The cursor is read before the change, so the change must come after it.
-        (_, string cursor) = await ReadChangesAsync(_changeCursor!, ct);
-        if (!await _hooks.CreateDocumentAsync(Scope, ct))
-            throw new CheckSkippedException("No hook to create a document (--create-command).");
-
-        (List<JsonObject> created, string afterCreate) = await ReadChangesAsync(cursor, ct);
-        JsonObject? upsert = created.FirstOrDefault(c => OptionalString(c, "op") == "upsert" && !listed.Contains(OptionalString(c, "id") ?? ""));
-        if (upsert is null)
-            throw new CheckFailedException("After a document was created, the change feed reported no upsert for a new ID.");
-        CheckListingItem(upsert);
-        string newId = upsert["id"]!.GetValue<string>();
-
-        using (HttpResponseMessage content = await SendAsync(HttpMethod.Get, ContentPath(newId), ct))
-            ExpectStatus(content, HttpStatusCode.OK, $"Content of the created document '{newId}'");
-
-        if (!await _hooks.DeleteDocumentAsync(Scope, newId, ct))
-            throw new CheckSkippedException("No hook to delete a document (--delete-command); the upsert half passed.");
-
-        (List<JsonObject> deleted, _) = await ReadChangesAsync(afterCreate, ct);
-        if (Capability("tombstones"))
+        await WithOwnedDocumentsAsync(async owned =>
         {
-            if (!deleted.Any(c => OptionalString(c, "op") == "delete" && OptionalString(c, "id") == newId))
-                throw new CheckFailedException($"After document '{newId}' was deleted, the change feed reported no delete for it, though discovery declares tombstones.");
-        }
+            // The cursor is read before the change, so the change must come after it.
+            (_, string cursor) = await ReadChangesAsync(_changeCursor!, ct);
+            string newId = await CreateOwnedAsync(owned, ct);
 
-        using HttpResponseMessage gone = await SendAsync(HttpMethod.Get, ContentPath(newId), ct);
-        if (gone.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.Gone))
-            throw new CheckFailedException($"Content of the deleted document '{newId}' answered {(int)gone.StatusCode}, not 404 or 410.");
+            (List<JsonObject> created, string afterCreate) = await ReadChangesAsync(cursor, ct);
+            JsonObject upsert = created.LastOrDefault(c => OptionalString(c, "op") == "upsert" && OptionalString(c, "id") == newId)
+                ?? throw new CheckFailedException($"After document '{newId}' was created, the change feed reported no upsert for it.");
+            CheckListingItem(upsert);
+
+            using (HttpResponseMessage content = await SendAsync(HttpMethod.Get, ContentPath(newId), ct))
+                ExpectStatus(content, HttpStatusCode.OK, $"Content of the created document '{newId}'");
+
+            await DeleteOwnedAsync(owned, newId, ct);
+            (List<JsonObject> deleted, _) = await ReadChangesAsync(afterCreate, ct);
+            if (Capability("tombstones") && !deleted.Any(c => OptionalString(c, "op") == "delete" && OptionalString(c, "id") == newId))
+                throw new CheckFailedException($"After document '{newId}' was deleted, the change feed reported no delete for it, though discovery declares tombstones.");
+
+            using HttpResponseMessage gone = await SendAsync(HttpMethod.Get, ContentPath(newId), ct);
+            if (gone.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.Gone))
+                throw new CheckFailedException($"Content of the deleted document '{newId}' answered {(int)gone.StatusCode}, not 404 or 410.");
+        }, ct);
     }
 
     /// <summary>Every change after <paramref name="cursor"/>, across pages, and the cursor to continue from.</summary>
