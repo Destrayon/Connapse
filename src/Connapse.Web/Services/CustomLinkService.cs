@@ -25,9 +25,12 @@ public sealed class CustomLinkService(
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StatusBudget = TimeSpan.FromSeconds(3);
 
-    /// <summary>Providers users can link to: their middle man offers linking and a link secret was generated.</summary>
+    /// <summary>
+    /// Providers users can link to or unlink from: a link secret was generated, so links may exist. One whose
+    /// source server stopped offering linking stays listed, so anyone still linked can unlink.
+    /// </summary>
     public async Task<IReadOnlyList<CustomProvider>> LinkableAsync(CancellationToken ct) =>
-        (await providers.ListAsync(ct)).Where(p => p.LinkUrl is not null && p.HasLinkSecret).ToList();
+        (await providers.ListAsync(ct)).Where(p => p.HasLinkSecret).ToList();
 
     /// <summary>Null when the provider is gone, offers no linking, has no link secret, or its linking page breaks the URL rules.</summary>
     public async Task<CustomLinkTarget?> TargetAsync(Guid providerId, CancellationToken ct)
@@ -78,7 +81,7 @@ public sealed class CustomLinkService(
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new CustomSourceException("The middle man did not answer in time.");
+            throw new CustomSourceException("The source server did not answer in time.");
         }
     }
 
@@ -94,7 +97,7 @@ public sealed class CustomLinkService(
     {
         IReadOnlyCollection<string> allowed = settings.CurrentValue.AllowedHttpHosts;
         if (!CustomSourceEndpoint.TryNormalize(removal.BaseUrl, allowed, out string baseUrl, out string? error))
-            throw new CustomSourceException(error ?? "The middle man's address is not allowed.");
+            throw new CustomSourceException(error ?? "The source server's address is not allowed.");
 
         string? token = removal.Token;
         CustomProvider? provider = await providers.GetAsync(removal.ProviderId, ct);

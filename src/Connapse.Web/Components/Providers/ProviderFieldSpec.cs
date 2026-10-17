@@ -1,6 +1,6 @@
 namespace Connapse.Web.Components.Providers;
 
-public enum ProviderFieldKind { Text, Multiline, Secret, MultilineSecret }
+public enum ProviderFieldKind { Text, Multiline, Secret, MultilineSecret, Choice }
 
 /// <summary>
 /// One configuration field, described once: its label, group, whether it is a secret, whether it
@@ -97,10 +97,69 @@ public static class AtlassianLinkAppFieldSpecs
         ManualValues, GuideSection, "Where to find this", MaxWidth: "28rem");
 
     public static readonly ProviderFieldSpec ClientSecret = new(
-        "atlassian-app-client-secret", "Client secret",ProviderFieldKind.Secret, Required: true,
+        "atlassian-app-client-secret", "Client secret", ProviderFieldKind.Secret, Required: true,
         "Labelled Secret, below the client ID: one long string of characters. Stored encrypted and never shown again.",
         ManualValues, GuideSection, "Where to find this", MaxWidth: "28rem");
 
     /// <summary>Every field, in the order they are rendered, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } = [ClientId, ClientSecret];
+}
+
+/// <summary>
+/// The custom provider's and custom connection's fields: the values an administrator copies from the middle man
+/// they run. One guide covers all of them, in the order they are set up.
+/// </summary>
+public static class CustomSourceFieldSpecs
+{
+    public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/custom-source-setup.md";
+    public const string Prerequisites = Guide + "#before-you-start";
+    public const string Troubleshooting = Guide + "#troubleshooting";
+    private const string MiddleMan = "Source server";
+    private const string Connection = "Custom connection";
+    private const string Source = "Custom source";
+
+    public static readonly ProviderFieldSpec ProviderName = new(
+        "custom-provider-name", "Name", ProviderFieldKind.Text, Required: true,
+        "What the Providers and Connections pages call this source server. Filled in from the name your source server reports.",
+        MiddleMan, Guide + "#1-custom-provider", "Setting up a provider", Placeholder: "Acme bridge", MaxWidth: "28rem");
+
+    public static readonly ProviderFieldSpec ProviderBaseUrl = new(
+        "custom-provider-url", "Base URL", ProviderFieldKind.Text, Required: true,
+        "The address of your source server. It must use HTTPS unless an administrator allowed plain HTTP for its host.",
+        MiddleMan, Guide + "#1-custom-provider", "Where to find this", Placeholder: "https://bridge.example.com");
+
+    public static readonly ProviderFieldSpec ProviderToken = new(
+        "custom-provider-token", "Token", ProviderFieldKind.Secret, Required: true,
+        "The bearer token you configured on your source server. Stored encrypted and never shown again.",
+        MiddleMan, Guide + "#1-custom-provider", "Where to find this", MaxWidth: "28rem");
+
+    public static readonly ProviderFieldSpec ConnectionProvider = new(
+        "custom-provider", "Custom provider", ProviderFieldKind.Choice, Required: true,
+        "Pick a custom provider for permission checks, or No provider (content only) to enter a source server here.",
+        Connection, Guide + "#2-custom-connection", "Which to choose", MaxWidth: "32rem");
+
+    public static readonly ProviderFieldSpec ConnectionBaseUrl = new(
+        "custom-connection-url", "Base URL", ProviderFieldKind.Text, Required: true,
+        "The address of the source server this connection's sources read. It must use HTTPS unless an administrator allowed plain HTTP for its host.",
+        Connection, Guide + "#2-custom-connection", "Adding a connection", Placeholder: "https://bridge.example.com");
+
+    public static readonly ProviderFieldSpec ConnectionToken = new(
+        "custom-connection-token", "Token", ProviderFieldKind.Secret, Required: true,
+        "The bearer token you configured on your source server. Connapse checks it before saving, stores it encrypted and never shows it again.",
+        Connection, Guide + "#2-custom-connection", "Where to find this", MaxWidth: "28rem");
+
+    public static readonly ProviderFieldSpec SourceScope = new(
+        "custom-source-scopes", "Scopes", ProviderFieldKind.Choice, Required: true,
+        "Each scope you tick becomes its own source, named after the connection and the scope. You can rename it afterwards.",
+        Source, Guide + "#3-custom-source", "Adding a custom source");
+
+    public static readonly ProviderFieldSpec SourceInterval = new(
+        "custom-source-interval", "Sync interval in seconds", ProviderFieldKind.Text, Required: false,
+        "At least 60. Leave empty to use the configured default; the source server may ask for a longer one.",
+        Source, Guide + "#3-custom-source", "Adding a custom source", Placeholder: "300", InputMode: "numeric");
+
+    /// <summary>Every field, for the check that the setup guide documents each one.</summary>
+    public static IReadOnlyList<ProviderFieldSpec> All { get; } =
+        [ProviderName, ProviderBaseUrl, ProviderToken, ConnectionProvider, ConnectionBaseUrl, ConnectionToken,
+            SourceScope, SourceInterval];
 }

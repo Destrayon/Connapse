@@ -1,0 +1,16 @@
+@* Shown under a middle man's address when it is plain HTTP: allowed for listed hosts, but the token is unencrypted. *@
+@if (IsPlainHttp)
+{
+    <div id="@Id" class="alert alert-warning py-2 small mb-3" role="note">
+        <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+        This address uses plain HTTP, so the token travels unencrypted. Use it only on a private network, such as
+        Connapse's own Docker network.
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter] public string? BaseUrl { get; set; }
+
+    private bool IsPlainHttp => BaseUrl?.Trim().StartsWith("http://", StringComparison.OrdinalIgnoreCase) == true;
+}

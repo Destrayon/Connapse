@@ -45,6 +45,12 @@
     /// <summary>Another action on the page is running, so this one waits.</summary>
     [Parameter] public bool Disabled { get; set; }
 
+    /// <summary>
+    /// Whether focus returns to the button once a confirmed reset finishes. False where the reset shows
+    /// something new that takes focus itself, such as a secret shown once.
+    /// </summary>
+    [Parameter] public bool RestoreFocus { get; set; } = true;
+
     private readonly string _id = Guid.NewGuid().ToString("N")[..8];
     private string InputId => $"reset-confirm-{_id}";
     private string HelpId => $"reset-help-{_id}";
@@ -63,9 +69,16 @@
     {
         if (focusConfirmation is not { } intoConfirmation) return;
         focusConfirmation = null;
-        if (!intoConfirmation) await trigger.FocusAsync();
-        else if (!string.IsNullOrWhiteSpace(ConfirmText)) await confirmInput.FocusAsync();
-        else await confirmButton.FocusAsync();
+        try
+        {
+            if (!intoConfirmation) await trigger.FocusAsync();
+            else if (!string.IsNullOrWhiteSpace(ConfirmText)) await confirmInput.FocusAsync();
+            else await confirmButton.FocusAsync();
+        }
+        catch (Exception ex) when (ex is Microsoft.JSInterop.JSException or InvalidOperationException)
+        {
+            // The page navigated away, or the action left the page with the reset.
+        }
     }
 
     private bool Confirmed => string.IsNullOrWhiteSpace(ConfirmText)
@@ -85,6 +98,6 @@
         {
             resetting = false;
         }
-        (confirming, typed) = (false, null);
+        (confirming, typed, focusConfirmation) = (false, null, RestoreFocus ? false : null);
     }
 }

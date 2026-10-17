@@ -60,7 +60,7 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
         {
             response.Dispose();
-            throw new FileNotFoundException($"The middle man no longer has document '{id}'.", id);
+            throw new FileNotFoundException($"The source server no longer has document '{id}'.", id);
         }
 
         await EnsureSuccessAsync(response, path, ct);
@@ -126,7 +126,7 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
             IReadOnlyList<CustomDecision?> results = response.Evaluations ?? [];
             if (results.Count != batch.Length)
                 throw new CustomSourceException(
-                    $"The middle man answered {results.Count} decision(s) for {batch.Length} document(s); none can be trusted.");
+                    $"The source server answered {results.Count} decision(s) for {batch.Length} document(s); none can be trusted.");
 
             decisions.AddRange(results.Select(r => r is { Decision: true } && r.Context?.Error is null));
         }
@@ -152,11 +152,17 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         GetJsonAsync<CustomLinkStatus>($"/v1/links/{Uri.EscapeDataString(connapseUserId)}", ct);
 
     /// <summary>Removes this Connapse user's link (<c>DELETE /v1/links/{id}</c>); a <c>404</c> counts as done.</summary>
-    public async Task UnlinkAsync(string connapseUserId, CancellationToken ct)
+    /// <param name="strict">
+    /// Require the protocol's 204 even when there was no link. A 404 cannot be told apart from a server with no
+    /// unlink endpoint at all, so the setup check is strict; removing a real user's link accepts it as gone.
+    /// </param>
+    public async Task UnlinkAsync(string connapseUserId, CancellationToken ct, bool strict = false)
     {
         string path = $"/v1/links/{Uri.EscapeDataString(connapseUserId)}";
         using HttpResponseMessage response = await SendAsync(path, HttpCompletionOption.ResponseContentRead, ct, method: HttpMethod.Delete);
-        if (response.StatusCode == HttpStatusCode.NotFound) return;
+        if (response.StatusCode == HttpStatusCode.NotFound && !strict) return;
+        if (strict && response.StatusCode != HttpStatusCode.NoContent)
+            throw new CustomSourceException($"The source server answered the unlink call with {(int)response.StatusCode}, not 204.");
         await EnsureSuccessAsync(response, path, ct);
     }
 
@@ -178,11 +184,11 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         try
         {
             return await response.Content.ReadFromJsonAsync<T>(Json, ct)
-                ?? throw new CustomSourceException($"The middle man answered {Describe(path)} with an empty body.");
+                ?? throw new CustomSourceException($"The source server answered {Describe(path)} with an empty body.");
         }
         catch (JsonException ex)
         {
-            throw new CustomSourceException($"The middle man answered {Describe(path)} with JSON that does not match the protocol.", ex);
+            throw new CustomSourceException($"The source server answered {Describe(path)} with JSON that does not match the protocol.", ex);
         }
     }
 
@@ -201,7 +207,18 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         }
         catch (HttpRequestException ex)
         {
-            throw new CustomSourceException($"Could not reach the middle man at {_baseUrl}: {ex.Message}", ex);
+            throw new CustomSourceException($"Could not reach the source server at {_baseUrl}: " + ex.HttpRequestError switch
+            {
+                HttpRequestError.NameResolutionError => "its host name does not resolve from Connapse. Check the address.",
+                HttpRequestError.ConnectionError => "nothing answered. Check it is running and reachable from the Connapse server or container.",
+                HttpRequestError.SecureConnectionError => "the HTTPS connection failed. Check its certificate is valid and trusted.",
+                _ => "the connection failed. Check it is running and reachable from the Connapse server or container.",
+            }, ex);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new CustomSourceException(
+                $"Could not reach the source server at {_baseUrl}: it did not answer in time. Check it is running and not overloaded.", ex);
         }
     }
 
@@ -219,15 +236,15 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         throw response.StatusCode switch
         {
             HttpStatusCode.Gone => new CustomSourceCursorExpiredException(
-                $"The middle man answered {Describe(path)} with 410: its cursor or page token is no longer valid."),
+                $"The source server answered {Describe(path)} with 410: its cursor or page token is no longer valid."),
             HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable => new CustomSourceRateLimitedException(
-                $"The middle man answered {status} and asked Connapse to wait"
+                $"The source server answered {status} and asked Connapse to wait"
                 + (retryAfter is { } wait ? $" {Math.Ceiling(wait.TotalSeconds)} s" : "") + ".", retryAfter),
             _ when status is >= 300 and < 400 => new CustomSourceException(
-                $"The middle man answered {Describe(path)} with a {status} redirect, which Connapse does not follow."),
+                $"The source server answered {Describe(path)} with a {status} redirect, which Connapse does not follow."),
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceUnauthorizedException(
-                $"The middle man refused the token ({status}). Check the token entered for this source."),
-            _ => new CustomSourceException($"The middle man answered {Describe(path)} with {status}."),
+                $"The source server refused the token ({status}). Enter the token configured on the source server."),
+            _ => new CustomSourceException($"The source server answered {Describe(path)} with {status}. Check the source server's own logs."),
         };
     }
 

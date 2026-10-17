@@ -18,7 +18,7 @@ public class SourceSecretStoreTests(SharedWebAppFixture fixture)
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();
         ISourceStore store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
-        const string token = "middle-man-token-5c1e";
+        const string token = "source-server-token-5c1e";
 
         Source source = await store.CreateAsync(new CreateSourceRequest(
             $"custom-secret-{Guid.NewGuid():N}",

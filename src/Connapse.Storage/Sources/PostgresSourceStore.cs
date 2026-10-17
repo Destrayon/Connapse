@@ -42,7 +42,7 @@ public class PostgresSourceStore(
         // The URL rules depend on deployment settings and are applied where those are read (the setup
         // check and the connector factory); the store only refuses a scope that names no middle man.
         if (request.Provider is ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
-            throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+            throw new ArgumentException("a custom source's scope must name the source server's baseUrl and scopeId", nameof(request));
 
         await using var context = await factory.CreateDbContextAsync(ct);
 
@@ -54,7 +54,7 @@ public class PostgresSourceStore(
 
             // A custom source is the same with or without a custom connection: its scope must name the middle man.
             if (connectionProvider == (int)ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
-                throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+                throw new ArgumentException("a custom source's scope must name the source server's baseUrl and scopeId", nameof(request));
         }
 
         bool nameTaken = await context.Sources.AnyAsync(s => s.Name == name, ct);
@@ -87,14 +87,17 @@ public class PostgresSourceStore(
         return MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
     }
 
-    public async Task<bool> ReplaceSecretAsync(Guid id, string secret, CancellationToken ct = default)
+    public async Task<bool> MoveOntoConnectionAsync(Guid id, Guid connectionId, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
-        string ciphertext = Protector.Protect(secret);
         DateTime now = DateTime.UtcNow;
-        int updated = await context.Sources.Where(s => s.Id == id).ExecuteUpdateAsync(s => s
-            .SetProperty(e => e.SecretProtected, ciphertext)
-            .SetProperty(e => e.UpdatedAt, now), ct);
+        int updated = await context.Sources
+            .Where(s => s.Id == id && s.ConnectionId == null && s.Provider == (int)ConnectionProvider.Custom)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.ConnectionId, connectionId)
+                .SetProperty(e => e.Provider, (int?)null)
+                .SetProperty(e => e.SecretProtected, (string?)null)
+                .SetProperty(e => e.UpdatedAt, now), ct);
         return updated > 0;
     }
 

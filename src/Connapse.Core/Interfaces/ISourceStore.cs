@@ -17,8 +17,11 @@ public interface ISourceStore
     /// </summary>
     Task<string?> GetSecretAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Stores a new secret for the source, encrypted, replacing the old one. False when there is no such source.</summary>
-    Task<bool> ReplaceSecretAsync(Guid id, string secret, CancellationToken ct = default);
+    /// <summary>
+    /// Moves a custom source that has no connection onto one and discards the token it held, which the
+    /// connection now holds. False when there is no such source, or it already has a connection.
+    /// </summary>
+    Task<bool> MoveOntoConnectionAsync(Guid id, Guid connectionId, CancellationToken ct = default);
 
     /// <summary>
     /// Unconditionally persists the sync cursor and outcome. Passing a null cursor clears

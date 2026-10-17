@@ -1,4 +1,4 @@
-# Example custom source middle man
+# Example custom source server
 
 A small server that implements every part of the [Connapse custom source protocol](../../docs/protocols/custom-source-v1.md),
 backed by a folder of files. It exists to test Connapse against and to read as a reference — not to deploy.
@@ -10,7 +10,7 @@ backed by a folder of files. It exists to test Connapse against and to read as a
   `folder:{scope}/` for files at the scope root.
 - `example.json` lists the system's **users**, the keys each one holds (`grants`), and documents a user may not
   read even with the key (`denies`).
-- Account links are kept in `links.json` next to `example.json` — the middle man's own storage.
+- Account links are kept in `links.json` next to `example.json` — the source server's own storage.
 
 ## Run it
 
@@ -50,7 +50,7 @@ dotnet run --project tools/Connapse.CustomSource.Conformance -- --url http://loc
 | Member | Meaning |
 |---|---|
 | `token` | The bearer token Connapse must send. |
-| `permissions_enabled` | `false` makes it a content-only middle man. |
+| `permissions_enabled` | `false` makes it a content-only source server. |
 | `link_secret`, `connapse_issuer`, `provider_id` | Must match the custom provider in Connapse for linking to work. Remove `link_secret` to turn linking off. |
 | `page_size`, `max_check_batch` | Page size and the largest permission-check batch accepted. |
 | `preset_links` | Connapse user ID → example user, to skip the linking flow while testing. |
