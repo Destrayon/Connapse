@@ -204,10 +204,11 @@ public class SourceSyncService(
             }
             else
             {
-                // A custom connection holds no credential: its sources read content with their own token,
-                // exactly as they would without the connection.
+                // A custom source reads with its connection's token, or its provider's.
                 string? secret = connection.Provider == ConnectionProvider.Custom
-                    ? source.HasSecret ? await sourceStore.GetSecretAsync(source.Id, ct) : null
+                    ? await Connapse.Storage.Connectors.Custom.CustomSourceCredentials.TokenAsync(source, connection, sourceStore,
+                        scope.ServiceProvider.GetRequiredService<IConnectionStore>(),
+                        scope.ServiceProvider.GetRequiredService<ICustomProviderStore>(), ct)
                     : connection.HasSecret
                         ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
                             .GetSecretAsync(connection.Id, ct)

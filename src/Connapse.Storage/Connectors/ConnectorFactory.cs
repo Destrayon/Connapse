@@ -148,7 +148,9 @@ public class ConnectorFactory(
 
             // The same connector a content-only custom source uses, with its own token; the custom
             // connection only adds the URIs and keys its documents are checked by.
-            ConnectionProvider.Custom => CreateCustomSource(source, secret, permissionsFor: source.Id),
+            // Only a connection that names a custom provider checks permissions; one without reads content only.
+            ConnectionProvider.Custom => CreateCustomSource(source, secret,
+                permissionsFor: Custom.CustomSourceCredentials.ChecksPermissions(connection) ? source.Id : null),
 
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };

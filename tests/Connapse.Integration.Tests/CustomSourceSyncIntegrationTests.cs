@@ -43,7 +43,7 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Sync_ConnectedSource_UsesItsOwnTokenAndStoresUrisAndKeysWithoutReingestingForAKeyChange()
+    public async Task Sync_ConnectedSource_UsesTheProvidersTokenAndStoresUrisAndKeysWithoutReingestingForAKeyChange()
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();
         CustomProvider provider = await scope.ServiceProvider.GetRequiredService<ICustomProviderStore>().CreateAsync(
@@ -52,7 +52,7 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
             new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom, CustomConnectionConfig.ToJson(provider.Id)), null);
         Source source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
             $"custom-conn-{Guid.NewGuid():N}"[..24], connection.Id,
-            new CustomSourceScope("https://bridge.acme.test", "eng").ToJson(), Secret: Token));
+            new CustomSourceScope("https://bridge.acme.test", "eng").ToJson()));
 
         DateTime modified = new(2026, 10, 13, 0, 0, 0, DateTimeKind.Utc);
         string uri = Connapse.Core.Utilities.CustomResourceUri.For(source.Id, "a");
@@ -63,7 +63,7 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
         (await SyncAsync(source, factory, connection, queue)).Error.Should().BeNull();
         int enqueued = queue.Jobs.Count;
 
-        factory.Secret.Should().Be(Token, "a connected custom source reads content with its own token");
+        factory.Secret.Should().Be("provider-token", "a source on a provider's connection reads with the provider's token");
         (string? storedUri, string[]? storedKeys) = await RowAsync(source.Id, "/a/a.md");
         storedUri.Should().Be(uri);
         storedKeys.Should().Equal("folder:", "team:eng");
@@ -76,6 +76,24 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
 
         queue.Jobs.Count.Should().Be(enqueued, "a key-only change must not re-embed the document");
         (await RowAsync(source.Id, "/a/a.md")).AccessKeys.Should().Equal("team:ops");
+    }
+
+    [Fact]
+    public async Task Sync_SourceOnAConnectionWithoutAProvider_UsesTheConnectionsTokenAndStaysContentOnly()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        Connection connection = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+            new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom,
+                CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"), Secret: "connection-token"), null);
+        Source source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"custom-plain-{Guid.NewGuid():N}"[..24], connection.Id, new CustomSourceScope("https://bridge.acme.test", "eng").ToJson()));
+        CapturingFactory factory = new(new DeltaConnector(new SyncDelta(
+            [new ConnectorFile("/a/a.md", 10, DateTime.UtcNow, "text/markdown")], [], "c1", false)));
+
+        (await SyncAsync(source, factory, connection)).Error.Should().BeNull();
+
+        factory.Secret.Should().Be("connection-token");
+        (await RowAsync(source.Id, "/a/a.md")).ResourceUri.Should().BeNull("a connection without a provider checks nothing per user");
     }
 
     private async Task<(string? ResourceUri, string[]? AccessKeys)> RowAsync(Guid sourceId, string path)

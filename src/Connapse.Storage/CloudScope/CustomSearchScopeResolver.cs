@@ -30,8 +30,9 @@ public sealed class CustomSearchScopeResolver(
     {
         if (userId is null) return SearchScopes.NoPrincipal;
 
+        // Only connections that name a provider check permissions; one without is content-only.
         List<Connection> custom = (await connections.ListAsync(take: int.MaxValue, ct: ct))
-            .Where(c => c.Provider == ConnectionProvider.Custom)
+            .Where(CustomSourceCredentials.ChecksPermissions)
             .ToList();
         presence.Record(custom.Count > 0);
         if (custom.Count == 0) return SearchScopes.None;

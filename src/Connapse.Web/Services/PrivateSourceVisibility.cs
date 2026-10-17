@@ -41,10 +41,12 @@ public sealed class PrivateSourceVisibility(
         HashSet<Guid>? atlassianConnections;
         try
         {
-            // Custom connections too: a custom source's name and summary describe documents each user is
-            // checked for one by one, so its listing is for administrators as Confluence's is.
+            // Custom connections that check permissions too: such a source's name and summary describe documents
+            // each user is checked for one by one, so its listing is for administrators as Confluence's is. A
+            // custom connection without a provider is content-only and listed like any other source.
             atlassianConnections = (await connections.ListAsync(take: int.MaxValue, ct: ct))
-                .Where(c => c.Provider is ConnectionProvider.Atlassian or ConnectionProvider.Custom)
+                .Where(c => c.Provider is ConnectionProvider.Atlassian
+                    || Connapse.Storage.Connectors.Custom.CustomSourceCredentials.ChecksPermissions(c))
                 .Select(c => c.Id)
                 .ToHashSet();
         }
