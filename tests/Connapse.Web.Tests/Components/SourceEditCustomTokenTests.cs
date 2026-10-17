@@ -28,10 +28,10 @@ public class SourceEditCustomTokenTests : IDisposable
 
     public void Dispose() => ctx.Dispose();
 
-    private IRenderedComponent<SourceEditPage> RenderOn(string connectionConfig)
+    private IRenderedComponent<SourceEditPage> RenderOn(string connectionConfig, ConnectionHealth? health = null)
     {
         Connection connection = new(Guid.NewGuid(), "Acme bridge", ConnectionProvider.Custom, connectionConfig, null,
-            DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+            DateTime.UtcNow, DateTime.UtcNow, HasSecret: true, Health: health);
         Source source = new(Guid.NewGuid(), "eng", null, connection.Id,
             new CustomSourceScope("https://bridge.acme.test", "eng").ToJson(), DateTime.UtcNow, DateTime.UtcNow);
         sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
@@ -46,6 +46,16 @@ public class SourceEditCustomTokenTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find("#source-token-where a").GetAttribute("href").Should().StartWith("/connections?edit="));
         cut.FindAll("#source-token, #source-token-replace").Should().BeEmpty("a custom source holds no token of its own");
+        cut.FindAll("#source-token-refused").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ConnectionWhoseTokenASyncRefused_SaysTheSourceIsNotReading()
+    {
+        var cut = RenderOn(CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"),
+            new ConnectionHealth(DateTime.UtcNow, false, "token", "refused", "sync", CredentialRejected: true));
+
+        cut.WaitForAssertion(() => cut.Find("#source-token-refused").TextContent.Should().Contain("refused this token"));
     }
 
     [Fact]

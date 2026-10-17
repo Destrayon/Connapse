@@ -96,6 +96,47 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
         (await RowAsync(source.Id, "/a/a.md")).ResourceUri.Should().BeNull("a connection without a provider checks nothing per user");
     }
 
+    [Fact]
+    public async Task Sync_TokenTheMiddleManRefuses_MarksTheConnectionUntilASyncSucceeds()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        IConnectionStore connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        Connection connection = await connections.CreateAsync(
+            new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom,
+                CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"), Secret: "rotated-away"), null);
+        Source source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"custom-refused-{Guid.NewGuid():N}"[..24], connection.Id, new CustomSourceScope("https://bridge.acme.test", "eng").ToJson()));
+
+        (await SyncAsync(source, new CapturingFactory(new RefusingConnector()), connection)).Error.Should().NotBeNull();
+
+        Connection refused = (await connections.GetAsync(connection.Id))!;
+        refused.Health.Should().NotBeNull();
+        refused.Health!.CredentialRejected.Should().BeTrue();
+        refused.Health.Origin.Should().Be("sync");
+        refused.Health.Message.Should().Contain("Replace it on this connection");
+
+        CapturingFactory working = new(new DeltaConnector(new SyncDelta([], [], "c1", false)));
+        (await SyncAsync(source, working, refused)).Error.Should().BeNull();
+
+        Connection recovered = (await connections.GetAsync(connection.Id))!;
+        recovered.Health!.CredentialRejected.Should().BeFalse();
+        recovered.Health.Succeeded.Should().BeTrue();
+    }
+
+    private sealed class RefusingConnector : ISyncCursorConnector
+    {
+        public ConnectorType Type => ConnectorType.Custom;
+        public bool SupportsLiveWatch => false;
+        public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default) =>
+            throw new Connapse.Storage.Connectors.Custom.CustomSourceUnauthorizedException("The middle man refused the token (401).");
+        public string ResolveJobPath(string relativePath) => relativePath;
+        public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
+        public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default) => Task.FromResult<Stream>(new MemoryStream());
+        public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
+        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
     private async Task<(string? ResourceUri, string[]? AccessKeys)> RowAsync(Guid sourceId, string path)
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();

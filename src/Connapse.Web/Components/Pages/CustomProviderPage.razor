@@ -53,6 +53,14 @@ else
             }
         </div>
     }
+    @if (refusedBy.Count > 0)
+    {
+        <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-token-refused">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>
+            The middle man refused this provider's token while syncing sources on @string.Join(", ", refusedBy).
+            Replace the token below; once a check passes and you save, those connections read again.
+        </div>
+    }
     @if (error is not null)
     {
         <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-error">
@@ -252,6 +260,10 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     private bool editLinking;
     private IReadOnlyList<string> dependants = [];
 
+    /// <summary>The dependant connections whose last sync had this provider's token refused.</summary>
+    private IReadOnlyList<string> refusedBy = [];
+    private IReadOnlyList<Connection> dependantConnections = [];
+
     /// <summary>The middle man's linking page, from the latest check or the saved provider.</summary>
     private string? LinkUrl => check?.EndpointOk == true ? check.LinkUrl : existing?.LinkUrl;
 
@@ -301,15 +313,18 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         name = existing.Name;
         baseUrl = existing.BaseUrl;
         await LoadDependantsAsync();
+        // Opened on the token when a sync had it refused, which is what the page is then visited for.
+        editEndpoint = refusedBy.Count > 0;
     }
 
     private async Task LoadDependantsAsync()
     {
         if (existing is null) return;
-        dependants = (await Connections.ListAsync(take: int.MaxValue))
+        dependantConnections = (await Connections.ListAsync(take: int.MaxValue))
             .Where(c => c.Provider == ConnectionProvider.Custom && CustomConnectionConfig.ProviderIdOf(c.ConfigJson) == existing.Id)
-            .Select(c => c.Name)
             .ToList();
+        dependants = dependantConnections.Select(c => c.Name).ToList();
+        refusedBy = dependantConnections.Where(c => c.Health is { CredentialRejected: true }).Select(c => c.Name).ToList();
     }
 
     private async Task CheckAsync()
@@ -374,6 +389,11 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
 
             await AuditLogger.LogAsync(isNew ? "custom_provider.created" : "custom_provider.updated",
                 "custom_provider", result.Id.ToString(), new { result.Name, result.BaseUrl, TokenReplaced = tokenReplaced });
+
+            // The check that just passed used the token now saved, so connections it was refused for read again.
+            foreach (Connection refused in dependantConnections.Where(c => c.Health is { CredentialRejected: true }))
+                await Connections.RecordHealthAsync(refused.Id, new ConnectionHealth(
+                    DateTime.UtcNow, Succeeded: true, Step: null, "The provider's token was accepted.", Origin: "test"));
             existing = result;
             token = "";
             check = null;

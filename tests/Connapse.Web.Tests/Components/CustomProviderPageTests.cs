@@ -172,6 +172,31 @@ public class CustomProviderPageTests : IDisposable
     }
 
     [Fact]
+    public void SavedProviderWhoseTokenASyncRefused_SaysSoAndClearsItOnceANewTokenIsSaved()
+    {
+        CustomProvider provider = Saved(linkUrl: null);
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        store.UpdateAsync(provider.Id, Arg.Any<SaveCustomProviderRequest>(), Arg.Any<CancellationToken>()).Returns(provider);
+        IConnectionStore connections = ctx.Services.GetRequiredService<IConnectionStore>();
+        Connection refused = new(Guid.NewGuid(), "acme-perms", ConnectionProvider.Custom,
+            CustomConnectionConfig.ToJson(provider.Id), null, DateTime.UtcNow, DateTime.UtcNow,
+            Health: new ConnectionHealth(DateTime.UtcNow, false, "token", "refused", "sync", CredentialRejected: true));
+        connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([refused]));
+
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+
+        cut.Find("#custom-provider-token-refused").TextContent.Should().Contain("acme-perms");
+        cut.Find("#custom-provider-token").Change(FakeMiddleMan.Token);
+        cut.Find("#custom-provider-check").Click();
+        cut.WaitForAssertion(() => cut.Find("#custom-permissions").ClassList.Should().Contain("provider-step--satisfied"));
+        cut.Find("#custom-provider-save").Click();
+
+        cut.WaitForAssertion(() => connections.Received(1).RecordHealthAsync(refused.Id,
+            Arg.Is<ConnectionHealth>(h => h.Succeeded && !h.CredentialRejected), Arg.Any<CancellationToken>()));
+    }
+
+    [Fact]
     public void SavedProvider_ShowsWhenItWasLastVerified()
     {
         CustomProvider provider = Saved(linkUrl: null);

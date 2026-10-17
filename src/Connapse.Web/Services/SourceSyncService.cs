@@ -275,6 +275,14 @@ public class SourceSyncService(
                     AtlassianSignInHealth(auth, source.Name, AtlassianSourceScope.IsJira(source.ScopeJson)), ct);
             }
 
+            // A middle man refused the token a custom source reads with (its connection's, or its provider's):
+            // the connection says the token needs replacing rather than failing quietly.
+            if (connection is { Provider: ConnectionProvider.Custom } && CustomTokenRefused(ex))
+            {
+                await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
+                    CustomTokenRefusedHealth(source.Name, Connapse.Storage.Connectors.Custom.CustomSourceCredentials.ChecksPermissions(connection)), ct);
+            }
+
             // Record the failure without discarding progress: a transient outage must not
             // clear the cursor, or the next cycle would re-list the entire remote.
             //
@@ -300,6 +308,20 @@ public class SourceSyncService(
             gate.Release();
         }
     }
+
+    private static bool CustomTokenRefused(Exception ex)
+    {
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+            if (e is Connapse.Storage.Connectors.Custom.CustomSourceUnauthorizedException) return true;
+        return false;
+    }
+
+    /// <summary>A custom connection whose middle man refused the token during a sync: it needs a new one.</summary>
+    internal static ConnectionHealth CustomTokenRefusedHealth(string sourceName, bool providerToken) =>
+        new(DateTime.UtcNow, Succeeded: false, Step: "token",
+            Message: $"The middle man refused the token while syncing source '{sourceName}'. Replace it on "
+                + (providerToken ? "the connection's custom provider." : "this connection."),
+            Origin: "sync", CredentialRejected: true);
 
     /// <summary>
     /// What a failed Atlassian sign-in during a sync says about the site. Only a refused client ID

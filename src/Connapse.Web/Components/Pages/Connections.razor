@@ -473,6 +473,32 @@
                                                 <button type="button" class="btn btn-sm btn-link p-0" @onclick="() => StartEdit(c)">Replace credentials</button>
                                             }
                                         }
+                                        else if (c.Provider == ConnectionProvider.Custom)
+                                        {
+                                            @* Before the stored-secret branch: a custom connection without a provider holds its token. *@
+                                            @if (CustomConnectionConfig.BaseUrlOf(c.ConfigJson) is { } middleMan)
+                                            {
+                                                <div class="text-muted">Token for <span class="font-monospace text-break">@middleMan</span></div>
+                                            }
+                                            else
+                                            {
+                                                <div class="text-muted">Permission checks by @CustomProviderName(c)</div>
+                                            }
+                                            @if (c.Health is { CredentialRejected: true } refused)
+                                            {
+                                                <div class="text-danger fw-semibold" data-token-refused="@c.Id">
+                                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>Token refused. @refused.Message
+                                                </div>
+                                                @if (CustomConnectionConfig.ProviderIdOf(c.ConfigJson) is { } refusedProvider)
+                                                {
+                                                    <a class="btn btn-sm btn-link p-0" href="/admin/providers/custom/@refusedProvider">Replace the provider's token</a>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-link p-0" @onclick="() => StartEdit(c)">Replace token</button>
+                                                }
+                                            }
+                                        }
                                         else if (c.HasSecret)
                                         {
                                             @* Only reachable for a connection created before this tab
@@ -494,17 +520,6 @@
                                             else
                                             {
                                                 <span class="text-muted">GitHub App installation</span>
-                                            }
-                                        }
-                                        else if (c.Provider == ConnectionProvider.Custom)
-                                        {
-                                            @if (CustomConnectionConfig.BaseUrlOf(c.ConfigJson) is { } middleMan)
-                                            {
-                                                <span class="text-muted">Token for <span class="font-monospace text-break">@middleMan</span></span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-muted">Permission checks by @CustomProviderName(c)</span>
                                             }
                                         }
                                         else

@@ -113,6 +113,12 @@
             <section class="card mb-3" id="source-token-section">
                 <div class="card-body">
                     <h2 class="h6 mb-2">Token</h2>
+                    @if (connection.Health is { CredentialRejected: true })
+                    {
+                        <p class="small text-danger fw-semibold mb-2" id="source-token-refused" role="status">
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span>The middle man refused this token during the last sync, so the source is not reading.
+                        </p>
+                    }
                     <p class="small mb-0" id="source-token-where">
                         <span class="bi-key me-1" aria-hidden="true"></span>
                         @if (CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } providerId)
