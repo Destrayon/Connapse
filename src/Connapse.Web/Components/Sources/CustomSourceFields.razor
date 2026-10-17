@@ -1,9 +1,10 @@
 @using Connapse.Web.Components.Providers
 @using Connapse.Web.Services
 @inject CustomSourceSetup Setup
+@inject ILogger<CustomSourceFields> Logger
 
-@* One custom source, with or without a custom connection: the middle man's address and token are entered
-   here and checked by loading the scopes it offers. The connection only adds the permission check. *@
+@* One custom source on a custom connection: the connection holds the middle man's address and token, and
+   the source picks one of the scopes it offers. *@
 @if (Draft.PermissionsBy is { } checker)
 {
     <div class="alert alert-info py-2 small" id="custom-source-permissions" role="note">
@@ -19,22 +20,29 @@ else
     </div>
 }
 
-<ProviderField Spec="CustomSourceFieldSpecs.SourceBaseUrl" Value="@Draft.BaseUrl" ValueChanged="v => Draft.BaseUrl = v ?? string.Empty"
-               Disabled="@(Draft.FixedBaseUrl is not null)" Error="@(Draft.ErrorField == "baseUrl" ? Draft.Error : null)">
-    <HelpContent>@(Draft.FixedBaseUrl is not null ? "Fixed to the address of the connection's custom provider." : null)</HelpContent>
-</ProviderField>
-
-<ProviderField Spec="CustomSourceFieldSpecs.SourceToken" Value="@Draft.Token" ValueChanged="v => Draft.Token = v ?? string.Empty"
-               Error="@(Draft.ErrorField == "secret" ? Draft.Error : null)" />
+@if (Draft.BaseUrl is { } baseUrl)
+{
+    <p class="small mb-2" id="custom-source-middle-man">
+        Reads <span class="font-monospace text-break">@baseUrl</span> with the connection's token.
+    </p>
+}
 
 <div class="mb-3">
-    <button id="custom-source-load" type="button" class="btn btn-outline-secondary btn-sm" @onclick="LoadScopesAsync" disabled="@Draft.Loading">
+    <button id="custom-source-load" type="button" class="btn btn-outline-secondary btn-sm" @onclick="LoadScopesAsync"
+            disabled="@(Draft.Loading || Draft.BaseUrl is null)" aria-describedby="@(Draft.Error is null ? null : "custom-source-error")">
         @if (Draft.Loading)
         {
             <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
         }
         Load scopes
     </button>
+    @if (Draft.Error is { } error)
+    {
+        <div id="custom-source-error" class="text-danger small fw-semibold mt-2" role="alert">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>@error
+            <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </div>
+    }
 </div>
 
 @if (Draft.Scopes.Count > 0)
@@ -79,19 +87,17 @@ else
     {
         Draft.Loading = true;
         Draft.Error = null;
-        Draft.ErrorField = null;
         try
         {
-            CustomSourceProbe probe = await Setup.ProbeAsync(Draft.BaseUrl, Draft.Token, CancellationToken.None);
+            CustomSourceProbe probe = await Setup.ProbeConnectionAsync(Draft.Connection, CancellationToken.None);
             if (probe.Error is not null)
             {
                 Draft.Error = probe.Error;
-                Draft.ErrorField = probe.Field;
                 return;
             }
 
             string? previousName = Draft.Scopes.FirstOrDefault(s => s.Id == Draft.ScopeId)?.Name;
-            Draft.BaseUrl = probe.BaseUrl!;
+            Draft.BaseUrl = probe.BaseUrl;
             Draft.Scopes = probe.Scopes;
             if (Draft.ScopeId is null || Draft.Scopes.All(s => s.Id != Draft.ScopeId))
                 Draft.ScopeId = Draft.Scopes[0].Id;
@@ -100,9 +106,9 @@ else
         }
         catch (Exception ex)
         {
-            // An exception escaping an event handler tears down the circuit.
-            Draft.Error = ex.Message;
-            Draft.ErrorField = "baseUrl";
+            // An exception escaping an event handler tears down the circuit; its text is for the log.
+            Logger.LogWarning(ex, "Could not load a custom connection's scopes");
+            Draft.Error = "Could not load the scopes. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {

@@ -10,91 +10,45 @@ using Xunit;
 
 namespace Connapse.Integration.Tests;
 
-/// <summary>Creating a content-only custom source over <c>POST /api/sources</c>.</summary>
+/// <summary>
+/// Creating and updating custom sources over <c>/api/sources</c>: a custom source sits on a custom connection,
+/// which holds the middle man's address and token (or names a provider that does), and holds no token itself.
+/// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
 public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
 {
-    private static object Body(
-        string? baseUrl = FakeMiddleMan.BaseUrl,
-        string scopeId = FakeMiddleMan.Scope,
-        string? secret = FakeMiddleMan.Token,
-        string provider = "Custom") => new
-        {
-            name = $"custom-{Guid.NewGuid():N}"[..20],
-            provider,
-            scopeJson = JsonSerializer.Serialize(new { baseUrl, scopeId }),
-            secret,
-        };
-
-    [Fact]
-    public async Task Create_ContentOnlyCustomSource_StoresItWithItsToken()
+    private async Task<Connection> ContentOnlyConnectionAsync(string token = FakeMiddleMan.Token)
     {
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(baseUrl: FakeMiddleMan.BaseUrl + "/"));
-
-        response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
-        string body = await response.Content.ReadAsStringAsync();
-        body.Should().NotContain(FakeMiddleMan.Token);
-        Guid id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetGuid();
-
         using IServiceScope scope = fixture.Factory.Services.CreateScope();
-        ISourceStore store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
-        Source source = (await store.GetAsync(id))!;
-        source.Provider.Should().Be(ConnectionProvider.Custom);
-        source.ConnectionId.Should().BeNull();
-        source.HasSecret.Should().BeTrue();
-        CustomSourceScope.TryParse(source.ScopeJson).Should().Be(new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope));
-        (await store.GetSecretAsync(id)).Should().Be(FakeMiddleMan.Token);
+        return await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(new CreateConnectionRequest(
+            $"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan(FakeMiddleMan.BaseUrl), token), null);
     }
 
-    [Fact]
-    public async Task Create_CustomSourceWithoutToken_IsRefused()
+    private async Task<Connection> ProviderConnectionAsync(string providerUrl = FakeMiddleMan.BaseUrl)
     {
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: null));
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        CustomProvider provider = await scope.ServiceProvider.GetRequiredService<ICustomProviderStore>().CreateAsync(
+            new SaveCustomProviderRequest($"p-{Guid.NewGuid():N}"[..20], providerUrl, FakeMiddleMan.Token, 100, true, null));
+        return await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+            new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom, CustomConnectionConfig.ToJson(provider.Id)), null);
     }
 
-    [Fact]
-    public async Task Create_CustomSourceOverPlainHttp_IsRefused()
+    private static object Body(Guid connectionId, string scopeId = FakeMiddleMan.Scope, string? baseUrl = null, string? secret = null) => new
     {
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(baseUrl: "http://bridge.acme.test/api"));
+        name = $"custom-{Guid.NewGuid():N}"[..20],
+        connectionId,
+        scopeJson = baseUrl is null ? JsonSerializer.Serialize(new { scopeId }) : JsonSerializer.Serialize(new { baseUrl, scopeId }),
+        secret,
+    };
 
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "baseUrl");
-    }
-
-    [Fact]
-    public async Task Create_CustomSourceTheMiddleManRefusesTheTokenFor_IsRefused()
+    private async Task<Source> StoredAsync(HttpResponseMessage response)
     {
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: "wrong"));
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
-    }
-
-    [Fact]
-    public async Task Create_CustomSourceForAScopeTheMiddleManDoesNotHave_IsRefused()
-    {
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(scopeId: "nope"));
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "scopeId");
-    }
-
-    [Fact]
-    public async Task Create_CustomSourceWhoseMiddleManIsDown_Answers502()
-    {
-        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
-
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body());
-
-        await ExpectRefusal(response, HttpStatusCode.BadGateway, "baseUrl");
-    }
-
-    [Fact]
-    public async Task Create_SecretForANonCustomSource_IsRefused()
-    {
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(provider: "S3"));
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+        string body = await response.Content.ReadAsStringAsync();
+        response.StatusCode.Should().Be(HttpStatusCode.Created, body);
+        Guid id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetGuid();
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        return (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(id))!;
     }
 
     private static async Task ExpectRefusal(HttpResponseMessage response, HttpStatusCode status, string field)
@@ -105,10 +59,140 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Update_CustomSourceScope_IsRefusedSoItsTokenCannotBeRedirected()
+    public async Task Create_OnAContentOnlyConnection_StoresItsMiddleManAndNoToken()
     {
-        HttpResponseMessage created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body());
-        Guid id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
+        Connection connection = await ContentOnlyConnectionAsync();
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id));
+
+        (await response.Content.ReadAsStringAsync()).Should().NotContain(FakeMiddleMan.Token);
+        Source source = await StoredAsync(response);
+        source.ConnectionId.Should().Be(connection.Id);
+        source.Provider.Should().BeNull();
+        source.HasSecret.Should().BeFalse("a custom source reads with its connection's token");
+        CustomSourceScope.TryParse(source.ScopeJson).Should().Be(new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope));
+    }
+
+    [Fact]
+    public async Task Create_NamingTheConnectionsOwnBaseUrl_IsAccepted()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources",
+            Body(connection.Id, baseUrl: FakeMiddleMan.BaseUrl + "/"));
+
+        CustomSourceScope.TryParse((await StoredAsync(response)).ScopeJson)!.BaseUrl.Should().Be(FakeMiddleMan.BaseUrl);
+    }
+
+    [Fact]
+    public async Task Create_NamingAnotherBaseUrl_IsRefused()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources",
+            Body(connection.Id, baseUrl: "https://attacker.example"));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "baseUrl");
+    }
+
+    [Fact]
+    public async Task Create_WithASecret_IsRefused()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id, secret: FakeMiddleMan.Token));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
+    }
+
+    [Fact]
+    public async Task Create_CustomSourceWithoutAConnection_IsRefused()
+    {
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", new
+        {
+            name = $"custom-{Guid.NewGuid():N}"[..20],
+            provider = "Custom",
+            scopeJson = JsonSerializer.Serialize(new { baseUrl = FakeMiddleMan.BaseUrl, scopeId = FakeMiddleMan.Scope }),
+        });
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "connectionId");
+    }
+
+    [Fact]
+    public async Task Create_OnAConnectionWhoseTokenTheMiddleManRefuses_IsRefused()
+    {
+        Connection connection = await ContentOnlyConnectionAsync(token: "wrong");
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "connectionId");
+    }
+
+    [Fact]
+    public async Task Create_ForAScopeTheMiddleManDoesNotHave_IsRefused()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id, scopeId: "nope"));
+
+        await ExpectRefusal(response, HttpStatusCode.BadRequest, "scopeId");
+    }
+
+    [Fact]
+    public async Task Create_WhoseMiddleManIsDown_Answers502()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id));
+
+        await ExpectRefusal(response, HttpStatusCode.BadGateway, "baseUrl");
+    }
+
+    [Fact]
+    public async Task Create_OnAProviderConnection_ReadsTheProvidersMiddleMan()
+    {
+        Connection connection = await ProviderConnectionAsync();
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id));
+
+        Source source = await StoredAsync(response);
+        source.ConnectionId.Should().Be(connection.Id);
+        source.HasSecret.Should().BeFalse();
+        CustomSourceScope.TryParse(source.ScopeJson).Should().Be(new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope));
+    }
+
+    [Fact]
+    public async Task Create_MiddleManEchoingAnEncodedToken_DoesNotReturnIt()
+    {
+        const string token = "ab+cd/ef";
+        Connection connection = await ContentOnlyConnectionAsync(token);
+        fixture.CustomSource.AcceptAnyToken = true;
+        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
+        fixture.CustomSource.FailNextTitle = $"bad bearer {Uri.EscapeDataString(token)}";
+        try
+        {
+            HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id));
+
+            string body = await response.Content.ReadAsStringAsync();
+            body.Should().NotContain(Uri.EscapeDataString(token)).And.NotContain(token).And.NotContain("bad bearer");
+        }
+        finally
+        {
+            fixture.CustomSource.AcceptAnyToken = false;
+        }
+    }
+
+    private async Task<Guid> CreatedOnAConnectionAsync()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+        return (await StoredAsync(await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id)))).Id;
+    }
+
+    [Fact]
+    public async Task Update_CustomSourceScope_IsRefusedSoTheConnectionsTokenCannotBeRedirected()
+    {
+        Guid id = await CreatedOnAConnectionAsync();
 
         HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new
         {
@@ -121,120 +205,15 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
         CustomSourceScope.TryParse(source.ScopeJson)!.BaseUrl.Should().Be(FakeMiddleMan.BaseUrl);
     }
 
-    private async Task<Connection> CustomConnectionAsync(string providerUrl = FakeMiddleMan.BaseUrl)
-    {
-        using IServiceScope scope = fixture.Factory.Services.CreateScope();
-        CustomProvider provider = await scope.ServiceProvider.GetRequiredService<ICustomProviderStore>().CreateAsync(
-            new SaveCustomProviderRequest($"p-{Guid.NewGuid():N}"[..20], providerUrl, FakeMiddleMan.Token, 100, true, null));
-        return await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-            new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom, CustomConnectionConfig.ToJson(provider.Id)), null);
-    }
-
-    private static object ConnectedBody(Guid connectionId, string baseUrl = FakeMiddleMan.BaseUrl) => new
-    {
-        name = $"custom-{Guid.NewGuid():N}"[..20],
-        connectionId,
-        scopeJson = JsonSerializer.Serialize(new { baseUrl, scopeId = FakeMiddleMan.Scope }),
-        secret = FakeMiddleMan.Token,
-    };
-
     [Fact]
-    public async Task Create_CustomSourceOnACustomConnection_IsTheSameSourceWithItsConnectionFilledIn()
+    public async Task Update_CustomSourceSecret_IsRefusedAndPointsAtTheConnection()
     {
-        Connection connection = await CustomConnectionAsync();
-
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", ConnectedBody(connection.Id));
-
-        response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
-        Guid id = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
-        using IServiceScope scope = fixture.Factory.Services.CreateScope();
-        ISourceStore store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
-        Source source = (await store.GetAsync(id))!;
-        source.ConnectionId.Should().Be(connection.Id);
-        source.HasSecret.Should().BeTrue();
-        CustomSourceScope.TryParse(source.ScopeJson).Should().Be(new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope));
-    }
-
-    [Fact]
-    public async Task Create_ConnectedCustomSourceReadingAnotherMiddleMan_IsRefused()
-    {
-        Connection connection = await CustomConnectionAsync(providerUrl: "https://other-bridge.acme.test");
-
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", ConnectedBody(connection.Id));
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "baseUrl");
-    }
-
-    [Fact]
-    public async Task Update_ConnectedCustomSourceScope_IsRefused()
-    {
-        Connection connection = await CustomConnectionAsync();
-        HttpResponseMessage created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", ConnectedBody(connection.Id));
-        Guid id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
-
-        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new
-        {
-            scopeJson = JsonSerializer.Serialize(new { baseUrl = "https://attacker.example", scopeId = FakeMiddleMan.Scope }),
-        });
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "scope");
-    }
-
-    private async Task<Guid> ContentOnlySourceAsync(string token)
-    {
-        fixture.CustomSource.AcceptAnyToken = true;
-        try
-        {
-            HttpResponseMessage created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: token));
-            created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
-            return JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
-        }
-        finally
-        {
-            fixture.CustomSource.AcceptAnyToken = false;
-        }
-    }
-
-    private async Task<string?> StoredSecretAsync(Guid id)
-    {
-        using IServiceScope scope = fixture.Factory.Services.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetSecretAsync(id);
-    }
-
-    [Fact]
-    public async Task Update_CustomSourceTokenTheMiddleManAccepts_ReplacesTheStoredOne()
-    {
-        Guid id = await ContentOnlySourceAsync("rotated-away-token");
+        Guid id = await CreatedOnAConnectionAsync();
 
         HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = FakeMiddleMan.Token });
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
-        (await response.Content.ReadAsStringAsync()).Should().NotContain(FakeMiddleMan.Token);
-        (await StoredSecretAsync(id)).Should().Be(FakeMiddleMan.Token);
-    }
-
-    [Fact]
-    public async Task Update_CustomSourceTokenTheMiddleManRefuses_KeepsTheStoredOne()
-    {
-        Guid id = await ContentOnlySourceAsync("still-the-old-token");
-
-        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = "wrong" });
-
         await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
-        (await StoredSecretAsync(id)).Should().Be("still-the-old-token");
-    }
-
-    [Fact]
-    public async Task Update_ConnectedCustomSourceToken_ReplacesIt()
-    {
-        Connection connection = await CustomConnectionAsync();
-        HttpResponseMessage created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", ConnectedBody(connection.Id));
-        Guid id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
-
-        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = $"  {FakeMiddleMan.Token}  " });
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
-        (await StoredSecretAsync(id)).Should().Be(FakeMiddleMan.Token);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("on its connection");
     }
 
     [Fact]
@@ -253,58 +232,5 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
         HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{source.Id}", new { secret = "anything" });
 
         await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
-    }
-
-    [Fact]
-    public async Task Update_TokenTogetherWithOtherChanges_IsRefusedAndChangesNothing()
-    {
-        Guid id = await ContentOnlySourceAsync("kept-token");
-
-        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}",
-            new { secret = FakeMiddleMan.Token, description = "changed" });
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
-        (await StoredSecretAsync(id)).Should().Be("kept-token");
-        using IServiceScope scope = fixture.Factory.Services.CreateScope();
-        (await scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(id))!.Description.Should().NotBe("changed");
-    }
-
-    [Fact]
-    public async Task Update_MiddleManEchoingTheToken_DoesNotReturnIt()
-    {
-        Guid id = await ContentOnlySourceAsync("kept-token");
-        const string echoed = "token-the-middle-man-echoes";
-        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
-        fixture.CustomSource.FailNextTitle = $"bad bearer {echoed}";
-
-        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}", new { secret = echoed });
-
-        (await response.Content.ReadAsStringAsync()).Should().NotContain(echoed);
-        (await StoredSecretAsync(id)).Should().Be("kept-token");
-    }
-
-    [Fact]
-    public async Task Update_TokenWithAFieldThisServerDoesNotKnow_IsRefused()
-    {
-        Guid id = await ContentOnlySourceAsync("kept-token");
-
-        HttpResponseMessage response = await fixture.AdminClient.PatchAsJsonAsync($"/api/sources/{id}",
-            new { secret = FakeMiddleMan.Token, someFutureField = "x" });
-
-        await ExpectRefusal(response, HttpStatusCode.BadRequest, "secret");
-        (await StoredSecretAsync(id)).Should().Be("kept-token");
-    }
-
-    [Fact]
-    public async Task Create_MiddleManEchoingAnEncodedToken_DoesNotReturnIt()
-    {
-        const string token = "ab+cd/ef";
-        fixture.CustomSource.FailNextWith = HttpStatusCode.InternalServerError;
-        fixture.CustomSource.FailNextTitle = $"bad bearer {Uri.EscapeDataString(token)}";
-
-        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(secret: token));
-
-        string body = await response.Content.ReadAsStringAsync();
-        body.Should().NotContain(Uri.EscapeDataString(token)).And.NotContain("bad bearer");
     }
 }

@@ -1,32 +1,30 @@
+using Connapse.Core;
 using Connapse.Storage.Connectors.Custom;
 
 namespace Connapse.Web.Components.Sources;
 
-/// <summary>What the New source dialog holds for a content-only custom source while it is being filled in.</summary>
+/// <summary>What the New source dialog holds for a custom source while it is being filled in.</summary>
 public sealed class CustomSourceDraft
 {
+    /// <summary>The custom connection the source sits on: it holds the middle man's address and token.</summary>
+    public required Connection Connection { get; init; }
+
+    /// <summary>The middle man the connection reads, for display; null when it names none.</summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>The custom provider that checks this source's results; null for a content-only connection.</summary>
+    public string? PermissionsBy { get; init; }
+
     public string Name { get; set; } = "";
     public string? Description { get; set; }
-    public string BaseUrl { get; set; } = "";
-    public string Token { get; set; } = "";
     public string? ScopeId { get; set; }
     public int? SyncIntervalSeconds { get; set; }
 
-    /// <summary>The scopes the middle man offered when the address and token were last checked.</summary>
+    /// <summary>The scopes the middle man offered when the connection was last checked.</summary>
     public IReadOnlyList<CustomScopeItem> Scopes { get; set; } = [];
 
-    /// <summary>Why the last check failed, and the field it belongs to: <c>baseUrl</c> or <c>secret</c>.</summary>
+    /// <summary>Why the connection's middle man could not be read.</summary>
     public string? Error { get; set; }
-    public string? ErrorField { get; set; }
 
     public bool Loading { get; set; }
-
-    /// <summary>
-    /// Set when the source is on a custom connection: the provider's middle man, which the source must read
-    /// so the documents it lists are the ones the provider answers for. Empty when the provider is missing.
-    /// </summary>
-    public string? FixedBaseUrl { get; set; }
-
-    /// <summary>The custom provider that checks this source's results, when it is on a custom connection.</summary>
-    public string? PermissionsBy { get; set; }
 }

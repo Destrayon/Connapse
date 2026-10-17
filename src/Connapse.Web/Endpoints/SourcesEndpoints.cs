@@ -92,29 +92,36 @@ public static class SourcesEndpoints
             [FromServices] Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup gitHubRepositories,
             [FromServices] AtlassianSiteService atlassianSites,
             [FromServices] CustomSourceSetup customSources,
-            [FromServices] ICustomProviderStore customProviders,
             CancellationToken ct) =>
         {
             string? scopeJson = request.ScopeJson;
 
-            // Only a custom source holds a credential of its own — with or without a custom connection;
-            // anything else authenticates through its connection, so a secret would be silently dropped.
-            bool customSource = request.Provider is ConnectionProvider.Custom;
-            if (request.Secret is not null && request.ConnectionId is null && !customSource)
-                return Results.BadRequest(new { error = "Only a custom source takes a secret.", field = "secret" });
+            // Every source authenticates through its connection, a custom one included, so a secret here
+            // would be silently dropped.
+            if (request.Secret is not null)
+                return Results.BadRequest(new
+                {
+                    error = "A source takes no secret: its connection holds the credential. A custom source reads with its custom connection's token.",
+                    field = "secret",
+                });
+            if (request.Provider is ConnectionProvider.Custom)
+                return Results.BadRequest(new
+                {
+                    error = "A custom source needs a custom connection: pass its connectionId. An administrator adds one on the Connections page.",
+                    field = "connectionId",
+                });
             string name = request.Name?.Trim() ?? "";
 
-            // The same checks the New source dialog makes, for every custom source: the URL rules, the
-            // token, protocol version 1, and a scope the middle man actually offers. On a custom
-            // connection the middle man must also be the provider's, so the document IDs it lists are
-            // the ones the provider answers for. The URL stored is the normalised one.
-            async Task<IResult?> CheckCustomSourceAsync(string? providerBaseUrl)
+            // The same checks the New source dialog makes: the connection's middle man answers with its token,
+            // speaks protocol version 1, and offers the scope. The scope names only the scopeId; a baseUrl, if
+            // given, must be the connection's, and the one stored is the connection's normalised address.
+            async Task<IResult?> CheckCustomSourceAsync(Connection connection)
             {
-                CustomSourceScope? scope = CustomSourceScope.TryParse(scopeJson);
-                if (scope is null)
-                    return Results.BadRequest(new { error = "The scope must name the middle man's baseUrl and scopeId.", field = "scope" });
+                (string? scopeId, string? baseUrl) = CustomScopeRequest(scopeJson);
+                if (scopeId is null)
+                    return Results.BadRequest(new { error = "The scope must name the middle man's scopeId.", field = "scopeId" });
 
-                CustomSourceProbe probe = await customSources.ProbeAsync(scope.BaseUrl, request.Secret, ct);
+                CustomSourceProbe probe = await customSources.ProbeConnectionAsync(connection, ct);
                 if (probe.Error is not null)
                 {
                     return probe.Unreachable
@@ -122,17 +129,17 @@ public static class SourcesEndpoints
                         : Results.BadRequest(new { error = probe.Error, field = probe.Field });
                 }
 
-                if (providerBaseUrl is not null && !string.Equals(probe.BaseUrl, providerBaseUrl, StringComparison.Ordinal))
+                if (baseUrl is not null && !string.Equals(baseUrl.TrimEnd('/'), probe.BaseUrl, StringComparison.OrdinalIgnoreCase))
                     return Results.BadRequest(new
                     {
-                        error = $"A custom source on this connection must read its provider's middle man ({providerBaseUrl}).",
+                        error = $"A custom source reads its connection's middle man ({probe.BaseUrl}). Leave baseUrl out, or pass that one.",
                         field = "baseUrl",
                     });
 
-                if (!probe.Scopes.Any(s => s.Id == scope.ScopeId))
-                    return Results.BadRequest(new { error = $"The middle man offers no scope '{scope.ScopeId}'.", field = "scopeId" });
+                if (!probe.Scopes.Any(s => s.Id == scopeId))
+                    return Results.BadRequest(new { error = $"The middle man offers no scope '{scopeId}'.", field = "scopeId" });
 
-                scopeJson = (scope with { BaseUrl = probe.BaseUrl! }).ToJson();
+                scopeJson = new CustomSourceScope(probe.BaseUrl!, scopeId).ToJson();
                 return null;
             }
 
@@ -154,20 +161,9 @@ public static class SourcesEndpoints
                 if (connection is null)
                     return Results.BadRequest(new { error = $"Connection {cid} not found" });
 
-                if (request.Secret is not null && connection.Provider != ConnectionProvider.Custom)
-                    return Results.BadRequest(new { error = "Only a custom source takes a secret.", field = "secret" });
-
-                if (connection.Provider == ConnectionProvider.Custom)
-                {
-                    customSource = true;
-                    CustomProvider? provider = CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } providerId
-                        ? await customProviders.GetAsync(providerId, ct)
-                        : null;
-                    if (provider is null)
-                        return Results.BadRequest(new { error = "This connection's custom provider no longer exists.", field = "connectionId" });
-                    if (await CheckCustomSourceAsync(provider.BaseUrl) is { } refusal)
-                        return refusal;
-                }
+                if (connection.Provider == ConnectionProvider.Custom
+                    && await CheckCustomSourceAsync(connection) is { } refusal)
+                    return refusal;
 
                 // The same lookup the New source dialog makes: GitHub, as this installation, says
                 // which repository the name is and whether it is private. Its answer replaces
@@ -211,11 +207,6 @@ public static class SourcesEndpoints
             {
                 return Results.BadRequest(new { error = "a source needs a connectionId or a provider" });
             }
-            else if (request.Provider is ConnectionProvider.Custom)
-            {
-                if (await CheckCustomSourceAsync(providerBaseUrl: null) is { } refusal)
-                    return refusal;
-            }
             else if (request.Provider is ConnectionProvider.GitHub)
             {
                 // Refused rather than stored: the connector no longer reads GitHub anonymously, so
@@ -244,8 +235,7 @@ public static class SourcesEndpoints
                 created = await sourceStore.CreateAsync(
                     new CreateSourceRequest(
                         name, request.ConnectionId, scopeJson ?? "{}",
-                        request.Description, request.SyncIntervalSeconds, request.Provider,
-                        customSource ? request.Secret?.Trim() : null), ct);
+                        request.Description, request.SyncIntervalSeconds, request.Provider), ct);
             }
             catch (ArgumentException ex)
             {
@@ -267,13 +257,10 @@ public static class SourcesEndpoints
             [FromBody] JsonElement body,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
-            [FromServices] CustomSourceTokenReplacement tokens,
             [FromServices] IAuditLogger auditLogger,
             [FromServices] Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
             CancellationToken ct) =>
         {
-            // Read raw, so a token replacement can be held to exactly one property: fields this server does not
-            // know would otherwise be dropped silently while the token changed.
             if (body.ValueKind != JsonValueKind.Object)
                 return Results.BadRequest(new { error = "The body must be a JSON object." });
             UpdateSourceRequest request;
@@ -309,9 +296,9 @@ public static class SourcesEndpoints
                 });
             }
 
-            // A custom source's scope names where its stored token is sent. Changing it in place would
-            // let anyone who may edit sources point the token at another server, so it is fixed at
-            // creation; to read elsewhere, create a new source and enter the token again.
+            // A custom source's scope names the middle man its connection's token is sent to. Changing it in
+            // place would let anyone who may edit sources point that token at another server, so it is fixed
+            // at creation; to read elsewhere, create a new source.
             if (request.ScopeJson is not null
                 && await sourceStore.GetAsync(sourceId, ct) is { } custom
                 && (custom.Provider is ConnectionProvider.Custom
@@ -321,7 +308,7 @@ public static class SourcesEndpoints
             {
                 return Results.BadRequest(new
                 {
-                    error = "A custom source's middle man and scope cannot be changed. Create a new source and enter its token again.",
+                    error = "A custom source's middle man and scope cannot be changed. Create a new source instead.",
                     field = "scope",
                 });
             }
@@ -340,29 +327,13 @@ public static class SourcesEndpoints
                 request = request with { ScopeJson = atlassian.ScopeJson };
             }
 
-            // A custom source's new token, when its middle man rotated the old one: checked against the source's
-            // fixed middle man and scope before it replaces the stored one. It travels alone, so a request either
-            // replaces the token or changes the other fields, never half of both.
+            // A source holds no token: a custom source reads with its connection's, which is replaced there.
             if (request.Secret is not null)
-            {
-                if (body.EnumerateObject().Count() != 1)
-                    return Results.BadRequest(new { error = "Replace the token in a request of its own, without other changes.", field = "secret" });
-
-                CustomTokenReplacement replaced = await tokens.ReplaceAsync(sourceId, request.Secret, ct);
-                if (replaced.NotFound)
-                    return Results.NotFound(new { error = replaced.Error });
-                if (replaced.Error is not null)
+                return Results.BadRequest(new
                 {
-                    return replaced.Unreachable
-                        ? Results.Json(new { error = replaced.Error, field = replaced.Field }, statusCode: StatusCodes.Status502BadGateway)
-                        : Results.BadRequest(new { error = replaced.Error, field = replaced.Field });
-                }
-
-                Source? rotated = await sourceStore.GetAsync(sourceId, ct);
-                return rotated is null
-                    ? Results.NotFound(new { error = $"Source {sourceId} not found" })
-                    : Results.Ok(SourceResponse.From(rotated, includeDiagnostics: true));
-            }
+                    error = "A source takes no secret. Replace a custom source's token on its connection, or on its custom provider.",
+                    field = "secret",
+                });
 
             var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
             if (updated is null)
@@ -375,7 +346,7 @@ public static class SourcesEndpoints
         })
         .Accepts<UpdateSourceRequest>("application/json")
         .WithName("UpdateSource")
-        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state, or replace a custom source's token (secret).")
+        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state.")
         .RequireAuthorization("RequireAdmin");
 
         // DELETE /api/sources/{sourceId}
@@ -490,6 +461,25 @@ public static class SourcesEndpoints
         .RequireAuthorization("RequireAdmin");
 
         return app;
+    }
+
+    /// <summary>A custom source's requested scope: its scopeId, and the baseUrl if one was named.</summary>
+    internal static (string? ScopeId, string? BaseUrl) CustomScopeRequest(string? scopeJson)
+    {
+        if (string.IsNullOrWhiteSpace(scopeJson)) return (null, null);
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(scopeJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (null, null);
+            static string? Text(JsonElement root, string name) =>
+                root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
+                    && value.GetString() is { Length: > 0 } text ? text : null;
+            return (Text(doc.RootElement, "scopeId"), Text(doc.RootElement, "baseUrl"));
+        }
+        catch (JsonException)
+        {
+            return (null, null);
+        }
     }
 
     /// <summary>Whether an update changes a GitHub source's private flag or repository id.</summary>
