@@ -119,7 +119,7 @@ public static class SourcesEndpoints
             {
                 (string? scopeId, string? baseUrl) = CustomScopeRequest(scopeJson);
                 if (scopeId is null)
-                    return Results.BadRequest(new { error = "The scope must name the middle man's scopeId.", field = "scopeId" });
+                    return Results.BadRequest(new { error = "The scope must name the source server's scopeId.", field = "scopeId" });
 
                 CustomSourceProbe probe = await customSources.ProbeConnectionAsync(connection, ct);
                 if (probe.Error is not null)
@@ -132,12 +132,12 @@ public static class SourcesEndpoints
                 if (baseUrl is not null && !string.Equals(baseUrl.TrimEnd('/'), probe.BaseUrl, StringComparison.OrdinalIgnoreCase))
                     return Results.BadRequest(new
                     {
-                        error = $"A custom source reads its connection's middle man ({probe.BaseUrl}). Leave baseUrl out, or pass that one.",
+                        error = $"A custom source reads its connection's source server ({probe.BaseUrl}). Leave baseUrl out, or pass that one.",
                         field = "baseUrl",
                     });
 
                 if (!probe.Scopes.Any(s => s.Id == scopeId))
-                    return Results.BadRequest(new { error = $"The middle man offers no scope '{scopeId}'.", field = "scopeId" });
+                    return Results.BadRequest(new { error = $"The source server offers no scope '{scopeId}'.", field = "scopeId" });
 
                 scopeJson = new CustomSourceScope(probe.BaseUrl!, scopeId).ToJson();
                 return null;
@@ -308,7 +308,7 @@ public static class SourcesEndpoints
             {
                 return Results.BadRequest(new
                 {
-                    error = "A custom source's middle man and scope cannot be changed. Create a new source instead.",
+                    error = "A custom source's source server and scope cannot be changed. Create a new source instead.",
                     field = "scope",
                 });
             }

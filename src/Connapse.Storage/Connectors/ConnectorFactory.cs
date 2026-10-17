@@ -193,12 +193,12 @@ public class ConnectorFactory(
     {
         CustomSourceScope scope = CustomSourceScope.TryParse(source.ScopeJson)
             ?? throw new InvalidOperationException(
-                $"Source '{source.Name}' has a scope that does not name a middle man URL and scope.");
+                $"Source '{source.Name}' has a scope that does not name a source server URL and scope.");
 
         // A connection's token is only sent to the middle man the connection names.
         if (connectionBaseUrl is not null && !CustomSourceEndpoint.SameAddress(scope.BaseUrl, connectionBaseUrl))
             throw new InvalidOperationException(
-                $"Source '{source.Name}' cannot sync: it reads {scope.BaseUrl}, but its connection's middle man is {connectionBaseUrl}.");
+                $"Source '{source.Name}' cannot sync: it reads {scope.BaseUrl}, but its connection's source server is {connectionBaseUrl}.");
 
         IReadOnlyCollection<string> allowedHttpHosts = customSourceSettings?.CurrentValue.AllowedHttpHosts ?? [];
         if (!CustomSourceEndpoint.TryNormalize(scope.BaseUrl, allowedHttpHosts, out string baseUrl, out string? error))

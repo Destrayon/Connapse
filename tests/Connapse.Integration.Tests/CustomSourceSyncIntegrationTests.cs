@@ -15,7 +15,7 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
 {
-    private const string Token = "middle-man-token";
+    private const string Token = "source-server-token";
 
     [Fact]
     public async Task Sync_ContentOnlySource_PassesItsTokenAndDeletesByPrefixButKeepsTheNewPath()
@@ -128,7 +128,7 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
         public ConnectorType Type => ConnectorType.Custom;
         public bool SupportsLiveWatch => false;
         public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default) =>
-            throw new Connapse.Storage.Connectors.Custom.CustomSourceUnauthorizedException("The middle man refused the token (401).");
+            throw new Connapse.Storage.Connectors.Custom.CustomSourceUnauthorizedException("The source server refused the token (401).");
         public string ResolveJobPath(string relativePath) => relativePath;
         public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);

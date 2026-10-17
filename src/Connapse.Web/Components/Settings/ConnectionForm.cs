@@ -500,8 +500,8 @@ public sealed record ConnectionForm
 
             ConnectionProvider.Custom when !CustomContentOnly && CustomProviderId is null =>
                 "Choose the custom provider this connection checks permissions with, or No provider (content only).",
-            ConnectionProvider.Custom when CustomContentOnly && Blank(CustomBaseUrl) => "Enter the middle man's base URL.",
-            ConnectionProvider.Custom when CustomContentOnly && isNew && Blank(CustomToken) => "Enter the token the middle man expects.",
+            ConnectionProvider.Custom when CustomContentOnly && Blank(CustomBaseUrl) => "Enter the source server's base URL.",
+            ConnectionProvider.Custom when CustomContentOnly && isNew && Blank(CustomToken) => "Enter the token the source server expects.",
 
             _ => null
         };

@@ -138,7 +138,7 @@ public class NewSourceCustomTests : IDisposable
 
         cut.WaitForAssertion(() => cut.FindAll("button.btn-primary").First(b => b.TextContent.Contains("New source"))
             .HasAttribute("disabled").Should().BeTrue());
-        cut.Markup.Should().Contain("custom middle man");
+        cut.Markup.Should().Contain("custom source server");
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class NewSourceCustomTests : IDisposable
         AddContentOnlyConnection();
         var cut = OpenDialog();
 
-        cut.WaitForAssertion(() => cut.Find("#custom-source-middle-man").TextContent.Should().Contain(FakeMiddleMan.BaseUrl));
+        cut.WaitForAssertion(() => cut.Find("#custom-source-source-server").TextContent.Should().Contain(FakeMiddleMan.BaseUrl));
         cut.Find("#custom-source-content-only").TextContent
             .Should().Contain("sees every document in it, even ones they could not open");
         cut.FindAll("#custom-source-url, #custom-source-token").Should().BeEmpty("the connection holds the address and token");

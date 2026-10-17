@@ -591,13 +591,13 @@
                 <p class="small mb-0" id="custom-connection-prerequisites">
                     @if (form.CustomContentOnly)
                     {
-                        <text>You need: a running middle man that speaks protocol version 1, the token it expects, and an HTTPS
+                        <text>You need: a running source server that speaks protocol version 1, the token it expects, and an HTTPS
                         address (or a host an administrator allowed for plain HTTP).</text>
                     }
                     else
                     {
                         <text>You need: a custom provider that passed its check on the Providers page, or choose No provider
-                        (content only) below to enter a middle man here.</text>
+                        (content only) below to enter a source server here.</text>
                     }
                     <a href="@CustomSourceFieldSpecs.Prerequisites" target="_blank" rel="noopener">Before you start<span class="visually-hidden"> (opens in a new tab)</span></a>
                 </p>
@@ -649,7 +649,7 @@
                 }
                 else if (form.Provider == ConnectionProvider.Custom && isNew)
                 {
-                    <text>Filled in from the provider's name, or the middle man's host, if left blank.</text>
+                    <text>Filled in from the provider's name, or the source server's host, if left blank.</text>
                 }
             </div>
         </div>
@@ -666,7 +666,7 @@
                 </option>
                 <option value="@ConnectionForm.ConfluenceSiteChoice">Confluence site</option>
                 <option value="@ConnectionForm.JiraSiteChoice">Jira site</option>
-                <option value="@ConnectionProvider.Custom">Custom middle man</option>
+                <option value="@ConnectionProvider.Custom">Custom source server</option>
             </select>
             @if (!isNew)
             {
@@ -1005,7 +1005,7 @@
                         <HelpContent>
                             @if (CustomAddressLocked)
                             {
-                                <text>Sources read this address, so it cannot change. Create a new connection for another middle man.</text>
+                                <text>Sources read this address, so it cannot change. Create a new connection for another source server.</text>
                             }
                         </HelpContent>
                     </ProviderField>
@@ -1769,9 +1769,9 @@
         : !form.CustomContentOnly && form.CustomProviderId is null
             ? ("provider", "Choose a custom provider, or No provider (content only).")
         : form.CustomContentOnly && string.IsNullOrWhiteSpace(form.CustomBaseUrl)
-            ? ("baseUrl", "Enter the middle man's base URL.")
+            ? ("baseUrl", "Enter the source server's base URL.")
         : form.CustomContentOnly && isNew && string.IsNullOrWhiteSpace(form.CustomToken)
-            ? ("secret", "Enter the token the middle man expects.")
+            ? ("secret", "Enter the token the source server expects.")
         : null;
 
     private string CustomProviderName(Connection connection) =>
@@ -3030,7 +3030,7 @@
             CustomConnectionConfig.ToJson(form.CustomProviderId!.Value), null, DateTime.UtcNow, DateTime.UtcNow);
         CustomSourceProbe probe = await CustomSetup.ProbeConnectionAsync(draft, CancellationToken.None);
         testSuccess = probe.Error is null;
-        testMessage = probe.Error ?? $"The provider's middle man is reachable, accepts its token, and offers {probe.Scopes.Count} scope{(probe.Scopes.Count == 1 ? "" : "s")}.";
+        testMessage = probe.Error ?? $"The provider's source server is reachable, accepts its token, and offers {probe.Scopes.Count} scope{(probe.Scopes.Count == 1 ? "" : "s")}.";
         await AuditCustomCheckAsync(testSuccess, testSuccess ? "scopes" : "provider", probe.BaseUrl);
     }
 

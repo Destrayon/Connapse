@@ -82,7 +82,7 @@
         <div class="alert alert-info">
             <span class="bi-info-circle me-2"></span>
             No connections yet. <a href="/connections" class="alert-link">Add one</a> to read from a bucket, a
-            repository, a site or a custom middle man — a connection holds the credential, a source picks a scope inside it.
+            repository, a site or a custom source server — a connection holds the credential, a source picks a scope inside it.
         </div>
     }
 
@@ -1572,7 +1572,7 @@
             {
                 draft.ScopesError = ("Nothing added. "
                     + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
-                    + (gone.Count > 0 ? $"No longer offered by the middle man: {string.Join(", ", gone)}; choose Reload scopes. " : "")
+                    + (gone.Count > 0 ? $"No longer offered by the source server: {string.Join(", ", gone)}; choose Reload scopes. " : "")
                     + string.Join(" ", failed)).TrimEnd();
                 return;
             }
@@ -1581,7 +1581,7 @@
             customDraft = null;
             Succeed($"Added {created.Count} {(created.Count == 1 ? "source" : "sources")}: {string.Join(", ", created)}. They sync on the next cycle, or press Sync."
                 + (skipped.Count > 0 ? $" Skipped, already a source: {string.Join(", ", skipped)}." : "")
-                + (gone.Count > 0 ? $" Not added, no longer offered by the middle man: {string.Join(", ", gone)}." : "")
+                + (gone.Count > 0 ? $" Not added, no longer offered by the source server: {string.Join(", ", gone)}." : "")
                 + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
 
             await LoadAsync();

@@ -60,7 +60,7 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
         {
             response.Dispose();
-            throw new FileNotFoundException($"The middle man no longer has document '{id}'.", id);
+            throw new FileNotFoundException($"The source server no longer has document '{id}'.", id);
         }
 
         await EnsureSuccessAsync(response, path, ct);
@@ -126,7 +126,7 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
             IReadOnlyList<CustomDecision?> results = response.Evaluations ?? [];
             if (results.Count != batch.Length)
                 throw new CustomSourceException(
-                    $"The middle man answered {results.Count} decision(s) for {batch.Length} document(s); none can be trusted.");
+                    $"The source server answered {results.Count} decision(s) for {batch.Length} document(s); none can be trusted.");
 
             decisions.AddRange(results.Select(r => r is { Decision: true } && r.Context?.Error is null));
         }
@@ -178,11 +178,11 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         try
         {
             return await response.Content.ReadFromJsonAsync<T>(Json, ct)
-                ?? throw new CustomSourceException($"The middle man answered {Describe(path)} with an empty body.");
+                ?? throw new CustomSourceException($"The source server answered {Describe(path)} with an empty body.");
         }
         catch (JsonException ex)
         {
-            throw new CustomSourceException($"The middle man answered {Describe(path)} with JSON that does not match the protocol.", ex);
+            throw new CustomSourceException($"The source server answered {Describe(path)} with JSON that does not match the protocol.", ex);
         }
     }
 
@@ -201,7 +201,7 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         }
         catch (HttpRequestException ex)
         {
-            throw new CustomSourceException($"Could not reach the middle man at {_baseUrl}: " + ex.HttpRequestError switch
+            throw new CustomSourceException($"Could not reach the source server at {_baseUrl}: " + ex.HttpRequestError switch
             {
                 HttpRequestError.NameResolutionError => "its host name does not resolve from Connapse. Check the address.",
                 HttpRequestError.ConnectionError => "nothing answered. Check it is running and reachable from the Connapse server or container.",
@@ -212,7 +212,7 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
             throw new CustomSourceException(
-                $"Could not reach the middle man at {_baseUrl}: it did not answer in time. Check it is running and not overloaded.", ex);
+                $"Could not reach the source server at {_baseUrl}: it did not answer in time. Check it is running and not overloaded.", ex);
         }
     }
 
@@ -230,15 +230,15 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         throw response.StatusCode switch
         {
             HttpStatusCode.Gone => new CustomSourceCursorExpiredException(
-                $"The middle man answered {Describe(path)} with 410: its cursor or page token is no longer valid."),
+                $"The source server answered {Describe(path)} with 410: its cursor or page token is no longer valid."),
             HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable => new CustomSourceRateLimitedException(
-                $"The middle man answered {status} and asked Connapse to wait"
+                $"The source server answered {status} and asked Connapse to wait"
                 + (retryAfter is { } wait ? $" {Math.Ceiling(wait.TotalSeconds)} s" : "") + ".", retryAfter),
             _ when status is >= 300 and < 400 => new CustomSourceException(
-                $"The middle man answered {Describe(path)} with a {status} redirect, which Connapse does not follow."),
+                $"The source server answered {Describe(path)} with a {status} redirect, which Connapse does not follow."),
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceUnauthorizedException(
-                $"The middle man refused the token ({status}). Enter the token configured on the middle man."),
-            _ => new CustomSourceException($"The middle man answered {Describe(path)} with {status}. Check the middle man's own logs."),
+                $"The source server refused the token ({status}). Enter the token configured on the source server."),
+            _ => new CustomSourceException($"The source server answered {Describe(path)} with {status}. Check the source server's own logs."),
         };
     }
 

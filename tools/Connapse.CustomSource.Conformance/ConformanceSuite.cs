@@ -378,7 +378,7 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         _ = Documents;
         using HttpResponseMessage response = await SendAsync(HttpMethod.Get,
             DocumentsPath(Scope) + Query(("page_token", "connapse-conformance-unknown-" + Guid.NewGuid().ToString("N"))), ct);
-        ExpectStatus(response, HttpStatusCode.Gone, "A listing page token the middle man never issued");
+        ExpectStatus(response, HttpStatusCode.Gone, "A listing page token the source server never issued");
     }
 
     private async Task UnknownScopeAsync(CancellationToken ct)
@@ -437,7 +437,7 @@ public sealed partial class ConformanceSuite(HttpClient http, ConformanceOptions
         RequireChanges();
         using HttpResponseMessage response = await SendAsync(HttpMethod.Get,
             ChangesPath + Query(("cursor", "connapse-conformance-unknown-" + Guid.NewGuid().ToString("N"))), ct);
-        ExpectStatus(response, HttpStatusCode.Gone, "A change cursor the middle man never issued");
+        ExpectStatus(response, HttpStatusCode.Gone, "A change cursor the source server never issued");
     }
 
     private async Task ChangeRoundTripAsync(CancellationToken ct)

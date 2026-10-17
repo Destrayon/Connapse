@@ -14,8 +14,8 @@ internal sealed class PageGuard(string what, int maxPages = PageGuard.DefaultMax
     public void Next(string token)
     {
         if (!_seen.Add(token))
-            throw new CustomSourceException($"The middle man repeated a page token while paging {what}; stopped instead of looping.");
+            throw new CustomSourceException($"The source server repeated a page token while paging {what}; stopped instead of looping.");
         if (_seen.Count >= maxPages)
-            throw new CustomSourceException($"The middle man returned more than {maxPages} pages of {what}; stopped.");
+            throw new CustomSourceException($"The source server returned more than {maxPages} pages of {what}; stopped.");
     }
 }

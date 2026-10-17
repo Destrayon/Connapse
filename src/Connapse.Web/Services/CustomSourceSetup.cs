@@ -45,7 +45,7 @@ public sealed class CustomSourceSetup(
 
         return CustomConnectionConfig.BaseUrlOf(connection.ConfigJson) is { } baseUrl
             ? new CustomMiddleMan(baseUrl, null)
-            : new CustomMiddleMan(null, null, "This connection names no middle man. Edit it on the Connections page.");
+            : new CustomMiddleMan(null, null, "This connection names no source server. Edit it on the Connections page.");
     }
 
     /// <summary>
@@ -77,7 +77,7 @@ public sealed class CustomSourceSetup(
             return new CustomSourceProbe(null, [], error, "baseUrl");
 
         if (string.IsNullOrWhiteSpace(token))
-            return new CustomSourceProbe(normalized, [], "Enter the token the middle man expects.", "secret");
+            return new CustomSourceProbe(normalized, [], "Enter the token the source server expects.", "secret");
 
         CustomSourceClient client = new(httpClients.CreateClient(CustomSourceClient.HttpClientName), normalized, token.Trim());
         try
@@ -85,11 +85,11 @@ public sealed class CustomSourceSetup(
             CustomDiscovery discovery = await client.GetDiscoveryAsync(ct);
             if (discovery.ProtocolVersions?.Contains("1") != true)
                 return new CustomSourceProbe(normalized, [],
-                    "The middle man does not speak custom source protocol version 1.", "baseUrl", Unreachable: true);
+                    "The source server does not speak custom source protocol version 1.", "baseUrl", Unreachable: true);
 
             IReadOnlyList<CustomScopeItem> scopes = await client.ListScopesAsync(ct);
             return scopes.Count == 0
-                ? new CustomSourceProbe(normalized, [], "The middle man offers no scopes.", "baseUrl")
+                ? new CustomSourceProbe(normalized, [], "The source server offers no scopes.", "baseUrl")
                 : new CustomSourceProbe(normalized, scopes);
         }
         catch (CustomSourceUnauthorizedException ex)

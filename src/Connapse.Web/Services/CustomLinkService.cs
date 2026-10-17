@@ -78,7 +78,7 @@ public sealed class CustomLinkService(
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new CustomSourceException("The middle man did not answer in time.");
+            throw new CustomSourceException("The source server did not answer in time.");
         }
     }
 
@@ -94,7 +94,7 @@ public sealed class CustomLinkService(
     {
         IReadOnlyCollection<string> allowed = settings.CurrentValue.AllowedHttpHosts;
         if (!CustomSourceEndpoint.TryNormalize(removal.BaseUrl, allowed, out string baseUrl, out string? error))
-            throw new CustomSourceException(error ?? "The middle man's address is not allowed.");
+            throw new CustomSourceException(error ?? "The source server's address is not allowed.");
 
         string? token = removal.Token;
         CustomProvider? provider = await providers.GetAsync(removal.ProviderId, ct);

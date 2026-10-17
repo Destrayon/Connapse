@@ -36,7 +36,7 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
             return new CustomProviderCheck(null, false, false, Error: error, Field: "baseUrl");
 
         if (string.IsNullOrWhiteSpace(token))
-            return new CustomProviderCheck(normalized, false, false, Error: "Enter the token the middle man expects.", Field: "secret");
+            return new CustomProviderCheck(normalized, false, false, Error: "Enter the token the source server expects.", Field: "secret");
 
         CustomSourceClient client = Client(normalized, token.Trim());
         CustomDiscovery discovery;
@@ -55,19 +55,19 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
 
         if (discovery.ProtocolVersions?.Contains("1") != true)
             return new CustomProviderCheck(normalized, false, false,
-                Error: "The middle man does not speak custom source protocol version 1.", Field: "baseUrl");
+                Error: "The source server does not speak custom source protocol version 1.", Field: "baseUrl");
 
         if (!await RefusesAWrongTokenAsync(normalized, ct))
             return new CustomProviderCheck(normalized, false, false,
-                Error: "The middle man answered a request carrying a wrong token. It must refuse every request without its token, "
+                Error: "The source server answered a request carrying a wrong token. It must refuse every request without its token, "
                     + "or anyone who can reach it could ask it about anyone's permissions.",
                 Field: "baseUrl");
 
         CustomPermissionCapabilities? permissions = discovery.Capabilities?.Permissions;
         if (permissions?.Check is not { MaxBatch: > 0 } check)
             return new CustomProviderCheck(normalized, true, false,
-                Error: "The middle man does not answer permission checks: its discovery document lists no permissions.check. "
-                    + "Declare it and serve POST /access/v1/evaluations, or add the middle man as a content-only source instead.",
+                Error: "The source server does not answer permission checks: its discovery document lists no permissions.check. "
+                    + "Declare it and serve POST /access/v1/evaluations, or add the source server as a content-only source instead.",
                 Name: discovery.Name);
 
         try
@@ -79,7 +79,7 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
         catch (CustomSourceException ex)
         {
             return new CustomProviderCheck(normalized, true, false,
-                Error: $"A test permission check failed: {ex.Message} Check the middle man's logs for the call to POST /access/v1/evaluations.",
+                Error: $"A test permission check failed: {ex.Message} Check the source server's logs for the call to POST /access/v1/evaluations.",
                 Name: discovery.Name);
         }
 

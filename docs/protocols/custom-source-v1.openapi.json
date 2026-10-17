@@ -3,7 +3,7 @@
   "info": {
     "title": "Connapse custom source protocol",
     "version": "1",
-    "description": "Endpoints a middle man implements so Connapse can sync content from it and check permissions live. Prose specification: custom-source-v1.md."
+    "description": "Endpoints a source server implements so Connapse can sync content from it and check permissions live. Prose specification: custom-source-v1.md."
   },
   "security": [{ "bearer": [] }],
   "paths": {

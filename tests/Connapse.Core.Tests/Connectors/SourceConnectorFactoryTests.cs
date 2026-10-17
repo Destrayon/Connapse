@@ -833,7 +833,7 @@ public class SourceConnectorFactoryTests
 
         Action act = () => _factory.Create(source, connection, "token");
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*its connection's middle man*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*its connection's source server*");
     }
 
     [Fact]

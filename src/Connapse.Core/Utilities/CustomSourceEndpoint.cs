@@ -25,7 +25,7 @@ public static class CustomSourceEndpoint
 
         if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out Uri? uri))
         {
-            error = "Enter the middle man's full address, for example https://bridge.example.com.";
+            error = "Enter the source server's full address, for example https://bridge.example.com.";
             return false;
         }
 

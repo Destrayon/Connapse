@@ -42,7 +42,7 @@ public class PostgresSourceStore(
         // The URL rules depend on deployment settings and are applied where those are read (the setup
         // check and the connector factory); the store only refuses a scope that names no middle man.
         if (request.Provider is ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
-            throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+            throw new ArgumentException("a custom source's scope must name the source server's baseUrl and scopeId", nameof(request));
 
         await using var context = await factory.CreateDbContextAsync(ct);
 
@@ -54,7 +54,7 @@ public class PostgresSourceStore(
 
             // A custom source is the same with or without a custom connection: its scope must name the middle man.
             if (connectionProvider == (int)ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
-                throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+                throw new ArgumentException("a custom source's scope must name the source server's baseUrl and scopeId", nameof(request));
         }
 
         bool nameTaken = await context.Sources.AnyAsync(s => s.Name == name, ct);

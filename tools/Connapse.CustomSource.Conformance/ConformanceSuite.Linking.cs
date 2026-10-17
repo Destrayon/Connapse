@@ -15,7 +15,7 @@ public sealed partial class ConformanceSuite
     private async Task RunLinkingChecksAsync(CancellationToken ct)
     {
         await RunCheckAsync("links.unknown-user", "An unlinked user's status is linked: false", LinkStatusUnknownAsync, ct);
-        await RunCheckAsync("links.unknown-code", "Confirming a code the middle man never issued is answered with 409", ConfirmUnknownCodeAsync, ct);
+        await RunCheckAsync("links.unknown-code", "Confirming a code the source server never issued is answered with 409", ConfirmUnknownCodeAsync, ct);
         await RunCheckAsync("links.unlink-idempotent", "Unlinking a user with no link is answered with 204", UnlinkIdempotentAsync, ct);
         await RunCheckAsync("link.token-accepted", "The linking page accepts a valid link token", TokenAcceptedAsync, ct);
         await RunCheckAsync("link.token-replay", "The linking page refuses a link token it has already seen", TokenReplayAsync, ct);
@@ -49,7 +49,7 @@ public sealed partial class ConformanceSuite
         using HttpResponseMessage response = await SendAsync(HttpMethod.Get, LinksPath(UnknownUser()), ct);
         JsonObject body = await ExpectJsonAsync(response, HttpStatusCode.OK);
         if (body["linked"]?.GetValueKind() != JsonValueKind.False)
-            throw new CheckFailedException("A user the middle man cannot know is not reported as linked: false.");
+            throw new CheckFailedException("A user the source server cannot know is not reported as linked: false.");
     }
 
     private async Task ConfirmUnknownCodeAsync(CancellationToken ct)

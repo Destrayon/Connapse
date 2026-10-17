@@ -112,7 +112,7 @@ public class PostgresConnectionStore(
                         CustomConnectionConfig.BaseUrlOf(before), CustomConnectionConfig.BaseUrlOf(request.ConfigJson))
                     || CustomConnectionConfig.ProviderIdOf(before) != CustomConnectionConfig.ProviderIdOf(request.ConfigJson))
                 && await context.Sources.AnyAsync(s => s.ConnectionId == id, ct))
-                throw new InvalidOperationException("Sources read this connection's middle man, so its address cannot change.");
+                throw new InvalidOperationException("Sources read this connection's source server, so its address cannot change.");
 
             entity.ConfigJson = string.IsNullOrEmpty(request.ConfigJson) ? null : JsonDocument.Parse(request.ConfigJson);
         }

@@ -319,7 +319,7 @@ public class SourceSyncService(
     /// <summary>A custom connection whose middle man refused the token during a sync: it needs a new one.</summary>
     internal static ConnectionHealth CustomTokenRefusedHealth(string sourceName, bool providerToken) =>
         new(DateTime.UtcNow, Succeeded: false, Step: "token",
-            Message: $"The middle man refused the token while syncing source '{sourceName}'. Replace it on "
+            Message: $"The source server refused the token while syncing source '{sourceName}'. Replace it on "
                 + (providerToken ? "the connection's custom provider." : "this connection."),
             Origin: "sync", CredentialRejected: true);
 

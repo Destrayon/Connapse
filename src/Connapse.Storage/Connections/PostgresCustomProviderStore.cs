@@ -66,7 +66,7 @@ public sealed class PostgresCustomProviderStore(
             && await ConnectionCountAsync(context, id, ct) > 0)
             throw new InvalidOperationException(
                 "A custom provider's address cannot change while connections use it: their sources' documents came from the "
-                + "current middle man. Add a new provider for the new address instead.");
+                + "current source server. Add a new provider for the new address instead.");
 
         entity.Name = name;
         entity.BaseUrl = request.BaseUrl;

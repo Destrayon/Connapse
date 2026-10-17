@@ -178,7 +178,7 @@ public class CustomProviderPageTests : IDisposable
         cut.FindAll("#custom-linking button").Single(b => b.TextContent.Contains("Show linking values")).Click();
         cut.Find("#custom-link-replace button").Click();
 
-        cut.Find("#custom-link-replace").TextContent.Should().Contain("New links fail until your middle man has the new secret");
+        cut.Find("#custom-link-replace").TextContent.Should().Contain("New links fail until your source server has the new secret");
         store.DidNotReceive().GenerateLinkSecretAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 

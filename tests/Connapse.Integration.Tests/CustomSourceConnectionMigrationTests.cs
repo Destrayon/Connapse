@@ -40,7 +40,7 @@ public class CustomSourceConnectionMigrationTests(SharedWebAppFixture fixture)
 
         Source[] moved = [(await sources.GetAsync(first.Id))!, (await sources.GetAsync(second.Id))!, (await sources.GetAsync(third.Id))!];
         moved.Should().OnlyContain(s => s.ConnectionId != null && s.Provider == null && !s.HasSecret);
-        moved[0].ConnectionId.Should().Be(moved[1].ConnectionId!.Value, "the same middle man and token share a connection");
+        moved[0].ConnectionId.Should().Be(moved[1].ConnectionId!.Value, "the same source server and token share a connection");
         moved[2].ConnectionId!.Value.Should().NotBe(moved[0].ConnectionId!.Value, "a different token is a different connection");
 
         Connection shared = (await connections.GetAsync(moved[0].ConnectionId!.Value))!;

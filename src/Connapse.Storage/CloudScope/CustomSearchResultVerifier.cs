@@ -110,10 +110,10 @@ public sealed class CustomSearchResultVerifier(
         catch (CustomSourceUnauthorizedException ex) when (connection is not null)
         {
             // Results stay hidden, and the connection says why rather than search going quiet.
-            logger.LogWarning(ex, "Custom source {SourceId}: the middle man refused the provider's token; its results are hidden", sourceId);
+            logger.LogWarning(ex, "Custom source {SourceId}: the source server refused the provider's token; its results are hidden", sourceId);
             if (connection.Health is not { CredentialRejected: true })
                 await connections.RecordHealthAsync(connection.Id, new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token",
-                    Message: "The middle man refused the token during a search permission check. Replace it on the connection's custom provider.",
+                    Message: "The source server refused the token during a search permission check. Replace it on the connection's custom provider.",
                     Origin: "sync", CredentialRejected: true), CancellationToken.None);
             return null;
         }

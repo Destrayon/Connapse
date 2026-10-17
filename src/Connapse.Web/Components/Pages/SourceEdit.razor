@@ -120,7 +120,7 @@
                     @if (connection.Health is { CredentialRejected: true })
                     {
                         <p class="small text-danger fw-semibold mb-2" id="source-token-refused" role="status">
-                            <span class="bi-x-circle me-1" aria-hidden="true"></span>The middle man refused this token, so the source is not reading.
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span>The source server refused this token, so the source is not reading.
                             <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
                         </p>
                     }
@@ -128,12 +128,12 @@
                         <span class="bi-key me-1" aria-hidden="true"></span>
                         @if (CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } providerId)
                         {
-                            <text>This source reads with its custom provider's token. When your middle man's token changes, replace it on </text>
+                            <text>This source reads with its custom provider's token. When your source server's token changes, replace it on </text>
                             <a href="/admin/providers/custom/@providerId">the custom provider's page</a><text>.</text>
                         }
                         else
                         {
-                            <text>This source reads with its connection's token. When your middle man's token changes, replace it on </text>
+                            <text>This source reads with its connection's token. When your source server's token changes, replace it on </text>
                             <a href="/connections?edit=@connection.Id">@connection.Name</a><text>.</text>
                         }
                     </p>

@@ -29,11 +29,11 @@
     <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
 </div>
 <p class="text-muted mb-2">
-    A middle man you run that answers, live, what each Connapse user may read. Custom sources on a connection that
-    uses this provider show a search result only when the middle man says that user may read it.
+    A source server you run that answers, live, what each Connapse user may read. Custom sources on a connection that
+    uses this provider show a search result only when the source server says that user may read it.
 </p>
 <p class="small mb-3" id="custom-provider-prerequisites">
-    You need: a running middle man that speaks protocol version 1 and answers permission checks (it declares
+    You need: a running source server that speaks protocol version 1 and answers permission checks (it declares
     <code>permissions.check</code>), the token it expects, and an HTTPS address (or a host an administrator allowed for plain HTTP).
     <a href="@CustomSourceFieldSpecs.Prerequisites" target="_blank" rel="noopener">Before you start<span class="visually-hidden"> (opens in a new tab)</span></a>
 </p>
@@ -58,7 +58,7 @@ else
     {
         <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-token-refused">
             <span class="bi-x-circle me-1" aria-hidden="true"></span>
-            The middle man refused this provider's token while syncing sources on @string.Join(", ", refusedBy).
+            The source server refused this provider's token while syncing sources on @string.Join(", ", refusedBy).
             Replace the token below; once a check passes and you save, those connections read again.
             <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
         </div>
@@ -72,8 +72,8 @@ else
     }
 
     <ProviderStepCard Id="custom-endpoint"
-                      Title="Middle man"
-                      Description="The address and token Connapse uses to ask your middle man about permissions. It must refuse any request without its token."
+                      Title="Source server"
+                      Description="The address and token Connapse uses to ask your source server about permissions. It must refuse any request without its token."
                       Status="@EndpointStatus"
                       StatusLabel="@EndpointLabel"
                       @bind-Expanded="editEndpoint"
@@ -99,7 +99,7 @@ else
                 {
                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
                 }
-                Check middle man
+                Check source server
             </button>
             @if (check is { EndpointOk: true, PermissionsOk: true })
             {
@@ -127,7 +127,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
 
     <ProviderStepCard Id="custom-permissions"
                       Title="Permission check"
-                      Description="Your middle man must answer live permission checks. Connapse asks it before showing any search result from this provider's sources, and shows nothing it cannot confirm."
+                      Description="Your source server must answer live permission checks. Connapse asks it before showing any search result from this provider's sources, and shows nothing it cannot confirm."
                       Status="@PermissionsStatus"
                       StatusLabel="@PermissionsLabel">
         <Summary>
@@ -159,7 +159,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     {
         <ProviderStepCard Id="custom-linking"
                           Title="Account linking"
-                          Description="Your middle man runs a page where each user links their Connapse account to their account in your system. Connapse signs each link request with a link secret that only it and your middle man know."
+                          Description="Your source server runs a page where each user links their Connapse account to their account in your system. Connapse signs each link request with a link secret that only it and your source server know."
                           Status="@(existing.HasLinkSecret ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured)"
                           StatusLabel="@(existing.HasLinkSecret ? "Link secret set" : "No link secret")"
                           @bind-Expanded="editLinking"
@@ -169,7 +169,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             </Summary>
             <ManualContent>
                 <p class="small mb-2">
-                    Configure your middle man with these values. Each link request is a signed token (a JSON Web Token,
+                    Configure your source server with these values. Each link request is a signed token (a JSON Web Token,
                     signed with HS256 using the link secret's characters exactly as shown).
                 </p>
                 <dl class="row small mb-2">
@@ -194,7 +194,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                                 <span class="bi-clipboard me-1" aria-hidden="true"></span>@(copied ? "Copied" : "Copy")
                             </button>
                         </div>
-                        <div id="custom-link-secret-help" class="mt-1">Copy it into your middle man now. It is not shown again.</div>
+                        <div id="custom-link-secret-help" class="mt-1">Copy it into your source server now. It is not shown again.</div>
                     </div>
                 }
                 @if (existing.HasLinkSecret)
@@ -202,7 +202,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                     <div id="custom-link-replace">
                         <ProviderResetAction Label="Replace link secret" ConfirmLabel="Replace link secret" RestoreFocus="false"
                                              BusyLabel="Replacing…" Disabled="@saving" OnReset="GenerateLinkSecretAsync"
-                                             HelpText="New links fail until your middle man has the new secret. Existing links stay, because your middle man keeps them." />
+                                             HelpText="New links fail until your source server has the new secret. Existing links stay, because your source server keeps them." />
                     </div>
                 }
                 else
@@ -252,7 +252,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                     <ProviderResetAction Label="Delete provider" ConfirmLabel="Delete provider"
                                          ConfirmText="@existing.Name" BusyLabel="Deleting…" Disabled="@(saving || dependants.Count > 0)"
                                          OnReset="DeleteAsync"
-                                         HelpText="Deletes the stored token and link secret. Links people made stay in your middle man until you clear them there." />
+                                         HelpText="Deletes the stored token and link secret. Links people made stay in your source server until you clear them there." />
                 </div>
             </div>
         </section>
@@ -348,7 +348,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         { PermissionsOk: true } => "Answering",
         { EndpointOk: true } => "Not answering",
         null when VerifiedLabel is not null => VerifiedLabel!,
-        _ => "Waiting for the middle man",
+        _ => "Waiting for the source server",
     };
 
     protected override async Task OnParametersSetAsync()
@@ -412,9 +412,9 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         catch (Exception ex)
         {
             // An exception escaping an event handler would end the circuit; its text is for the log.
-            Logger.LogWarning(ex, "Could not check a custom provider's middle man");
+            Logger.LogWarning(ex, "Could not check a custom provider's source server");
             check = new CustomProviderCheck(null, false, false,
-                Error: "Could not check the middle man. Try again; if it keeps failing, the server log has the cause.", Field: "baseUrl");
+                Error: "Could not check the source server. Try again; if it keeps failing, the server log has the cause.", Field: "baseUrl");
         }
         finally
         {

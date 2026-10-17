@@ -1,13 +1,14 @@
 # Connapse custom source protocol, version 1
 
-A **middle man** is a server you run in front of any system — Slack, Jira, S3, an internal app. Connapse
+A **custom source server** (source server below) is any server that speaks this protocol: the system that holds
+the documents itself, or an adapter in front of one, such as Slack, Jira, S3 or an internal app. Connapse
 pulls content from it and, when it is registered as a custom provider, asks it live which documents each
 Connapse user may read. Connapse parses, chunks and embeds the content itself.
 
-This document is for whoever builds the middle man. To add one in Connapse, see
+This document is for whoever builds the source server. To add one in Connapse, see
 [Setting up a custom source](../custom-source-setup.md).
 
-There are two ways Connapse uses a middle man:
+There are two ways Connapse uses a source server:
 
 - **Content-only source.** Implement [Discovery](#discovery), [Scopes](#scopes) and [Content](#content).
   Signed-in Connapse users with access to the source see all of its documents.
@@ -59,7 +60,7 @@ There are two ways Connapse uses a middle man:
 | `permissions.access_keys` | You attach access keys to documents and answer key searches. `cache_ttl_seconds` lets Connapse cache a user's keys; 0 means never. |
 | `permissions.linking` | You run an account-linking page at `link_url`. |
 
-An absent member means unsupported. A content-only middle man omits `permissions`.
+An absent member means unsupported. A content-only source server omits `permissions`.
 
 ## Scopes
 
@@ -100,7 +101,7 @@ becomes a separate Connapse source with its own sync state.
 - `path` is for display and folder grouping only. `title`, `url`, `modified_at` are optional.
 - `version` must change whenever the bytes change. Connapse downloads and re-embeds a document only when
   its `version` changes.
-- `access_keys` and `access_version` are only for middle men with `permissions.access_keys`.
+- `access_keys` and `access_version` are only for source servers with `permissions.access_keys`.
   `access_version` must change whenever `access_keys` change; Connapse then updates the keys without
   re-embedding.
 - A page carries `next_page_token` when more pages follow, or — on the last page only — `change_cursor`.
@@ -249,14 +250,14 @@ Also serve:
   user unlinks and when a Connapse user is deleted, and retries until it succeeds.
 
 Connapse keeps no record of who linked. If an administrator deletes the custom provider or points it at a
-different address, the links in the old middle man stay there; clearing them is up to whoever runs it.
+different address, the links in the old source server stay there; clearing them is up to whoever runs it.
 
-## Testing your middle man
+## Testing your source server
 
 The example server in `samples/Connapse.CustomSource.Example` implements every capability, and
 `custom-source-v1.openapi.json` describes every endpoint above.
 
-`connapse-source-check` (`tools/Connapse.CustomSource.Conformance`) runs against your middle man and checks
+`connapse-source-check` (`tools/Connapse.CustomSource.Conformance`) runs against your source server and checks
 each requirement in this document, skipping those for capabilities your discovery document does not declare.
 It exits 1 when any check fails.
 
