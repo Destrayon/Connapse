@@ -4,6 +4,9 @@ A **middle man** is a server you run in front of any system — Slack, Jira, S3,
 pulls content from it and, when it is registered as a custom provider, asks it live which documents each
 Connapse user may read. Connapse parses, chunks and embeds the content itself.
 
+This document is for whoever builds the middle man. To add one in Connapse, see
+[Setting up a custom source](../custom-source-setup.md).
+
 There are two ways Connapse uses a middle man:
 
 - **Content-only source.** Implement [Discovery](#discovery), [Scopes](#scopes) and [Content](#content).

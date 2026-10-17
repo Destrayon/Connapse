@@ -97,10 +97,58 @@ public static class AtlassianLinkAppFieldSpecs
         ManualValues, GuideSection, "Where to find this", MaxWidth: "28rem");
 
     public static readonly ProviderFieldSpec ClientSecret = new(
-        "atlassian-app-client-secret", "Client secret",ProviderFieldKind.Secret, Required: true,
+        "atlassian-app-client-secret", "Client secret", ProviderFieldKind.Secret, Required: true,
         "Labelled Secret, below the client ID: one long string of characters. Stored encrypted and never shown again.",
         ManualValues, GuideSection, "Where to find this", MaxWidth: "28rem");
 
     /// <summary>Every field, in the order they are rendered, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } = [ClientId, ClientSecret];
+}
+
+/// <summary>
+/// The custom provider's and custom source's fields: the values an administrator copies from the middle man
+/// they run. One guide covers all of them, in the order they are set up.
+/// </summary>
+public static class CustomSourceFieldSpecs
+{
+    public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/custom-source-setup.md";
+    public const string Prerequisites = Guide + "#before-you-start";
+    public const string Troubleshooting = Guide + "#troubleshooting";
+    private const string MiddleMan = "Middle man";
+    private const string NewSource = "New source";
+
+    public static readonly ProviderFieldSpec ProviderName = new(
+        "custom-provider-name", "Name", ProviderFieldKind.Text, Required: true,
+        "What the Providers and Connections pages call this middle man. Filled in from the name your middle man reports.",
+        MiddleMan, Guide + "#1-custom-provider", "Setting up a provider", Placeholder: "Acme bridge", MaxWidth: "28rem");
+
+    public static readonly ProviderFieldSpec ProviderBaseUrl = new(
+        "custom-provider-url", "Base URL", ProviderFieldKind.Text, Required: true,
+        "The address of your middle man. It must use HTTPS unless an administrator allowed plain HTTP for its host.",
+        MiddleMan, Guide + "#1-custom-provider", "Where to find this", Placeholder: "https://bridge.example.com");
+
+    public static readonly ProviderFieldSpec ProviderToken = new(
+        "custom-provider-token", "Token", ProviderFieldKind.Secret, Required: true,
+        "The bearer token you configured on your middle man. Stored encrypted and never shown again.",
+        MiddleMan, Guide + "#1-custom-provider", "Where to find this",
+        KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
+
+    public static readonly ProviderFieldSpec SourceBaseUrl = new(
+        "custom-source-url", "Base URL", ProviderFieldKind.Text, Required: true,
+        "The address of the middle man that serves this source's documents.",
+        NewSource, Guide + "#3-custom-source", "Adding a custom source", Placeholder: "https://bridge.example.com");
+
+    public static readonly ProviderFieldSpec SourceToken = new(
+        "custom-source-token", "Token", ProviderFieldKind.Secret, Required: true,
+        "The bearer token you configured on your middle man. Stored encrypted and never shown again.",
+        NewSource, Guide + "#3-custom-source", "Where to find this");
+
+    public static readonly ProviderFieldSpec ReplacementToken = new(
+        "source-token", "New token", ProviderFieldKind.Secret, Required: true,
+        "The token your middle man now expects. Connapse checks it with the middle man before it replaces the stored one.",
+        "Token", Guide + "#replacing-a-token", "Replacing a token", MaxWidth: "28rem");
+
+    /// <summary>Every field, for the check that the setup guide documents each one.</summary>
+    public static IReadOnlyList<ProviderFieldSpec> All { get; } =
+        [ProviderName, ProviderBaseUrl, ProviderToken, SourceBaseUrl, SourceToken, ReplacementToken];
 }
