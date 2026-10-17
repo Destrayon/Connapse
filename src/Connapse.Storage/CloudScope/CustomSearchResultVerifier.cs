@@ -82,10 +82,11 @@ public sealed class CustomSearchResultVerifier(
     private async Task<IReadOnlyList<bool>?> CheckAsync(
         Guid sourceId, Guid userId, IReadOnlyList<string> documentIds, CancellationToken budget, CancellationToken ct)
     {
+        Connection? connection = null;
         try
         {
             Source? source = await sources.GetAsync(sourceId, ct);
-            Connection? connection = source?.ConnectionId is { } connectionId ? await connections.GetAsync(connectionId, ct) : null;
+            connection = source?.ConnectionId is { } connectionId ? await connections.GetAsync(connectionId, ct) : null;
             if (source is null || connection is not { Provider: ConnectionProvider.Custom }
                 || CustomSourceScope.TryParse(source.ScopeJson) is not { } scope)
                 return null;
@@ -105,6 +106,16 @@ public sealed class CustomSearchResultVerifier(
 
             CustomSourceClient client = new(httpClients.CreateClient(CustomSourceClient.HttpClientName), baseUrl, token);
             return await client.EvaluateAsync(userId.ToString(), scope.ScopeId, documentIds, Math.Max(1, provider.MaxCheckBatch), budget);
+        }
+        catch (CustomSourceUnauthorizedException ex) when (connection is not null)
+        {
+            // Results stay hidden, and the connection says why rather than search going quiet.
+            logger.LogWarning(ex, "Custom source {SourceId}: the middle man refused the provider's token; its results are hidden", sourceId);
+            if (connection.Health is not { CredentialRejected: true })
+                await connections.RecordHealthAsync(connection.Id, new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token",
+                    Message: "The middle man refused the token during a search permission check. Replace it on the connection's custom provider.",
+                    Origin: "sync", CredentialRejected: true), CancellationToken.None);
+            return null;
         }
         catch (Exception ex) when (ex is CustomSourceException or HttpRequestException or InvalidOperationException
                                    || (ex is OperationCanceledException && !ct.IsCancellationRequested))

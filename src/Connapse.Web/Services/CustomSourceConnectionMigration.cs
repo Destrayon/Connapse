@@ -31,8 +31,16 @@ public sealed class CustomSourceConnectionMigration(
         {
             if (connection.Provider != ConnectionProvider.Custom
                 || CustomConnectionConfig.BaseUrlOf(connection.ConfigJson) is not { } baseUrl) continue;
-            string? token = connection.HasSecret ? await connections.GetSecretAsync(connection.Id, ct) : null;
-            byMiddleMan.TryAdd((baseUrl, token), connection);
+            try
+            {
+                string? token = connection.HasSecret ? await connections.GetSecretAsync(connection.Id, ct) : null;
+                byMiddleMan.TryAdd((baseUrl, token), connection);
+            }
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or InvalidOperationException)
+            {
+                // Not reusable, but no reason to stop moving the sources: a new connection is made instead.
+                logger.LogWarning(ex, "Connection {ConnectionId}'s token cannot be read; it is not reused for moved custom sources", connection.Id);
+            }
         }
 
         int moved = 0;
@@ -52,9 +60,15 @@ public sealed class CustomSourceConnectionMigration(
                 continue;
             }
 
+            if (!Uri.TryCreate(scope.BaseUrl, UriKind.Absolute, out Uri? address))
+            {
+                logger.LogWarning("Custom source {SourceId} was not moved onto a connection: its address cannot be read", source.Id);
+                continue;
+            }
+
             if (!byMiddleMan.TryGetValue((scope.BaseUrl, token), out Connection? target))
             {
-                string name = UniqueName(new Uri(scope.BaseUrl).Host, names);
+                string name = UniqueName(address.Host, names);
                 target = await connections.CreateAsync(new CreateConnectionRequest(
                     name, ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan(scope.BaseUrl), token), createdByUserId: null);
                 names.Add(name);
