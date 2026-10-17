@@ -226,8 +226,8 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
             _ when status is >= 300 and < 400 => new CustomSourceException(
                 $"The middle man answered {Describe(path)} with a {status} redirect, which Connapse does not follow."),
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new CustomSourceUnauthorizedException(
-                $"The middle man refused the token ({status}). Check the token entered for this source."),
-            _ => new CustomSourceException($"The middle man answered {Describe(path)} with {status}."),
+                $"The middle man refused the token ({status}). Enter the token configured on the middle man."),
+            _ => new CustomSourceException($"The middle man answered {Describe(path)} with {status}. Check the middle man's own logs."),
         };
     }
 
