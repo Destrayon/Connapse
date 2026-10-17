@@ -57,14 +57,14 @@
             {
                 <p class="text-muted small mb-0" data-status="unlinked">
                     <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>
-                    You sign in at <strong>@Provider.Name</strong>, which then tells Connapse what you can read there.
-                    Connapse stores nothing about the link.
+                    You sign in at <strong>@Provider.Name</strong>, which receives your Connapse user ID and then tells
+                    Connapse what you can read there. Connapse stores nothing about the link.
                 </p>
             }
 
             @if (error is not null)
             {
-                <div class="text-danger small mt-2" role="alert">@error</div>
+                <div class="text-danger small fw-semibold mt-2" role="alert"><span class="bi-x-circle me-1" aria-hidden="true"></span>@error</div>
             }
         </div>
         @if (!loading)
@@ -76,13 +76,19 @@
                     {
                         <p class="small text-muted mb-2">You will stop seeing @Provider.Name content that needs your account.</p>
                         <div class="d-flex gap-2">
-                            <button class="btn btn-sm btn-danger" data-action="unlink-confirm" @onclick="UnlinkAsync" disabled="@busy">Disconnect @Provider.Name</button>
-                            <button class="btn btn-sm btn-outline-secondary" data-action="unlink-cancel" @onclick="() => confirmUnlink = false">Cancel</button>
+                            <button @ref="confirmButton" class="btn btn-sm btn-danger" data-action="unlink-confirm" @onclick="UnlinkAsync" disabled="@busy">
+                                @if (busy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                }
+                                Disconnect @Provider.Name
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" data-action="unlink-cancel" @onclick="CancelUnlink" disabled="@busy">Cancel</button>
                         </div>
                     }
                     else
                     {
-                        <button class="btn btn-sm btn-outline-danger" data-action="unlink" @onclick="() => confirmUnlink = true" disabled="@busy">
+                        <button @ref="unlinkButton" class="btn btn-sm btn-outline-danger" data-action="unlink" @onclick="AskUnlink" disabled="@busy">
                             <span class="bi-x-circle me-1" aria-hidden="true"></span>Disconnect
                         </button>
                     }
@@ -110,6 +116,22 @@
     private bool loading = true;
     private bool statusUnknown;
     private bool confirmUnlink;
+    private ElementReference unlinkButton;
+    private ElementReference confirmButton;
+
+    /// <summary>Where focus goes after the next render, as the buttons swap: into the confirmation, or back.</summary>
+    private bool? focusConfirm;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusConfirm is not { } intoConfirm) return;
+        focusConfirm = null;
+        await (intoConfirm ? confirmButton : unlinkButton).FocusAsync();
+    }
+
+    private void AskUnlink() => (confirmUnlink, focusConfirm) = (true, true);
+
+    private void CancelUnlink() => (confirmUnlink, focusConfirm) = (false, false);
     private bool busy;
     private string? error;
 
@@ -153,7 +175,7 @@
         catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
         {
             // An exception escaping an event handler would end the circuit.
-            error = $"{Provider.Name} did not remove the link. Try again later.";
+            error = $"{Provider.Name} did not remove the link, so you are still linked. Try again later.";
         }
         finally
         {
