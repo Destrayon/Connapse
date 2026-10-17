@@ -116,6 +116,7 @@ public static class CustomSourceFieldSpecs
     public const string Troubleshooting = Guide + "#troubleshooting";
     private const string MiddleMan = "Middle man";
     private const string NewSource = "New source";
+    private const string Connection = "Custom connection";
 
     public static readonly ProviderFieldSpec ProviderName = new(
         "custom-provider-name", "Name", ProviderFieldKind.Text, Required: true,
@@ -131,6 +132,17 @@ public static class CustomSourceFieldSpecs
         "custom-provider-token", "Token", ProviderFieldKind.Secret, Required: true,
         "The bearer token you configured on your middle man. Stored encrypted and never shown again.",
         MiddleMan, Guide + "#1-custom-provider", "Where to find this",
+        KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
+
+    public static readonly ProviderFieldSpec ConnectionBaseUrl = new(
+        "custom-connection-url", "Base URL", ProviderFieldKind.Text, Required: true,
+        "The address of the middle man this connection's sources read. It must use HTTPS unless an administrator allowed plain HTTP for its host.",
+        Connection, Guide + "#2-custom-connection", "Adding a connection", Placeholder: "https://bridge.example.com");
+
+    public static readonly ProviderFieldSpec ConnectionToken = new(
+        "custom-connection-token", "Token", ProviderFieldKind.Secret, Required: true,
+        "The bearer token you configured on your middle man. Connapse checks it before saving, stores it encrypted and never shows it again.",
+        Connection, Guide + "#2-custom-connection", "Where to find this",
         KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
 
     public static readonly ProviderFieldSpec SourceBaseUrl = new(
@@ -150,5 +162,5 @@ public static class CustomSourceFieldSpecs
 
     /// <summary>Every field, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } =
-        [ProviderName, ProviderBaseUrl, ProviderToken, SourceBaseUrl, SourceToken, ReplacementToken];
+        [ProviderName, ProviderBaseUrl, ProviderToken, ConnectionBaseUrl, ConnectionToken, SourceBaseUrl, SourceToken, ReplacementToken];
 }
