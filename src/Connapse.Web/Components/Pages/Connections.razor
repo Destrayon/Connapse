@@ -1930,6 +1930,7 @@
         {
             "atlassian" or "confluence" => ConnectionForm.ConfluenceSiteChoice,
             "jira" => ConnectionForm.JiraSiteChoice,
+            "custom" => nameof(ConnectionProvider.Custom),
             _ => null,
         };
         if (choice is null)
@@ -1937,6 +1938,9 @@
 
         await StartCreate();
         form.ProviderChoice = choice;
+        // From a custom provider just saved: the connection names it.
+        if (choice == nameof(ConnectionProvider.Custom) && query.TryGetValue("provider", out var provider))
+            SelectCustomProvider(provider.ToString());
     }
 
     /// <summary>Opened from a source that needs a permission the site's credential lacks.</summary>
