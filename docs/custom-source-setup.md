@@ -64,11 +64,12 @@ stored token. The stored token is only ever sent to the stored address; to chang
 
 ## 3. Custom source
 
-**Sources → New source**, then pick your custom connection. The dialog shows the middle man it reads.
+**Sources → New source**, then pick your custom connection. The dialog shows the middle man it reads and loads
+the scopes it offers; **Reload scopes** asks again.
 
 | Field | Where it comes from |
 |---|---|
-| **Scope** | Choose **Load scopes**, then pick one. Each scope your middle man offers becomes its own source. |
+| **Scope** | Loaded from your middle man when you pick the connection. Each scope it offers becomes its own source. |
 | **Name** | Filled in from the scope's name. |
 | **Description**, **Sync interval in seconds** | Optional. The interval is at least 60, and your middle man may ask for a longer one. |
 
@@ -118,7 +119,7 @@ stores nothing about the link. Deleting a Connapse user removes their link at ev
 | "answered N decision(s) for M document(s); none can be trusted" | A permission check answer had the wrong number of results. | Fix the middle man to answer one decision per document, in order. |
 | "This connection names no middle man." | A custom connection's settings are incomplete. | Edit the connection and choose a provider or enter a middle man. |
 | "A custom provider's address cannot change while connections use it" | Connections read the provider's current address. | Add a new provider for the other address, and new connections on it. |
-| "The middle man no longer offers the scope" | The scope was removed between Load scopes and Create. | Choose **Load scopes** again and pick another. |
+| "The middle man no longer offers the scope" | The scope was removed after the scopes loaded. | Choose **Reload scopes** and pick another. |
 | "Could not load the scopes." or "Could not check the middle man." | Something unexpected failed in Connapse. | Try again; the server log has the cause. |
 | "… cannot sync: it reads …, but its connection's middle man is …" | The source's address no longer matches its connection's. | Add a new source on the connection; this one cannot be repointed. |
 | "Sources read this address, so it cannot change." | The connection's sources read the current address. | Add a new connection for the other middle man, and new sources on it. |

@@ -1516,7 +1516,9 @@
         if (draft.Scopes.Count == 0 || draft.ScopeId is null)
         {
             // Shown beside the Load scopes button, where the fix is.
-            draft.Error ??= "Press Load scopes and pick a scope.";
+            draft.Error ??= draft.Loading
+                ? "The scopes are still loading. Pick one once they appear."
+                : "Load the scopes and pick one.";
             return;
         }
 

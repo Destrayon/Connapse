@@ -116,10 +116,19 @@ public class NewSourceCustomTests : IDisposable
         return connection;
     }
 
-    private static void LoadScopes(IRenderedComponent<SourcesPage> cut)
-    {
-        cut.Find("#custom-source-load").Click();
+    // The scopes load on their own once a custom connection is chosen.
+    private static void LoadScopes(IRenderedComponent<SourcesPage> cut) =>
         cut.WaitForAssertion(() => cut.Find("#custom-source-scope"));
+
+    [Fact]
+    public void NewSource_CustomConnection_LoadsItsScopesWithoutBeingAsked()
+    {
+        AddContentOnlyConnection();
+        var cut = OpenDialog();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scope").TextContent.Should().Contain("Engineering"));
+        cut.Find("#custom-source-loaded").TextContent.Should().Contain("Loaded");
+        cut.Find("#custom-source-load").TextContent.Should().Contain("Reload scopes");
     }
 
     [Fact]
@@ -170,8 +179,6 @@ public class NewSourceCustomTests : IDisposable
         AddContentOnlyConnection(token: "wrong");
         var cut = OpenDialog();
 
-        cut.Find("#custom-source-load").Click();
-
         cut.WaitForAssertion(() => cut.Find("#custom-source-error").TextContent
             .Should().Contain("Replace the token on the connection"));
         cut.FindAll("#custom-source-scope").Should().BeEmpty();
@@ -196,12 +203,15 @@ public class NewSourceCustomTests : IDisposable
     public void NewSource_CustomSourceCreatedBeforeScopesAreLoaded_IsRefused()
     {
         AddContentOnlyConnection();
+        remote.Hold = new TaskCompletionSource();
         var cut = OpenDialog();
 
         cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
 
-        cut.WaitForAssertion(() => cut.Find("#custom-source-error").TextContent.Should().Contain("Load scopes"));
+        cut.WaitForAssertion(() => cut.Find("#custom-source-error").TextContent.Should().Contain("still loading"));
         created.Should().BeEmpty();
+        remote.Hold.SetResult();
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scope"));
     }
 
     [Fact]

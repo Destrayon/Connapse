@@ -35,7 +35,7 @@ else
         {
             <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
         }
-        Load scopes
+        @(Draft.Loading ? "Loading scopes" : Draft.Scopes.Count > 0 ? "Reload scopes" : "Load scopes")
     </button>
     @if (Draft.Error is null && Draft.Scopes.Count > 0)
     {
@@ -69,6 +69,19 @@ else
 @code {
     [Parameter, EditorRequired]
     public CustomSourceDraft Draft { get; set; } = null!;
+
+    /// <summary>The draft whose scopes were last loaded on its own, so each connection chosen loads once.</summary>
+    private CustomSourceDraft? autoLoaded;
+
+    // The connection holds the address and token, so there is nothing to enter first: the scopes load as soon as
+    // a custom connection is chosen. The button stays for loading them again.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ReferenceEquals(autoLoaded, Draft)) return;
+        autoLoaded = Draft;
+        if (Draft.Error is null && Draft.BaseUrl is not null && Draft.Scopes.Count == 0)
+            await LoadScopesAsync();
+    }
 
     private async Task LoadScopesAsync()
     {
