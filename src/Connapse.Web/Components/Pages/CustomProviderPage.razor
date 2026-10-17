@@ -80,7 +80,7 @@ else
                       EditLabel="Change address or token"
                       EasyTitle="Try it with the example server">
         <Summary>
-            <span class="font-monospace">@(check?.BaseUrl ?? existing?.BaseUrl)</span>
+            <span class="font-monospace text-break">@(check?.BaseUrl ?? existing?.BaseUrl)</span>
         </Summary>
         <ManualContent>
             <ProviderField @ref="urlField" Spec="CustomSourceFieldSpecs.ProviderBaseUrl" Value="@baseUrl"
@@ -101,6 +101,12 @@ else
                 }
                 Check middle man
             </button>
+            @if (check is { EndpointOk: true, PermissionsOk: true })
+            {
+                <div id="custom-provider-check-result" class="small text-success mt-2" role="status">
+                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Check passed: reachable, token accepted, wrong token refused, permission check answered.
+                </div>
+            }
         </ManualContent>
         <EasyContent>
             <p class="small mb-2">
@@ -180,6 +186,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                             <input @ref="linkSecretInput" id="custom-link-secret" class="form-control font-monospace" readonly value="@newLinkSecret"
                                    type="@(showLinkSecret ? "text" : "password")" autocomplete="off" aria-describedby="custom-link-secret-help" />
                             <button id="custom-link-show" type="button" class="btn btn-outline-secondary" aria-pressed="@(showLinkSecret ? "true" : "false")"
+                                    aria-label="Show link secret" aria-controls="custom-link-secret"
                                     @onclick="() => showLinkSecret = !showLinkSecret">
                                 <span class="@(showLinkSecret ? "bi-eye-slash" : "bi-eye") me-1" aria-hidden="true"></span>Show
                             </button>
@@ -471,6 +478,12 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             else
                 (urlError, focus) = (ex.Message, Focus.Url);
         }
+        catch (Exception ex)
+        {
+            // An exception escaping an event handler would end the circuit and lose the form.
+            Logger.LogWarning(ex, "Could not save a custom provider");
+            error = "Could not save the provider, so nothing was changed. Try again; if it keeps failing, the server log has the cause.";
+        }
         finally
         {
             saving = false;
@@ -498,6 +511,11 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             editLinking = true; // keep the new secret on screen once the step shows as done
             showLinkSecret = false;
             focus = Focus.LinkSecret;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not generate a custom provider's link secret");
+            error = "Could not generate the link secret, so the old one still works. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {
@@ -535,6 +553,11 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         {
             error = ex.Message;
             await LoadDependantsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not delete a custom provider");
+            error = "Could not delete the provider, so nothing was changed. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {
