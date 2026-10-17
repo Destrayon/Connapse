@@ -150,7 +150,8 @@ public class ConnectorFactory(
             // connection only adds the URIs and keys its documents are checked by.
             // Only a connection that names a custom provider checks permissions; one without reads content only.
             ConnectionProvider.Custom => CreateCustomSource(source, secret,
-                permissionsFor: Custom.CustomSourceCredentials.ChecksPermissions(connection) ? source.Id : null),
+                permissionsFor: Custom.CustomSourceCredentials.ChecksPermissions(connection) ? source.Id : null,
+                connectionBaseUrl: CustomConnectionConfig.BaseUrlOf(connection.ConfigJson)),
 
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };
@@ -187,11 +188,17 @@ public class ConnectorFactory(
     /// A content-only custom source. The URL rules are checked again here, not only when the source is
     /// saved, so a tightened <c>CustomSources:AllowedHttpHosts</c> stops an existing source from syncing.
     /// </summary>
-    private Custom.CustomSourceConnector CreateCustomSource(Source source, string? secret, Guid? permissionsFor = null)
+    private Custom.CustomSourceConnector CreateCustomSource(
+        Source source, string? secret, Guid? permissionsFor = null, string? connectionBaseUrl = null)
     {
         CustomSourceScope scope = CustomSourceScope.TryParse(source.ScopeJson)
             ?? throw new InvalidOperationException(
                 $"Source '{source.Name}' has a scope that does not name a middle man URL and scope.");
+
+        // A connection's token is only sent to the middle man the connection names.
+        if (connectionBaseUrl is not null && !CustomSourceEndpoint.SameAddress(scope.BaseUrl, connectionBaseUrl))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' cannot sync: it reads {scope.BaseUrl}, but its connection's middle man is {connectionBaseUrl}.");
 
         IReadOnlyCollection<string> allowedHttpHosts = customSourceSettings?.CurrentValue.AllowedHttpHosts ?? [];
         if (!CustomSourceEndpoint.TryNormalize(scope.BaseUrl, allowedHttpHosts, out string baseUrl, out string? error))
@@ -199,7 +206,7 @@ public class ConnectorFactory(
 
         if (string.IsNullOrEmpty(secret))
             throw new InvalidOperationException(
-                $"Source '{source.Name}' has no stored token for its middle man; recreate it with the token.");
+                $"Source '{source.Name}' cannot sync: its connection holds no token. Enter one on the connection or its custom provider.");
 
         Custom.CustomSourceClient client = new(
             httpClientFactory.CreateClient(Custom.CustomSourceClient.HttpClientName), baseUrl, secret);

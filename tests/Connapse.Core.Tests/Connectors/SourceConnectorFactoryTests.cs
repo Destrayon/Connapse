@@ -826,6 +826,17 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
+    public void Create_SourceReadingAnotherMiddleManThanItsConnection_IsRefused()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"));
+        Source source = MakeCustomSource("https://other.acme.test") with { ConnectionId = connection.Id, Provider = null };
+
+        Action act = () => _factory.Create(source, connection, "token");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*its connection's middle man*");
+    }
+
+    [Fact]
     public void Create_CustomSourceOverPlainHttpToAHostNotAllowed_IsRefused()
     {
         Action act = () => _factory.Create(MakeCustomSource("http://bridge.acme.test"), secret: "token");

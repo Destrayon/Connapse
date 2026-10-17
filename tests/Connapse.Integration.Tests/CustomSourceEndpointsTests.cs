@@ -183,6 +183,21 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task ConnectionAddress_CannotMoveWhileSourcesReadIt()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+        await StoredAsync(await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id)));
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        IConnectionStore connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        Func<Task> act = () => connections.UpdateAsync(connection.Id,
+            new UpdateConnectionRequest(connection.Name, CustomConnectionConfig.ForMiddleMan("https://attacker.example")));
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        CustomConnectionConfig.BaseUrlOf((await connections.GetAsync(connection.Id))!.ConfigJson).Should().Be(FakeMiddleMan.BaseUrl);
+    }
+
     private async Task<Guid> CreatedOnAConnectionAsync()
     {
         Connection connection = await ContentOnlyConnectionAsync();

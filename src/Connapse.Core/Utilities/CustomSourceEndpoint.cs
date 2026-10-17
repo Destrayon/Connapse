@@ -7,6 +7,10 @@ namespace Connapse.Core.Utilities;
 /// </summary>
 public static class CustomSourceEndpoint
 {
+    /// <summary>Whether two middle man addresses are the same, ignoring case and a trailing slash.</summary>
+    public static bool SameAddress(string? a, string? b) =>
+        string.Equals(a?.Trim().TrimEnd('/'), b?.Trim().TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+
     public const string AllowedHttpHostsKey = CustomSourceSettings.SectionName + ":AllowedHttpHosts";
 
     /// <param name="normalized">Scheme and host lower-cased, default port dropped, no trailing slash.</param>
