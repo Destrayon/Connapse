@@ -19,7 +19,8 @@ are two kinds of custom connection:
   example server in `samples/Connapse.CustomSource.Example` is one; `connapse-source-check` (see the protocol
   document's last section) tells you whether yours meets the protocol.
 - **A token.** Your middle man decides its bearer token; Connapse sends it on every request. A middle man must
-  refuse requests without it, or with a wrong one, with `401`.
+  refuse requests without it, or with a wrong one, with `401`. Connapse only reads, so give the token read-only
+  access on your middle man.
 - **HTTPS.** Connapse only calls `https://` addresses. For a middle man on the same machine or Docker network,
   an administrator can allow plain HTTP for its host by listing it in the `CustomSources:AllowedHttpHosts`
   setting (for example the environment variable `CustomSources__AllowedHttpHosts__0=bridge`).
@@ -57,8 +58,9 @@ permission checks, or **No provider (content only)**. Without a provider, enter:
 | **Base URL** | Your middle man's address, such as `https://bridge.acme.internal`. It cannot change once sources use it. |
 | **Token** | The bearer token configured on your middle man. |
 
-Connapse checks the middle man with that token before it saves the connection; a token it refuses is never
-stored. With a provider, the connection holds nothing itself: the provider's address and token are used.
+Choose **Test connection** to check the middle man without saving, or save: Connapse checks it with that token
+before it saves, and a token it refuses is never stored. Later, **Edit** then **Test connection** re-checks with the
+stored token. The stored token is only ever sent to the stored address; to change the address, enter its token too. With a provider, the connection holds nothing itself: the provider's address and token are used.
 
 ## 3. Custom source
 
@@ -107,7 +109,18 @@ stores nothing about the link. Deleting a Connapse user removes their link at ev
 | "Could not reach the middle man … its host name does not resolve" | The host name is wrong, or not resolvable from where Connapse runs. | Check the address. In Docker, use the middle man's container or service name on Connapse's network. |
 | "Could not reach the middle man … nothing answered" or "… did not answer in time" | It is down, overloaded, or a firewall is in the way. | Check it is running and reachable from the Connapse server or container. |
 | "Could not reach the middle man … the HTTPS connection failed" | Its certificate is expired, self-signed, or for another name. | Give it a certificate Connapse's host trusts. |
-| "This connection holds no token." | A content-only connection was saved without one. | Edit the connection and enter the token. |
+| "This connection holds no token.", or "… its connection holds no token" | A content-only connection was saved without one. | Edit the connection and enter the token. |
+| "Enter the token for this address. The saved token is only sent to …" | The address changed and the token field was left blank. | Enter the token the new address expects, or put the old address back. |
+| "Enter the middle man's full address, for example https://bridge.example.com." | The address is not a full URL. | Enter it with `https://` and the host. |
+| "Use an HTTPS address." | The address uses a scheme other than HTTPS or allowed HTTP. | Use `https://`. |
+| "answered … with an empty body" or "… JSON that does not match the protocol" | The middle man answered outside the protocol. | Compare its answer with the protocol document, or run `connapse-source-check` against it. |
+| "asked Connapse to wait" | The middle man answered `429` or `503`. | Nothing to do; Connapse retries later. If it persists, check the middle man's load. |
+| "answered N decision(s) for M document(s); none can be trusted" | A permission check answer had the wrong number of results. | Fix the middle man to answer one decision per document, in order. |
+| "This connection names no middle man." | A custom connection's settings are incomplete. | Edit the connection and choose a provider or enter a middle man. |
+| "A custom provider's address cannot change while connections use it" | Connections read the provider's current address. | Add a new provider for the other address, and new connections on it. |
+| "The middle man no longer offers the scope" | The scope was removed between Load scopes and Create. | Choose **Load scopes** again and pick another. |
+| "Could not load the scopes." or "Could not check the middle man." | Something unexpected failed in Connapse. | Try again; the server log has the cause. |
+| "… cannot sync: it reads …, but its connection's middle man is …" | The source's address no longer matches its connection's. | Add a new source on the connection; this one cannot be repointed. |
 | "Sources read this address, so it cannot change." | The connection's sources read the current address. | Add a new connection for the other middle man, and new sources on it. |
 | "Enter a whole number of seconds, at least 60" | The sync interval is not a number, or below 60. | Enter 60 or more, or leave it empty for the default. |
 | "The middle man answered … with 500" | The middle man failed. | Check the middle man's own logs. |

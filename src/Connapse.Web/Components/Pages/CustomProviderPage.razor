@@ -13,6 +13,7 @@
 @inject IAuditLogger AuditLogger
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject ILogger<CustomProviderPage> Logger
 
 <PageTitle>@(existing?.Name ?? "New custom provider") - Connapse</PageTitle>
 
@@ -32,8 +33,8 @@
     uses this provider show a search result only when the middle man says that user may read it.
 </p>
 <p class="small mb-3" id="custom-provider-prerequisites">
-    You need: a running middle man that speaks protocol version 1 and declares <code>permissions.check</code>, the
-    token it expects, and an HTTPS address (or a host an administrator allowed for plain HTTP).
+    You need: a running middle man that speaks protocol version 1 and answers permission checks (it declares
+    <code>permissions.check</code>), the token it expects, and an HTTPS address (or a host an administrator allowed for plain HTTP).
     <a href="@CustomSourceFieldSpecs.Prerequisites" target="_blank" rel="noopener">Before you start<span class="visually-hidden"> (opens in a new tab)</span></a>
 </p>
 
@@ -49,7 +50,7 @@ else
             @message
             @if (savedNew)
             {
-                <a class="btn btn-sm btn-success ms-2" id="custom-provider-next" href="/connections">Add a connection</a>
+                <a class="btn btn-sm btn-outline-primary ms-2" id="custom-provider-next" href="/connections?new=custom">Add a connection</a>
             }
         </div>
     }
@@ -59,12 +60,14 @@ else
             <span class="bi-x-circle me-1" aria-hidden="true"></span>
             The middle man refused this provider's token while syncing sources on @string.Join(", ", refusedBy).
             Replace the token below; once a check passes and you save, those connections read again.
+            <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
         </div>
     }
     @if (error is not null)
     {
         <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-error">
             <span class="bi-x-circle me-1" aria-hidden="true"></span>@error
+            <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
         </div>
     }
 
@@ -81,8 +84,8 @@ else
         </Summary>
         <ManualContent>
             <ProviderField @ref="urlField" Spec="CustomSourceFieldSpecs.ProviderBaseUrl" Value="@baseUrl"
-                           ValueChanged="v => { baseUrl = v ?? string.Empty; check = null; }"
-                           Error="@(check?.Field == "baseUrl" ? check.Error : null)">
+                           ValueChanged="v => { baseUrl = v ?? string.Empty; check = null; urlError = null; }"
+                           Error="@(urlError ?? (check?.Field == "baseUrl" ? check.Error : null))">
                 <ErrorContent><a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a></ErrorContent>
             </ProviderField>
             <PlainHttpWarning Id="custom-provider-plain-http" BaseUrl="@baseUrl" />
@@ -131,7 +134,10 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             }
             else if (check is null && existing?.VerifiedAt is not null)
             {
-                <span>Answered a test check when the provider was last verified.</span>
+                <span>Answered a test check when the provider was last verified. Checks up to @existing.MaxCheckBatch documents per request.</span>
+                <span>@(existing.SupportsAccessKeys
+                    ? " It gives documents access keys, so searches look only at documents each user holds a key for."
+                    : " It gives documents no access keys, so every result is checked.")</span>
             }
             else if (check is { EndpointOk: true, PermissionsOk: false, Error: { } permissionError })
             {
@@ -157,8 +163,8 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             </Summary>
             <ManualContent>
                 <p class="small mb-2">
-                    Configure your middle man with these values. Each link request is a JSON Web Token signed with the
-                    link secret (HS256, using the secret's characters exactly as shown).
+                    Configure your middle man with these values. Each link request is a signed token (a JSON Web Token,
+                    signed with HS256 using the link secret's characters exactly as shown).
                 </p>
                 <dl class="row small mb-2">
                     <dt class="col-sm-4">Issuer (Connapse address)</dt>
@@ -175,7 +181,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                                    type="@(showLinkSecret ? "text" : "password")" autocomplete="off" aria-describedby="custom-link-secret-help" />
                             <button id="custom-link-show" type="button" class="btn btn-outline-secondary" aria-pressed="@(showLinkSecret ? "true" : "false")"
                                     @onclick="() => showLinkSecret = !showLinkSecret">
-                                <span class="@(showLinkSecret ? "bi-eye-slash" : "bi-eye") me-1" aria-hidden="true"></span>@(showLinkSecret ? "Hide" : "Show")
+                                <span class="@(showLinkSecret ? "bi-eye-slash" : "bi-eye") me-1" aria-hidden="true"></span>Show
                             </button>
                             <button id="custom-link-copy" type="button" class="btn btn-outline-secondary" @onclick="CopyLinkSecretAsync">
                                 <span class="bi-clipboard me-1" aria-hidden="true"></span>@(copied ? "Copied" : "Copy")
@@ -187,7 +193,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                 @if (existing.HasLinkSecret)
                 {
                     <div id="custom-link-replace">
-                        <ProviderResetAction Label="Replace link secret" ConfirmLabel="Replace link secret"
+                        <ProviderResetAction Label="Replace link secret" ConfirmLabel="Replace link secret" RestoreFocus="false"
                                              BusyLabel="Replacing…" Disabled="@saving" OnReset="GenerateLinkSecretAsync"
                                              HelpText="New links fail until your middle man has the new secret. Existing links stay, because your middle man keeps them." />
                     </div>
@@ -262,6 +268,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     private string? message;
     private string? error;
     private string? nameError;
+    private string? urlError;
     private string? loadError;
     private string? newLinkSecret;
     private bool editLinking;
@@ -374,7 +381,16 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         editEndpoint = true;
         try
         {
-            // A blank token on an existing provider means "the stored one", which must still pass the check.
+            // A blank token on an existing provider means "the stored one", which must still pass the check. It is
+            // only ever sent to the stored address: a new address needs its token typed, or anyone who can edit
+            // the provider could have the stored token sent to a server of their choosing.
+            if (token.Length == 0 && existing is not null && !Connapse.Core.Utilities.CustomSourceEndpoint.SameAddress(baseUrl, existing.BaseUrl))
+            {
+                check = new CustomProviderCheck(null, false, false,
+                    Error: $"Enter the token for this address. The saved token is only sent to {existing.BaseUrl}.", Field: "secret");
+                focus = Focus.Token;
+                return;
+            }
             string? tokenToCheck = token.Length > 0 || existing is null ? token : await Store.GetTokenAsync(existing.Id);
             check = await Setup.CheckAsync(baseUrl, tokenToCheck, CancellationToken.None);
             if (check.BaseUrl is { } normalized) baseUrl = normalized;
@@ -388,8 +404,10 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         }
         catch (Exception ex)
         {
-            // An exception escaping an event handler would end the circuit.
-            check = new CustomProviderCheck(null, false, false, Error: ex.Message, Field: "baseUrl");
+            // An exception escaping an event handler would end the circuit; its text is for the log.
+            Logger.LogWarning(ex, "Could not check a custom provider's middle man");
+            check = new CustomProviderCheck(null, false, false,
+                Error: "Could not check the middle man. Try again; if it keeps failing, the server log has the cause.", Field: "baseUrl");
         }
         finally
         {
@@ -447,7 +465,11 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            error = ex.Message;
+            // The store refuses a taken name, or an address change while connections use the provider.
+            if (ex.Message.Contains("name", StringComparison.OrdinalIgnoreCase))
+                (nameError, focus) = (ex.Message, Focus.Name);
+            else
+                (urlError, focus) = (ex.Message, Focus.Url);
         }
         finally
         {

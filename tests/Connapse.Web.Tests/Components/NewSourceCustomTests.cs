@@ -200,7 +200,7 @@ public class NewSourceCustomTests : IDisposable
 
         cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
 
-        cut.WaitForAssertion(() => cut.Find("#new-source-dialog .alert-danger").TextContent.Should().Contain("Load scopes"));
+        cut.WaitForAssertion(() => cut.Find("#custom-source-error").TextContent.Should().Contain("Load scopes"));
         created.Should().BeEmpty();
     }
 

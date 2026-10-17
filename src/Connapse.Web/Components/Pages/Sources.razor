@@ -342,6 +342,10 @@
                     {
                         <div class="alert alert-danger py-2 small" role="alert">
                             <span class="bi-x-circle me-1" aria-hidden="true"></span> @createError
+                            @if (customDraft is not null)
+                            {
+                                <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                            }
                         </div>
                     }
                     @if (createWarning is not null)
@@ -1511,12 +1515,14 @@
     {
         if (draft.Scopes.Count == 0 || draft.ScopeId is null)
         {
-            createError = draft.Error ?? "Press Load scopes and pick a scope.";
+            // Shown beside the Load scopes button, where the fix is.
+            draft.Error ??= "Press Load scopes and pick a scope.";
             return;
         }
 
         // Shown beside their fields, so they are not repeated below the form.
         draft.NameError = string.IsNullOrWhiteSpace(draft.Name) ? "Enter a name for this source." : null;
+        draft.ValidateInterval();
         if (draft.NameError is not null || draft.IntervalError is not null)
             return;
 

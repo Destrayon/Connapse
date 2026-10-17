@@ -26,6 +26,17 @@ public sealed class CustomSourceDraft
     public string? NameError { get; set; }
     public string? IntervalError { get; set; }
 
+    /// <summary>Reads the typed interval: empty for the default, or a whole number of at least 60 seconds.</summary>
+    public void ValidateInterval()
+    {
+        string trimmed = IntervalText?.Trim() ?? "";
+        (SyncIntervalSeconds, IntervalError) = trimmed.Length == 0
+            ? (null, null)
+            : int.TryParse(trimmed, out int seconds) && seconds >= 60
+                ? (seconds, null)
+                : ((int?)null, "Enter a whole number of seconds, at least 60, or leave it empty.");
+    }
+
     /// <summary>The scopes the middle man offered when the connection was last checked.</summary>
     public IReadOnlyList<CustomScopeItem> Scopes { get; set; } = [];
 

@@ -133,6 +133,22 @@ public class CustomProviderPageTests : IDisposable
     }
 
     [Fact]
+    public void SavedProvider_NewAddressWithoutAToken_NeverSendsTheStoredToken()
+    {
+        CustomProvider provider = Saved(linkUrl: null);
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+        cut.Find("#custom-endpoint-edit-toggle").Click();
+
+        cut.Find("#custom-provider-url").Input("https://attacker.example");
+        cut.Find("#custom-provider-check").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-provider-token-error").TextContent.Should().Contain("only sent to"));
+        remote.Requests.Should().BeEmpty();
+        store.DidNotReceive().GetTokenAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public void PlainHttpAddress_WarnsThatTheTokenTravelsUnencrypted()
     {
         var cut = ctx.Render<CustomProviderPage>();

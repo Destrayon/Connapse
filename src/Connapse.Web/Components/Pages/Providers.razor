@@ -130,7 +130,9 @@
             @* Custom providers are middle men you run; there can be any number of them, so they are a
                list of their own rather than one entry among the built-in providers. *@
             <div class="d-flex align-items-center mt-4 mb-2">
-                <h2 class="h6 text-uppercase text-muted mb-0 flex-grow-1">Custom providers</h2>
+                <h2 class="h6 text-uppercase text-muted mb-0">Custom providers</h2>
+                <SetupGuideLink Id="custom-setup-guide" Href="@Connapse.Web.Components.Providers.CustomSourceFieldSpecs.Guide"
+                                Name="Custom source setup guide" CssClass="ms-2 me-auto" />
                 <a id="add-custom-provider" class="btn btn-sm btn-outline-primary" href="/admin/providers/custom/new">
                     <span class="bi-plus-lg me-1" aria-hidden="true"></span>Add custom provider
                 </a>
@@ -143,9 +145,9 @@
                         <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
                            href="/admin/providers/custom/@custom.Id">
                             <span class="bi-hdd-network text-muted fs-5" aria-hidden="true"></span>
-                            <div class="flex-grow-1">
+                            <div class="flex-grow-1" style="min-width:0">
                                 <div class="fw-semibold">@custom.Name</div>
-                                <div class="small text-muted font-monospace">@custom.BaseUrl</div>
+                                <div class="small text-muted font-monospace text-break">@custom.BaseUrl</div>
                             </div>
                             <span class="small text-muted text-nowrap">
                                 @(custom.VerifiedAt is { } verified ? $"Verified {verified.ToLocalTime():MMM d, yyyy}" : "Not verified")
@@ -159,7 +161,6 @@
             {
                 <p class="small text-muted">
                     A middle man you run that answers, live, what each person may read in a custom source.
-                    <a href="@Connapse.Web.Components.Providers.CustomSourceFieldSpecs.Guide" target="_blank" rel="noopener">Custom source setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>
                 </p>
             }
         }

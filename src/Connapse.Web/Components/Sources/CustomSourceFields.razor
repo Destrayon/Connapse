@@ -2,6 +2,7 @@
 @using Connapse.Web.Services
 @inject CustomSourceSetup Setup
 @inject ILogger<CustomSourceFields> Logger
+@inject Connapse.Core.Interfaces.IAuditLogger Audit
 
 @* One custom source on a custom connection: the connection holds the middle man's address and token, and
    the source picks one of the scopes it offers. *@
@@ -36,6 +37,12 @@ else
         }
         Load scopes
     </button>
+    @if (Draft.Error is null && Draft.Scopes.Count > 0)
+    {
+        <div id="custom-source-loaded" class="small text-success mt-2" role="status">
+            <span class="bi-check-circle me-1" aria-hidden="true"></span>Loaded @Draft.Scopes.Count scope@(Draft.Scopes.Count == 1 ? "" : "s").
+        </div>
+    }
     @if (Draft.Error is { } error)
     {
         <div id="custom-source-error" class="text-danger small fw-semibold mt-2" role="alert">
@@ -70,6 +77,8 @@ else
         try
         {
             CustomSourceProbe probe = await Setup.ProbeConnectionAsync(Draft.Connection, CancellationToken.None);
+            await Audit.LogAsync(probe.Error is null ? "source.scopes_loaded" : "source.scopes_failed", "connection",
+                Draft.Connection.Id.ToString(), new { Field = probe.Field, ScopeCount = probe.Scopes.Count });
             if (probe.Error is not null)
             {
                 Draft.Error = probe.Error;
@@ -96,15 +105,11 @@ else
         }
     }
 
+    // Checked when the source is created, not while typing; once shown, an error clears as soon as it is fixed.
     private void OnIntervalChanged(string? text)
     {
         Draft.IntervalText = text;
-        string trimmed = text?.Trim() ?? "";
-        (Draft.SyncIntervalSeconds, Draft.IntervalError) = trimmed.Length == 0
-            ? (null, null)
-            : int.TryParse(trimmed, out int seconds) && seconds >= 60
-                ? (seconds, null)
-                : ((int?)null, "Enter a whole number of seconds, at least 60, or leave it empty.");
+        if (Draft.IntervalError is not null) Draft.ValidateInterval();
     }
 
     private void OnScopeChanged(string? scopeId)

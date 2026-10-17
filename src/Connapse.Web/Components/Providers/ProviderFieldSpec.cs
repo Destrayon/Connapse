@@ -131,8 +131,7 @@ public static class CustomSourceFieldSpecs
     public static readonly ProviderFieldSpec ProviderToken = new(
         "custom-provider-token", "Token", ProviderFieldKind.Secret, Required: true,
         "The bearer token you configured on your middle man. Stored encrypted and never shown again.",
-        MiddleMan, Guide + "#1-custom-provider", "Where to find this",
-        KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
+        MiddleMan, Guide + "#1-custom-provider", "Where to find this", MaxWidth: "28rem");
 
     public static readonly ProviderFieldSpec ConnectionProvider = new(
         "custom-provider", "Custom provider", ProviderFieldKind.Choice, Required: true,
@@ -147,8 +146,7 @@ public static class CustomSourceFieldSpecs
     public static readonly ProviderFieldSpec ConnectionToken = new(
         "custom-connection-token", "Token", ProviderFieldKind.Secret, Required: true,
         "The bearer token you configured on your middle man. Connapse checks it before saving, stores it encrypted and never shows it again.",
-        Connection, Guide + "#2-custom-connection", "Where to find this",
-        KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
+        Connection, Guide + "#2-custom-connection", "Where to find this", MaxWidth: "28rem");
 
     public static readonly ProviderFieldSpec SourceScope = new(
         "custom-source-scope", "Scope", ProviderFieldKind.Choice, Required: true,
