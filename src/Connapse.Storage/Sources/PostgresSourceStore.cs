@@ -87,14 +87,17 @@ public class PostgresSourceStore(
         return MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
     }
 
-    public async Task<bool> ReplaceSecretAsync(Guid id, string secret, CancellationToken ct = default)
+    public async Task<bool> MoveOntoConnectionAsync(Guid id, Guid connectionId, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
-        string ciphertext = Protector.Protect(secret);
         DateTime now = DateTime.UtcNow;
-        int updated = await context.Sources.Where(s => s.Id == id).ExecuteUpdateAsync(s => s
-            .SetProperty(e => e.SecretProtected, ciphertext)
-            .SetProperty(e => e.UpdatedAt, now), ct);
+        int updated = await context.Sources
+            .Where(s => s.Id == id && s.ConnectionId == null && s.Provider == (int)ConnectionProvider.Custom)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.ConnectionId, connectionId)
+                .SetProperty(e => e.Provider, (int?)null)
+                .SetProperty(e => e.SecretProtected, (string?)null)
+                .SetProperty(e => e.UpdatedAt, now), ct);
         return updated > 0;
     }
 
