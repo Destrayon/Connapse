@@ -118,7 +118,7 @@ public class NewSourceCustomTests : IDisposable
 
     // The scopes load on their own once a custom connection is chosen.
     private static void LoadScopes(IRenderedComponent<SourcesPage> cut) =>
-        cut.WaitForAssertion(() => cut.Find("#custom-source-scope"));
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scopes"));
 
     [Fact]
     public void NewSource_CustomConnection_LoadsItsScopesWithoutBeingAsked()
@@ -126,7 +126,7 @@ public class NewSourceCustomTests : IDisposable
         AddContentOnlyConnection();
         var cut = OpenDialog();
 
-        cut.WaitForAssertion(() => cut.Find("#custom-source-scope").TextContent.Should().Contain("Engineering"));
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scopes").TextContent.Should().Contain("Engineering"));
         cut.Find("#custom-source-loaded").TextContent.Should().Contain("Loaded");
         cut.Find("#custom-source-load").TextContent.Should().Contain("Reload scopes");
     }
@@ -160,8 +160,8 @@ public class NewSourceCustomTests : IDisposable
         var cut = OpenDialog();
 
         LoadScopes(cut);
-        cut.Find("#custom-source-scope").TextContent.Should().Contain("Engineering");
-        cut.Find("#custom-source-name").GetAttribute("value").Should().Be("Engineering");
+        cut.Find("#custom-source-scopes").TextContent.Should().Contain("Engineering");
+        cut.Find("#custom-scope-eng").HasAttribute("checked").Should().BeTrue("a lone scope is ticked for you");
         cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
 
         cut.WaitForAssertion(() => created.Should().ContainSingle());
@@ -169,7 +169,7 @@ public class NewSourceCustomTests : IDisposable
         request.ConnectionId.Should().Be(connection.Id);
         request.Provider.Should().BeNull();
         request.Secret.Should().BeNull("a custom source reads with its connection's token");
-        request.Name.Should().Be("Engineering");
+        request.Name.Should().Be("Acme bridge / Engineering");
         CustomSourceScope.TryParse(request.ScopeJson).Should().Be(new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope));
     }
 
@@ -181,7 +181,41 @@ public class NewSourceCustomTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find("#custom-source-error").TextContent
             .Should().Contain("Replace the token on the connection"));
-        cut.FindAll("#custom-source-scope").Should().BeEmpty();
+        cut.FindAll("#custom-source-scopes").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void NewSource_NothingTicked_IsRefusedBesideTheScopes()
+    {
+        AddContentOnlyConnection();
+        var cut = OpenDialog();
+        LoadScopes(cut);
+
+        cut.Find("#custom-scope-eng").Change(false);
+        cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scopes-error").TextContent.Should().Contain("Tick at least one scope"));
+        created.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void NewSource_ScopeAlreadyAddedOnTheConnection_CannotBeTickedAgain()
+    {
+        Connection connection = AddContentOnlyConnection();
+        sources.ListByConnectionAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Source>>(
+        [
+            new Source(Guid.NewGuid(), "Acme bridge / Engineering", null, connection.Id,
+                new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope).ToJson(), DateTime.UtcNow, DateTime.UtcNow),
+        ]));
+        var cut = OpenDialog();
+        LoadScopes(cut);
+
+        cut.Find("#custom-scope-eng").HasAttribute("disabled").Should().BeTrue();
+        cut.Find("#custom-source-scopes").TextContent.Should().Contain("already added");
+        cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scopes-error"));
+        created.Should().BeEmpty();
     }
 
     [Fact]
@@ -211,7 +245,7 @@ public class NewSourceCustomTests : IDisposable
         cut.WaitForAssertion(() => cut.Find("#custom-source-error").TextContent.Should().Contain("still loading"));
         created.Should().BeEmpty();
         remote.Hold.SetResult();
-        cut.WaitForAssertion(() => cut.Find("#custom-source-scope"));
+        cut.WaitForAssertion(() => cut.Find("#custom-source-scopes"));
     }
 
     [Fact]

@@ -149,18 +149,8 @@ public static class CustomSourceFieldSpecs
         Connection, Guide + "#2-custom-connection", "Where to find this", MaxWidth: "28rem");
 
     public static readonly ProviderFieldSpec SourceScope = new(
-        "custom-source-scope", "Scope", ProviderFieldKind.Choice, Required: true,
-        "Each scope your middle man offers becomes its own source.",
-        Source, Guide + "#3-custom-source", "Adding a custom source");
-
-    public static readonly ProviderFieldSpec SourceName = new(
-        "custom-source-name", "Name", ProviderFieldKind.Text, Required: true,
-        "What Connapse calls this source. Filled in from the scope's name.",
-        Source, Guide + "#3-custom-source", "Adding a custom source");
-
-    public static readonly ProviderFieldSpec SourceDescription = new(
-        "custom-source-description", "Description", ProviderFieldKind.Text, Required: false,
-        "Shown with the source in lists and to agents choosing where to search.",
+        "custom-source-scopes", "Scopes", ProviderFieldKind.Choice, Required: true,
+        "Each scope you tick becomes its own source, named after the connection and the scope. You can rename it afterwards.",
         Source, Guide + "#3-custom-source", "Adding a custom source");
 
     public static readonly ProviderFieldSpec SourceInterval = new(
@@ -171,5 +161,5 @@ public static class CustomSourceFieldSpecs
     /// <summary>Every field, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } =
         [ProviderName, ProviderBaseUrl, ProviderToken, ConnectionProvider, ConnectionBaseUrl, ConnectionToken,
-            SourceScope, SourceName, SourceDescription, SourceInterval];
+            SourceScope, SourceInterval];
 }

@@ -1176,9 +1176,14 @@
         if (connection is not { Provider: ConnectionProvider.Custom }) return null;
 
         Connapse.Web.Services.CustomMiddleMan middleMan = await CustomSources.DescribeAsync(connection, CancellationToken.None);
+        HashSet<string> existing = (await SourceStore.ListByConnectionAsync(connection.Id))
+            .Select(s => CustomSourceScope.TryParse(s.ScopeJson)?.ScopeId)
+            .OfType<string>()
+            .ToHashSet();
         return new CustomSourceDraft
         {
             Connection = connection,
+            ExistingScopeIds = existing,
             BaseUrl = middleMan.BaseUrl,
             PermissionsBy = middleMan.PermissionsBy,
             Error = middleMan.Error,
@@ -1508,24 +1513,25 @@
     }
 
     /// <summary>
-    /// A custom source on a custom connection. The middle man is checked again at save, because the
-    /// connection's token may have changed since the scopes were loaded; the URL stored is the one checked.
+    /// The custom sources ticked on a custom connection, one per scope. The middle man is checked again first,
+    /// because the connection's token may have changed since the scopes were loaded; the URL stored is the one
+    /// checked. Each source is created on its own, so a name clash on one still adds the rest and says so.
     /// </summary>
-    private async Task CreateCustomSourceAsync(CustomSourceDraft draft)
+    private async Task CreateCustomSourcesAsync(CustomSourceDraft draft)
     {
-        if (draft.Scopes.Count == 0 || draft.ScopeId is null)
+        if (draft.Scopes.Count == 0)
         {
             // Shown beside the Load scopes button, where the fix is.
             draft.Error ??= draft.Loading
-                ? "The scopes are still loading. Pick one once they appear."
-                : "Load the scopes and pick one.";
+                ? "The scopes are still loading. Tick them once they appear."
+                : "Load the scopes and tick at least one.";
             return;
         }
 
         // Shown beside their fields, so they are not repeated below the form.
-        draft.NameError = string.IsNullOrWhiteSpace(draft.Name) ? "Enter a name for this source." : null;
+        draft.ScopesError = draft.Selected.Count == 0 ? "Tick at least one scope." : null;
         draft.ValidateInterval();
-        if (draft.NameError is not null || draft.IntervalError is not null)
+        if (draft.ScopesError is not null || draft.IntervalError is not null)
             return;
 
         creating = true;
@@ -1544,38 +1550,47 @@
                 return;
             }
 
-            if (probe.Scopes.All(s => s.Id != draft.ScopeId))
+            // Read again rather than trusting what the dialog loaded: another admin may have added one since.
+            HashSet<string> existing = (await SourceStore.ListByConnectionAsync(draft.Connection.Id))
+                .Select(s => CustomSourceScope.TryParse(s.ScopeJson)?.ScopeId)
+                .OfType<string>()
+                .ToHashSet();
+            List<Connapse.Storage.Connectors.Custom.CustomScopeItem> ticked = draft.Scopes.Where(s => draft.Selected.Contains(s.Id)).ToList();
+            List<string> gone = ticked.Where(s => probe.Scopes.All(p => p.Id != s.Id)).Select(s => s.Name).ToList();
+            List<string> skipped = ticked.Where(s => existing.Contains(s.Id)).Select(s => s.Name).ToList();
+            List<CreateSourceRequest> requests = ticked
+                .Where(s => !existing.Contains(s.Id) && probe.Scopes.Any(p => p.Id == s.Id))
+                .Select(s => new CreateSourceRequest(draft.SourceNameFor(s), draft.Connection.Id,
+                    new CustomSourceScope(probe.BaseUrl!, s.Id).ToJson(), SyncIntervalSeconds: draft.SyncIntervalSeconds))
+                .ToList();
+
+            var created = new List<string>();
+            var failed = new List<string>();
+            await CreateEachAsync(requests, created, failed);
+
+            if (created.Count == 0)
             {
-                createError = $"The middle man no longer offers the scope '{draft.ScopeId}'. Load scopes again.";
+                draft.ScopesError = ("Nothing added. "
+                    + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
+                    + (gone.Count > 0 ? $"No longer offered by the middle man: {string.Join(", ", gone)}; choose Reload scopes. " : "")
+                    + string.Join(" ", failed)).TrimEnd();
                 return;
             }
 
-            var created = await SourceStore.CreateAsync(new CreateSourceRequest(
-                draft.Name.Trim(),
-                draft.Connection.Id,
-                new CustomSourceScope(probe.BaseUrl!, draft.ScopeId).ToJson(),
-                string.IsNullOrWhiteSpace(draft.Description) ? null : draft.Description.Trim(),
-                draft.SyncIntervalSeconds));
-
             form = null;
             customDraft = null;
-            Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync.");
-
-            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
-                new { created.Name, created.ConnectionId, created.Provider });
+            Succeed($"Added {created.Count} {(created.Count == 1 ? "source" : "sources")}: {string.Join(", ", created)}. They sync on the next cycle, or press Sync."
+                + (skipped.Count > 0 ? $" Skipped, already a source: {string.Join(", ", skipped)}." : "")
+                + (gone.Count > 0 ? $" Not added, no longer offered by the middle man: {string.Join(", ", gone)}." : "")
+                + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
 
             await LoadAsync();
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-        {
-            // The store's own refusals (a duplicate name, an invalid scope) are written for the admin.
-            createError = ex.Message;
-        }
         catch (Exception ex)
         {
-            // Anything else escaping the handler would end the circuit; its text is for the log.
-            Logger.LogError(ex, "Could not create a custom source");
-            createError = "Could not create the source, so nothing was saved. Try again; if it keeps failing, the server log has the cause.";
+            // Anything escaping the handler would end the circuit; its text is for the log.
+            Logger.LogError(ex, "Could not create custom sources");
+            createError = "Could not add the sources, so nothing new was saved. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {
@@ -1592,7 +1607,7 @@
 
         if (customDraft is not null)
         {
-            await CreateCustomSourceAsync(customDraft);
+            await CreateCustomSourcesAsync(customDraft);
             return;
         }
 
