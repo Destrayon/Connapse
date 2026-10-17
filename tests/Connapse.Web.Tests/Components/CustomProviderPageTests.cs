@@ -34,6 +34,10 @@ public class CustomProviderPageTests : IDisposable
         settings.CurrentValue.Returns(new CustomSourceSettings());
         ctx.Services.AddSingleton(new CustomProviderSetup(http, settings));
         ctx.Services.AddSingleton(store);
+        var connections = Substitute.For<IConnectionStore>();
+        connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([]));
+        ctx.Services.AddSingleton(connections);
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
 
         store.CreateAsync(Arg.Any<SaveCustomProviderRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
@@ -50,8 +54,8 @@ public class CustomProviderPageTests : IDisposable
     private IRenderedComponent<CustomProviderPage> NewProvider(string token = FakeMiddleMan.Token)
     {
         var cut = ctx.Render<CustomProviderPage>();
-        cut.Find("#custom-provider-name").Change("Acme bridge");
-        cut.Find("#custom-provider-url").Change(FakeMiddleMan.BaseUrl);
+        cut.Find("#custom-provider-name").Input("Acme bridge");
+        cut.Find("#custom-provider-url").Input(FakeMiddleMan.BaseUrl);
         cut.Find("#custom-provider-token").Change(token);
         cut.Find("#custom-provider-check").Click();
         return cut;
@@ -121,7 +125,61 @@ public class CustomProviderPageTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find("#custom-link-secret").GetAttribute("value").Should().Be("s3cret-value"));
         cut.Find("#custom-linking").ClassList.Should().Contain("provider-step--satisfied");
-        cut.Find("#custom-link-generate").TextContent.Trim().Should().Be("Replace link secret");
+        cut.Find("#custom-link-replace").TextContent.Should().Contain("Replace link secret");
+        cut.Find("label[for=custom-link-secret]").TextContent.Should().Be("Link secret");
+    }
+
+    [Fact]
+    public void ReplaceLinkSecret_AsksFirstAndSaysWhatItBreaks()
+    {
+        CustomProvider provider = Saved("https://bridge.acme.test/link", hasLinkSecret: true);
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+        cut.FindAll("#custom-linking button").Single(b => b.TextContent.Contains("Show linking values")).Click();
+        cut.Find("#custom-link-replace button").Click();
+
+        cut.Find("#custom-link-replace").TextContent.Should().Contain("New links fail until your middle man has the new secret");
+        store.DidNotReceive().GenerateLinkSecretAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void NewProvider_WithoutAName_TakesTheNameTheMiddleManReports()
+    {
+        var cut = ctx.Render<CustomProviderPage>();
+        cut.Find("#custom-provider-url").Input(FakeMiddleMan.BaseUrl);
+        cut.Find("#custom-provider-token").Change(FakeMiddleMan.Token);
+
+        cut.Find("#custom-provider-check").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-provider-name").GetAttribute("value").Should().Be("Fake"));
+        cut.Find("#custom-endpoint").TextContent.Should().Contain("Reachable, token accepted, wrong token refused");
+    }
+
+    [Fact]
+    public void SavedProviderUsedByConnections_NamesThemAndCannotBeDeleted()
+    {
+        CustomProvider provider = Saved(linkUrl: null);
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        ctx.Services.GetRequiredService<IConnectionStore>().ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Connection>>([new Connection(Guid.NewGuid(), "acme-perms", ConnectionProvider.Custom,
+                CustomConnectionConfig.ToJson(provider.Id), null, DateTime.UtcNow, DateTime.UtcNow)]));
+
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+
+        cut.Find("#custom-provider-dependants").TextContent.Should().Contain("acme-perms");
+        cut.Find("#custom-provider-delete button").HasAttribute("disabled").Should().BeTrue();
+    }
+
+    [Fact]
+    public void SavedProvider_ShowsWhenItWasLastVerified()
+    {
+        CustomProvider provider = Saved(linkUrl: null);
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+
+        var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
+
+        cut.Find("#custom-endpoint").TextContent.Should().Contain("Verified");
     }
 
     [Fact]

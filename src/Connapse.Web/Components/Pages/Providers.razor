@@ -147,6 +147,9 @@
                                 <div class="fw-semibold">@custom.Name</div>
                                 <div class="small text-muted font-monospace">@custom.BaseUrl</div>
                             </div>
+                            <span class="small text-muted text-nowrap">
+                                @(custom.VerifiedAt is { } verified ? $"Verified {verified.ToLocalTime():MMM d, yyyy}" : "Not verified")
+                            </span>
                             <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
                         </a>
                     }
@@ -156,6 +159,7 @@
             {
                 <p class="small text-muted">
                     A middle man you run that answers, live, what each person may read in a custom source.
+                    <a href="@Connapse.Web.Components.Providers.CustomSourceFieldSpecs.Guide" target="_blank" rel="noopener">Custom source setup guide<span class="visually-hidden"> (opens in a new tab)</span></a>
                 </p>
             }
         }

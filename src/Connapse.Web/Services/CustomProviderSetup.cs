@@ -9,6 +9,7 @@ namespace Connapse.Web.Services;
 /// <param name="EndpointOk">The address is acceptable, the middle man speaks protocol 1, accepts the token and refuses a wrong one.</param>
 /// <param name="PermissionsOk">It advertises <c>permissions.check</c> and answered a real check call.</param>
 /// <param name="Field">The form field an error belongs to: <c>baseUrl</c> or <c>secret</c>.</param>
+/// <param name="Name">The name the middle man reports in its discovery document, once it was reached.</param>
 public sealed record CustomProviderCheck(
     string? BaseUrl,
     bool EndpointOk,
@@ -17,7 +18,8 @@ public sealed record CustomProviderCheck(
     bool SupportsAccessKeys = false,
     string? LinkUrl = null,
     string? Error = null,
-    string? Field = null);
+    string? Field = null,
+    string? Name = null);
 
 /// <summary>
 /// Checks a custom provider before it is saved: the address rules, the token, that a wrong token is refused
@@ -64,7 +66,9 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
         CustomPermissionCapabilities? permissions = discovery.Capabilities?.Permissions;
         if (permissions?.Check is not { MaxBatch: > 0 } check)
             return new CustomProviderCheck(normalized, true, false,
-                Error: "The middle man does not answer permission checks: its discovery document lists no permissions.check.");
+                Error: "The middle man does not answer permission checks: its discovery document lists no permissions.check. "
+                    + "Declare it and serve POST /access/v1/evaluations, or add the middle man as a content-only source instead.",
+                Name: discovery.Name);
 
         try
         {
@@ -74,11 +78,13 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
         }
         catch (CustomSourceException ex)
         {
-            return new CustomProviderCheck(normalized, true, false, Error: $"A test permission check failed: {ex.Message}");
+            return new CustomProviderCheck(normalized, true, false,
+                Error: $"A test permission check failed: {ex.Message} Check the middle man's logs for the call to POST /access/v1/evaluations.",
+                Name: discovery.Name);
         }
 
         return new CustomProviderCheck(
-            normalized, true, true, check.MaxBatch, permissions.AccessKeys is not null, permissions.Linking?.LinkUrl);
+            normalized, true, true, check.MaxBatch, permissions.AccessKeys is not null, permissions.Linking?.LinkUrl, Name: discovery.Name);
     }
 
     private async Task<bool> RefusesAWrongTokenAsync(string baseUrl, CancellationToken ct)
