@@ -83,6 +83,25 @@ public sealed class CustomProviderSetup(IHttpClientFactory httpClients, IOptions
                 Name: discovery.Name);
         }
 
+        // Anyone who links must be able to unlink, from Profile, Integrations: a source server that offers linking
+        // must answer the link status and removal calls, which are tried here for a user who was never linked.
+        if (permissions.Linking is not null)
+        {
+            string neverLinked = Guid.NewGuid().ToString();
+            try
+            {
+                await client.GetLinkAsync(neverLinked, ct);
+                await client.UnlinkAsync(neverLinked, ct, strict: true);
+            }
+            catch (CustomSourceException ex)
+            {
+                return new CustomProviderCheck(normalized, true, false,
+                    Error: $"The source server offers account linking but does not let people unlink: {ex.Message} "
+                        + "Serve GET and DELETE /v1/links/{connapse_user_id}, or stop declaring permissions.linking.",
+                    Name: discovery.Name);
+            }
+        }
+
         return new CustomProviderCheck(
             normalized, true, true, check.MaxBatch, permissions.AccessKeys is not null, permissions.Linking?.LinkUrl, Name: discovery.Name);
     }

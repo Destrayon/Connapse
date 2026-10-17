@@ -12,7 +12,8 @@ There are two ways Connapse uses a source server:
 
 - **Content-only source.** Implement [Discovery](#discovery), [Scopes](#scopes) and [Content](#content).
   Signed-in Connapse users with access to the source see all of its documents.
-- **Custom provider.** Also implement [Permissions](#permissions), and optionally [Linking](#linking).
+- **Custom provider.** Also implement [Permissions](#permissions), and [Linking](#linking) unless your server
+  already knows which of its accounts each Connapse user ID is.
   Every search checks each result with you before showing it.
 
 ## Conventions
@@ -224,8 +225,10 @@ key for that combination and grant that key only to users who meet both.
 
 ## Linking
 
-Optional, with `permissions.linking`. Use it when you need the user's own account in your system. You keep
-the link in your own storage; Connapse stores nothing about it.
+With `permissions.linking`. Connapse identifies a user only by their Connapse user ID, so your server needs
+some way to know which of its accounts that is. Linking is that way, unless you already maintain the mapping
+yourself (for example, a table an administrator keeps on your server). You keep the link in your own storage;
+Connapse stores nothing about it.
 
 1. The user clicks **Link** in Connapse. Connapse sends the browser to `link_url` with an auto-submitting
    form POST carrying `token`, an HS256 JWT signed with the provider's **link secret** (Connapse generates
@@ -248,6 +251,10 @@ Also serve:
 - `GET /v1/links/{connapse_user_id}` → `{ "linked": true, "display_name": "alice@acme" }`
 - `DELETE /v1/links/{connapse_user_id}` → `204`, also when there was no link. Connapse calls it when the
   user unlinks and when a Connapse user is deleted, and retries until it succeeds.
+
+Both are required whenever you declare `permissions.linking`: anyone who links must be able to unlink. Connapse
+calls each once for a user who was never linked when an administrator checks the provider, and refuses to save
+a provider whose server does not answer them.
 
 Connapse keeps no record of who linked. If an administrator deletes the custom provider or points it at a
 different address, the links in the old source server stay there; clearing them is up to whoever runs it.

@@ -149,6 +149,18 @@ public class CustomProviderPageTests : IDisposable
     }
 
     [Fact]
+    public void NewProvider_OfferingLinkingWithoutUnlinking_CannotBeSaved()
+    {
+        remote.SupportsLinking = true;
+        remote.UnlinkAnswer = System.Net.HttpStatusCode.NotFound;
+
+        var cut = NewProvider();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-provider-permissions-error").TextContent.Should().Contain("does not let people unlink"));
+        cut.Find("#custom-provider-save").HasAttribute("disabled").Should().BeTrue();
+    }
+
+    [Fact]
     public void PlainHttpAddress_WarnsThatTheTokenTravelsUnencrypted()
     {
         var cut = ctx.Render<CustomProviderPage>();

@@ -51,6 +51,9 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     /// <summary>How the next evaluations call misbehaves, if at all.</summary>
     public EvaluationQuirk Quirk { get; set; }
 
+    /// <summary>Set to answer every unlink with this status, as a server that offers linking but not unlinking might.</summary>
+    public HttpStatusCode? UnlinkAnswer { get; set; }
+
     /// <summary>Answers requests whatever token they carry, as a carelessly built middle man might.</summary>
     public bool AcceptAnyToken { get; set; }
 
@@ -173,8 +176,12 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     {
         if (method == HttpMethod.Delete)
         {
+            if (UnlinkAnswer is { } refusal)
+                return new HttpResponseMessage(refusal);
             Unlinked.Add(user);
-            return new HttpResponseMessage(Links.Remove(user) ? HttpStatusCode.NoContent : HttpStatusCode.NotFound);
+            Links.Remove(user);
+            // 204 whether or not there was a link, as the protocol requires.
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
         }
 
         return Json(new JsonObject { ["linked"] = Links.ContainsKey(user), ["display_name"] = Links.GetValueOrDefault(user) });

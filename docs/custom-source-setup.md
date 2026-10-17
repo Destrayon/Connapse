@@ -44,10 +44,16 @@ Choose **Check source server**. Connapse checks, in order, that the address is a
 protocol 1, that it accepts the token, that it refuses a wrong one, and that it answers a real permission check.
 **Save provider** is available once every step passes.
 
-**Account linking (optional).** If your source server needs each user's own account in its system, it declares a
-linking page. Choose **Generate link secret** and copy the three values shown into your source server: the
-**issuer** (Connapse's address), the **audience** (the provider's ID) and the **link secret**, which is shown
-once. Users then link from **Profile → Integrations**.
+**Account linking.** A permission check tells your source server only the person's Connapse user ID, so it has to
+know which of its own accounts that is. Usually it learns this by account linking: each person signs in to your
+system once, from **Profile → Integrations**. Your source server can skip linking only if it already knows each
+Connapse user ID, for example from a mapping an administrator keeps on the server. Without either, it cannot tell
+who is asking and should answer no.
+
+If your source server declares a linking page, choose **Generate link secret** and copy the three values shown into
+it: the **issuer** (Connapse's address), the **audience** (the provider's ID) and the **link secret**, which is
+shown once. People link and unlink from **Profile → Integrations**. A source server that offers linking must also
+let people unlink; **Check source server** refuses one that does not.
 
 ## 2. Custom connection
 

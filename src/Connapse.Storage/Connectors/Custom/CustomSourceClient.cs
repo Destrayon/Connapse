@@ -152,11 +152,17 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         GetJsonAsync<CustomLinkStatus>($"/v1/links/{Uri.EscapeDataString(connapseUserId)}", ct);
 
     /// <summary>Removes this Connapse user's link (<c>DELETE /v1/links/{id}</c>); a <c>404</c> counts as done.</summary>
-    public async Task UnlinkAsync(string connapseUserId, CancellationToken ct)
+    /// <param name="strict">
+    /// Require the protocol's 204 even when there was no link. A 404 cannot be told apart from a server with no
+    /// unlink endpoint at all, so the setup check is strict; removing a real user's link accepts it as gone.
+    /// </param>
+    public async Task UnlinkAsync(string connapseUserId, CancellationToken ct, bool strict = false)
     {
         string path = $"/v1/links/{Uri.EscapeDataString(connapseUserId)}";
         using HttpResponseMessage response = await SendAsync(path, HttpCompletionOption.ResponseContentRead, ct, method: HttpMethod.Delete);
-        if (response.StatusCode == HttpStatusCode.NotFound) return;
+        if (response.StatusCode == HttpStatusCode.NotFound && !strict) return;
+        if (strict && response.StatusCode != HttpStatusCode.NoContent)
+            throw new CustomSourceException($"The source server answered the unlink call with {(int)response.StatusCode}, not 204.");
         await EnsureSuccessAsync(response, path, ct);
     }
 

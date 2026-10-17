@@ -104,6 +104,10 @@
                         Check again
                     </button>
                 }
+                else if (Provider.LinkUrl is null)
+                {
+                    <p class="small text-muted mb-0" data-status="linking-withdrawn">@Provider.Name no longer offers account linking.</p>
+                }
                 else
                 {
                     <button @ref="linkButton" class="btn btn-sm btn-primary" data-action="link" @onclick="Link" disabled="@(busy || loading)">
