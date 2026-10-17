@@ -9,11 +9,11 @@
         @Spec.Label
         @if (Spec.IsSecret && HasStoredValue)
         {
-            <span class="text-muted">(optional — leave blank to keep the current one)</span>
+            <span class="text-muted ms-1">(optional — leave blank to keep the current one)</span>
         }
         else if (!Spec.Required)
         {
-            <span class="text-muted">(optional)</span>
+            <span class="text-muted ms-1">(optional)</span>
         }
     </label>
 

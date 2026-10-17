@@ -156,7 +156,7 @@ public static class CustomSourceFieldSpecs
     public static readonly ProviderFieldSpec SourceInterval = new(
         "custom-source-interval", "Sync interval in seconds", ProviderFieldKind.Text, Required: false,
         "At least 60. Leave empty to use the configured default; the middle man may ask for a longer one.",
-        Source, Guide + "#3-custom-source", "Adding a custom source", Placeholder: "300", InputMode: "numeric", MaxWidth: "12rem");
+        Source, Guide + "#3-custom-source", "Adding a custom source", Placeholder: "300", InputMode: "numeric");
 
     /// <summary>Every field, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } =
