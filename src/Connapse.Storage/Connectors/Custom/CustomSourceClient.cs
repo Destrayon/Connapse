@@ -201,7 +201,18 @@ public sealed class CustomSourceClient(HttpClient http, string baseUrl, string? 
         }
         catch (HttpRequestException ex)
         {
-            throw new CustomSourceException($"Could not reach the middle man at {_baseUrl}: {ex.Message}", ex);
+            throw new CustomSourceException($"Could not reach the middle man at {_baseUrl}: " + ex.HttpRequestError switch
+            {
+                HttpRequestError.NameResolutionError => "its host name does not resolve from Connapse. Check the address.",
+                HttpRequestError.ConnectionError => "nothing answered. Check it is running and reachable from the Connapse server or container.",
+                HttpRequestError.SecureConnectionError => "the HTTPS connection failed. Check its certificate is valid and trusted.",
+                _ => "the connection failed. Check it is running and reachable from the Connapse server or container.",
+            }, ex);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new CustomSourceException(
+                $"Could not reach the middle man at {_baseUrl}: it did not answer in time. Check it is running and not overloaded.", ex);
         }
     }
 

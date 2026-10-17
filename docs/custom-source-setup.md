@@ -104,7 +104,12 @@ stores nothing about the link. Deleting a Connapse user removes their link at ev
 | "The middle man answered a request carrying a wrong token" | The middle man answers any request. | Make it refuse a missing or wrong token with `401`. |
 | "The middle man does not speak custom source protocol version 1." | The discovery document lacks `"1"` in `protocol_versions`. | Fix the middle man's discovery document. |
 | "answered … with a 3xx redirect" | The address points at a redirect, often `http` to `https`. | Enter the final address. |
-| "Could not reach the middle man" | It is down, or the host name does not resolve from Connapse. | Check it is running and reachable from the Connapse server or container. |
+| "Could not reach the middle man … its host name does not resolve" | The host name is wrong, or not resolvable from where Connapse runs. | Check the address. In Docker, use the middle man's container or service name on Connapse's network. |
+| "Could not reach the middle man … nothing answered" or "… did not answer in time" | It is down, overloaded, or a firewall is in the way. | Check it is running and reachable from the Connapse server or container. |
+| "Could not reach the middle man … the HTTPS connection failed" | Its certificate is expired, self-signed, or for another name. | Give it a certificate Connapse's host trusts. |
+| "This connection holds no token." | A content-only connection was saved without one. | Edit the connection and enter the token. |
+| "Sources read this address, so it cannot change." | The connection's sources read the current address. | Add a new connection for the other middle man, and new sources on it. |
+| "Enter a whole number of seconds, at least 60" | The sync interval is not a number, or below 60. | Enter 60 or more, or leave it empty for the default. |
 | "The middle man answered … with 500" | The middle man failed. | Check the middle man's own logs. |
 | "The middle man offers no scopes." | The scopes listing is empty. | Configure at least one scope on the middle man. |
 | "The middle man does not answer permission checks" | `permissions.check` is missing from discovery, or the check call failed. | Declare it and serve `POST /access/v1/evaluations`. |
