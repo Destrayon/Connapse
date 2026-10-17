@@ -1577,9 +1577,9 @@
 
             if (probe.Error is not null)
             {
+                // Shown beside its field, so it is not repeated below the form.
                 draft.Error = probe.Error;
                 draft.ErrorField = probe.Field;
-                createError = probe.Error;
                 return;
             }
 
@@ -1615,10 +1615,16 @@
 
             await LoadAsync();
         }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            // The store's own refusals (a duplicate name, an invalid scope) are written for the admin.
+            createError = ex.Message;
+        }
         catch (Exception ex)
         {
-            // Duplicate name is the expected case; any exception escaping the handler would end the circuit.
-            createError = ex.Message;
+            // Anything else escaping the handler would end the circuit; its text is for the log.
+            Logger.LogError(ex, "Could not create a custom source");
+            createError = "Could not create the source, so nothing was saved. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {

@@ -108,7 +108,7 @@ public class NewSourceCustomTests : IDisposable
     {
         var cut = OpenDialog();
 
-        cut.Find("#custom-source-url").Change(FakeMiddleMan.BaseUrl + "/");
+        cut.Find("#custom-source-url").Input(FakeMiddleMan.BaseUrl + "/");
         cut.Find("#custom-source-token").Change(FakeMiddleMan.Token);
         cut.Find("#custom-source-load").Click();
         cut.WaitForAssertion(() => cut.Find("#custom-source-scope").TextContent.Should().Contain("Engineering"));
@@ -130,7 +130,7 @@ public class NewSourceCustomTests : IDisposable
     {
         var cut = OpenDialog();
 
-        cut.Find("#custom-source-url").Change(FakeMiddleMan.BaseUrl);
+        cut.Find("#custom-source-url").Input(FakeMiddleMan.BaseUrl);
         cut.Find("#custom-source-token").Change("wrong");
         cut.Find("#custom-source-load").Click();
 
@@ -153,7 +153,7 @@ public class NewSourceCustomTests : IDisposable
     public void NewSource_CustomSourceBeingSaved_LocksTheConnectionChoiceUntilItFinishes()
     {
         var cut = OpenDialog();
-        cut.Find("#custom-source-url").Change(FakeMiddleMan.BaseUrl);
+        cut.Find("#custom-source-url").Input(FakeMiddleMan.BaseUrl);
         cut.Find("#custom-source-token").Change(FakeMiddleMan.Token);
         cut.Find("#custom-source-load").Click();
         cut.WaitForAssertion(() => cut.Find("#custom-source-scope"));
@@ -189,7 +189,7 @@ public class NewSourceCustomTests : IDisposable
         cut.WaitForAssertion(() => cut.Find("#custom-source-permissions").TextContent.Should().Contain("Acme bridge"));
         cut.FindAll("#custom-source-content-only").Should().BeEmpty();
         cut.Find("#custom-source-url").GetAttribute("value").Should().Be(FakeMiddleMan.BaseUrl);
-        cut.Find("#custom-source-url").HasAttribute("readonly").Should().BeTrue();
+        cut.Find("#custom-source-url").HasAttribute("disabled").Should().BeTrue();
     }
 
     [Fact]
