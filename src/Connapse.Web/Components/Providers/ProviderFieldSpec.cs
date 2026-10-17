@@ -106,7 +106,7 @@ public static class AtlassianLinkAppFieldSpecs
 }
 
 /// <summary>
-/// The custom provider's and custom source's fields: the values an administrator copies from the middle man
+/// The custom provider's and custom connection's fields: the values an administrator copies from the middle man
 /// they run. One guide covers all of them, in the order they are set up.
 /// </summary>
 public static class CustomSourceFieldSpecs
@@ -115,7 +115,6 @@ public static class CustomSourceFieldSpecs
     public const string Prerequisites = Guide + "#before-you-start";
     public const string Troubleshooting = Guide + "#troubleshooting";
     private const string MiddleMan = "Middle man";
-    private const string NewSource = "New source";
     private const string Connection = "Custom connection";
 
     public static readonly ProviderFieldSpec ProviderName = new(
@@ -145,22 +144,7 @@ public static class CustomSourceFieldSpecs
         Connection, Guide + "#2-custom-connection", "Where to find this",
         KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
 
-    public static readonly ProviderFieldSpec SourceBaseUrl = new(
-        "custom-source-url", "Base URL", ProviderFieldKind.Text, Required: true,
-        "The address of the middle man that serves this source's documents.",
-        NewSource, Guide + "#3-custom-source", "Adding a custom source", Placeholder: "https://bridge.example.com");
-
-    public static readonly ProviderFieldSpec SourceToken = new(
-        "custom-source-token", "Token", ProviderFieldKind.Secret, Required: true,
-        "The bearer token you configured on your middle man. Stored encrypted and never shown again.",
-        NewSource, Guide + "#3-custom-source", "Where to find this");
-
-    public static readonly ProviderFieldSpec ReplacementToken = new(
-        "source-token", "New token", ProviderFieldKind.Secret, Required: true,
-        "The token your middle man now expects. Connapse checks it with the middle man before it replaces the stored one.",
-        "Token", Guide + "#replacing-a-token", "Replacing a token", MaxWidth: "28rem");
-
     /// <summary>Every field, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } =
-        [ProviderName, ProviderBaseUrl, ProviderToken, ConnectionBaseUrl, ConnectionToken, SourceBaseUrl, SourceToken, ReplacementToken];
+        [ProviderName, ProviderBaseUrl, ProviderToken, ConnectionBaseUrl, ConnectionToken];
 }

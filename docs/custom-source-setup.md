@@ -4,11 +4,14 @@ A custom source reads documents from a **middle man**: a server you run in front
 [Connapse custom source protocol](protocols/custom-source-v1.md). This guide covers the Connapse side: what to
 enter, where each value comes from, and what to do when a check fails.
 
-There are two ways to use a middle man:
+Like every other kind of source, a custom source sits on a connection: an administrator adds the connection
+once, with the middle man's address and token, and anyone who may add sources then picks a scope on it. There
+are two kinds of custom connection:
 
-- **Content-only source.** Add the source directly. Everyone who can read the source sees all of its documents.
-- **Source with permission checks.** Add a custom provider, then a custom connection that uses it, then the
-  source on that connection. Every search result is checked with your middle man before it is shown.
+- **Content only.** The connection holds the address and token. Everyone who can read its sources sees all of
+  their documents.
+- **With permission checks.** Add a custom provider first; the connection names it, and the provider holds the
+  address and token. Every search result is checked with your middle man before it is shown.
 
 ## Before you start
 
@@ -22,11 +25,12 @@ There are two ways to use a middle man:
   setting (for example the environment variable `CustomSources__AllowedHttpHosts__0=bridge`).
 - **For permission checks:** your middle man must declare `permissions.check` in its discovery document and
   answer `POST /access/v1/evaluations`.
-- **You need the Admin role** to add providers and connections.
+- **You need the Admin role** to add providers, connections and sources.
 
 ## 1. Custom provider
 
-**Providers → Custom providers → Add custom provider.** Only needed for permission checks.
+**Providers → Custom providers → Add custom provider.** Only needed for permission checks; for a content-only
+connection, skip to the next step.
 
 | Field | Where it comes from |
 |---|---|
@@ -45,26 +49,43 @@ once. Users then link from **Profile → Integrations**.
 
 ## 2. Custom connection
 
-**Connections → Add connection**, kind **Custom provider (permission checks)**. Pick the provider. A connection
-holds no credentials of its own.
-
-## 3. Custom source
-
-**Sources → New source.** Pick **Custom source** for a content-only source, or your custom connection.
+**Connections → Add connection**, kind **Custom middle man**. Under **Custom provider**, pick your provider for
+permission checks, or **No provider (content only)**. Without a provider, enter:
 
 | Field | Where it comes from |
 |---|---|
-| **Base URL** | Your middle man's address. On a custom connection it is fixed to the provider's. |
+| **Base URL** | Your middle man's address, such as `https://bridge.acme.internal`. It cannot change once sources use it. |
 | **Token** | The bearer token configured on your middle man. |
+
+Connapse checks the middle man with that token before it saves the connection; a token it refuses is never
+stored. With a provider, the connection holds nothing itself: the provider's address and token are used.
+
+## 3. Custom source
+
+**Sources → New source**, then pick your custom connection. The dialog shows the middle man it reads.
+
+| Field | Where it comes from |
+|---|---|
 | **Scope** | Choose **Load scopes**, then pick one. Each scope your middle man offers becomes its own source. |
 | **Name** | Filled in from the scope's name. |
 | **Description**, **Sync interval in seconds** | Optional. The interval is at least 60, and your middle man may ask for a longer one. |
 
+Over the REST API, `POST /api/sources` takes the connection's `connectionId` and a `scopeJson` of
+`{"scopeId": "eng"}`; a source takes no `secret`.
+
+Custom sources added before they needed a connection were moved onto generated content-only connections, one
+per address and token, named after the middle man's host.
+
 ## Replacing a token
 
-When your middle man's token changes, open the source (**Sources → the source's name**), enter the new one in
-**New token** under **Token**, and choose **Replace token**. Connapse checks it with the middle man first; if it is refused, the old token stays in use.
-Nothing is re-read. A provider's token is replaced on its page under **Change address or token**.
+A source holds no token, so a new token goes where the old one is kept. For a content-only connection, choose
+**Edit** on the Connections page and enter the new **Token**; for a provider, open its page and choose
+**Change address or token**. Either way Connapse checks the new token with the middle man first, and if it is
+refused the old one stays in use. Nothing is re-read.
+
+When a middle man refuses a token during a sync, the connection shows **Token refused** on the Connections
+page, the provider's page names the connections it was refused for, and the source's page says it is not
+reading. It clears on the next successful sync, or when a new token passes the check.
 
 ## Account linking
 
@@ -78,7 +99,8 @@ stores nothing about the link. Deleting a Connapse user removes their link at ev
 |---|---|---|
 | "Use HTTPS. Plain HTTP is allowed only for hosts listed in CustomSources:AllowedHttpHosts." | The address is plain HTTP. | Use HTTPS, or ask an administrator to allow the host in `CustomSources:AllowedHttpHosts`. |
 | "Leave credentials, query strings and fragments out of the address" | The address carries a user name, query or fragment. | Enter just the address; the token goes in its own field. |
-| "The middle man refused the token (401)" | The token is wrong, or the middle man's token changed. | Enter the token configured on your middle man. For an existing source, replace it under **Token**. |
+| "The middle man refused the token (401)", or **Token refused** on a connection | The token is wrong, or the middle man's token changed. | Enter the token configured on your middle man: on the connection, or on its custom provider (see [Replacing a token](#replacing-a-token)). |
+| "This connection's custom provider no longer exists." | The provider the connection named was deleted. | Add a new connection that names an existing provider, or one without a provider. |
 | "The middle man answered a request carrying a wrong token" | The middle man answers any request. | Make it refuse a missing or wrong token with `401`. |
 | "The middle man does not speak custom source protocol version 1." | The discovery document lacks `"1"` in `protocol_versions`. | Fix the middle man's discovery document. |
 | "answered … with a 3xx redirect" | The address points at a redirect, often `http` to `https`. | Enter the final address. |
