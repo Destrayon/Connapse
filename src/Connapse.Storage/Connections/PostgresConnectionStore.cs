@@ -106,10 +106,11 @@ public class PostgresConnectionStore(
         {
             // Sources send the connection's token to the address in their scope, so a content-only custom
             // connection's address cannot move while any source reads it.
+            string? before = entity.ConfigJson?.RootElement.GetRawText();
             if (entity.Provider == (int)ConnectionProvider.Custom
-                && !Connapse.Core.Utilities.CustomSourceEndpoint.SameAddress(
-                    CustomConnectionConfig.BaseUrlOf(entity.ConfigJson?.RootElement.GetRawText()),
-                    CustomConnectionConfig.BaseUrlOf(request.ConfigJson))
+                && (!Connapse.Core.Utilities.CustomSourceEndpoint.SameAddress(
+                        CustomConnectionConfig.BaseUrlOf(before), CustomConnectionConfig.BaseUrlOf(request.ConfigJson))
+                    || CustomConnectionConfig.ProviderIdOf(before) != CustomConnectionConfig.ProviderIdOf(request.ConfigJson))
                 && await context.Sources.AnyAsync(s => s.ConnectionId == id, ct))
                 throw new InvalidOperationException("Sources read this connection's middle man, so its address cannot change.");
 

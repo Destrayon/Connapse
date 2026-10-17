@@ -66,24 +66,32 @@ public sealed class CustomSourceConnectionMigration(
                 continue;
             }
 
-            if (!byMiddleMan.TryGetValue((scope.BaseUrl, token), out Connection? target))
+            try
             {
-                string name = UniqueName(address.Host, names);
-                target = await connections.CreateAsync(new CreateConnectionRequest(
-                    name, ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan(scope.BaseUrl), token), createdByUserId: null);
-                names.Add(name);
-                byMiddleMan[(scope.BaseUrl, token)] = target;
-                await audit.LogAsync("connection.created", "connection", target.Id.ToString(),
-                    new { target.Name, Provider = target.Provider.ToString(), Reason = "custom sources moved onto a connection" }, ct);
-            }
+                if (!byMiddleMan.TryGetValue((scope.BaseUrl, token), out Connection? target))
+                {
+                    string name = UniqueName(address.Host, names);
+                    target = await connections.CreateAsync(new CreateConnectionRequest(
+                        name, ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan(scope.BaseUrl), token), createdByUserId: null);
+                    names.Add(name);
+                    byMiddleMan[(scope.BaseUrl, token)] = target;
+                    await audit.LogAsync("connection.created", "connection", target.Id.ToString(),
+                        new { target.Name, Provider = target.Provider.ToString(), Reason = "custom sources moved onto a connection" }, ct);
+                }
 
-            if (await sources.MoveOntoConnectionAsync(source.Id, target.Id, ct))
+                if (await sources.MoveOntoConnectionAsync(source.Id, target.Id, ct))
+                {
+                    moved++;
+                    await audit.LogAsync("source.updated", "source", source.Id.ToString(),
+                        new { source.Name, ConnectionId = target.Id, Reason = "moved onto a custom connection" }, ct);
+                    logger.LogInformation("Moved custom source {SourceId} ({Name}) onto connection {ConnectionId}",
+                        source.Id, Sanitize(source.Name), target.Id);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                moved++;
-                await audit.LogAsync("source.updated", "source", source.Id.ToString(),
-                    new { source.Name, ConnectionId = target.Id, Reason = "moved onto a custom connection" }, ct);
-                logger.LogInformation("Moved custom source {SourceId} ({Name}) onto connection {ConnectionId}",
-                    source.Id, Sanitize(source.Name), target.Id);
+                // Left as it is, still reading with its own token; the next start tries again.
+                logger.LogWarning(ex, "Custom source {SourceId} was not moved onto a connection", source.Id);
             }
         }
 
@@ -92,6 +100,8 @@ public sealed class CustomSourceConnectionMigration(
 
     private static string UniqueName(string host, HashSet<string> taken)
     {
+        // Within the store's 128-character limit, with room for a " (n)" suffix.
+        host = host.Length > 120 ? host[..120] : host;
         string name = host;
         for (int n = 2; taken.Contains(name); n++)
             name = $"{host} ({n})";
