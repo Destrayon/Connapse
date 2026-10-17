@@ -23,6 +23,9 @@ public interface ISourceStore
     /// </summary>
     Task<bool> MoveOntoConnectionAsync(Guid id, Guid connectionId, CancellationToken ct = default);
 
+    /// <summary>Removes a custom source's own token, which a source on a connection no longer reads with. False when it had none.</summary>
+    Task<bool> ClearSecretAsync(Guid id, CancellationToken ct = default);
+
     /// <summary>
     /// Unconditionally persists the sync cursor and outcome. Passing a null cursor clears
     /// it, which is what a RequiresFullResync response demands.

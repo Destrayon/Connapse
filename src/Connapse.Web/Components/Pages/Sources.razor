@@ -1420,7 +1420,9 @@
             {
                 // A duplicate name: this space or project already has a source of that name.
                 Logger.LogInformation(ex, "Could not add Atlassian source {Name}", LogSanitizer.Sanitize(request.Name));
-                failed.Add($"{request.Name}: a source with this name already exists");
+                failed.Add(ex is DuplicateSourceScopeException
+                    ? $"{request.Name}: this connection already has a source for that scope"
+                    : $"{request.Name}: a source with this name already exists");
             }
         }
     }

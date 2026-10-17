@@ -241,6 +241,10 @@ public static class SourcesEndpoints
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+            catch (DuplicateSourceScopeException ex)
+            {
+                return Results.Conflict(new { error = ex.Message, field = "scopeId" });
+            }
 
             await auditLogger.LogAsync("source.created", "source", created.Id.ToString(),
                 new { created.Name, created.ConnectionId }, ct);

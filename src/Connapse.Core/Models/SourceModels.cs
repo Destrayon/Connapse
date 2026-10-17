@@ -64,6 +64,9 @@ public record Source(
 /// </summary>
 public class SourceAccessRevokedException(string message, Exception inner) : IOException(message, inner);
 
+/// <summary>A custom connection already has a source for the scope a new one names.</summary>
+public sealed class DuplicateSourceScopeException(string message) : InvalidOperationException(message);
+
 public record CreateSourceRequest(
     string Name,
     Guid? ConnectionId,

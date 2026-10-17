@@ -85,6 +85,29 @@ public class CustomSourceEndpointsTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Create_SecondSourceForTheSameScopeOnAConnection_IsRefused()
+    {
+        Connection connection = await ContentOnlyConnectionAsync();
+        await StoredAsync(await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id)));
+
+        HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync("/api/sources", Body(connection.Id));
+
+        await ExpectRefusal(response, HttpStatusCode.Conflict, "scopeId");
+    }
+
+    [Fact]
+    public async Task Store_CustomSourceReadingAnotherServerThanItsConnection_IsRefused()
+    {
+        Connection connection = await ProviderConnectionAsync();
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+
+        Func<Task> act = () => scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"x-{Guid.NewGuid():N}"[..20], connection.Id, new CustomSourceScope("https://attacker.example", FakeMiddleMan.Scope).ToJson()));
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
     public async Task Create_NamingAnotherBaseUrl_IsRefused()
     {
         Connection connection = await ContentOnlyConnectionAsync();
