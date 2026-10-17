@@ -1013,6 +1013,7 @@
                 </div>
                 <div class="col-12">
                     <ProviderField @ref="customTokenField" Spec="CustomSourceFieldSpecs.ConnectionToken" Value="@form.CustomToken"
+                                   ErrorContent="@CustomTroubleshootingLink"
                                    ValueChanged="v => form.CustomToken = v" HasStoredValue="@(!isNew && editing?.HasSecret == true)"
                                    Error="@(customField == "secret" ? customError : null)" />
                 </div>
@@ -1406,7 +1407,7 @@
         {
         <div class="col-12 mt-3">
             @* One primary action at a time: while a site's credential is being replaced, that is it. *@
-            <button id="connection-save" class="btn @(atlassianReplacing ? "btn-outline-secondary" : "btn-primary") me-2" @onclick="Save" disabled="@saving">
+            <button id="connection-save" class="btn @(atlassianReplacing ? "btn-outline-secondary" : "btn-primary") me-2" @onclick="Save" disabled="@(saving || testing)">
                 @if (saving)
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
@@ -1416,7 +1417,7 @@
             <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
             @if (form.IsCloudProvider || form.Provider is ConnectionProvider.Sftp or ConnectionProvider.GitHub or ConnectionProvider.Custom)
             {
-                <button id="connection-test" class="btn btn-outline-secondary" @onclick="Test" disabled="@testing">
+                <button id="connection-test" class="btn btn-outline-secondary" @onclick="Test" disabled="@(testing || saving)">
                     @if (testing)
                     {
                         <span class="spinner-border spinner-border-sm me-1"></span>
@@ -1654,6 +1655,8 @@
         .. (customProviders ?? []).Select(p => new KeyValuePair<string, string>(p.Id.ToString(), $"{p.Name} ({p.BaseUrl})")),
     ];
 
+    private RenderFragment CustomTroubleshootingLink => @<a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>;
+
     private ProviderField? customUrlField;
     private ProviderField? customTokenField;
     private ProviderField? customProviderField;
@@ -1719,7 +1722,7 @@
         if (!typedToken && !isNew && !CustomSourceEndpoint.SameAddress(form.CustomBaseUrl, stored))
         {
             (customError, customField) = ($"Enter the token for this address. The saved token is only sent to {stored}.", "secret");
-            await AuditCustomCheckAsync(passed: false, "token");
+            await AuditCustomCheckAsync(passed: false, "token", checkedUrl: null);
             return customError;
         }
 
@@ -1731,7 +1734,7 @@
         if (probe.Error is not null)
         {
             (customError, customField) = (probe.Error, probe.Field);
-            await AuditCustomCheckAsync(passed: false, probe.Field == "secret" ? "token" : "endpoint");
+            await AuditCustomCheckAsync(passed: false, probe.Field == "secret" ? "token" : "endpoint", probe.BaseUrl);
             return probe.Error;
         }
         customScopeCount = probe.Scopes.Count;
@@ -1743,17 +1746,20 @@
         }
 
         form.CustomBaseUrl = probe.BaseUrl;
-        await AuditCustomCheckAsync(passed: true, "scopes");
+        await AuditCustomCheckAsync(passed: true, "scopes", probe.BaseUrl);
         return null;
     }
 
     private int customScopeCount;
 
-    /// <summary>Audits a custom connection check with the step it reached, so setup drop-off can be measured.</summary>
-    private Task AuditCustomCheckAsync(bool passed, string step) =>
+    /// <summary>
+    /// Audits a custom connection check with the step it reached, so setup drop-off can be measured. The address is
+    /// only ever one that passed normalisation: the raw text typed could hold a credential or a pasted token.
+    /// </summary>
+    private Task AuditCustomCheckAsync(bool passed, string step, string? checkedUrl) =>
         AuditLogger.LogAsync(passed ? "connection.test_verified" : "connection.test_step_failed", "connection",
             isNew ? null : editing?.Id.ToString(),
-            new { Provider = nameof(ConnectionProvider.Custom), BaseUrl = form.CustomBaseUrl, Step = step });
+            new { Provider = nameof(ConnectionProvider.Custom), BaseUrl = checkedUrl, Step = step });
 
     /// <summary>
     /// The custom fields' problems, each shown beside its field rather than above the form. Null when there are none.
@@ -3025,7 +3031,7 @@
         CustomSourceProbe probe = await CustomSetup.ProbeConnectionAsync(draft, CancellationToken.None);
         testSuccess = probe.Error is null;
         testMessage = probe.Error ?? $"The provider's middle man is reachable, accepts its token, and offers {probe.Scopes.Count} scope{(probe.Scopes.Count == 1 ? "" : "s")}.";
-        await AuditCustomCheckAsync(testSuccess, testSuccess ? "scopes" : "provider");
+        await AuditCustomCheckAsync(testSuccess, testSuccess ? "scopes" : "provider", probe.BaseUrl);
     }
 
     /// <summary>A content-only custom connection was just checked against its middle man: that is its health.</summary>
