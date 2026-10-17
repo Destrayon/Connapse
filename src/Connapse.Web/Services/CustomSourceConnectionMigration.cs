@@ -19,9 +19,10 @@ public sealed class CustomSourceConnectionMigration(
 {
     public async Task<int> RunAsync(CancellationToken ct = default)
     {
-        List<Source> legacy = (await sources.ListAsync(take: int.MaxValue, ct: ct))
-            .Where(s => s.ConnectionId is null && s.Provider == ConnectionProvider.Custom)
-            .ToList();
+        List<Source> all = (await sources.ListAsync(take: int.MaxValue, ct: ct)).ToList();
+        await ClearConnectedTokensAsync(all, ct);
+
+        List<Source> legacy = all.Where(s => s.ConnectionId is null && s.Provider == ConnectionProvider.Custom).ToList();
         if (legacy.Count == 0) return 0;
 
         List<Connection> existing = (await connections.ListAsync(take: int.MaxValue, ct: ct)).ToList();
@@ -96,6 +97,33 @@ public sealed class CustomSourceConnectionMigration(
         }
 
         return moved;
+    }
+
+    /// <summary>
+    /// Custom sources made on a custom connection before sources stopped holding tokens read with their own; they
+    /// now read with their connection's (or its provider's). The token they held is no longer used, so it is
+    /// removed rather than left stored, and each source is logged so an administrator can see what changed.
+    /// </summary>
+    private async Task ClearConnectedTokensAsync(List<Source> all, CancellationToken ct)
+    {
+        foreach (Source source in all.Where(s => s.ConnectionId is not null && s.HasSecret
+                     && CustomSourceScope.TryParse(s.ScopeJson) is not null))
+        {
+            try
+            {
+                if (!await sources.ClearSecretAsync(source.Id, ct)) continue;
+                await audit.LogAsync("source.updated", "source", source.Id.ToString(),
+                    new { source.Name, Reason = "reads with its connection's token; its own token was removed" }, ct);
+                logger.LogWarning(
+                    "Custom source {SourceId} ({Name}) now reads with its connection's token; the token it held was removed. "
+                    + "If its connection's token cannot read the scope, the next sync shows Token refused.",
+                    source.Id, Sanitize(source.Name));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Custom source {SourceId}'s own token could not be removed", source.Id);
+            }
+        }
     }
 
     private static string UniqueName(string host, HashSet<string> taken)

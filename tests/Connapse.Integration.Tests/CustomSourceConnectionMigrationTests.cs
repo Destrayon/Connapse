@@ -57,6 +57,27 @@ public class CustomSourceConnectionMigrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Run_SourceAlreadyOnAProviderConnection_LosesTheTokenItNoLongerReadsWith()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        ISourceStore sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        string baseUrl = $"https://p{Guid.NewGuid():N}"[..20] + ".acme.test";
+        CustomProvider provider = await scope.ServiceProvider.GetRequiredService<ICustomProviderStore>().CreateAsync(
+            new SaveCustomProviderRequest($"p-{Guid.NewGuid():N}"[..20], baseUrl, "provider-token", 100, true, null));
+        Connection connection = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+            new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom, CustomConnectionConfig.ToJson(provider.Id)), null);
+        Source source = await sources.CreateAsync(new CreateSourceRequest($"old-{Guid.NewGuid():N}"[..20], connection.Id,
+            new CustomSourceScope(baseUrl, "eng").ToJson(), Secret: "the-sources-own-token"));
+        source.HasSecret.Should().BeTrue("sources on custom connections held their own token before this change");
+
+        await scope.ServiceProvider.GetRequiredService<CustomSourceConnectionMigration>().RunAsync();
+
+        Source after = (await sources.GetAsync(source.Id))!;
+        after.HasSecret.Should().BeFalse();
+        after.ConnectionId.Should().Be(connection.Id);
+    }
+
+    [Fact]
     public async Task Run_ReusesAConnectionThatAlreadyHoldsTheSameMiddleManAndToken()
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();
