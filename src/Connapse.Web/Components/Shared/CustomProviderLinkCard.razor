@@ -67,7 +67,8 @@
                 <div class="text-danger small fw-semibold mt-2" role="alert"><span class="bi-x-circle me-1" aria-hidden="true"></span>@error</div>
             }
         </div>
-        @if (!loading)
+        @* Mounted once the first status arrives and kept through reloads, so the focused button is never removed. *@
+        @if (status is not null || statusUnknown)
         {
             <div class="card-footer border-top-0 px-4 pb-4 pt-0">
                 @if (status?.Linked == true)
@@ -76,30 +77,36 @@
                     {
                         <p class="small text-muted mb-2">You will stop seeing @Provider.Name content that needs your account.</p>
                         <div class="d-flex gap-2">
-                            <button @ref="confirmButton" class="btn btn-sm btn-danger" data-action="unlink-confirm" @onclick="UnlinkAsync" disabled="@busy">
+                            <button @ref="confirmButton" class="btn btn-sm btn-danger" data-action="unlink-confirm" @onclick="UnlinkAsync" disabled="@(busy || loading)">
                                 @if (busy)
                                 {
                                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
                                 }
                                 Disconnect @Provider.Name
                             </button>
-                            <button class="btn btn-sm btn-outline-secondary" data-action="unlink-cancel" @onclick="CancelUnlink" disabled="@busy">Cancel</button>
+                            <button class="btn btn-sm btn-outline-secondary" data-action="unlink-cancel" @onclick="CancelUnlink" disabled="@(busy || loading)">Cancel</button>
                         </div>
                     }
                     else
                     {
-                        <button @ref="unlinkButton" class="btn btn-sm btn-outline-danger" data-action="unlink" @onclick="AskUnlink" disabled="@busy">
+                        <button @ref="unlinkButton" class="btn btn-sm btn-outline-danger" data-action="unlink" @onclick="AskUnlink" disabled="@(busy || loading)">
                             <span class="bi-x-circle me-1" aria-hidden="true"></span>Disconnect
                         </button>
                     }
                 }
                 else if (statusUnknown)
                 {
-                    <button class="btn btn-sm btn-outline-secondary" data-action="retry" @onclick="LoadAsync" disabled="@busy">Check again</button>
+                    <button @ref="retryButton" class="btn btn-sm btn-outline-secondary" data-action="retry" @onclick="RetryAsync" disabled="@(busy || loading)">
+                        @if (loading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                        }
+                        Check again
+                    </button>
                 }
                 else
                 {
-                    <button class="btn btn-sm btn-primary" data-action="link" @onclick="Link" disabled="@busy">
+                    <button @ref="linkButton" class="btn btn-sm btn-primary" data-action="link" @onclick="Link" disabled="@(busy || loading)">
                         <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>Continue to @Provider.Name sign-in
                     </button>
                 }
@@ -118,20 +125,44 @@
     private bool confirmUnlink;
     private ElementReference unlinkButton;
     private ElementReference confirmButton;
+    private ElementReference retryButton;
+    private ElementReference linkButton;
 
-    /// <summary>Where focus goes after the next render, as the buttons swap: into the confirmation, or back.</summary>
-    private bool? focusConfirm;
+    /// <summary>Where focus goes after the next render, as the buttons swap.</summary>
+    private enum Focus { None, Confirm, Unlink, Footer }
+    private Focus focus;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (focusConfirm is not { } intoConfirm) return;
-        focusConfirm = null;
-        await (intoConfirm ? confirmButton : unlinkButton).FocusAsync();
+        Focus target = focus;
+        focus = Focus.None;
+        try
+        {
+            switch (target)
+            {
+                case Focus.Confirm: await confirmButton.FocusAsync(); break;
+                case Focus.Unlink: await unlinkButton.FocusAsync(); break;
+                // Whichever button the footer now shows.
+                case Focus.Footer when status?.Linked == true: await unlinkButton.FocusAsync(); break;
+                case Focus.Footer when statusUnknown: await retryButton.FocusAsync(); break;
+                case Focus.Footer: await linkButton.FocusAsync(); break;
+            }
+        }
+        catch (JSException)
+        {
+            // The button left the page before focus reached it.
+        }
     }
 
-    private void AskUnlink() => (confirmUnlink, focusConfirm) = (true, true);
+    private void AskUnlink() => (confirmUnlink, focus) = (true, Focus.Confirm);
 
-    private void CancelUnlink() => (confirmUnlink, focusConfirm) = (false, false);
+    private void CancelUnlink() => (confirmUnlink, focus) = (false, Focus.Unlink);
+
+    private async Task RetryAsync()
+    {
+        await LoadAsync();
+        focus = Focus.Footer;
+    }
     private bool busy;
     private string? error;
 
@@ -171,6 +202,7 @@
             await AuditLogger.LogAsync(CustomLinkEndpoints.UnlinkedEvent, "user", UserId.ToString(), new { ProviderId = Provider.Id });
             confirmUnlink = false;
             await LoadAsync();
+            focus = Focus.Footer;
         }
         catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
         {
