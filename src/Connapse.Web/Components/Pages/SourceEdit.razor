@@ -5,6 +5,7 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.Connectors
 @using Connapse.Storage.Connectors.GitHub
+@using Connapse.Web.Components.Providers
 @using Connapse.Web.Components.Settings
 @using Connapse.Web.Components.Shared
 @using Connapse.Web.Components.Sources
@@ -112,39 +113,44 @@
             <section class="card mb-3" id="source-token-section">
                 <div class="card-body">
                     <h2 class="h6 mb-2">Token</h2>
-                    <p class="small text-muted mb-2" id="source-token-help">
-                        The token Connapse sends to the middle man. When the middle man's token changes, enter the new one
-                        here: it is checked with the middle man before it replaces the stored one, and nothing is re-read.
+                    <p class="small mb-3" id="source-token-stored">
+                        <span class="bi-key me-1" aria-hidden="true"></span>@(source.HasSecret ? "A token is stored." : "No token is stored.")
+                        When your middle man's token changes, enter the new one here. Nothing is re-read.
                     </p>
-                    <div class="d-flex gap-2 align-items-start">
-                        <div class="flex-grow-1">
-                            <label class="visually-hidden" for="source-token">New token</label>
-                            <input id="source-token" type="password" autocomplete="off"
-                                   class="form-control @(tokenError is null ? "" : "is-invalid")" placeholder="New token"
-                                   aria-describedby="@(tokenError is null ? "source-token-help" : "source-token-error source-token-help")"
-                                   aria-invalid="@(tokenError is null ? null : "true")"
-                                   @bind="newToken" />
-                            @if (tokenError is not null)
-                            {
-                                <div id="source-token-error" class="invalid-feedback d-block fw-semibold" role="alert">
-                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@tokenError
-                                </div>
-                            }
-                            @if (tokenReplaced)
-                            {
-                                <div id="source-token-replaced" class="small text-success mt-1" role="status">
-                                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Token replaced. The next sync uses it.
-                                </div>
-                            }
+                    <ProviderField @ref="tokenField" Spec="CustomSourceFieldSpecs.ReplacementToken" @bind-Value="newToken"
+                                   Error="@tokenError" Disabled="@replacingToken" />
+                    @if (tokenReplaced)
+                    {
+                        <div id="source-token-replaced" class="small text-success mb-2" role="status">
+                            <span class="bi-check-circle me-1" aria-hidden="true"></span>Token replaced. The next sync uses it.
                         </div>
-                        <button id="source-token-replace" class="btn btn-outline-secondary" @onclick="ReplaceTokenAsync" disabled="@replacingToken">
-                            @if (replacingToken)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
-                            }
+                    }
+                    @if (confirmReplace)
+                    {
+                        <p id="source-token-confirm-help" class="small mb-2">
+                            Replace the stored token? Connapse checks the new one with your middle man first. Once it is
+                            replaced, the old token is discarded and the next sync uses the new one.
+                        </p>
+                        <div class="d-flex gap-2">
+                            <button @ref="confirmReplaceButton" id="source-token-confirm" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="ReplaceTokenAsync" disabled="@replacingToken" aria-describedby="source-token-confirm-help">
+                                @if (replacingToken)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                }
+                                Replace token
+                            </button>
+                            <button id="source-token-cancel" class="btn btn-sm btn-outline-secondary" @onclick="CancelReplace" disabled="@replacingToken">
+                                Cancel
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button @ref="replaceButton" id="source-token-replace" class="btn btn-sm btn-outline-secondary" @onclick="AskReplace">
                             Replace token
                         </button>
-                    </div>
+                    }
                 </div>
             </section>
         }
@@ -290,6 +296,53 @@
     private string? tokenError;
     private bool tokenReplaced;
     private bool replacingToken;
+    private bool confirmReplace;
+    private ProviderField? tokenField;
+    private ElementReference replaceButton;
+    private ElementReference confirmReplaceButton;
+    private enum TokenFocus { None, Field, Confirm, Replace }
+    private TokenFocus tokenFocus;
+
+    // The token buttons replace each other, so focus follows: into the confirmation, back to Replace token
+    // on Cancel or once done, and to the field when it needs a value.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        TokenFocus target = tokenFocus;
+        tokenFocus = TokenFocus.None;
+        switch (target)
+        {
+            case TokenFocus.Field when tokenField is not null:
+                await tokenField.FocusAsync();
+                break;
+            case TokenFocus.Confirm:
+                await confirmReplaceButton.FocusAsync();
+                break;
+            case TokenFocus.Replace:
+                await replaceButton.FocusAsync();
+                break;
+        }
+    }
+
+    private void AskReplace()
+    {
+        tokenReplaced = false;
+        if (string.IsNullOrWhiteSpace(newToken))
+        {
+            tokenError = "Enter the token your middle man now expects.";
+            tokenFocus = TokenFocus.Field;
+            return;
+        }
+
+        tokenError = null;
+        confirmReplace = true;
+        tokenFocus = TokenFocus.Confirm;
+    }
+
+    private void CancelReplace()
+    {
+        confirmReplace = false;
+        tokenFocus = TokenFocus.Replace;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -348,14 +401,18 @@
         try
         {
             CustomTokenReplacement result = await TokenReplacement.ReplaceAsync(source.Id, newToken, CancellationToken.None);
+            confirmReplace = false;
             if (result.Error is null)
             {
                 newToken = null;
                 tokenReplaced = true;
+                source = await SourceStore.GetAsync(source.Id) ?? source;
+                tokenFocus = TokenFocus.Replace;
             }
             else
             {
                 tokenError = result.Error;
+                tokenFocus = TokenFocus.Field;
             }
         }
         catch (Exception ex)
@@ -363,6 +420,8 @@
             // An exception escaping a Blazor event handler tears down the circuit.
             Logger.LogError(ex, "Could not replace the token of source {SourceId}", source.Id);
             tokenError = "Could not replace the token, so the old one is still in use. Try again; if it keeps failing, the server log has the cause.";
+            confirmReplace = false;
+            tokenFocus = TokenFocus.Field;
         }
         finally
         {

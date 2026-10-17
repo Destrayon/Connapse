@@ -53,8 +53,9 @@ public class SourceEditCustomTokenTests : IDisposable
     {
         var cut = Render();
         cut.Find("#source-token").Change(FakeMiddleMan.Token);
-
         cut.Find("#source-token-replace").Click();
+
+        cut.Find("#source-token-confirm").Click();
 
         cut.WaitForAssertion(() => cut.Find("#source-token-replaced"));
         sources.Received(1).ReplaceSecretAsync(source.Id, FakeMiddleMan.Token, Arg.Any<CancellationToken>());
@@ -66,8 +67,9 @@ public class SourceEditCustomTokenTests : IDisposable
     {
         var cut = Render();
         cut.Find("#source-token").Change("wrong");
-
         cut.Find("#source-token-replace").Click();
+
+        cut.Find("#source-token-confirm").Click();
 
         cut.WaitForAssertion(() => cut.Find("#source-token-error"));
         cut.FindAll("#source-token-replaced").Should().BeEmpty();
@@ -82,6 +84,21 @@ public class SourceEditCustomTokenTests : IDisposable
         cut.Find("#source-token-replace").Click();
 
         cut.WaitForAssertion(() => cut.Find("#source-token-error").TextContent.Should().Contain("Enter the token"));
+        cut.FindAll("#source-token-confirm").Should().BeEmpty("there is nothing to confirm without a token");
         remote.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Page_SaysWhetherATokenIsStored_AndCancelLeavesItAlone()
+    {
+        var cut = Render();
+        cut.Find("#source-token-stored").TextContent.Should().Contain("A token is stored.");
+        cut.Find("#source-token").Change(FakeMiddleMan.Token);
+        cut.Find("#source-token-replace").Click();
+
+        cut.Find("#source-token-cancel").Click();
+
+        cut.FindAll("#source-token-confirm").Should().BeEmpty();
+        sources.DidNotReceive().ReplaceSecretAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 }
