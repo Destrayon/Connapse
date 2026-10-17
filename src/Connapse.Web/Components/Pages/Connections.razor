@@ -567,6 +567,10 @@
                 {
                     <SetupGuideLink Id="atlassian-setup-guide" Href="@AtlassianSiteFieldSpecs.SiteConnectionSection" />
                 }
+                else if (form.Provider == ConnectionProvider.Custom)
+                {
+                    <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
+                }
             </div>
         </div>
 
@@ -941,38 +945,33 @@
         {
             @* A custom connection either names the custom provider whose middle man answers the permission
                questions, or holds a middle man's address and token itself for content only. *@
-            <div class="col-12" style="max-width:32rem">
-                <label class="form-label" for="custom-provider">Custom provider</label>
-                <select id="custom-provider" class="form-select" value="@CustomProviderChoice"
-                        @onchange="SelectCustomProvider" disabled="@(!isNew)" aria-describedby="custom-provider-help">
-                    <option value="">Choose</option>
-                    <option value="@NoCustomProvider">No provider (content only)</option>
-                    @foreach (var provider in customProviders ?? [])
-                    {
-                        <option value="@provider.Id">@provider.Name (@provider.BaseUrl)</option>
-                    }
-                </select>
-                <div id="custom-provider-help" class="form-text">
-                    @if (form.CustomContentOnly)
-                    {
-                        <text>Everyone who can read this connection's sources reads all of their documents. Enter the middle man here once; its sources only pick a scope.</text>
-                    }
-                    else
-                    {
-                        <text>Custom sources on this connection are searched with the provider's live permission check, and read with its address and token.</text>
-                        @if (customProviders is { Count: 0 })
+            <div class="col-12">
+                <p class="small mb-2" id="custom-connection-prerequisites">
+                    You need: a running middle man that speaks protocol version 1, the token it expects, and an HTTPS
+                    address (or a host an administrator allowed for plain HTTP).
+                    <a href="@CustomSourceFieldSpecs.Prerequisites" target="_blank" rel="noopener">Before you start<span class="visually-hidden"> (opens in a new tab)</span></a>
+                </p>
+                <ProviderField Spec="CustomSourceFieldSpecs.ConnectionProvider" Value="@CustomProviderChoice" ValueChanged="SelectCustomProvider"
+                               Options="@CustomProviderOptions" Disabled="@(!isNew)">
+                    <HelpContent>
+                        @if (form.CustomContentOnly)
                         {
-                            <text> No custom providers yet: <a href="/admin/providers/custom/new">add one</a> for permission checks.</text>
+                            <text>Without a provider, everyone who can read this connection's sources reads all of their documents.</text>
                         }
-                    }
-                </div>
+                        else if (customProviders is { Count: 0 })
+                        {
+                            <text>No custom providers yet: <a href="/admin/providers/custom/new">add one</a> for permission checks.</text>
+                        }
+                    </HelpContent>
+                </ProviderField>
             </div>
             @if (form.CustomContentOnly)
             {
                 <div class="col-12">
-                    <ProviderField Spec="CustomSourceFieldSpecs.ConnectionBaseUrl" Value="@form.CustomBaseUrl"
+                    <ProviderField @ref="customUrlField" Spec="CustomSourceFieldSpecs.ConnectionBaseUrl" Value="@form.CustomBaseUrl"
                                    ValueChanged="v => form.CustomBaseUrl = v" Disabled="@CustomAddressLocked"
                                    Error="@(customField == "baseUrl" ? customError : null)">
+                        <ErrorContent><a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a></ErrorContent>
                         <HelpContent>
                             @if (CustomAddressLocked)
                             {
@@ -980,9 +979,10 @@
                             }
                         </HelpContent>
                     </ProviderField>
+                    <PlainHttpWarning Id="custom-connection-plain-http" BaseUrl="@form.CustomBaseUrl" />
                 </div>
                 <div class="col-12">
-                    <ProviderField Spec="CustomSourceFieldSpecs.ConnectionToken" Value="@form.CustomToken"
+                    <ProviderField @ref="customTokenField" Spec="CustomSourceFieldSpecs.ConnectionToken" Value="@form.CustomToken"
                                    ValueChanged="v => form.CustomToken = v" HasStoredValue="@(!isNew && editing?.HasSecret == true)"
                                    Error="@(customField == "secret" ? customError : null)" />
                 </div>
@@ -1617,9 +1617,30 @@
     private string CustomProviderChoice =>
         form.CustomContentOnly ? NoCustomProvider : form.CustomProviderId?.ToString() ?? "";
 
-    private void SelectCustomProvider(ChangeEventArgs e)
+    private IReadOnlyList<KeyValuePair<string, string>> CustomProviderOptions =>
+    [
+        new("", "Choose"),
+        new(NoCustomProvider, "No provider (content only)"),
+        .. (customProviders ?? []).Select(p => new KeyValuePair<string, string>(p.Id.ToString(), $"{p.Name} ({p.BaseUrl})")),
+    ];
+
+    private ProviderField? customUrlField;
+    private ProviderField? customTokenField;
+
+    /// <summary>Moves focus to the custom field a check refused.</summary>
+    private async Task FocusCustomFieldAsync()
     {
-        string? choice = e.Value?.ToString();
+        StateHasChanged();
+        try
+        {
+            if (customField == "baseUrl" && customUrlField is not null) await customUrlField.FocusAsync();
+            else if (customField == "secret" && customTokenField is not null) await customTokenField.FocusAsync();
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException) { } // prerender or a closed circuit
+    }
+
+    private void SelectCustomProvider(string? choice)
+    {
         form.CustomContentOnly = choice == NoCustomProvider;
         form.CustomProviderId = Guid.TryParse(choice, out Guid id) ? id : null;
         (customError, customField) = (null, null);
@@ -2720,6 +2741,11 @@
         statusMessage = null;
         nameError = null;
 
+        // A new connection without a provider is named after its middle man's host until the admin names it.
+        if (isNew && form.Provider == ConnectionProvider.Custom && form.CustomContentOnly && string.IsNullOrWhiteSpace(form.Name)
+            && Uri.TryCreate(form.CustomBaseUrl?.Trim(), UriKind.Absolute, out Uri? middleMan))
+            form.Name = middleMan.Host;
+
         if (form.Validate(isNew) is { } problem)
         {
             Fail(problem);
@@ -2770,7 +2796,10 @@
             // shown beside its field, so it is not repeated above the form.
             if (form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
                 && await CheckCustomMiddleManAsync() is not null)
+            {
+                await FocusCustomFieldAsync();
                 return;
+            }
 
             // Applied to the form itself, not just on the way to the store, so the operator ends
             // up looking at the address their connection actually holds. Saving what was typed

@@ -331,7 +331,11 @@
                     {
                         <SetupGuideLink Id="atlassian-setup-guide" Href="@(ShownAtlassianSelection?.SetupGuideUrl ?? ConfluenceSpaceSelection.GuideUrl)" />
                     }
-                    <button type="button" class="btn-close @(selectedProvider is ConnectionProvider.Atlassian ? "ms-3" : "")" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
+                    else if (selectedProvider is ConnectionProvider.Custom)
+                    {
+                        <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
+                    }
+                    <button type="button" class="btn-close @(selectedProvider is ConnectionProvider.Atlassian or ConnectionProvider.Custom ? "ms-3" : "")" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
                 </div>
                 <div class="modal-body">
                     @if (createError is not null)
@@ -1511,17 +1515,10 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(draft.Name))
-        {
-            createError = "Source name is required.";
+        // Shown beside their fields, so they are not repeated below the form.
+        draft.NameError = string.IsNullOrWhiteSpace(draft.Name) ? "Enter a name for this source." : null;
+        if (draft.NameError is not null || draft.IntervalError is not null)
             return;
-        }
-
-        if (draft.SyncIntervalSeconds is < 60)
-        {
-            createError = "The minimum sync interval is 60 seconds.";
-            return;
-        }
 
         creating = true;
         try

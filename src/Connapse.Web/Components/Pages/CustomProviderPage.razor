@@ -45,7 +45,7 @@ else
 {
     @if (message is not null)
     {
-        <div class="alert alert-success py-2 small" role="status" id="custom-provider-saved">
+        <div @ref="savedMessage" tabindex="-1" class="alert alert-success py-2 small" role="status" id="custom-provider-saved">
             @message
             @if (savedNew)
             {
@@ -68,9 +68,6 @@ else
         </div>
     }
 
-    <ProviderField Spec="CustomSourceFieldSpecs.ProviderName" Value="@name" ValueChanged="v => name = v ?? string.Empty"
-                   Error="@nameError" />
-
     <ProviderStepCard Id="custom-endpoint"
                       Title="Middle man"
                       Description="The address and token Connapse uses to ask your middle man about permissions. It must refuse any request without its token."
@@ -83,12 +80,17 @@ else
             <span class="font-monospace">@(check?.BaseUrl ?? existing?.BaseUrl)</span>
         </Summary>
         <ManualContent>
-            <ProviderField Spec="CustomSourceFieldSpecs.ProviderBaseUrl" Value="@baseUrl"
+            <ProviderField @ref="urlField" Spec="CustomSourceFieldSpecs.ProviderBaseUrl" Value="@baseUrl"
                            ValueChanged="v => { baseUrl = v ?? string.Empty; check = null; }"
-                           Error="@(check?.Field == "baseUrl" ? check.Error : null)" />
-            <ProviderField Spec="CustomSourceFieldSpecs.ProviderToken" Value="@token" HasStoredValue="@(existing?.HasToken == true)"
+                           Error="@(check?.Field == "baseUrl" ? check.Error : null)">
+                <ErrorContent><a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a></ErrorContent>
+            </ProviderField>
+            <PlainHttpWarning Id="custom-provider-plain-http" BaseUrl="@baseUrl" />
+            <ProviderField @ref="tokenField" Spec="CustomSourceFieldSpecs.ProviderToken" Value="@token" HasStoredValue="@(existing?.HasToken == true)"
                            ValueChanged="v => { token = v ?? string.Empty; check = null; }"
-                           Error="@(check?.Field == "secret" ? check.Error : null)" />
+                           Error="@(check?.Field == "secret" ? check.Error : null)">
+                <ErrorContent><a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a></ErrorContent>
+            </ProviderField>
             <button id="custom-provider-check" type="button" class="btn btn-outline-secondary btn-sm" @onclick="CheckAsync" disabled="@checking">
                 @if (checking)
                 {
@@ -111,6 +113,9 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         </EasyContent>
     </ProviderStepCard>
 
+    <ProviderField @ref="nameField" Spec="CustomSourceFieldSpecs.ProviderName" Value="@name" ValueChanged="v => name = v ?? string.Empty"
+                   Error="@nameError" />
+
     <ProviderStepCard Id="custom-permissions"
                       Title="Permission check"
                       Description="Your middle man must answer live permission checks. Connapse asks it before showing any search result from this provider's sources, and shows nothing it cannot confirm."
@@ -128,16 +133,14 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             {
                 <span>Answered a test check when the provider was last verified.</span>
             }
-        </Summary>
-        <ManualContent>
-            @if (check is { EndpointOk: true, PermissionsOk: false, Error: { } permissionError })
+            else if (check is { EndpointOk: true, PermissionsOk: false, Error: { } permissionError })
             {
                 <div id="custom-provider-permissions-error" class="invalid-feedback d-block fw-semibold" role="alert">
                     <span class="bi-x-circle me-1" aria-hidden="true"></span>@permissionError
                     <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
                 </div>
             }
-        </ManualContent>
+        </Summary>
     </ProviderStepCard>
 
     @if (existing is not null && LinkUrl is not null)
@@ -168,8 +171,12 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                     <div class="alert alert-warning small mb-2" role="status">
                         <label class="form-label small fw-semibold mb-1" for="custom-link-secret">Link secret</label>
                         <div class="input-group input-group-sm">
-                            <input id="custom-link-secret" class="form-control font-monospace" readonly value="@newLinkSecret"
-                                   aria-describedby="custom-link-secret-help" />
+                            <input @ref="linkSecretInput" id="custom-link-secret" class="form-control font-monospace" readonly value="@newLinkSecret"
+                                   type="@(showLinkSecret ? "text" : "password")" autocomplete="off" aria-describedby="custom-link-secret-help" />
+                            <button id="custom-link-show" type="button" class="btn btn-outline-secondary" aria-pressed="@(showLinkSecret ? "true" : "false")"
+                                    @onclick="() => showLinkSecret = !showLinkSecret">
+                                <span class="@(showLinkSecret ? "bi-eye-slash" : "bi-eye") me-1" aria-hidden="true"></span>@(showLinkSecret ? "Hide" : "Show")
+                            </button>
                             <button id="custom-link-copy" type="button" class="btn btn-outline-secondary" @onclick="CopyLinkSecretAsync">
                                 <span class="bi-clipboard me-1" aria-hidden="true"></span>@(copied ? "Copied" : "Copy")
                             </button>
@@ -258,7 +265,38 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     private string? loadError;
     private string? newLinkSecret;
     private bool editLinking;
+    private bool showLinkSecret;
     private IReadOnlyList<string> dependants = [];
+    private ProviderField? urlField;
+    private ProviderField? tokenField;
+    private ProviderField? nameField;
+    private ElementReference linkSecretInput;
+    private ElementReference savedMessage;
+
+    /// <summary>Where focus goes after the next render: the field a check refused, the name, the new secret, or the result.</summary>
+    private enum Focus { None, Url, Token, Name, LinkSecret, Saved }
+    private Focus focus;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        Focus target = focus;
+        focus = Focus.None;
+        try
+        {
+            switch (target)
+            {
+                case Focus.Url when urlField is not null: await urlField.FocusAsync(); break;
+                case Focus.Token when tokenField is not null: await tokenField.FocusAsync(); break;
+                case Focus.Name when nameField is not null: await nameField.FocusAsync(); break;
+                case Focus.LinkSecret: await linkSecretInput.FocusAsync(); break;
+                case Focus.Saved: await savedMessage.FocusAsync(); break;
+            }
+        }
+        catch (JSException)
+        {
+            // The element left the page before focus reached it.
+        }
+    }
 
     /// <summary>The dependant connections whose last sync had this provider's token refused.</summary>
     private IReadOnlyList<string> refusedBy = [];
@@ -340,6 +378,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             string? tokenToCheck = token.Length > 0 || existing is null ? token : await Store.GetTokenAsync(existing.Id);
             check = await Setup.CheckAsync(baseUrl, tokenToCheck, CancellationToken.None);
             if (check.BaseUrl is { } normalized) baseUrl = normalized;
+            focus = check.Field switch { "baseUrl" => Focus.Url, "secret" => Focus.Token, _ => Focus.None };
             if (name.Trim().Length == 0 && check.EndpointOk)
                 name = check.Name is { Length: > 0 } reported ? reported : new Uri(check.BaseUrl!).Host;
 
@@ -365,6 +404,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         if (string.IsNullOrWhiteSpace(name))
         {
             nameError = "Enter a name for this provider.";
+            focus = Focus.Name;
             return;
         }
 
@@ -399,6 +439,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             check = null;
             editEndpoint = false;
             savedNew = isNew;
+            focus = Focus.Saved;
             message = isNew
                 ? $"'{result.Name}' saved. Next, add a Custom connection that uses it."
                 : $"'{result.Name}' saved.";
@@ -433,6 +474,8 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             await AuditLogger.LogAsync("custom_provider.link_secret_generated", "custom_provider", existing.Id.ToString(), new { existing.Name });
             existing = await Store.GetAsync(existing.Id) ?? existing;
             editLinking = true; // keep the new secret on screen once the step shows as done
+            showLinkSecret = false;
+            focus = Focus.LinkSecret;
         }
         finally
         {

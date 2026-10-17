@@ -63,9 +63,16 @@
     {
         if (focusConfirmation is not { } intoConfirmation) return;
         focusConfirmation = null;
-        if (!intoConfirmation) await trigger.FocusAsync();
-        else if (!string.IsNullOrWhiteSpace(ConfirmText)) await confirmInput.FocusAsync();
-        else await confirmButton.FocusAsync();
+        try
+        {
+            if (!intoConfirmation) await trigger.FocusAsync();
+            else if (!string.IsNullOrWhiteSpace(ConfirmText)) await confirmInput.FocusAsync();
+            else await confirmButton.FocusAsync();
+        }
+        catch (Exception ex) when (ex is Microsoft.JSInterop.JSException or InvalidOperationException)
+        {
+            // The page navigated away, or the action left the page with the reset.
+        }
     }
 
     private bool Confirmed => string.IsNullOrWhiteSpace(ConfirmText)
@@ -85,6 +92,6 @@
         {
             resetting = false;
         }
-        (confirming, typed) = (false, null);
+        (confirming, typed, focusConfirmation) = (false, null, false);
     }
 }

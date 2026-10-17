@@ -44,6 +44,10 @@
             {
                 <SetupGuideLink Id="atlassian-setup-guide" Href="@guided.SetupGuideUrl" />
             }
+            else if (connection is { Provider: ConnectionProvider.Custom })
+            {
+                <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
+            }
         </div>
 
         <section class="card mb-3">

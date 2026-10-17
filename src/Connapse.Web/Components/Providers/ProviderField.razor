@@ -26,6 +26,17 @@
                             DescribedBy="@DescribedBy" Invalid="@(Error is not null)" Disabled="@Disabled" @bind-Value="CurrentValue" />
             break;
 
+        case ProviderFieldKind.Choice:
+            <select @ref="input" id="@Spec.Id" class="form-select @InputClass" disabled="@Disabled" value="@Value"
+                    aria-invalid="@(Error is not null ? "true" : "false")" aria-describedby="@DescribedBy"
+                    @onchange="e => CurrentValue = e.Value?.ToString()">
+                @foreach (KeyValuePair<string, string> option in Options ?? [])
+                {
+                    <option value="@option.Key">@option.Value</option>
+                }
+            </select>
+            break;
+
         case ProviderFieldKind.Multiline:
             <textarea @ref="input" id="@Spec.Id" class="form-control font-monospace @InputClass" rows="@Spec.Rows" placeholder="@Spec.Placeholder"
                       disabled="@Disabled" aria-invalid="@(Error is not null ? "true" : "false")" aria-describedby="@DescribedBy"
@@ -77,6 +88,9 @@
 
     [Parameter] public string? ListId { get; set; }
     [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>A choice field's options: value, then the text shown.</summary>
+    [Parameter] public IReadOnlyList<KeyValuePair<string, string>>? Options { get; set; }
     [Parameter] public bool Small { get; set; }
     [Parameter] public string CssClass { get; set; } = "mb-3";
 

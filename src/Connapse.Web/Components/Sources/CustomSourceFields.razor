@@ -47,36 +47,16 @@ else
 
 @if (Draft.Scopes.Count > 0)
 {
-    <div class="mb-3">
-        <label class="form-label" for="custom-source-scope">Scope</label>
-        <select id="custom-source-scope" class="form-select" value="@Draft.ScopeId" @onchange="OnScopeChanged">
-            @foreach (var scope in Draft.Scopes)
-            {
-                <option value="@scope.Id">@scope.Name</option>
-            }
-        </select>
-        <div class="form-text">Each scope becomes its own source.</div>
-    </div>
+    <ProviderField Spec="CustomSourceFieldSpecs.SourceScope" Value="@Draft.ScopeId" ValueChanged="OnScopeChanged"
+                   Options="@(Draft.Scopes.Select(s => new KeyValuePair<string, string>(s.Id, s.Name)).ToList())" />
 
-    <div class="mb-3">
-        <label class="form-label" for="custom-source-name">Name</label>
-        <input id="custom-source-name" class="form-control" value="@Draft.Name"
-               @onchange="e => Draft.Name = e.Value?.ToString() ?? string.Empty" />
-    </div>
+    <ProviderField Spec="CustomSourceFieldSpecs.SourceName" Value="@Draft.Name" Error="@Draft.NameError"
+                   ValueChanged="v => { Draft.Name = v ?? string.Empty; Draft.NameError = null; }" />
 
-    <div class="mb-3">
-        <label class="form-label" for="custom-source-description">Description <span class="text-muted">(optional)</span></label>
-        <input id="custom-source-description" class="form-control" value="@Draft.Description"
-               @onchange="e => Draft.Description = e.Value?.ToString()" />
-    </div>
+    <ProviderField Spec="CustomSourceFieldSpecs.SourceDescription" Value="@Draft.Description" ValueChanged="v => Draft.Description = v" />
 
-    <div class="mb-0">
-        <label class="form-label" for="custom-source-interval">Sync interval in seconds <span class="text-muted">(optional)</span></label>
-        <input id="custom-source-interval" type="number" class="form-control" min="60" value="@Draft.SyncIntervalSeconds"
-               @onchange="e => Draft.SyncIntervalSeconds = int.TryParse(e.Value?.ToString(), out int seconds) ? seconds : null"
-               placeholder="300" />
-        <div class="form-text">At least 60. Leave empty to use the configured default; the middle man may ask for a longer one.</div>
-    </div>
+    <ProviderField Spec="CustomSourceFieldSpecs.SourceInterval" Value="@Draft.IntervalText" Error="@Draft.IntervalError"
+                   ValueChanged="OnIntervalChanged" CssClass="mb-0" />
 }
 
 @code {
@@ -116,10 +96,21 @@ else
         }
     }
 
-    private void OnScopeChanged(ChangeEventArgs args)
+    private void OnIntervalChanged(string? text)
+    {
+        Draft.IntervalText = text;
+        string trimmed = text?.Trim() ?? "";
+        (Draft.SyncIntervalSeconds, Draft.IntervalError) = trimmed.Length == 0
+            ? (null, null)
+            : int.TryParse(trimmed, out int seconds) && seconds >= 60
+                ? (seconds, null)
+                : ((int?)null, "Enter a whole number of seconds, at least 60, or leave it empty.");
+    }
+
+    private void OnScopeChanged(string? scopeId)
     {
         string? previousName = Draft.Scopes.FirstOrDefault(s => s.Id == Draft.ScopeId)?.Name;
-        Draft.ScopeId = args.Value?.ToString();
+        Draft.ScopeId = scopeId;
         // A name the dialog filled in follows the scope; one the admin typed stays.
         if (Draft.Name.Length == 0 || Draft.Name == previousName)
             Draft.Name = Draft.Scopes.FirstOrDefault(s => s.Id == Draft.ScopeId)?.Name ?? Draft.Name;

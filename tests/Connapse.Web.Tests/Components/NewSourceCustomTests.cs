@@ -178,6 +178,21 @@ public class NewSourceCustomTests : IDisposable
     }
 
     [Fact]
+    public void NewSource_IntervalThatIsNotANumber_IsRefusedBesideTheField()
+    {
+        AddContentOnlyConnection();
+        var cut = OpenDialog();
+        LoadScopes(cut);
+
+        cut.Find("#custom-source-interval").Input("five");
+        cut.FindAll("button").First(b => b.TextContent.Contains("Create source")).Click();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-source-interval-error").TextContent.Should().Contain("at least 60"));
+        cut.Find("#custom-source-interval").GetAttribute("aria-invalid").Should().Be("true");
+        created.Should().BeEmpty();
+    }
+
+    [Fact]
     public void NewSource_CustomSourceCreatedBeforeScopesAreLoaded_IsRefused()
     {
         AddContentOnlyConnection();

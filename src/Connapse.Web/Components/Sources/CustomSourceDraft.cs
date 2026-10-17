@@ -20,6 +20,12 @@ public sealed class CustomSourceDraft
     public string? ScopeId { get; set; }
     public int? SyncIntervalSeconds { get; set; }
 
+    /// <summary>The interval as typed, so a value that is not a number stays on screen with its error.</summary>
+    public string? IntervalText { get; set; }
+
+    public string? NameError { get; set; }
+    public string? IntervalError { get; set; }
+
     /// <summary>The scopes the middle man offered when the connection was last checked.</summary>
     public IReadOnlyList<CustomScopeItem> Scopes { get; set; } = [];
 

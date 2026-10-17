@@ -127,6 +127,29 @@ public class CustomProviderPageTests : IDisposable
         cut.Find("#custom-linking").ClassList.Should().Contain("provider-step--satisfied");
         cut.Find("#custom-link-replace").TextContent.Should().Contain("Replace link secret");
         cut.Find("label[for=custom-link-secret]").TextContent.Should().Be("Link secret");
+        cut.Find("#custom-link-secret").GetAttribute("type").Should().Be("password", "a secret is masked until shown");
+        cut.Find("#custom-link-show").Click();
+        cut.Find("#custom-link-secret").GetAttribute("type").Should().Be("text");
+    }
+
+    [Fact]
+    public void PlainHttpAddress_WarnsThatTheTokenTravelsUnencrypted()
+    {
+        var cut = ctx.Render<CustomProviderPage>();
+
+        cut.FindAll("#custom-provider-plain-http").Should().BeEmpty();
+        cut.Find("#custom-provider-url").Input("http://bridge:8080");
+
+        cut.Find("#custom-provider-plain-http").ClassList.Should().Contain("alert-warning");
+    }
+
+    [Fact]
+    public void PassedPermissionStep_HasNoEditToggle_BecauseThereIsNothingToEdit()
+    {
+        var cut = NewProvider();
+
+        cut.WaitForAssertion(() => cut.Find("#custom-permissions").ClassList.Should().Contain("provider-step--satisfied"));
+        cut.FindAll("#custom-permissions-edit-toggle").Should().BeEmpty();
     }
 
     [Fact]

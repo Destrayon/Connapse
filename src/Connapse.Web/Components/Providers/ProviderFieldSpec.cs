@@ -1,6 +1,6 @@
 namespace Connapse.Web.Components.Providers;
 
-public enum ProviderFieldKind { Text, Multiline, Secret, MultilineSecret }
+public enum ProviderFieldKind { Text, Multiline, Secret, MultilineSecret, Choice }
 
 /// <summary>
 /// One configuration field, described once: its label, group, whether it is a secret, whether it
@@ -116,6 +116,7 @@ public static class CustomSourceFieldSpecs
     public const string Troubleshooting = Guide + "#troubleshooting";
     private const string MiddleMan = "Middle man";
     private const string Connection = "Custom connection";
+    private const string Source = "Custom source";
 
     public static readonly ProviderFieldSpec ProviderName = new(
         "custom-provider-name", "Name", ProviderFieldKind.Text, Required: true,
@@ -133,6 +134,11 @@ public static class CustomSourceFieldSpecs
         MiddleMan, Guide + "#1-custom-provider", "Where to find this",
         KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
 
+    public static readonly ProviderFieldSpec ConnectionProvider = new(
+        "custom-provider", "Custom provider", ProviderFieldKind.Choice, Required: true,
+        "Pick a custom provider for permission checks, or No provider (content only) to enter a middle man here.",
+        Connection, Guide + "#2-custom-connection", "Which to choose", MaxWidth: "32rem");
+
     public static readonly ProviderFieldSpec ConnectionBaseUrl = new(
         "custom-connection-url", "Base URL", ProviderFieldKind.Text, Required: true,
         "The address of the middle man this connection's sources read. It must use HTTPS unless an administrator allowed plain HTTP for its host.",
@@ -144,7 +150,28 @@ public static class CustomSourceFieldSpecs
         Connection, Guide + "#2-custom-connection", "Where to find this",
         KeptPlaceholder: "Kept unless you enter a new one", MaxWidth: "28rem");
 
+    public static readonly ProviderFieldSpec SourceScope = new(
+        "custom-source-scope", "Scope", ProviderFieldKind.Choice, Required: true,
+        "Each scope your middle man offers becomes its own source.",
+        Source, Guide + "#3-custom-source", "Adding a custom source");
+
+    public static readonly ProviderFieldSpec SourceName = new(
+        "custom-source-name", "Name", ProviderFieldKind.Text, Required: true,
+        "What Connapse calls this source. Filled in from the scope's name.",
+        Source, Guide + "#3-custom-source", "Adding a custom source");
+
+    public static readonly ProviderFieldSpec SourceDescription = new(
+        "custom-source-description", "Description", ProviderFieldKind.Text, Required: false,
+        "Shown with the source in lists and to agents choosing where to search.",
+        Source, Guide + "#3-custom-source", "Adding a custom source");
+
+    public static readonly ProviderFieldSpec SourceInterval = new(
+        "custom-source-interval", "Sync interval in seconds", ProviderFieldKind.Text, Required: false,
+        "At least 60. Leave empty to use the configured default; the middle man may ask for a longer one.",
+        Source, Guide + "#3-custom-source", "Adding a custom source", Placeholder: "300", InputMode: "numeric", MaxWidth: "12rem");
+
     /// <summary>Every field, for the check that the setup guide documents each one.</summary>
     public static IReadOnlyList<ProviderFieldSpec> All { get; } =
-        [ProviderName, ProviderBaseUrl, ProviderToken, ConnectionBaseUrl, ConnectionToken];
+        [ProviderName, ProviderBaseUrl, ProviderToken, ConnectionProvider, ConnectionBaseUrl, ConnectionToken,
+            SourceScope, SourceName, SourceDescription, SourceInterval];
 }
