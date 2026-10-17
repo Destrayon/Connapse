@@ -2766,13 +2766,11 @@
         saving = true;
         try
         {
-            // Checked before anything is stored: a token the middle man refuses is never saved.
+            // Checked before anything is stored: a token the middle man refuses is never saved. The refusal is
+            // shown beside its field, so it is not repeated above the form.
             if (form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
-                && await CheckCustomMiddleManAsync() is { } customProblem)
-            {
-                Fail(customProblem);
+                && await CheckCustomMiddleManAsync() is not null)
                 return;
-            }
 
             // Applied to the form itself, not just on the way to the store, so the operator ends
             // up looking at the address their connection actually holds. Saving what was typed
