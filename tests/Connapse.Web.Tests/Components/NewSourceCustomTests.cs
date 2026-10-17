@@ -149,7 +149,7 @@ public class NewSourceCustomTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find("#custom-source-middle-man").TextContent.Should().Contain(FakeMiddleMan.BaseUrl));
         cut.Find("#custom-source-content-only").TextContent
-            .Should().Contain("Signed-in users with access to this source see all of its content");
+            .Should().Contain("sees every document in it, even ones they could not open");
         cut.FindAll("#custom-source-url, #custom-source-token").Should().BeEmpty("the connection holds the address and token");
     }
 
