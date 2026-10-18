@@ -77,6 +77,14 @@ public static partial class Surfaces
         string text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
         if (result.IsError == true || text.StartsWith("Error:", StringComparison.Ordinal))
             return ErrorKind(text);
+        // A delete that removed the row but left the stored file says so in a warning, which a
+        // client must act on (manual cleanup), so it stays in the result.
+        string warning = StorageCleanupWarning().IsMatch(text) ? ";storage_cleanup_failed" : "";
+        return SuccessResult(text) + warning;
+    }
+
+    private static string SuccessResult(string text)
+    {
         // bulk_upload and bulk_delete answer every call with a summary, failures included:
         // "Uploaded 0 of 1 file(s) ... Failures: ...". All of them is ok; none or some is not.
         if (BulkSummary().Match(text) is { Success: true } bulk)
@@ -86,6 +94,9 @@ public static partial class Surfaces
         }
         return McpId().Match(text) is { Success: true } m ? $"ok id={m.Groups[1].Value}" : "ok";
     }
+
+    [GeneratedRegex(@"storage cleanup failed|backing storage file could not be removed", RegexOptions.IgnoreCase)]
+    private static partial Regex StorageCleanupWarning();
 
     [GeneratedRegex(@"^(?:Uploaded|Deleted) (?<done>\d+) of (?<total>\d+) file\(s\)")]
     private static partial Regex BulkSummary();
