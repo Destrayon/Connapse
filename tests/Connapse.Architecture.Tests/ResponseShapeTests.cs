@@ -6,6 +6,7 @@ namespace Connapse.Architecture.Tests;
 /// in a listed handler does. Every web file is scanned, Program.cs included.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ResponseShapeTests
 {
     [Fact]

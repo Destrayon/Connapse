@@ -11,7 +11,7 @@ namespace Connapse.Architecture.Tests;
 /// </summary>
 internal static class SourceScan
 {
-    private static readonly HashSet<string> MapMethods = ["MapGet", "MapPost", "MapPut", "MapPatch", "MapDelete"];
+    internal static readonly HashSet<string> MapMethods = ["MapGet", "MapPost", "MapPut", "MapPatch", "MapDelete"];
     private static readonly HashSet<string> ResultTypes = ["Results", "TypedResults"];
     private static readonly HashSet<string> LocatorCalls =
         ["RequestServices", "GetService", "GetRequiredService", "GetServices", "GetKeyedService", "GetRequiredKeyedService", "GetKeyedServices", "CreateScope", "CreateAsyncScope"];
@@ -23,7 +23,7 @@ internal static class SourceScan
     /// </summary>
     public static IEnumerable<string> AnonymousResponseSites(string csharp, IReadOnlyDictionary<string, IReadOnlyList<string>>? routes = null)
     {
-        var root = CSharpSyntaxTree.ParseText(csharp).GetRoot();
+        var root = TreeIndex.Parse(csharp);
         var resultTypes = new HashSet<string>(ResultTypes);
         bool staticImport = false;
         foreach (var u in root.DescendantNodes().OfType<UsingDirectiveSyntax>())
@@ -43,7 +43,8 @@ internal static class SourceScan
             _ => false,
         };
 
-        foreach (var call in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        var index = TreeIndex.Of(root);
+        foreach (var call in index.Invocations)
         {
             if (!IsResultCall(call))
                 continue;
@@ -55,7 +56,7 @@ internal static class SourceScan
 
         // A handler can also return the anonymous object itself, which ASP.NET serializes as the body:
         // app.MapGet("/x", () => new { id = 1 }). Results calls among its returns are counted above.
-        foreach (var map in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        foreach (var map in index.MapCalls)
         {
             if (map.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
                 || !MapMethods.Contains(verb) || map.ArgumentList.Arguments.Count < 2)
@@ -70,7 +71,7 @@ internal static class SourceScan
         // its direct returns are counted here, where it is declared, under the route it serves.
         if (routes is null)
             yield break;
-        foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+        foreach (var method in index.Methods)
         {
             if (!routes.TryGetValue(QualifiedName(method), out var mapped))
                 continue;
@@ -92,7 +93,7 @@ internal static class SourceScan
         // Every route a handler is mapped to: /v1/health and /v2/health can share HealthHandler.Handle.
         var routes = new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal);
         foreach (string source in sources)
-            foreach (var map in CSharpSyntaxTree.ParseText(source).GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+            foreach (var map in TreeIndex.Of(TreeIndex.Parse(source)).MapCalls)
             {
                 if (map.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
                     && MapMethods.Contains(verb) && map.ArgumentList.Arguments.Count >= 2
@@ -130,7 +131,7 @@ internal static class SourceScan
             MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } =>
                 (n.Identifier.ValueText, handler.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault()),
             MemberAccessExpressionSyntax { Expression: var owner, Name: var n } =>
-                (n.Identifier.ValueText, root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+                (n.Identifier.ValueText, TreeIndex.Of(root).Types
                     .FirstOrDefault(t => t.Identifier.ValueText == RightmostName(owner))),
             _ => ((string?)null, (SyntaxNode?)null),
         };
@@ -140,10 +141,11 @@ internal static class SourceScan
         // nested or declared beside it), and local functions declared at the top level or in the
         // member the map call is in.
         var member = handler.Ancestors().OfType<MemberDeclarationSyntax>().FirstOrDefault();
-        return scope.DescendantNodes()
-            .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == name && m.Parent == scope
-                || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name
-                    && (l.Parent is GlobalStatementSyntax || (member is not null && l.Ancestors().Contains(member))))
+        var found = TreeIndex.Of(root);
+        return found.MethodsByName[name].Where(m => m.Parent == scope).Cast<SyntaxNode>()
+            .Concat(found.LocalFunctionsByName[name].Where(l => scope.Span.Contains(l.Span)
+                && (l.Parent is GlobalStatementSyntax || (member is not null && l.Ancestors().Contains(member)))))
+            .OrderBy(n => n.SpanStart)
             .ToList();
     }
 
@@ -157,7 +159,7 @@ internal static class SourceScan
     {
         var reached = new Dictionary<SyntaxNode, SortedSet<string>>();
         var queue = new Queue<(SyntaxNode Function, string Route)>();
-        foreach (var map in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        foreach (var map in TreeIndex.Of(root).MapCalls)
         {
             if (map.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
                 && MapMethods.Contains(verb) && map.ArgumentList.Arguments.Count >= 2)
@@ -165,7 +167,7 @@ internal static class SourceScan
                     queue.Enqueue((function, HandlerScan.RouteKey(map)));
         }
         if (routes is not null)
-            foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+            foreach (var method in TreeIndex.Of(root).Methods)
                 if (routes.TryGetValue(QualifiedName(method), out var mapped))
                     foreach (string route in mapped)
                         queue.Enqueue((method, route));
@@ -256,7 +258,7 @@ internal static class SourceScan
     public static IEnumerable<(string Site, string Call)> ServiceLocationCalls(string csharp, bool wholeFile,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? routes = null)
     {
-        var root = CSharpSyntaxTree.ParseText(csharp).GetRoot();
+        var root = TreeIndex.Parse(csharp);
         var helpers = wholeFile ? [] : HelpersReachedFromRoutes(root, routes);
         foreach (var name in root.DescendantNodes().OfType<SimpleNameSyntax>())
         {
@@ -333,7 +335,7 @@ internal static class SourceScan
         var found = new List<string>();
         var ownerType = function.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
         string? owner = ownerType?.Identifier.ValueText;
-        foreach (var map in function.SyntaxTree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+        foreach (var map in TreeIndex.Of(function).MapCalls)
         {
             if (map.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
                 || !MapMethods.Contains(verb) || map.ArgumentList.Arguments.Count < 2)
@@ -389,14 +391,11 @@ internal static class SourceScan
             or LocalFunctionStatementSyntax or AccessorDeclarationSyntax or CompilationUnitSyntax);
         if (body is null)
             return count;
+        var writes = TreeIndex.WritesIn(body);
         foreach (string name in arg.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>().Select(i => i.Identifier.ValueText).Distinct())
         {
-            count += body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
-                .Where(v => v.Identifier.ValueText == name && v.Initializer is not null && !v.Initializer.Value.Span.Contains(arg.Span))
-                .Sum(v => AnonymousObjects(v.Initializer!.Value, visited));
-            count += body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
-                .Where(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name && !a.Right.Span.Contains(arg.Span))
-                .Sum(a => AnonymousObjects(a.Right, visited));
+            count += writes.Initialisers[name].Where(v => !v.Span.Contains(arg.Span)).Sum(v => AnonymousObjects(v, visited));
+            count += writes.Assignments[name].Where(r => !r.Span.Contains(arg.Span)).Sum(r => AnonymousObjects(r, visited));
         }
         return count;
     }
@@ -428,13 +427,13 @@ internal static class SourceScan
         };
         if (name is null)
             return [];
-        var root = call.SyntaxTree.GetRoot();
+        var index = TreeIndex.Of(call);
         // Only overloads that can take this many arguments, so adding Shape(string) doesn't change
         // what Shape(1) is counted as returning.
         int args = call.ArgumentList.Arguments.Count;
-        return root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == name && Accepts(m.ParameterList, args))
+        return index.MethodsByName[name].Where(m => Accepts(m.ParameterList, args))
                 .Select(m => (SyntaxNode?)m.ExpressionBody ?? m.Body)
-            .Concat(root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Where(f => f.Identifier.ValueText == name && Accepts(f.ParameterList, args))
+            .Concat(index.LocalFunctionsByName[name].Where(f => Accepts(f.ParameterList, args))
                 .Select(f => (SyntaxNode?)f.ExpressionBody ?? f.Body))
             .OfType<SyntaxNode>()
             .ToList();
@@ -442,9 +441,7 @@ internal static class SourceScan
 
     private static bool IsSameFileHelper(InvocationExpressionSyntax call) =>
         call.Expression is IdentifierNameSyntax { Identifier.ValueText: var name }
-        && call.SyntaxTree.GetRoot().DescendantNodes().Any(n =>
-            n is MethodDeclarationSyntax m && m.Identifier.ValueText == name
-            || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name);
+        && TreeIndex.Of(call).DeclaresFunction(name);
 
     private static bool Accepts(ParameterListSyntax parameters, int args)
     {
@@ -460,9 +457,7 @@ internal static class SourceScan
         string? name = call.Expression switch { IdentifierNameSyntax i => i.Identifier.ValueText, GenericNameSyntax g => g.Identifier.ValueText, _ => null };
         if (name is null || MapMethods.Contains(name))
             return true;
-        var root = call.SyntaxTree.GetRoot();
-        return root.DescendantNodes().OfType<MethodDeclarationSyntax>().Any(m => m.Identifier.ValueText == name)
-            || root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Any(f => f.Identifier.ValueText == name);
+        return TreeIndex.Of(call).DeclaresFunction(name);
     }
 
     private static string? RightmostName(ExpressionSyntax e) => e switch

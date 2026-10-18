@@ -7,6 +7,7 @@ namespace Connapse.Architecture.Tests;
 /// their real dependencies from every other rule. Covers injected locators and inline calls.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ServiceLocationTests
 {
     [Fact]

@@ -24,7 +24,7 @@ internal static class Rules
         {
             var code = f.Path.EndsWith(".razor", StringComparison.Ordinal)
                 ? RazorSource.ParseCodeBlocks(f.Source)
-                : Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(f.Source).GetRoot();
+                : TreeIndex.Parse(f.Source);
             var typed = HandlerScan.ResolvedTypes(code).Where(HandlerScan.IsStore).Select(HandlerScan.Display);
             // Markup expressions never reach a code block, so .razor files are also searched as text.
             var markup = f.Path.EndsWith(".razor", StringComparison.Ordinal)
