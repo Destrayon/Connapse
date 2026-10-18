@@ -53,6 +53,7 @@ public class FixedDelayTests
                     while (tries! < 10) { tries++; await Task.Delay(500); }                    // fixed: a null-forgiven counter
                     while (!Ready()) { _ = Task.Run(async () => await Task.Delay(500)); await Task.Delay(50); } // the callback's is fixed, the poll's isn't
                     for (int k = 0; k < 3; k++) { _ = Task.Run(() => { if (!Ready()) return; Signal(); }); await Task.Delay(500); } // fixed: the callback's return leaves only it
+                    for (int j = 0; j < 3; j++) { switch (status) { case 1: break; } await Task.Delay(500); } // fixed: the break leaves the switch
                     while (done < expected) { done++; expected += await NewJobsAsync(); await Task.Delay(100); } // polling: the limit moves
                     while (true)
                     {
@@ -68,8 +69,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(14);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 13", "f: 1"]);
+        delays.Should().HaveCount(15);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 14", "f: 1"]);
     }
 
     /// <summary>
@@ -142,7 +143,7 @@ public class FixedDelayTests
         // function, which leaves only that function (Task.Run(() => { if (!Ready()) return; })).
         return loop.DescendantNodes().OfType<StatementSyntax>()
             .Where(st => st is IfStatementSyntax or SwitchStatementSyntax)
-            .Any(st => st.DescendantNodes().Any(x => x is ReturnStatementSyntax or BreakStatementSyntax or ThrowStatementSyntax
+            .Any(st => st.DescendantNodes().Any(x => (x is ReturnStatementSyntax or ThrowStatementSyntax || BreaksOut(x, loop))
                 && !x.Ancestors().TakeWhile(a => a != loop).Any(a => a is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax)));
     }
 
@@ -165,6 +166,12 @@ public class FixedDelayTests
 
     private static readonly HashSet<string> ClockMembers =
         ["Elapsed", "ElapsedMilliseconds", "ElapsedTicks", "UtcNow", "Now", "TickCount", "TickCount64"];
+
+    /// <summary>A break that leaves this loop, not an inner loop or a switch case.</summary>
+    private static bool BreaksOut(SyntaxNode node, StatementSyntax loop) =>
+        node is BreakStatementSyntax
+        && node.Ancestors().FirstOrDefault(a => a is WhileStatementSyntax or ForStatementSyntax or ForEachStatementSyntax
+            or DoStatementSyntax or SwitchStatementSyntax) == loop;
 
     /// <summary>(x) and x! are x: neither changes what a comparison side reads.</summary>
     private static ExpressionSyntax Unwrap(ExpressionSyntax e) => e switch
