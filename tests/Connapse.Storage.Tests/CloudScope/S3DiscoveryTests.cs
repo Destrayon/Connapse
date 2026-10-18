@@ -107,7 +107,6 @@ public class S3DiscoveryTests
     /// </para>
     /// </remarks>
     [Fact]
-    [Trait("Category", "Unit")]
     public void TheTwoAwsExceptionRoots_AreSiblings_SoNeitherCatchCoversTheOther()
     {
         typeof(AmazonServiceException).IsSubclassOf(typeof(AmazonClientException))

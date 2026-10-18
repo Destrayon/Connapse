@@ -127,7 +127,6 @@ public class SourceFormTests
     // ── AzureBlob ────────────────────────────────────────────────────────
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void SourceForm_AzureBlob_BuildsScopeJson()
     {
         var form = new SourceForm { Container = "docs", Prefix = "reports/" };

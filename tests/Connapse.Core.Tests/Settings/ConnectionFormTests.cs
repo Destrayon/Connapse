@@ -264,7 +264,6 @@ public class ConnectionFormTests
     // ── AzureBlob ────────────────────────────────────────────────────────
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void ConnectionForm_AzureBlob_BuildsConfigJson()
     {
         // Name is required for every provider (see Validate_RequiresAName above), so it is set
@@ -275,7 +274,6 @@ public class ConnectionFormTests
     }
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void ConnectionForm_AzureBlob_MissingAccount_FailsValidation()
     {
         var form = new ConnectionForm { Provider = ConnectionProvider.AzureBlob };

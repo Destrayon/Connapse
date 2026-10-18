@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Connapse.TestSuite.Tests;
 
 /// <summary>Reads the test suite's own source, so every check here works without building or loading it.</summary>
-internal static class TestSources
+internal static partial class TestSources
 {
     private static readonly Lazy<string> RootPath = new(() =>
     {
@@ -26,14 +26,16 @@ internal static class TestSources
     public static IReadOnlyList<(string RelativePath, SyntaxNode Root)> Files() => Parsed.Value;
 
     private static readonly Lazy<IReadOnlyList<(string RelativePath, SyntaxNode Root)>> ParsedTests = new(() =>
-        Load().Where(f => f.Text.Contains("[Fact", StringComparison.Ordinal) || f.Text.Contains("[Theory", StringComparison.Ordinal))
+        Load().Where(f => f.Text.Contains("Fact", StringComparison.Ordinal) || f.Text.Contains("Theory", StringComparison.Ordinal)
+                || TestAttributeNames.Value.Any(n => f.Text.Contains(n, StringComparison.Ordinal)))
             .AsParallel().AsOrdered()
             .Select(f => (f.RelativePath, CSharpSyntaxTree.ParseText(f.Text, path: f.Path).GetRoot())).ToList());
 
     /// <summary>
-    /// Only files that declare tests, found by a text search before parsing so this suite stays in
-    /// the Small tier. A file whose only tests use another spelling would be missed, so the guard
-    /// test checks known test files are included.
+    /// Files that may declare tests, found by a text search for "Fact" or "Theory" before parsing so
+    /// this suite stays fast. Every test attribute's name contains one of the two, whether written
+    /// [Fact], [Xunit.Fact], [SkippableFact] or a subclass named after them; a subclass named
+    /// otherwise is found by <see cref="TestAttributeNames"/> and its file is parsed too.
     /// </summary>
     public static IReadOnlyList<(string RelativePath, SyntaxNode Root)> TestFiles() => ParsedTests.Value;
 
@@ -52,8 +54,44 @@ internal static class TestSources
     /// <summary>tests/AIKnowledge.* predate the rename and aren't in Connapse.slnx, so nothing runs them.</summary>
     private static bool InSolution(string rel) => !rel.StartsWith("tests/AIKnowledge.", StringComparison.Ordinal);
 
-    public static bool IsTestMethod(MethodDeclarationSyntax m) =>
-        m.AttributeLists.SelectMany(a => a.Attributes).Any(a => AttributeName(a) is "Fact" or "Theory");
+    public static bool IsTestMethod(MethodDeclarationSyntax m, IReadOnlyCollection<string> testAttributes) =>
+        m.AttributeLists.SelectMany(a => a.Attributes).Select(a => Strip(RightmostName(a.Name)))
+            .Any(n => testAttributes.Contains(n) || n.EndsWith("Fact", StringComparison.Ordinal) || n.EndsWith("Theory", StringComparison.Ordinal));
+
+    private static string RightmostName(NameSyntax name) => name switch
+    {
+        QualifiedNameSyntax q => q.Right.Identifier.ValueText,
+        AliasQualifiedNameSyntax a => a.Name.Identifier.ValueText,
+        SimpleNameSyntax s => s.Identifier.ValueText,
+        _ => name.ToString(),
+    };
+
+    /// <summary>
+    /// Fact and Theory, anything named ...Fact or ...Theory (SkippableFact), and every attribute class in
+    /// the test sources that derives from one of those, however it is named.
+    /// </summary>
+    public static readonly Lazy<HashSet<string>> TestAttributeNames = new(() =>
+    {
+        // Found by text, not by parsing every file, so this stays cheap.
+        var derived = Load().SelectMany(f => ClassWithBase().Matches(f.Text))
+            .Select(m => (Name: Strip(m.Groups["name"].Value), Bases: m.Groups["bases"].Value.Split(',').Select(b => Strip(b.Trim().Split('.')[^1].Split('<')[0])).ToList()))
+            .ToList();
+        var names = new HashSet<string>(StringComparer.Ordinal) { "Fact", "Theory" };
+        bool added = true;
+        while (added)
+        {
+            added = false;
+            foreach (var (name, bases) in derived)
+                if (bases.Any(b => names.Contains(b) || b.EndsWith("Fact", StringComparison.Ordinal) || b.EndsWith("Theory", StringComparison.Ordinal)) && names.Add(name))
+                    added = true;
+        }
+        return names;
+    });
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\bclass\s+(?<name>\w+)\s*:\s*(?<bases>[\w.<>,\s]+?)\s*(?:\{|where\b)")]
+    private static partial System.Text.RegularExpressions.Regex ClassWithBase();
+
+    private static string Strip(string name) => name.EndsWith("Attribute", StringComparison.Ordinal) ? name[..^"Attribute".Length] : name;
 
     /// <summary>The (name, value) pairs of [Trait("name", "value")] attributes with literal arguments.</summary>
     public static IEnumerable<(string Name, string Value)> Traits(SyntaxList<AttributeListSyntax> lists)
@@ -77,6 +115,6 @@ internal static class TestSources
             SimpleNameSyntax s => s.Identifier.ValueText,
             _ => a.Name.ToString(),
         };
-        return name.EndsWith("Attribute", StringComparison.Ordinal) ? name[..^"Attribute".Length] : name;
+        return Strip(name);
     }
 }

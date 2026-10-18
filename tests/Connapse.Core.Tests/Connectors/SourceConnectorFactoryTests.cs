@@ -136,7 +136,6 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void Create_AzureBlob_BuildsConnectorFromSplitConfig()
     {
         var connection = MakeConnection(ConnectionProvider.AzureBlob, """{"accountName":"acct"}""");
