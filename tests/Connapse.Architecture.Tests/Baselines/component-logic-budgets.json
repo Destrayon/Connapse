@@ -1,0 +1,177 @@
+{
+  "Connections/AtlassianConnectionForm.razor": {
+    "CodeLines": 412,
+    "Injects": 6,
+    "Complexity": 101
+  },
+  "Pages/Admin/AgentManagement.razor": {
+    "CodeLines": 193,
+    "Injects": 3,
+    "Complexity": 26
+  },
+  "Pages/Admin/UserManagement.razor": {
+    "CodeLines": 227,
+    "Injects": 6,
+    "Complexity": 36
+  },
+  "Pages/Auth/Login.razor": {
+    "CodeLines": 62,
+    "Injects": 0,
+    "Complexity": 13
+  },
+  "Pages/Auth/OAuthAuthorize.razor": {
+    "CodeLines": 172,
+    "Injects": 0,
+    "Complexity": 32
+  },
+  "Pages/Auth/Register.razor": {
+    "CodeLines": 160,
+    "Injects": 0,
+    "Complexity": 32
+  },
+  "Pages/Connections.razor": {
+    "CodeLines": 1531,
+    "Injects": 21,
+    "Complexity": 415
+  },
+  "Pages/CustomProviderPage.razor": {
+    "CodeLines": 278,
+    "Injects": 7,
+    "Complexity": 76
+  },
+  "Pages/FileBrowser.razor": {
+    "CodeLines": 855,
+    "Injects": 12,
+    "Complexity": 198
+  },
+  "Pages/Home.razor": {
+    "CodeLines": 152,
+    "Injects": 3,
+    "Complexity": 22
+  },
+  "Pages/PersonalTokens.razor": {
+    "CodeLines": 104,
+    "Injects": 3,
+    "Complexity": 24
+  },
+  "Pages/ProfileIntegrations.razor": {
+    "CodeLines": 339,
+    "Injects": 17,
+    "Complexity": 89
+  },
+  "Pages/Providers.razor": {
+    "CodeLines": 1974,
+    "Injects": 23,
+    "Complexity": 382
+  },
+  "Pages/Search.razor": {
+    "CodeLines": 156,
+    "Injects": 8,
+    "Complexity": 39
+  },
+  "Pages/Settings.razor": {
+    "CodeLines": 69,
+    "Injects": 8,
+    "Complexity": 10
+  },
+  "Pages/SourceEdit.razor": {
+    "CodeLines": 98,
+    "Injects": 5,
+    "Complexity": 25
+  },
+  "Pages/Sources.razor": {
+    "CodeLines": 979,
+    "Injects": 16,
+    "Complexity": 216
+  },
+  "Providers/AtlassianProviderCard.razor": {
+    "CodeLines": 417,
+    "Injects": 5,
+    "Complexity": 88
+  },
+  "Providers/ProviderResetAction.razor": {
+    "CodeLines": 59,
+    "Injects": 0,
+    "Complexity": 12
+  },
+  "Providers/ProviderStepCard.razor": {
+    "CodeLines": 48,
+    "Injects": 0,
+    "Complexity": 21
+  },
+  "Settings/AzureAdSignInSettingsTab.razor": {
+    "CodeLines": 86,
+    "Injects": 0,
+    "Complexity": 25
+  },
+  "Settings/AzureProviderSettingsTab.razor": {
+    "CodeLines": 104,
+    "Injects": 0,
+    "Complexity": 30
+  },
+  "Settings/ChunkingSettingsTab.razor": {
+    "CodeLines": 75,
+    "Injects": 0,
+    "Complexity": 19
+  },
+  "Settings/EmbeddingSettingsTab.razor": {
+    "CodeLines": 228,
+    "Injects": 8,
+    "Complexity": 48
+  },
+  "Settings/LlmSettingsTab.razor": {
+    "CodeLines": 86,
+    "Injects": 4,
+    "Complexity": 25
+  },
+  "Settings/SamlSignInSettingsTab.razor": {
+    "CodeLines": 50,
+    "Injects": 1,
+    "Complexity": 12
+  },
+  "Settings/SearchSettingsTab.razor": {
+    "CodeLines": 103,
+    "Injects": 7,
+    "Complexity": 26
+  },
+  "Settings/SummarySettingsTab.razor": {
+    "CodeLines": 226,
+    "Injects": 3,
+    "Complexity": 44
+  },
+  "Settings/UploadSettingsTab.razor": {
+    "CodeLines": 75,
+    "Injects": 0,
+    "Complexity": 17
+  },
+  "Shared/AtlassianIdentityCard.razor": {
+    "CodeLines": 43,
+    "Injects": 0,
+    "Complexity": 12
+  },
+  "Shared/AuthorPicker.razor": {
+    "CodeLines": 94,
+    "Injects": 0,
+    "Complexity": 37
+  },
+  "Shared/CustomProviderLinkCard.razor": {
+    "CodeLines": 87,
+    "Injects": 3,
+    "Complexity": 16
+  },
+  "Sources/ConfluenceSpaceForm.razor": {
+    "CodeLines": 119,
+    "Injects": 3,
+    "Complexity": 33
+  },
+  "Sources/CustomSourceFields.razor": {
+    "CodeLines": 56,
+    "Injects": 3,
+    "Complexity": 14
+  },
+  "Sources/JiraProjectForm.razor": {
+    "CodeLines": 112,
+    "Injects": 3,
+    "Complexity": 30
+  }
+}
