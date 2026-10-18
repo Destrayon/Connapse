@@ -61,11 +61,13 @@ public static partial class Surfaces
 
     private static string Error(HttpResponseMessage response) => response.StatusCode switch
     {
-        HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity => "error:validation",
+        HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity or HttpStatusCode.RequestEntityTooLarge
+            or HttpStatusCode.UnsupportedMediaType => "error:validation",
         HttpStatusCode.Unauthorized => "error:unauthenticated",
         HttpStatusCode.Forbidden => "error:forbidden",
         HttpStatusCode.NotFound => "error:not_found",
         HttpStatusCode.Conflict => "error:conflict",
+        >= HttpStatusCode.InternalServerError => "error:server",
         _ => $"error:status_{(int)response.StatusCode}",
     };
 
@@ -78,6 +80,10 @@ public static partial class Surfaces
         return ErrorKind(text);
     }
 
+    /// <summary>Phrases MCP's and the UI's validation messages use. McpErrorKindTests keeps every MCP message covered.</summary>
+    private static readonly string[] ValidationWords =
+        ["must", "invalid", "required", "not supported", "no parser", "provide either", "maximum", "exceeds", "empty", "too large"];
+
     /// <summary>The kind of failure an error message describes, for MCP text and UI alerts alike.</summary>
     public static string ErrorKind(string text) => text switch
         {
@@ -87,9 +93,12 @@ public static partial class Surfaces
             _ when text.Contains("not empty", StringComparison.OrdinalIgnoreCase) => "error:validation",
             _ when text.Contains("permission", StringComparison.OrdinalIgnoreCase)
                 || text.Contains("forbidden", StringComparison.OrdinalIgnoreCase) => "error:forbidden",
-            _ when text.Contains("must", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("invalid", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("required", StringComparison.OrdinalIgnoreCase) => "error:validation",
+            // A document still ingesting, or whose ingestion failed, is in the wrong state: 409 over REST.
+            _ when text.Contains("being ingested", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("failed ingestion", StringComparison.OrdinalIgnoreCase) => "error:conflict",
+            _ when text.Contains("could not be", StringComparison.OrdinalIgnoreCase) => "error:server",
+            _ when ValidationWords.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase)) => "error:validation",
+            // An exception the tool didn't handle: the SDK answers with this and nothing more.
             _ => "error:unknown",
         };
 

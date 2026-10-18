@@ -215,6 +215,26 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task RestAndMcp_UnsupportedUpload_ReportTheSameError()
+    {
+        string name = UniqueName();
+        var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
+        created.EnsureSuccessStatusCode();
+        string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
+        await using var mcp = await Surfaces.McpAsync(fixture);
+
+        using var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent("MZ"u8.ToArray()), "files", "tool.exe");
+        form.Add(new StringContent("/"), "path");
+        string rest = await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form));
+        string viaMcp = Surfaces.Result(await mcp.CallToolAsync("upload_file",
+            new Dictionary<string, object?> { ["containerId"] = containerId, ["textContent"] = "MZ", ["fileName"] = "tool.exe" }));
+
+        rest.Should().Be("error:validation");
+        viaMcp.Should().Be(rest);
+    }
+
+    [Fact]
     public async Task RestAndMcp_DeleteNonEmptyContainer_ReportTheirErrors()
     {
         string name = UniqueName();
