@@ -44,6 +44,11 @@ public class FixedDelayTests
                     while (sw.Elapsed < limit) { if (Ready()) break; await Task.Delay(50); }  // polling: the body checks
                     for (int i = 0; i < 50; i++) { if (Ready()) return; await Task.Delay(100); } // polling
                     for (int i = 0; i < 20 && !Ready(); i++) await Task.Delay(50);            // polling
+                    for (int n = 0; n < 10 && sw.Elapsed < limit; n++) await Task.Delay(500); // fixed: two bounds, no check
+                    while (status.QueueDepth > 0) await Task.Delay(200);                      // polling: live state
+                    while (pending > 0) { pending = await CountAsync(); await Task.Delay(100); } // polling: re-read each pass
+                    int left = 5;
+                    while (left > 0) { left--; await Task.Delay(100); }                       // fixed: a countdown
                     while (true)
                     {
                         if (Ready()) { await Task.Delay(500); return; }     // fixed: after the condition succeeded
@@ -58,8 +63,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(8);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 7", "f: 1"]);
+        delays.Should().HaveCount(10);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 9", "f: 1"]);
     }
 
     /// <summary>
@@ -111,22 +116,11 @@ public class FixedDelayTests
     }
 
     /// <summary>
-    /// Polling means the loop can end on a condition: a while or do with a real condition, or a body
-    /// that leaves (return, break, throw) under an if or switch. A for or foreach that only counts,
-    /// sleeping each pass, is pacing: a fixed wait multiplied, not a wait for anything.
+    /// Polling means the loop can end on a condition: a while, do or for whose condition checks
+    /// something besides a count or the clock, or a body that leaves (return, break, throw) under an
+    /// if or switch. A loop that only counts or times itself, sleeping each pass, is pacing: a fixed
+    /// wait multiplied, not a wait for anything.
     /// </summary>
-    /// <summary>
-    /// A loop condition that only counts or measures time: one comparison (attempt++ &lt; 10,
-    /// i &lt; 3, sw.Elapsed &lt; timeout) with no call and no &amp;&amp; or ||. Such a loop waits a fixed
-    /// time unless its body checks something; !done, status != Ready or Ready() are readiness checks.
-    /// </summary>
-    private static bool IsCountOnly(ExpressionSyntax condition) =>
-        condition is BinaryExpressionSyntax b
-        && (b.IsKind(SyntaxKind.LessThanExpression) || b.IsKind(SyntaxKind.LessThanOrEqualExpression)
-            || b.IsKind(SyntaxKind.GreaterThanExpression) || b.IsKind(SyntaxKind.GreaterThanOrEqualExpression))
-        && !condition.DescendantNodes().Any(n => n is InvocationExpressionSyntax
-            || n.IsKind(SyntaxKind.LogicalAndExpression) || n.IsKind(SyntaxKind.LogicalOrExpression));
-
     private static bool WaitsOnACondition(StatementSyntax loop)
     {
         var condition = loop switch
@@ -136,12 +130,69 @@ public class FixedDelayTests
             ForStatementSyntax f => f.Condition,
             _ => null,
         };
-        if (condition is not null && !condition.IsKind(SyntaxKind.TrueLiteralExpression) && !IsCountOnly(condition))
+        if (condition is not null && !condition.IsKind(SyntaxKind.TrueLiteralExpression) && !IsBound(condition, loop))
             return true;
         return loop.DescendantNodes().OfType<StatementSyntax>()
             .Where(st => st is IfStatementSyntax or SwitchStatementSyntax)
             .Any(st => st.DescendantNodes().Any(x => x is ReturnStatementSyntax or BreakStatementSyntax or ThrowStatementSyntax));
     }
+
+    /// <summary>
+    /// A condition that only counts or measures time: comparisons, joined by &amp;&amp; or ||, each of a
+    /// counter the loop steps (attempt++ &lt; 10, i &lt; 3) or a clock reading (sw.Elapsed &lt; limit)
+    /// against a limit the loop doesn't reassign. !done, status != Ready, status.QueueDepth &gt; 0 and
+    /// Ready() are readiness checks.
+    /// </summary>
+    private static bool IsBound(ExpressionSyntax condition, StatementSyntax loop) => condition switch
+    {
+        ParenthesizedExpressionSyntax p => IsBound(p.Expression, loop),
+        BinaryExpressionSyntax b when b.IsKind(SyntaxKind.LogicalAndExpression) || b.IsKind(SyntaxKind.LogicalOrExpression) =>
+            IsBound(b.Left, loop) && IsBound(b.Right, loop),
+        BinaryExpressionSyntax b when b.IsKind(SyntaxKind.LessThanExpression) || b.IsKind(SyntaxKind.LessThanOrEqualExpression)
+            || b.IsKind(SyntaxKind.GreaterThanExpression) || b.IsKind(SyntaxKind.GreaterThanOrEqualExpression) =>
+            (IsCounterOrClock(b.Left, loop) && IsLimit(b.Right, loop)) || (IsCounterOrClock(b.Right, loop) && IsLimit(b.Left, loop)),
+        _ => false,
+    };
+
+    private static readonly HashSet<string> ClockMembers =
+        ["Elapsed", "ElapsedMilliseconds", "ElapsedTicks", "UtcNow", "Now", "TickCount", "TickCount64"];
+
+    private static bool IsCounterOrClock(ExpressionSyntax e, StatementSyntax loop)
+    {
+        if (e is PostfixUnaryExpressionSyntax { Operand: IdentifierNameSyntax } or PrefixUnaryExpressionSyntax { Operand: IdentifierNameSyntax }
+            && (e.IsKind(SyntaxKind.PostIncrementExpression) || e.IsKind(SyntaxKind.PostDecrementExpression)
+                || e.IsKind(SyntaxKind.PreIncrementExpression) || e.IsKind(SyntaxKind.PreDecrementExpression)))
+            return true;
+        if (e is IdentifierNameSyntax id)
+            return Steps(loop, id.Identifier.ValueText);
+        // sw.Elapsed, DateTime.UtcNow - start: the clock, with no call that could read anything else.
+        return e.DescendantNodesAndSelf().Any(n => n is MemberAccessExpressionSyntax m && ClockMembers.Contains(m.Name.Identifier.ValueText))
+            && IsLimit(e, loop);
+    }
+
+    /// <summary>A value the loop doesn't change and that reads nothing live: no call (other than TimeSpan.From*) and no reassigned local.</summary>
+    private static bool IsLimit(ExpressionSyntax e, StatementSyntax loop) =>
+        !e.DescendantNodesAndSelf().Any(n => n is InvocationExpressionSyntax call && !call.Expression.ToString().StartsWith("TimeSpan.From", StringComparison.Ordinal))
+        && !e.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>().Any(i => Assigned(loop, i.Identifier.ValueText))
+        && !e.DescendantNodesAndSelf().Any(n => n is MemberAccessExpressionSyntax m && !ClockMembers.Contains(m.Name.Identifier.ValueText)
+            && m.Expression is IdentifierNameSyntax receiver && char.IsLower(receiver.Identifier.ValueText[0]));
+
+    /// <summary>The loop steps a counter by ++, --, += or -= (in its body or a for's incrementors).</summary>
+    private static bool Steps(StatementSyntax loop, string name) =>
+        loop.DescendantNodes().Any(n => n switch
+        {
+            PostfixUnaryExpressionSyntax { Operand: IdentifierNameSyntax o } => o.Identifier.ValueText == name,
+            PrefixUnaryExpressionSyntax { Operand: IdentifierNameSyntax o } pre => o.Identifier.ValueText == name
+                && (pre.IsKind(SyntaxKind.PreIncrementExpression) || pre.IsKind(SyntaxKind.PreDecrementExpression)),
+            AssignmentExpressionSyntax { Left: IdentifierNameSyntax l } a => l.Identifier.ValueText == name
+                && (a.IsKind(SyntaxKind.AddAssignmentExpression) || a.IsKind(SyntaxKind.SubtractAssignmentExpression)),
+            _ => false,
+        });
+
+    /// <summary>The loop sets a local outright (x = await ReadAsync()), so comparing it reads live state.</summary>
+    private static bool Assigned(StatementSyntax loop, string name) =>
+        loop.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+            .Any(a => a.IsKind(SyntaxKind.SimpleAssignmentExpression) && a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name);
 
     /// <summary>The method, local function, property or field a delay sits in, so entries don't move with line numbers.</summary>
     internal static string Member(SyntaxNode node)
