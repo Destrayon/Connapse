@@ -1,0 +1,15 @@
+[
+  "Endpoints/AgentEndpoints.cs: 5",
+  "Endpoints/AtlassianEndpoints.cs: 50",
+  "Endpoints/AuthEndpoints.cs: 6",
+  "Endpoints/BatchesEndpoints.cs: 2",
+  "Endpoints/CloudIdentityEndpoints.cs: 2",
+  "Endpoints/ContainersEndpoints.cs: 20",
+  "Endpoints/DocumentsEndpoints.cs: 23",
+  "Endpoints/FoldersEndpoints.cs: 10",
+  "Endpoints/OAuthEndpoints.cs: 17",
+  "Endpoints/PaginationValidator.cs: 3",
+  "Endpoints/SearchEndpoints.cs: 9",
+  "Endpoints/SettingsEndpoints.cs: 11",
+  "Endpoints/SourcesEndpoints.cs: 41"
+]

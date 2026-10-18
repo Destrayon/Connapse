@@ -47,6 +47,22 @@ internal static class Rules
     private static bool IsStoreName(string type) =>
         System.Text.RegularExpressions.Regex.IsMatch(type, @"(Store|DbContext)\b|\bIDbContextFactory\b");
 
+    /// <summary>Service location: an injected or parameter-bound service provider or scope factory.</summary>
+    public static IEnumerable<string> ServiceLocatorDependencies(Assembly assembly, string[] namespaces)
+    {
+        var components = StructureScan.Components(assembly)
+            .SelectMany(c => StructureScan.InjectedTypes(c).Where(StructureScan.IsServiceLocator)
+                .Select(t => $"{ComponentName(c)} -> {StructureScan.Display(t)}"));
+        var handlers = StructureScan.SurfaceHandlers(assembly, namespaces)
+            .SelectMany(h => StructureScan.HandlerParameterTypes(h).Where(StructureScan.IsServiceLocator)
+                .Select(t => $"{h.Name} -> {StructureScan.Display(t)}"));
+        return components.Concat(handlers).Distinct();
+    }
+
+    /// <summary>Inline service-location calls in a source file, as "path uses Name" entries.</summary>
+    public static IEnumerable<string> ServiceLocationCalls(string relativePath, string source) =>
+        SourceScan.ServiceLocationCalls(source).Distinct().Select(call => $"{relativePath} uses {call}");
+
     /// <summary>Components are listed by their path under Components, so same-named files don't collide.</summary>
     private static string ComponentName(Type component)
     {

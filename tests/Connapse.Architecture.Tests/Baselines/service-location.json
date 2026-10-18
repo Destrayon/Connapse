@@ -1,0 +1,19 @@
+[
+  "Components/Pages/FileBrowser.razor uses CreateAsyncScope",
+  "Components/Pages/FileBrowser.razor uses GetRequiredService",
+  "Components/Pages/Sources.razor uses CreateAsyncScope",
+  "Components/Pages/Sources.razor uses GetRequiredService",
+  "Components/Settings/EmbeddingSettingsTab.razor uses CreateAsyncScope",
+  "Components/Settings/EmbeddingSettingsTab.razor uses GetRequiredService",
+  "Endpoints/DocumentsEndpoints.cs uses GetRequiredService",
+  "Endpoints/DocumentsEndpoints.cs uses RequestServices",
+  "Endpoints/SettingsEndpoints.cs uses CreateAsyncScope",
+  "Endpoints/SettingsEndpoints.cs uses GetRequiredService",
+  "Mcp/McpTools.cs uses GetRequiredService",
+  "Mcp/McpTools.cs uses GetService",
+  "McpTools -> IServiceProvider",
+  "Pages.FileBrowser -> IServiceScopeFactory",
+  "Pages.Sources -> IServiceScopeFactory",
+  "Settings.EmbeddingSettingsTab -> IServiceScopeFactory",
+  "SettingsEndpoints -> IServiceProvider"
+]
