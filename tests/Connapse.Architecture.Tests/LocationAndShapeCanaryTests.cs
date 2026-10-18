@@ -193,10 +193,12 @@ public class LocationAndShapeCanaryTests
             app.MapGet("/direct", () => new { id = 1 });
             app.MapGet("/block", (bool f) => { if (f) return Results.Ok(new { a = 1 }); return new { b = 2 }; });
             app.MapGet("/group", Handler);
+            app.MapGet("/qualified", SummaryEndpoints.Get);
+            static class SummaryEndpoints { public static object Get() => new { id = 1 }; }
             static object Handler() => new { id = 1 };
             """;
         Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(
-            ["Program.cs: GET /direct: 1", "Program.cs: GET /block: 2", "Program.cs: GET /group: 1"]);
+            ["Program.cs: GET /direct: 1", "Program.cs: GET /block: 2", "Program.cs: GET /group: 1", "Program.cs: GET /qualified: 1"]);
     }
 
     [Fact]

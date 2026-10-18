@@ -69,16 +69,24 @@ internal static class SourceScan
     /// <summary>The expressions a route handler returns: a lambda's, or a same-file method group's.</summary>
     private static IEnumerable<ExpressionSyntax> HandlerReturns(ExpressionSyntax handler)
     {
-        SyntaxNode? body = handler switch
+        if (handler is AnonymousFunctionExpressionSyntax f)
+            return Returned(f);
+        // A method group: Get, this.Get, or SummaryEndpoints.Get for a class declared in this file.
+        string? name = handler switch
         {
-            AnonymousFunctionExpressionSyntax f => f,
-            IdentifierNameSyntax i => handler.SyntaxTree.GetRoot().DescendantNodes()
-                .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == i.Identifier.ValueText
-                    || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == i.Identifier.ValueText)
-                .FirstOrDefault(),
+            IdentifierNameSyntax i => i.Identifier.ValueText,
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } => n.Identifier.ValueText,
+            MemberAccessExpressionSyntax { Expression: var owner, Name: var n }
+                when handler.SyntaxTree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>()
+                    .Any(t => t.Identifier.ValueText == RightmostName(owner)) => n.Identifier.ValueText,
             _ => null,
         };
-        return body is null ? [] : Returned(body);
+        if (name is null)
+            return [];
+        return handler.SyntaxTree.GetRoot().DescendantNodes()
+            .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == name
+                || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name)
+            .SelectMany(Returned);
     }
 
     /// <summary>Expressions a lambda, method or local function returns, not those of functions nested in it.</summary>
