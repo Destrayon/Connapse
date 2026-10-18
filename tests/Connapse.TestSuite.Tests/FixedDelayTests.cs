@@ -52,6 +52,7 @@ public class FixedDelayTests
                     while (sw.Elapsed < cap!.Value) await Task.Delay(100);                     // fixed: a null-forgiven limit
                     while (tries! < 10) { tries++; await Task.Delay(500); }                    // fixed: a null-forgiven counter
                     while (!Ready()) { _ = Task.Run(async () => await Task.Delay(500)); await Task.Delay(50); } // the callback's is fixed, the poll's isn't
+                    for (int k = 0; k < 3; k++) { _ = Task.Run(() => { if (!Ready()) return; Signal(); }); await Task.Delay(500); } // fixed: the callback's return leaves only it
                     while (done < expected) { done++; expected += await NewJobsAsync(); await Task.Delay(100); } // polling: the limit moves
                     while (true)
                     {
@@ -67,8 +68,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(13);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 12", "f: 1"]);
+        delays.Should().HaveCount(14);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 13", "f: 1"]);
     }
 
     /// <summary>
@@ -137,9 +138,12 @@ public class FixedDelayTests
         };
         if (condition is not null && !condition.IsKind(SyntaxKind.TrueLiteralExpression) && !IsBound(condition, loop))
             return true;
+        // An exit under an if or switch that leaves this loop: not one inside a lambda or local
+        // function, which leaves only that function (Task.Run(() => { if (!Ready()) return; })).
         return loop.DescendantNodes().OfType<StatementSyntax>()
             .Where(st => st is IfStatementSyntax or SwitchStatementSyntax)
-            .Any(st => st.DescendantNodes().Any(x => x is ReturnStatementSyntax or BreakStatementSyntax or ThrowStatementSyntax));
+            .Any(st => st.DescendantNodes().Any(x => x is ReturnStatementSyntax or BreakStatementSyntax or ThrowStatementSyntax
+                && !x.Ancestors().TakeWhile(a => a != loop).Any(a => a is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax)));
     }
 
     /// <summary>
