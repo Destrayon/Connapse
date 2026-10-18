@@ -282,4 +282,17 @@ public class LocationAndShapeCanaryTests
             """;
         Rules.AnonymousResponses("Program.cs", source).Should().BeEmpty();
     }
+
+    [Fact]
+    public void ArchRule_CountsServiceLocationInHelpersARouteCalls()
+    {
+        const string source = """
+            app.MapGet("/info", (HttpContext ctx) => BuildInfo(ctx));
+            static IResult BuildInfo(HttpContext ctx) => Results.Ok(Describe(ctx));
+            static object Describe(HttpContext ctx) => ctx.RequestServices.GetRequiredService<IInfo>();
+            static void Unused(IServiceProvider sp) => sp.GetRequiredService<IInfo>();
+            """;
+        Rules.ServiceLocationCalls("Program.cs", source, wholeFile: false).Should().BeEquivalentTo(
+            ["Program.cs: GET /info uses RequestServices", "Program.cs: GET /info uses GetRequiredService"]);
+    }
 }

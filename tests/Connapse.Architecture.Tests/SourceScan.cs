@@ -103,10 +103,14 @@ internal static class SourceScan
         $"{method.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault()?.Identifier.ValueText}.{method.Identifier.ValueText}";
 
     /// <summary>The expressions a route handler returns: a lambda's, or a same-file method group's.</summary>
-    private static IEnumerable<ExpressionSyntax> HandlerReturns(ExpressionSyntax handler)
+    private static IEnumerable<ExpressionSyntax> HandlerReturns(ExpressionSyntax handler) =>
+        HandlerFunctions(handler).SelectMany(Returned);
+
+    /// <summary>The lambda, method or local function a route handler expression is.</summary>
+    private static IEnumerable<SyntaxNode> HandlerFunctions(ExpressionSyntax handler)
     {
         if (handler is AnonymousFunctionExpressionSyntax f)
-            return Returned(f);
+            return [f];
         // A method group: Get, this.Get, or SummaryEndpoints.Get for a class declared in this file. A
         // qualified one is looked up in that class only, so another class's Get isn't mistaken for it.
         var root = handler.SyntaxTree.GetRoot();
@@ -131,7 +135,30 @@ internal static class SourceScan
             .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == name && m.Parent == scope
                 || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name
                     && (l.Parent is GlobalStatementSyntax || (member is not null && l.Ancestors().Contains(member))))
-            .SelectMany(Returned);
+            .ToList();
+    }
+
+    /// <summary>
+    /// Same-file methods and local functions a route handler calls, directly or through each other,
+    /// with the route that reaches them first: BuildInfo in app.MapGet("/info", ctx => BuildInfo(ctx)).
+    /// </summary>
+    private static Dictionary<SyntaxNode, string> HelpersReachedFromRoutes(SyntaxNode root)
+    {
+        var reached = new Dictionary<SyntaxNode, string>();
+        var queue = new Queue<(SyntaxNode Function, string Route)>();
+        foreach (var map in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            if (map.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
+                && MapMethods.Contains(verb) && map.ArgumentList.Arguments.Count >= 2)
+                foreach (var function in HandlerFunctions(map.ArgumentList.Arguments[^1].Expression))
+                    queue.Enqueue((function, HandlerScan.RouteKey(map)));
+        }
+        while (queue.TryDequeue(out var next))
+            foreach (var call in next.Function.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                foreach (var body in HelperBodies(call))
+                    if (body.Parent is { } helper && reached.TryAdd(helper, next.Route))
+                        queue.Enqueue((helper, next.Route));
+        return reached;
     }
 
     /// <summary>Expressions a lambda, method or local function returns, not those of functions nested in it.</summary>
@@ -207,6 +234,7 @@ internal static class SourceScan
         IReadOnlyDictionary<string, string>? routes = null)
     {
         var root = CSharpSyntaxTree.ParseText(csharp).GetRoot();
+        var helpers = wholeFile ? [] : HelpersReachedFromRoutes(root);
         foreach (var name in root.DescendantNodes().OfType<SimpleNameSyntax>())
         {
             string id = name.Identifier.ValueText;
@@ -215,6 +243,10 @@ internal static class SourceScan
             string site = Site(name, routes);
             if (wholeFile || IsRouteSite(site))
                 yield return (site, id);
+            // Outside surface files, a helper a route handler calls is part of that route.
+            else if (name.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or LocalFunctionStatementSyntax) is { } function
+                && helpers.TryGetValue(function, out var route))
+                yield return (route, id);
         }
     }
 
