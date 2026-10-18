@@ -11,14 +11,25 @@ internal static class Rules
     public static readonly string[] WebSurfaceNamespaces = ["Connapse.Web.Endpoints", "Connapse.Web.Mcp"];
 
     /// <summary>
-    /// Components that take a store, DbContext or EF context factory, through [Inject] or a
-    /// constructor, bare or wrapped (Lazy, Func, IEnumerable).
+    /// Components that reach a store, DbContext or EF context factory: through [Inject] or a
+    /// constructor, bare or wrapped (Lazy, Func, IEnumerable), or resolved at runtime from a
+    /// provider or scope in their code blocks or code-behind.
     /// </summary>
-    public static IEnumerable<string> ComponentStoreInjections(Assembly assembly) =>
-        StructureScan.Components(assembly)
+    public static IEnumerable<string> ComponentStoreInjections(Assembly assembly, IEnumerable<(string Path, string Source)> componentSources)
+    {
+        var injected = StructureScan.Components(assembly)
             .SelectMany(c => StructureScan.ComponentDependencies(c).Where(StructureScan.IsStore)
-                .Select(t => $"{ComponentName(c)} -> {StructureScan.Display(t)}"))
-            .Distinct();
+                .Select(t => $"{ComponentName(c)} -> {StructureScan.Display(t)}"));
+        var resolved = componentSources.SelectMany(f =>
+        {
+            var code = f.Path.EndsWith(".razor", StringComparison.Ordinal)
+                ? RazorSource.ParseCodeBlocks(f.Source)
+                : Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(f.Source).GetRoot();
+            return HandlerScan.ResolvedTypes(code).Where(HandlerScan.IsStore)
+                .Select(t => $"{RazorSource.ComponentName(f.Path)} -> {HandlerScan.Display(t)} (resolved)");
+        });
+        return injected.Concat(resolved).Distinct();
+    }
 
     /// <summary>
     /// One entry per route handler or MCP tool and store it reaches, whether as a parameter or

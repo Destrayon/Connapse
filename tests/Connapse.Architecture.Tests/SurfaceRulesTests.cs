@@ -12,7 +12,7 @@ public class SurfaceRulesTests
     {
         ExactMatchList.AssertMatches(
             "component-store-injections.json",
-            Rules.ComponentStoreInjections(StructureScan.WebAssembly),
+            Rules.ComponentStoreInjections(StructureScan.WebAssembly, ComponentSources()),
             "Pages call operations, not stores: move the data access into an operation and inject that.");
     }
 
@@ -24,4 +24,11 @@ public class SurfaceRulesTests
             Rules.HandlerStoreDependencies(RepoPaths.WebCSharpFiles()),
             "Endpoint and MCP handlers call operations, not stores.");
     }
+
+    /// <summary>Every .razor file and component code-behind under Components.</summary>
+    internal static IEnumerable<(string Path, string Source)> ComponentSources() =>
+        Directory.EnumerateFiles(Path.Combine(RepoPaths.WebProject, "Components"), "*.razor*", SearchOption.AllDirectories)
+            .Where(f => f.EndsWith(".razor", StringComparison.Ordinal) || f.EndsWith(".razor.cs", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .Select(f => (RepoPaths.RelativeToWeb(f), File.ReadAllText(f)));
 }

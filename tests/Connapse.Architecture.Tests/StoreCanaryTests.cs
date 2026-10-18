@@ -15,7 +15,7 @@ public class StoreCanaryTests
     [Fact]
     public void ArchRule_DetectsComponentStoresInjectedWrappedOrByConstructor()
     {
-        Rules.ComponentStoreInjections(TestAssembly).Should().Contain(
+        Rules.ComponentStoreInjections(TestAssembly, []).Should().Contain(
         [
             "Connapse.Architecture.Tests.Canaries.PlantedComponent -> ISourceStore",
             "Connapse.Architecture.Tests.Canaries.PlantedComponent -> Lazy<IFolderStore>",
@@ -67,5 +67,88 @@ public class StoreCanaryTests
         RepoPaths.WebCSharpFiles().Select(f => f.Path).Should()
             .Contain("Program.cs").And.Contain("Endpoints/SourcesEndpoints.cs").And.Contain("Mcp/McpTools.cs")
             .And.NotContain(p => p.StartsWith("obj/") || p.StartsWith("bin/"));
+    }
+
+    [Fact]
+    public void ArchRule_KeysRoutesByTheirFullGroupPath()
+    {
+        const string source = """
+            static class Planted
+            {
+                static void Map(IEndpointRouteBuilder app)
+                {
+                    var links = app.MapGroup("/api/links").WithTags("x");
+                    links.MapGet("/", (IConnectionStore c) => 1);
+                    var sites = app.MapGroup("/api/sites");
+                    var nested = sites.MapGroup("/{id}");
+                    sites.MapGet("/", (IConnectionStore c) => 1);
+                    nested.MapGet("/spaces", (ISourceStore s) => 1);
+                    app.MapGroup("/api/inline").MapPost("/", (ISourceStore s) => 1);
+                }
+            }
+            """;
+        Rules.HandlerStoreDependencies([("Planted.cs", source)]).Should().BeEquivalentTo(
+        [
+            "Planted GET /api/links/ -> IConnectionStore",
+            "Planted GET /api/sites/ -> IConnectionStore",
+            "Planted GET /api/sites/{id}/spaces -> ISourceStore",
+            "Planted POST /api/inline/ -> ISourceStore",
+        ]);
+    }
+
+    [Fact]
+    public void ArchRule_FollowsHelpersButNotSameNamedStoreCalls()
+    {
+        const string source = """
+            static class Planted
+            {
+                static void Map(IEndpointRouteBuilder app)
+                {
+                    app.MapGet("/a", (IServiceProvider sp) => LoadAsync(sp));
+                    app.MapGet("/b", (IContainerStore other) => other.GetAsync("x"));
+                }
+
+                static Task LoadAsync(IServiceProvider sp) => Planted.ReadAsync(sp.GetRequiredService<IServiceScopeFactory>());
+                static Task ReadAsync(IServiceScopeFactory f) => f.CreateScope().ServiceProvider.GetRequiredService<ISettingsStore>().GetAsync("x");
+                static Task GetAsync(string id, IFolderStore notReachedFromB) => Task.CompletedTask;
+            }
+            """;
+        Rules.HandlerStoreDependencies([("Planted.cs", source)]).Should().BeEquivalentTo(
+        [
+            "Planted GET /a -> ISettingsStore",
+            "Planted GET /b -> IContainerStore",
+        ]);
+    }
+
+    [Fact]
+    public void ArchRule_DetectsStoresResolvedInComponentCode()
+    {
+        const string razor = """""
+            @inject IServiceScopeFactory Scopes
+            <p>@("}")</p>
+            @code {
+                private string text = """"
+                    four quotes, then a brace: }
+                    """";
+                private async Task LoadAsync()
+                {
+                    await using var scope = Scopes.CreateAsyncScope();
+                    var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+                    var docs = (IDocumentStore)scope.ServiceProvider.GetService(typeof(IDocumentStore));
+                }
+            }
+            """"";
+        Rules.ComponentStoreInjections(TestAssembly, [("Components/Pages/Planted.razor", razor)]).Should().Contain(
+        [
+            "Pages.Planted -> ISourceStore (resolved)",
+            "Pages.Planted -> IDocumentStore (resolved)",
+        ]);
+    }
+
+    [Fact]
+    public void RazorSource_FailsClosedOnAnUnbalancedBlock()
+    {
+        var act = () => RazorSource.CodeBlocks("@code { private void M() { ");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Unbalanced*");
     }
 }
