@@ -75,10 +75,20 @@ public static partial class Surfaces
     public static string Result(CallToolResult result)
     {
         string text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
-        if (result.IsError != true && !text.StartsWith("Error:", StringComparison.Ordinal))
-            return McpId().Match(text) is { Success: true } m ? $"ok id={m.Groups[1].Value}" : "ok";
-        return ErrorKind(text);
+        if (result.IsError == true || text.StartsWith("Error:", StringComparison.Ordinal))
+            return ErrorKind(text);
+        // bulk_upload and bulk_delete answer every call with a summary, failures included:
+        // "Uploaded 0 of 1 file(s) ... Failures: ...". All of them is ok; none or some is not.
+        if (BulkSummary().Match(text) is { Success: true } bulk)
+        {
+            int done = int.Parse(bulk.Groups["done"].Value), total = int.Parse(bulk.Groups["total"].Value);
+            return done == total ? "ok" : done == 0 ? "error:all_failed" : $"partial:{done}/{total}";
+        }
+        return McpId().Match(text) is { Success: true } m ? $"ok id={m.Groups[1].Value}" : "ok";
     }
+
+    [GeneratedRegex(@"^(?:Uploaded|Deleted) (?<done>\d+) of (?<total>\d+) file\(s\)")]
+    private static partial Regex BulkSummary();
 
     /// <summary>Phrases MCP's and the UI's validation messages use. McpErrorKindTests keeps every MCP message covered.</summary>
     private static readonly string[] ValidationWords =

@@ -68,6 +68,20 @@ public partial class McpErrorKindTests
         messages.Where(t => Surfaces.ErrorKind(t) == "error:unknown").Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("Uploaded 1 of 1 file(s) to container 'c'.", "ok")]
+    [InlineData("Uploaded 0 of 1 file(s) to container 'c'.\n\nFailures:\n  a.exe: not supported", "error:all_failed")]
+    [InlineData("Deleted 1 of 2 file(s).\n\nFailures:\n  x: not found", "partial:1/2")]
+    public void Result_ReadsBulkSummaries(string text, string expected)
+    {
+        var result = new ModelContextProtocol.Protocol.CallToolResult
+        {
+            Content = [new ModelContextProtocol.Protocol.TextContentBlock { Text = text }],
+        };
+
+        Surfaces.Result(result).Should().Be(expected);
+    }
+
     private static string RepoRoot()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
