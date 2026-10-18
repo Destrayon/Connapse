@@ -51,6 +51,7 @@ public class FixedDelayTests
                     while (left > 0) { left--; await Task.Delay(100); }                       // fixed: a countdown
                     while (sw.Elapsed < cap!.Value) await Task.Delay(100);                     // fixed: a null-forgiven limit
                     while (tries! < 10) { tries++; await Task.Delay(500); }                    // fixed: a null-forgiven counter
+                    while (!Ready()) { _ = Task.Run(async () => await Task.Delay(500)); await Task.Delay(50); } // the callback's is fixed, the poll's isn't
                     while (done < expected) { done++; expected += await NewJobsAsync(); await Task.Delay(100); } // polling: the limit moves
                     while (true)
                     {
@@ -66,8 +67,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(12);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 11", "f: 1"]);
+        delays.Should().HaveCount(13);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 12", "f: 1"]);
     }
 
     /// <summary>
@@ -112,7 +113,8 @@ public class FixedDelayTests
         {
             if (n is WhileStatementSyntax or ForStatementSyntax or ForEachStatementSyntax or DoStatementSyntax)
                 return (StatementSyntax)n;
-            if (n is MemberDeclarationSyntax or LocalFunctionStatementSyntax)
+            // A lambda runs on its own schedule (Task.Run(async () => ...)): a loop around it doesn't pace it.
+            if (n is MemberDeclarationSyntax or LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax)
                 return null;
         }
         return null;
