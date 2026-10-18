@@ -233,4 +233,25 @@ public class LocationAndShapeCanaryTests
         Rules.ServiceLocationCalls("Program.cs", source, wholeFile: false).Should()
             .Contain(e => e.StartsWith("Program.cs: GET /x uses ", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Rules_FollowHandlersMappedFromAnotherFile()
+    {
+        const string program = """app.MapGet("/x", HealthHandler.Handle);""";
+        const string handler = """
+            static class HealthHandler
+            {
+                public static object Handle(HttpContext ctx)
+                {
+                    var foo = ctx.RequestServices.GetRequiredService<IFoo>();
+                    return new { id = 1 };
+                }
+            }
+            """;
+        var routes = SourceScan.QualifiedRoutes([program, handler]);
+
+        Rules.ServiceLocationCalls("Services/HealthHandler.cs", handler, wholeFile: false, routes).Should()
+            .Contain(e => e.StartsWith("Services/HealthHandler.cs: GET /x uses ", StringComparison.Ordinal));
+        Rules.AnonymousResponses("Services/HealthHandler.cs", handler, routes).Should().Equal("Services/HealthHandler.cs: GET /x: 1");
+    }
 }

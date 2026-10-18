@@ -11,9 +11,11 @@ public class ResponseShapeTests
     [Fact]
     public void Endpoints_NoAnonymousResponses_ExceptAllowList()
     {
+        var files = RepoPaths.WebCSharpFiles().ToList();
+        var routes = SourceScan.QualifiedRoutes(files.Select(f => f.Source));
         ExactMatchList.AssertMatches(
             "anonymous-responses.json",
-            RepoPaths.WebCSharpFiles().SelectMany(f => Rules.AnonymousResponses(f.Path, f.Source)),
+            files.SelectMany(f => Rules.AnonymousResponses(f.Path, f.Source, routes)),
             "Return a named record through TypedResults instead of an anonymous object.");
     }
 }

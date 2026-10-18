@@ -65,14 +65,15 @@ internal static class Rules
     /// Inline service-location calls, counted per site: "Endpoints/X.cs: POST /api/y uses GetRequiredService x2".
     /// Surface files count wherever the call is; other files count only inside a route handler.
     /// </summary>
-    public static IEnumerable<string> ServiceLocationCalls(string relativePath, string source, bool wholeFile = true) =>
-        SourceScan.ServiceLocationCalls(source, wholeFile)
+    public static IEnumerable<string> ServiceLocationCalls(string relativePath, string source, bool wholeFile = true,
+        IReadOnlyDictionary<string, string>? routes = null) =>
+        SourceScan.ServiceLocationCalls(source, wholeFile, routes)
             .GroupBy(c => (c.Site, c.Call))
             .Select(g => $"{relativePath}: {g.Key.Site} uses {g.Key.Call}{(g.Count() > 1 ? $" x{g.Count()}" : "")}");
 
     /// <summary>Anonymous response bodies, counted per site: "Endpoints/X.cs: GET /api/y: 2".</summary>
-    public static IEnumerable<string> AnonymousResponses(string relativePath, string source) =>
-        SourceScan.AnonymousResponseSites(source)
+    public static IEnumerable<string> AnonymousResponses(string relativePath, string source, IReadOnlyDictionary<string, string>? routes = null) =>
+        SourceScan.AnonymousResponseSites(source, routes)
             .GroupBy(site => site)
             .Select(g => $"{relativePath}: {g.Key}: {g.Count()}");
 

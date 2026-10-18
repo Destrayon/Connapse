@@ -14,8 +14,10 @@ public class ServiceLocationTests
     {
         var files = RepoPaths.WebCSharpFiles().ToList();
         var injected = Rules.ServiceLocatorDependencies(StructureScan.WebAssembly, files);
+        // Handlers mapped from another file are route handlers too, wherever they are declared.
+        var routes = SourceScan.QualifiedRoutes(files.Select(f => f.Source));
         var inline = files
-            .SelectMany(f => Rules.ServiceLocationCalls(f.Path, f.Source, wholeFile: IsSurfaceFile(f.Path)))
+            .SelectMany(f => Rules.ServiceLocationCalls(f.Path, f.Source, wholeFile: IsSurfaceFile(f.Path), routes))
             .Concat(RazorFiles().SelectMany(f => Rules.ServiceLocationCalls(f.Path, f.Source)));
 
         ExactMatchList.AssertMatches(
