@@ -6,10 +6,16 @@ using ModelContextProtocol.Protocol;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
 
+using System.Security.Claims;
+using Bunit;
+using Connapse.Identity.Data;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.EntityFrameworkCore;
+
 namespace Connapse.Integration.Tests.CrossSurface;
 
 /// <summary>
-/// The ways into Connapse, each pointed at the one shared test host. Only one in-process
+/// The three ways into Connapse, each pointed at the one shared test host. Only one in-process
 /// host works per test process (Hangfire's storage is static), so every surface reuses the
 /// fixture's host rather than starting its own.
 /// </summary>
@@ -33,6 +39,13 @@ public static partial class Surfaces
             ownsHttpClient: true);
         return await McpClient.CreateAsync(transport);
     }
+
+    /// <summary>
+    /// A bUnit context whose services fall back to a scope of the real host, so a page rendered
+    /// here reads and writes the same database as the REST and MCP surfaces, with real stores
+    /// and the real audit logger rather than substitutes. Signed in as the seeded admin.
+    /// </summary>
+    public static Task<UiSurface> UiAsync(SharedWebAppFixture fixture) => UiSurface.CreateAsync(fixture);
 
     /// <summary>
     /// What an action's response means, in words every surface shares: "ok" or "error:kind". REST
@@ -159,4 +172,58 @@ public static partial class Surfaces
     /// </summary>
     [GeneratedRegex(@"^(?:Document )?ID: ([0-9a-fA-F-]{36})\r?$", RegexOptions.Multiline)]
     private static partial Regex McpId();
+}
+
+public sealed class UiSurface : IDisposable
+{
+    private readonly IServiceScope _scope;
+
+    private UiSurface(IServiceScope scope, BunitContext context)
+    {
+        _scope = scope;
+        Context = context;
+    }
+
+    public BunitContext Context { get; }
+
+    /// <summary>
+    /// Both places a page reads its user from get the real admin: bUnit's own provider, for
+    /// AuthorizeView and cascading state in the component tree, and the host scope's provider,
+    /// which host-scoped services such as the audit logger read, as a Blazor Server circuit's
+    /// do. A page action has no request, so the host scope has no HttpContext to fall back on.
+    /// </summary>
+    internal static async Task<UiSurface> CreateAsync(SharedWebAppFixture fixture)
+    {
+        var scope = fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+        var admin = await db.Users.AsNoTracking().SingleAsync(u => u.Email == SharedWebAppFixture.AdminEmail);
+        var roles = await db.UserRoles.AsNoTracking().Where(ur => ur.UserId == admin.Id)
+            .Join(db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!).ToListAsync();
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, admin.Id.ToString()),
+            new(ClaimTypes.Name, admin.Email!),
+            new(ClaimTypes.Email, admin.Email!),
+        };
+        claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, "Identity.Application"));
+
+        if (scope.ServiceProvider.GetService<AuthenticationStateProvider>() is IHostEnvironmentAuthenticationStateProvider host)
+            host.SetAuthenticationState(Task.FromResult(new AuthenticationState(principal)));
+
+        var context = new BunitContext();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized(admin.Email!);
+        auth.SetRoles([.. roles]);
+        auth.SetClaims(new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Email, admin.Email!));
+        context.Services.AddFallbackServiceProvider(scope.ServiceProvider);
+        return new UiSurface(scope, context);
+    }
+
+    public void Dispose()
+    {
+        Context.Dispose();
+        _scope.Dispose();
+    }
 }

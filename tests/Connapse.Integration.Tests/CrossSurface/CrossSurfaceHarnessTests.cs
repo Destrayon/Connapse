@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
+using Bunit;
 using Connapse.Core.Interfaces;
+using Connapse.Web.Components.Pages;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
@@ -93,6 +95,57 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         outcome.Result.Should().Be("ok");
         outcome.State.Should().Equal("no container {name}");
         outcome.Audit.Should().ContainSingle().Which.Should().StartWith("container.deleted container {id1} actor={admin}");
+    }
+
+    [Fact]
+    public async Task Ui_CreateContainerOnHomePage_ReportsTheRowAndItsAudit()
+    {
+        string name = UniqueName();
+        using var ui = await Surfaces.UiAsync(fixture);
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            () => CreateOnHomeAsync(ui, name, "made in the UI"),
+            sp => ContainerByNameAsync(sp, name),
+            Placeholders(name));
+
+        outcome.Result.Should().Be("ok");
+        outcome.State.Should().Equal("container {name} description=made in the UI");
+        // Known gap, measured rather than fixed here: REST writes container.created for the same
+        // action and the Home page writes nothing. #792's comparisons list it.
+        outcome.Audit.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RestAndUi_DuplicateCreate_ReportTheSameError()
+    {
+        string name = UniqueName();
+        (await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name })).EnsureSuccessStatusCode();
+        using var ui = await Surfaces.UiAsync(fixture);
+
+        string rest = await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name }));
+        string viaUi = await CreateOnHomeAsync(ui, name, "");
+
+        rest.Should().Be("error:conflict");
+        viaUi.Should().Be(rest);
+    }
+
+    [Fact]
+    public async Task Ui_AuditedAction_RecordsTheSignedInAdmin()
+    {
+        string resourceId = Guid.NewGuid().ToString();
+        using var ui = await Surfaces.UiAsync(fixture);
+        // The audit logger a page injects, resolved the way a page resolves it.
+        var audit = ui.Context.Services.GetRequiredService<IAuditLogger>();
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            async () =>
+            {
+                await audit.LogAsync("harness.ui_action", "harness", resourceId, new { step = "self-test" });
+                return "ok";
+            },
+            _ => Task.FromResult(new StateProjection([], [resourceId])));
+
+        outcome.Audit.Should().Equal("""harness.ui_action harness {id1} actor={admin} details={"step": "self-test"}""");
     }
 
     [Fact]
@@ -298,6 +351,39 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         // container instead of returning its "is not empty" message, so the SDK answers with a
         // generic error. #792's comparisons list it.
         viaMcp.Should().Be("error:unknown");
+    }
+
+    [Fact]
+    public async Task Rest_CreateContainer_OutcomeMatchesSnapshot()
+    {
+        string name = UniqueName();
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            async () => await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name, description = "snapshot" })),
+            sp => ContainerByNameAsync(sp, name),
+            Placeholders(name));
+
+        // Proves placeholders make an outcome stable across runs, which the characterization
+        // snapshots in #792 depend on.
+        await Verify(outcome).UseDirectory("Snapshots");
+    }
+
+    /// <summary>
+    /// Creates a container through the Home page's dialog, and reads the outcome the way a user
+    /// would: the dialog closes on success, and an alert in it describes a failure.
+    /// </summary>
+    private static async Task<string> CreateOnHomeAsync(UiSurface ui, string name, string description)
+    {
+        var page = ui.Context.Render<Home>();
+        page.WaitForAssertion(() => page.FindAll("button.btn-primary").Should().NotBeEmpty());
+        await page.Find("button.btn-primary").ClickAsync(new());
+        page.Find("input[placeholder='my-project']").Input(name);
+        page.Find("input[placeholder='What is this container for?']").Change(description);
+        await page.Find(".modal-footer-custom button.btn-primary").ClickAsync(new());
+        page.WaitForAssertion(() => (page.FindAll(".modal-footer-custom").Count == 0
+            || page.FindAll(".alert-danger").Count > 0).Should().BeTrue(), TimeSpan.FromSeconds(10));
+        string? alert = page.FindAll(".alert-danger").FirstOrDefault()?.TextContent.Trim();
+        return alert is null ? "ok" : Surfaces.ErrorKind(alert);
     }
 
     private static async Task<StateProjection> ContainerByNameAsync(IServiceProvider services, string name)
