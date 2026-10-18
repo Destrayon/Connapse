@@ -151,4 +151,41 @@ public class StoreCanaryTests
         var act = () => RazorSource.CodeBlocks("@code { private void M() { ");
         act.Should().Throw<InvalidOperationException>().WithMessage("*Unbalanced*");
     }
+
+    [Fact]
+    public void ArchRule_FollowsStaticHelpersInOtherFilesAndEnumerableResolution()
+    {
+        const string endpoints = """
+            static class PlantedEndpoints
+            {
+                static void Map(IEndpointRouteBuilder app)
+                {
+                    app.MapPost("/save", (IServiceProvider sp) => SettingsHelpers.SaveAsync(sp));
+                    app.MapGet("/all", (IServiceProvider sp) => sp.GetServices<ISettingsStore>().First());
+                    app.MapGet("/group", SettingsHelpers.Handle);
+                    app.MapGet("/service", (PlantedService service) => service.RunAsync());
+                }
+            }
+            """;
+        const string helpers = """
+            static class SettingsHelpers
+            {
+                public static Task SaveAsync(IServiceProvider sp) => sp.GetRequiredService<ISettingsStore>().SaveAsync("x", 1);
+                public static Task Handle(IContainerStore containers) => Task.CompletedTask;
+            }
+
+            // An injected service is the migration path, so it is not followed (see HandlerScan remarks).
+            class PlantedService(IFolderStore folders)
+            {
+                public Task RunAsync() => folders.ListAsync(Guid.Empty);
+            }
+            """;
+        Rules.HandlerStoreDependencies([("Endpoints/PlantedEndpoints.cs", endpoints), ("Services/SettingsHelpers.cs", helpers)])
+            .Should().BeEquivalentTo(
+            [
+                "PlantedEndpoints POST /save -> ISettingsStore",
+                "PlantedEndpoints GET /all -> ISettingsStore",
+                "PlantedEndpoints GET /group -> IContainerStore",
+            ]);
+    }
 }

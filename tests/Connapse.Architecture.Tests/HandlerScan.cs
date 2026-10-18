@@ -7,51 +7,67 @@ namespace Connapse.Architecture.Tests;
 /// <summary>
 /// Finds what each route handler and MCP tool depends on, one entry per route or tool, from source.
 /// Keying by handler rather than by class means a second handler reaching the same store is a new
-/// entry, and source text sees what reflection can't: services resolved inside a handler body or
-/// inside a helper method the handler calls.
+/// entry, and source text sees what reflection can't: services resolved inside a handler body, in
+/// a same-file helper it calls, or in a static helper in another web file.
 /// </summary>
+/// <remarks>
+/// Instance services a handler receives from DI are not followed. Moving data access behind a
+/// service is the migration this rule exists to drive; telling a thin store wrapper from a real
+/// operation needs the [Operation] metadata Phase 2 of epic #783 adds.
+/// </remarks>
 internal static class HandlerScan
 {
     private static readonly HashSet<string> MapMethods = ["MapGet", "MapPost", "MapPut", "MapPatch", "MapDelete"];
-    private static readonly HashSet<string> Resolvers = ["GetService", "GetRequiredService", "GetKeyedService", "GetRequiredKeyedService"];
+    private static readonly HashSet<string> Resolvers =
+        ["GetService", "GetRequiredService", "GetKeyedService", "GetRequiredKeyedService", "GetServices", "GetKeyedServices"];
 
     public sealed record Handler(string Name, IReadOnlyList<TypeSyntax> Dependencies);
 
-    /// <summary>Every route lambda or method group and every [McpServerTool] method in one file.</summary>
-    public static IEnumerable<Handler> Handlers(string fileName, string source)
+    /// <summary>Every route lambda or method group and every [McpServerTool] method across the given files.</summary>
+    public static IEnumerable<Handler> Handlers(IReadOnlyList<(string Path, string Source)> files)
     {
-        var root = CSharpSyntaxTree.ParseText(source).GetRoot();
-        string owner = Path.GetFileNameWithoutExtension(fileName);
-        var methods = root.DescendantNodes().OfType<BaseMethodDeclarationSyntax>().ToList();
-        var locals = root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().ToList();
+        var parsed = files.Select(f => (f.Path, Root: CSharpSyntaxTree.ParseText(f.Source).GetRoot())).ToList();
+        var index = new Index(parsed.Select(p => p.Root));
 
-        foreach (var call in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        foreach (var (path, root) in parsed)
         {
-            if (call.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb } access || !MapMethods.Contains(verb))
-                continue;
-            var args = call.ArgumentList.Arguments;
-            if (args.Count < 2)
-                continue;
-            string route = GroupPrefix(access.Expression, 0) + Literal(args[0].Expression);
-            string name = $"{owner} {verb[3..].ToUpperInvariant()} {route}";
-            var handler = args[^1].Expression;
-            if (handler is AnonymousFunctionExpressionSyntax lambda)
-                yield return new Handler(name, Dependencies(lambda, methods, locals));
-            else if (RightmostName(handler) is { } target)
-                foreach (var m in Named(methods, locals, target))
-                    yield return new Handler(name, Dependencies(m, methods, locals));
-        }
+            string owner = Path.GetFileNameWithoutExtension(path);
+            foreach (var call in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                if (call.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb } || !MapMethods.Contains(verb)
+                    || call.ArgumentList.Arguments.Count < 2)
+                    continue;
+                string name = $"{owner} {RouteKey(call)}";
+                var handler = call.ArgumentList.Arguments[^1].Expression;
+                if (handler is AnonymousFunctionExpressionSyntax lambda)
+                    yield return new Handler(name, Dependencies(lambda, index));
+                else if (handler is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax type, Name: var method })
+                    foreach (var m in index.Static(type.Identifier.ValueText, method.Identifier.ValueText))
+                        yield return new Handler(name, Dependencies(m, index));
+                else if (RightmostName(handler) is { } target)
+                    foreach (var m in index.SameFile(call, target))
+                        yield return new Handler(name, Dependencies(m, index));
+            }
 
-        foreach (var m in methods.OfType<MethodDeclarationSyntax>())
-        {
-            var tool = m.AttributeLists.SelectMany(a => a.Attributes).FirstOrDefault(a => RightmostName(a.Name) is "McpServerTool" or "McpServerToolAttribute");
-            if (tool is null)
-                continue;
-            string toolName = tool.ArgumentList?.Arguments
-                .FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "Name")?.Expression is LiteralExpressionSyntax n
-                ? n.Token.ValueText : m.Identifier.ValueText;
-            yield return new Handler($"{owner} {toolName}", Dependencies(m, methods, locals));
+            foreach (var m in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+            {
+                var tool = m.AttributeLists.SelectMany(a => a.Attributes).FirstOrDefault(a => RightmostName(a.Name) is "McpServerTool" or "McpServerToolAttribute");
+                if (tool is null)
+                    continue;
+                string toolName = tool.ArgumentList?.Arguments
+                    .FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "Name")?.Expression is LiteralExpressionSyntax n
+                    ? n.Token.ValueText : m.Identifier.ValueText;
+                yield return new Handler($"{owner} {toolName}", Dependencies(m, index));
+            }
         }
+    }
+
+    /// <summary>"VERB /full/group/path/route" for a MapGet/MapPost/... call.</summary>
+    public static string RouteKey(InvocationExpressionSyntax mapCall)
+    {
+        var access = (MemberAccessExpressionSyntax)mapCall.Expression;
+        string verb = access.Name.Identifier.ValueText[3..].ToUpperInvariant();
+        return $"{verb} {GroupPrefix(access.Expression, 0)}{Literal(mapCall.ArgumentList.Arguments[0].Expression)}";
     }
 
     /// <summary>
@@ -80,9 +96,9 @@ internal static class HandlerScan
 
     /// <summary>
     /// Parameter types and types resolved through a service provider, in the handler and in every
-    /// method of the same file it calls, transitively.
+    /// helper it calls, transitively: same-file methods, and static methods on any web class.
     /// </summary>
-    private static List<TypeSyntax> Dependencies(SyntaxNode handler, List<BaseMethodDeclarationSyntax> methods, List<LocalFunctionStatementSyntax> locals)
+    private static List<TypeSyntax> Dependencies(SyntaxNode handler, Index index)
     {
         var types = new List<TypeSyntax>();
         var visited = new HashSet<SyntaxNode>();
@@ -95,40 +111,41 @@ internal static class HandlerScan
             types.AddRange(Parameters(node).Select(p => p.Type).OfType<TypeSyntax>());
             foreach (var call in node.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
-                var name = call.Expression switch
-                {
-                    MemberAccessExpressionSyntax ma => ma.Name,
-                    SimpleNameSyntax sn => sn,
-                    _ => null,
-                };
+                var name = CalledName(call);
                 if (name is null)
                     continue;
                 if (Resolvers.Contains(name.Identifier.ValueText))
                 {
-                    if (name is GenericNameSyntax g)
-                        types.AddRange(g.TypeArgumentList.Arguments);
-                    foreach (var arg in call.ArgumentList.Arguments)
-                        if (arg.Expression is TypeOfExpressionSyntax t)
-                            types.Add(t.Type);
+                    types.AddRange(ResolvedBy(call, name));
+                    continue;
                 }
-                else if (CallsOwnMethod(call))
-                {
-                    foreach (var helper in Named(methods, locals, name.Identifier.ValueText))
-                        pending.Push(helper);
-                }
+                foreach (var helper in index.Callees(call, name.Identifier.ValueText))
+                    pending.Push(helper);
             }
         }
         return types;
     }
 
-    /// <summary>Unqualified, this., or ClassName. calls; store.GetAsync() must not match a helper named GetAsync.</summary>
-    private static bool CallsOwnMethod(InvocationExpressionSyntax call) => call.Expression switch
+    /// <summary>Store types a component resolves at runtime from a provider or scope in its code blocks.</summary>
+    public static IEnumerable<TypeSyntax> ResolvedTypes(SyntaxNode code) =>
+        code.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .SelectMany(call => CalledName(call) is { } name && Resolvers.Contains(name.Identifier.ValueText) ? ResolvedBy(call, name) : []);
+
+    private static IEnumerable<TypeSyntax> ResolvedBy(InvocationExpressionSyntax call, SimpleNameSyntax name)
     {
-        SimpleNameSyntax => true,
-        MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } => true,
-        MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax receiver } =>
-            call.Ancestors().OfType<TypeDeclarationSyntax>().Any(t => t.Identifier.ValueText == receiver.Identifier.ValueText),
-        _ => false,
+        if (name is GenericNameSyntax g)
+            foreach (var t in g.TypeArgumentList.Arguments)
+                yield return t;
+        foreach (var arg in call.ArgumentList.Arguments)
+            if (arg.Expression is TypeOfExpressionSyntax t)
+                yield return t.Type;
+    }
+
+    private static SimpleNameSyntax? CalledName(InvocationExpressionSyntax call) => call.Expression switch
+    {
+        MemberAccessExpressionSyntax ma => ma.Name,
+        SimpleNameSyntax sn => sn,
+        _ => null,
     };
 
     private static IEnumerable<ParameterSyntax> Parameters(SyntaxNode node) => node switch
@@ -141,9 +158,47 @@ internal static class HandlerScan
         _ => [],
     };
 
-    private static IEnumerable<SyntaxNode> Named(List<BaseMethodDeclarationSyntax> methods, List<LocalFunctionStatementSyntax> locals, string name) =>
-        methods.OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == name).Cast<SyntaxNode>()
-            .Concat(locals.Where(f => f.Identifier.ValueText == name));
+    /// <summary>Methods a call can reach: same-file methods and local functions, and static methods on web classes.</summary>
+    private sealed class Index
+    {
+        private readonly Dictionary<(string Type, string Method), List<MethodDeclarationSyntax>> _statics = [];
+
+        public Index(IEnumerable<SyntaxNode> roots)
+        {
+            foreach (var m in roots.SelectMany(r => r.DescendantNodes().OfType<MethodDeclarationSyntax>()))
+            {
+                if (!m.Modifiers.Any(SyntaxKind.StaticKeyword) || m.Parent is not TypeDeclarationSyntax type)
+                    continue;
+                var key = (type.Identifier.ValueText, m.Identifier.ValueText);
+                if (!_statics.TryGetValue(key, out var list))
+                    _statics[key] = list = [];
+                list.Add(m);
+            }
+        }
+
+        /// <summary>
+        /// Unqualified and this. calls resolve to the same file. ClassName.Method resolves to a
+        /// static method on that web class, in any file. store.GetAsync() reaches nothing here.
+        /// </summary>
+        public IEnumerable<SyntaxNode> Callees(InvocationExpressionSyntax call, string name) => call.Expression switch
+        {
+            SimpleNameSyntax => SameFile(call, name),
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } => SameFile(call, name),
+            MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax receiver } =>
+                _statics.TryGetValue((receiver.Identifier.ValueText, name), out var list) ? list : [],
+            _ => [],
+        };
+
+        public IEnumerable<SyntaxNode> Static(string type, string method) =>
+            _statics.TryGetValue((type, method), out var list) ? list : [];
+
+        public IEnumerable<SyntaxNode> SameFile(SyntaxNode from, string name)
+        {
+            var root = from.SyntaxTree.GetRoot();
+            return root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == name).Cast<SyntaxNode>()
+                .Concat(root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Where(f => f.Identifier.ValueText == name));
+        }
+    }
 
     /// <summary>A store, DbContext or EF context factory, by name, anywhere in the type (Lazy&lt;ISourceStore&gt; counts).</summary>
     public static bool IsStore(TypeSyntax type) =>
@@ -151,19 +206,9 @@ internal static class HandlerScan
             n.Identifier.ValueText is var id && (id.EndsWith("Store", StringComparison.Ordinal)
                 || id.EndsWith("DbContext", StringComparison.Ordinal) || id == "IDbContextFactory"));
 
-    /// <summary>Store types a component resolves at runtime from a provider or scope in its code blocks.</summary>
-    public static IEnumerable<TypeSyntax> ResolvedTypes(SyntaxNode code) =>
-        code.DescendantNodes().OfType<InvocationExpressionSyntax>().SelectMany(call =>
-        {
-            var name = call.Expression switch { MemberAccessExpressionSyntax ma => ma.Name, SimpleNameSyntax sn => sn, _ => null };
-            if (name is null || !Resolvers.Contains(name.Identifier.ValueText))
-                return [];
-            var found = new List<TypeSyntax>();
-            if (name is GenericNameSyntax g)
-                found.AddRange(g.TypeArgumentList.Arguments);
-            found.AddRange(call.ArgumentList.Arguments.Select(a => a.Expression).OfType<TypeOfExpressionSyntax>().Select(t => t.Type));
-            return found;
-        });
+    public static bool IsServiceLocator(TypeSyntax type) =>
+        type.DescendantNodesAndSelf().OfType<SimpleNameSyntax>().Any(n =>
+            n.Identifier.ValueText is "IServiceProvider" or "IServiceScopeFactory" or "IServiceScope");
 
     /// <summary>The type without namespaces, so entries don't depend on how a file imports it.</summary>
     public static string Display(TypeSyntax type) => type switch

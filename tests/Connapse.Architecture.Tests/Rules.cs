@@ -36,7 +36,7 @@ internal static class Rules
     /// resolved in its body. Per handler, so a second handler using an already-listed store is new.
     /// </summary>
     public static IEnumerable<string> HandlerStoreDependencies(IEnumerable<(string Path, string Source)> files) =>
-        files.SelectMany(f => HandlerScan.Handlers(f.Path, f.Source))
+        HandlerScan.Handlers(files.ToList())
             .SelectMany(h => h.Dependencies.Where(HandlerScan.IsStore).Select(t => $"{h.Name} -> {HandlerScan.Display(t)}"))
             .Distinct();
 
