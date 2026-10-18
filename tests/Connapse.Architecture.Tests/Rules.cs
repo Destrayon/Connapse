@@ -47,21 +47,34 @@ internal static class Rules
     private static bool IsStoreName(string type) =>
         System.Text.RegularExpressions.Regex.IsMatch(type, @"(Store|DbContext)\b|\bIDbContextFactory\b");
 
-    /// <summary>Service location: an injected or parameter-bound service provider or scope factory.</summary>
-    public static IEnumerable<string> ServiceLocatorDependencies(Assembly assembly, string[] namespaces)
+    /// <summary>
+    /// Service location taken from DI: a provider or scope factory injected into a component, or
+    /// taken by a route handler or MCP tool. One entry per component or handler.
+    /// </summary>
+    public static IEnumerable<string> ServiceLocatorDependencies(Assembly assembly, IEnumerable<(string Path, string Source)> files)
     {
         var components = StructureScan.Components(assembly)
-            .SelectMany(c => StructureScan.InjectedTypes(c).Where(StructureScan.IsServiceLocator)
+            .SelectMany(c => StructureScan.ComponentDependencies(c).Where(StructureScan.IsServiceLocator)
                 .Select(t => $"{ComponentName(c)} -> {StructureScan.Display(t)}"));
-        var handlers = StructureScan.SurfaceHandlers(assembly, namespaces)
-            .SelectMany(h => StructureScan.HandlerParameterTypes(h).Where(StructureScan.IsServiceLocator)
-                .Select(t => $"{h.Name} -> {StructureScan.Display(t)}"));
+        var handlers = HandlerScan.Handlers(files.ToList())
+            .SelectMany(h => h.Dependencies.Where(HandlerScan.IsServiceLocator).Select(t => $"{h.Name} -> {HandlerScan.Display(t)}"));
         return components.Concat(handlers).Distinct();
     }
 
-    /// <summary>Inline service-location calls in a source file, as "path uses Name" entries.</summary>
-    public static IEnumerable<string> ServiceLocationCalls(string relativePath, string source) =>
-        SourceScan.ServiceLocationCalls(source).Distinct().Select(call => $"{relativePath} uses {call}");
+    /// <summary>
+    /// Inline service-location calls, counted per site: "Endpoints/X.cs: POST /api/y uses GetRequiredService x2".
+    /// Surface files count wherever the call is; other files count only inside a route handler.
+    /// </summary>
+    public static IEnumerable<string> ServiceLocationCalls(string relativePath, string source, bool wholeFile = true) =>
+        SourceScan.ServiceLocationCalls(source, wholeFile)
+            .GroupBy(c => (c.Site, c.Call))
+            .Select(g => $"{relativePath}: {g.Key.Site} uses {g.Key.Call}{(g.Count() > 1 ? $" x{g.Count()}" : "")}");
+
+    /// <summary>Anonymous response bodies, counted per site: "Endpoints/X.cs: GET /api/y: 2".</summary>
+    public static IEnumerable<string> AnonymousResponses(string relativePath, string source) =>
+        SourceScan.AnonymousResponseSites(source)
+            .GroupBy(site => site)
+            .Select(g => $"{relativePath}: {g.Key}: {g.Count()}");
 
     /// <summary>Components are listed by their path under Components, so same-named files don't collide.</summary>
     private static string ComponentName(Type component)

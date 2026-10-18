@@ -12,9 +12,11 @@ public class ServiceLocationTests
     [Fact]
     public void Surfaces_DoNotUseServiceLocation_ExceptAllowList()
     {
-        var injected = Rules.ServiceLocatorDependencies(StructureScan.WebAssembly, Rules.WebSurfaceNamespaces);
-        var inline = SurfaceSourceFiles()
-            .SelectMany(f => Rules.ServiceLocationCalls(RepoPaths.RelativeToWeb(f), File.ReadAllText(f)));
+        var files = RepoPaths.WebCSharpFiles().ToList();
+        var injected = Rules.ServiceLocatorDependencies(StructureScan.WebAssembly, files);
+        var inline = files
+            .SelectMany(f => Rules.ServiceLocationCalls(f.Path, f.Source, wholeFile: IsSurfaceFile(f.Path)))
+            .Concat(RazorFiles().SelectMany(f => Rules.ServiceLocationCalls(f.Path, f.Source)));
 
         ExactMatchList.AssertMatches(
             "service-location.json",
@@ -26,17 +28,22 @@ public class ServiceLocationTests
     public void SurfaceSourceFiles_AreFound()
     {
         // Guards the source scans above against passing because they read nothing.
-        SurfaceSourceFiles().Should().Contain(f => f.EndsWith("SourcesEndpoints.cs"))
-            .And.Contain(f => f.EndsWith("McpTools.cs"))
-            .And.Contain(f => f.EndsWith("Sources.razor"));
+        RepoPaths.WebCSharpFiles().Select(f => f.Path).Should()
+            .Contain("Endpoints/SourcesEndpoints.cs").And.Contain("Mcp/McpTools.cs").And.Contain("Program.cs");
+        RazorFiles().Select(f => f.Path).Should().Contain("Components/Pages/Sources.razor");
     }
 
-    internal static IEnumerable<string> SurfaceSourceFiles()
-    {
-        string web = RepoPaths.WebProject;
-        return Directory.EnumerateFiles(Path.Combine(web, "Endpoints"), "*.cs", SearchOption.AllDirectories)
-            .Concat(Directory.EnumerateFiles(Path.Combine(web, "Mcp"), "*.cs", SearchOption.AllDirectories))
-            .Concat(Directory.EnumerateFiles(Path.Combine(web, "Components"), "*.razor", SearchOption.AllDirectories))
-            .Order(StringComparer.Ordinal);
-    }
+    /// <summary>
+    /// Endpoints, MCP tools and component code-behind are surfaces throughout. Elsewhere (Program.cs
+    /// startup, middleware such as the rate limiter) only route handlers are: resolving services
+    /// there is composition, not a page or handler hiding a dependency.
+    /// </summary>
+    internal static bool IsSurfaceFile(string path) =>
+        path.StartsWith("Endpoints/", StringComparison.Ordinal) || path.StartsWith("Mcp/", StringComparison.Ordinal)
+        || path.StartsWith("Components/", StringComparison.Ordinal);
+
+    internal static IEnumerable<(string Path, string Source)> RazorFiles() =>
+        Directory.EnumerateFiles(Path.Combine(RepoPaths.WebProject, "Components"), "*.razor", SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal)
+            .Select(f => (RepoPaths.RelativeToWeb(f), File.ReadAllText(f)));
 }

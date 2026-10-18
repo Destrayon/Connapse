@@ -7,46 +7,95 @@ namespace Connapse.Architecture.Tests;
 [Trait("Category", "Unit")]
 public class LocationAndShapeCanaryTests
 {
-    private static readonly string[] CanaryNamespace = [typeof(PlantedEndpoints).Namespace!];
     private static System.Reflection.Assembly TestAssembly => typeof(PlantedEndpoints).Assembly;
 
     [Fact]
     public void ArchRule_DetectsPlantedServiceLocators()
     {
-        Rules.ServiceLocatorDependencies(TestAssembly, CanaryNamespace).Should().Contain(
+        const string source = """
+            static class Planted
+            {
+                static void Map(IEndpointRouteBuilder app)
+                {
+                    var g = app.MapGroup("/api/p");
+                    g.MapGet("/x", (IServiceProvider sp) => 1);
+                }
+
+                [McpServerTool(Name = "planted_tool")]
+                static string Tool(IServiceScopeFactory scopes) => "";
+            }
+            """;
+        Rules.ServiceLocatorDependencies(TestAssembly, [("Planted.cs", source)]).Should().Contain(
         [
             "Connapse.Architecture.Tests.Canaries.PlantedComponent -> IServiceScopeFactory",
-            "PlantedEndpoints -> IServiceProvider",
+            "Planted GET /api/p/x -> IServiceProvider",
+            "Planted planted_tool -> IServiceScopeFactory",
         ]);
     }
 
     [Fact]
-    public void ArchRule_DetectsInlineServiceLocation()
+    public void ArchRule_CountsInlineServiceLocationPerSite()
     {
         const string source = """
             app.MapGet("/x", (HttpContext http) => http.RequestServices.GetRequiredService<IFoo>());
-            using var scope = factory.CreateScope();
+            app.MapPost("/y", (HttpContext http) =>
+            {
+                http.RequestServices.GetRequiredService<IFoo>();
+                return http.RequestServices.GetRequiredService<IBar>();
+            });
+            static void Helper(IServiceScopeFactory factory) { using var scope = factory.CreateScope(); }
             """;
         Rules.ServiceLocationCalls("Endpoints/Planted.cs", source).Should().BeEquivalentTo(
         [
-            "Endpoints/Planted.cs uses RequestServices",
-            "Endpoints/Planted.cs uses GetRequiredService",
-            "Endpoints/Planted.cs uses CreateScope",
+            "Endpoints/Planted.cs: GET /x uses RequestServices",
+            "Endpoints/Planted.cs: GET /x uses GetRequiredService",
+            "Endpoints/Planted.cs: POST /y uses RequestServices x2",
+            "Endpoints/Planted.cs: POST /y uses GetRequiredService x2",
+            "Endpoints/Planted.cs: Helper uses CreateScope",
+        ]);
+        // Outside surface files only route handlers count: startup composition is allowed there.
+        Rules.ServiceLocationCalls("Program.cs", source, wholeFile: false).Should()
+            .Contain("Program.cs: GET /x uses RequestServices")
+            .And.NotContain(e => e.Contains("Helper"));
+    }
+
+    [Fact]
+    public void ShapeRule_CountsAnonymousBodiesPerSiteThroughProjectionsLocalsAndAliases()
+    {
+        const string source = """
+            using R = Microsoft.AspNetCore.Http.Results;
+            app.MapGet("/a", () => Results.Ok(new { id = 1 }));
+            app.MapGet("/b", () => Results.Ok(list.Select(s => new { s.Id })));
+            app.MapGet("/c", () =>
+            {
+                var body = new { error = "x" };
+                return TypedResults.BadRequest(body);
+            });
+            app.MapGet("/d", () => R.Json(new { a = 1 }));
+            app.MapGet("/e", () => flag ? Results.NotFound(new { a = 1 }) : Results.Conflict(new { b = 2 }));
+            app.MapGet("/typed", () => TypedResults.Ok(new SourceResponse(1)));
+            app.MapGet("/plain", () => Results.Ok(list));
+            Log(new { ignored = true });
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(
+        [
+            "Program.cs: GET /a: 1",
+            "Program.cs: GET /b: 1",
+            "Program.cs: GET /c: 1",
+            "Program.cs: GET /d: 1",
+            "Program.cs: GET /e: 2",
         ]);
     }
 
     [Fact]
-    public void ShapeRule_CountsOnlyAnonymousResultBodies()
+    public void ShapeRule_FollowsUsingStaticResults()
     {
         const string source = """
-            return Results.Ok(new { id = 1 });
-            return Results.NotFound(new { error = "missing" });
-            return Microsoft.AspNetCore.Http.Results.Json(new { a = 1 });
-            return TypedResults.BadRequest(new { error = "bad" });
-            return TypedResults.Ok(new SourceResponse(1));
-            return Results.Ok(list);
-            Log(new { ignored = true });
+            using static Microsoft.AspNetCore.Http.TypedResults;
+            app.MapGet("/s", () => Ok(new { id = 1 }));
+            app.MapGet("/local", () => Helper(new { id = 1 }));
+            static object Helper(object o) => o;
             """;
-        SourceScan.CountAnonymousResponses(source).Should().Be(4);
+        Rules.AnonymousResponses("Endpoints/S.cs", source).Should().BeEquivalentTo(["Endpoints/S.cs: GET /s: 1"]);
     }
 }
