@@ -98,4 +98,29 @@ public class LocationAndShapeCanaryTests
             """;
         Rules.AnonymousResponses("Endpoints/S.cs", source).Should().BeEquivalentTo(["Endpoints/S.cs: GET /s: 1"]);
     }
+
+    [Fact]
+    public void ShapeRule_FollowsHelpersThatReturnAnonymousObjects()
+    {
+        const string source = """
+            static class PlantedEndpoints
+            {
+                static void Map(IEndpointRouteBuilder app)
+                {
+                    app.MapPost("/test", (Result result) => Results.Ok(Report(result)));
+                    app.MapPost("/test2", (Result result) => Results.Ok(PlantedEndpoints.Wrap(result)));
+                    app.MapGet("/named", () => Results.Ok(Named()));
+                }
+
+                static object Report(Result r) => new { ok = r.Ok, message = r.Message };
+                static object Wrap(Result r) { var body = Report(r); return body; }
+                static SourceResponse Named() => new SourceResponse(1);
+            }
+            """;
+        Rules.AnonymousResponses("Endpoints/PlantedEndpoints.cs", source).Should().BeEquivalentTo(
+        [
+            "Endpoints/PlantedEndpoints.cs: POST /test: 1",
+            "Endpoints/PlantedEndpoints.cs: POST /test2: 1",
+        ]);
+    }
 }

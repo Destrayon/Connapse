@@ -91,21 +91,60 @@ internal static class SourceScan
     private static bool IsRouteSite(string site) =>
         site.Length > 0 && site.Split(' ')[0] is "GET" or "POST" or "PUT" or "PATCH" or "DELETE";
 
-    private static bool CarriesAnonymousObject(ExpressionSyntax arg)
+    private static bool CarriesAnonymousObject(ExpressionSyntax arg) => CarriesAnonymousObject(arg, depth: 0);
+
+    /// <summary>
+    /// An anonymous object inside the expression; or a local initialised or assigned from one; or a
+    /// call to a same-file helper whose return value carries one (Results.Ok(Report(result))).
+    /// </summary>
+    private static bool CarriesAnonymousObject(ExpressionSyntax arg, int depth)
     {
+        if (depth > 4)
+            return false;
         if (arg.DescendantNodesAndSelf().OfType<AnonymousObjectCreationExpressionSyntax>().Any())
+            return true;
+        if (arg.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Any(call => ReturnsAnonymousObject(call, depth)))
             return true;
         if (arg is not IdentifierNameSyntax local)
             return false;
-        // A local initialised (or assigned) from an anonymous object in the same body.
         var body = arg.Ancestors().FirstOrDefault(a => a is BlockSyntax or ArrowExpressionClauseSyntax or CompilationUnitSyntax);
         if (body is null)
             return false;
         string name = local.Identifier.ValueText;
         return body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
-                .Any(v => v.Identifier.ValueText == name && v.Initializer is { } init && CarriesAnonymousObject(init.Value))
+                .Any(v => v.Identifier.ValueText == name && v.Initializer is { } init && CarriesAnonymousObject(init.Value, depth + 1))
             || body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
-                .Any(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name && a.Right.DescendantNodesAndSelf().OfType<AnonymousObjectCreationExpressionSyntax>().Any());
+                .Any(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name && CarriesAnonymousObject(a.Right, depth + 1));
+    }
+
+    /// <summary>A call to a same-file method or local function (unqualified, this. or ClassName.) that returns an anonymous object.</summary>
+    private static bool ReturnsAnonymousObject(InvocationExpressionSyntax call, int depth)
+    {
+        string? name = call.Expression switch
+        {
+            IdentifierNameSyntax i => i.Identifier.ValueText,
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax or IdentifierNameSyntax, Name: var n } ma
+                when ma.Expression is ThisExpressionSyntax || call.Ancestors().OfType<TypeDeclarationSyntax>()
+                    .Any(t => t.Identifier.ValueText == ((IdentifierNameSyntax)ma.Expression).Identifier.ValueText) => n.Identifier.ValueText,
+            _ => null,
+        };
+        if (name is null)
+            return false;
+        var root = call.SyntaxTree.GetRoot();
+        var bodies = root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == name)
+                .Select(m => (SyntaxNode?)m.ExpressionBody ?? m.Body)
+            .Concat(root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Where(f => f.Identifier.ValueText == name)
+                .Select(f => (SyntaxNode?)f.ExpressionBody ?? f.Body))
+            .OfType<SyntaxNode>();
+        foreach (var body in bodies)
+        {
+            var returned = body is ArrowExpressionClauseSyntax arrow
+                ? [arrow.Expression]
+                : body.DescendantNodes().OfType<ReturnStatementSyntax>().Select(r => r.Expression).OfType<ExpressionSyntax>();
+            if (returned.Any(e => CarriesAnonymousObject(e, depth + 1)))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>With `using static Results`, a bare call could be Ok(...) or an unrelated local method.</summary>
