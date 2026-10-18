@@ -54,6 +54,37 @@ internal static partial class TestSources
     /// <summary>tests/AIKnowledge.* predate the rename and aren't in Connapse.slnx, so nothing runs them.</summary>
     private static bool InSolution(string rel) => !rel.StartsWith("tests/AIKnowledge.", StringComparison.Ordinal);
 
+    /// <summary>
+    /// Class-level traits of each partial class, combined across all its declarations in a test
+    /// project. Files are found by text ("partial"), so declarations without tests are included.
+    /// </summary>
+    public static readonly Lazy<IReadOnlyDictionary<string, List<(string Name, string Value)>>> PartialClassTraits = new(() =>
+        PartialTraitsOf(Load().Where(f => f.Text.Contains("partial", StringComparison.Ordinal))
+            .Select(f => (f.RelativePath, CSharpSyntaxTree.ParseText(f.Text, path: f.Path).GetRoot()))));
+
+    public static IReadOnlyDictionary<string, List<(string Name, string Value)>> PartialTraitsOf(IEnumerable<(string RelativePath, SyntaxNode Root)> files)
+    {
+        var combined = new Dictionary<string, List<(string, string)>>(StringComparer.Ordinal);
+        foreach (var (rel, root) in files)
+            foreach (var cls in root.DescendantNodes().OfType<ClassDeclarationSyntax>().Where(c => c.Modifiers.Any(m => m.ValueText == "partial")))
+            {
+                string key = ClassKey(rel, cls);
+                if (!combined.TryGetValue(key, out var list))
+                    combined[key] = list = [];
+                list.AddRange(Traits(cls.AttributeLists));
+            }
+        return combined;
+    }
+
+    /// <summary>"Project|Namespace.Outer.Class": one compiled class, however many files declare it.</summary>
+    public static string ClassKey(string relativePath, ClassDeclarationSyntax cls)
+    {
+        string project = relativePath.Split('/') is { Length: > 1 } parts ? parts[1] : relativePath;
+        string ns = cls.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().FirstOrDefault()?.Name.ToString() ?? "";
+        var names = cls.AncestorsAndSelf().OfType<TypeDeclarationSyntax>().Select(t => t.Identifier.ValueText).Reverse();
+        return $"{project}|{ns}.{string.Join(".", names)}";
+    }
+
     public static bool IsTestMethod(MethodDeclarationSyntax m, IReadOnlyCollection<string> testAttributes) =>
         m.AttributeLists.SelectMany(a => a.Attributes).Select(a => Strip(RightmostName(a.Name)))
             .Any(n => testAttributes.Contains(n) || n.EndsWith("Fact", StringComparison.Ordinal) || n.EndsWith("Theory", StringComparison.Ordinal));

@@ -75,4 +75,35 @@ public class TestSizeTests
         TestSizeRules.CheckLiveAws("RolesAnywhereLiveAwsTests", [("Category", "LiveAws")]).Should().BeNull();
         TestSizeRules.CheckLiveAws("NewProofTests", [("Category", "LiveAws")]).Should().Contain("reserved");
     }
+
+    [Fact]
+    public void PartialDeclarations_CombineTheirClassTraits()
+    {
+        const string first = """
+            namespace Planted;
+            [Trait("Category", "Unit")]
+            public partial class ConformanceTests
+            {
+                [Fact] public void A() { }
+            }
+            """;
+        const string second = """
+            namespace Planted;
+            [Trait("Category", "Integration")]
+            public partial class ConformanceTests
+            {
+                [Fact] public void B() { }
+            }
+            """;
+        var files = new[]
+        {
+            ("tests/Planted.Tests/One.cs", Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(first).GetRoot()),
+            ("tests/Planted.Tests/Two.cs", Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(second).GetRoot()),
+        };
+        var partials = TestSources.PartialTraitsOf(files);
+
+        var problems = files.SelectMany(f => TestSizeRules.Problems(f.Item1, f.Item2, ["Fact", "Theory"], partials)).ToList();
+
+        problems.Should().HaveCount(2).And.OnlyContain(p => p.Contains("needs exactly one Category trait, has 2"));
+    }
 }

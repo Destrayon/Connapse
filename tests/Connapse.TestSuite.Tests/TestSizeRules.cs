@@ -22,13 +22,21 @@ internal static class TestSizeRules
 
     /// <summary>One problem per offending test method, as "file: Class.Method: reason".</summary>
     public static IEnumerable<string> Problems(string relativePath, SyntaxNode root) =>
-        Problems(relativePath, root, TestSources.TestAttributeNames.Value);
+        Problems(relativePath, root, TestSources.TestAttributeNames.Value, TestSources.PartialClassTraits.Value);
 
-    public static IEnumerable<string> Problems(string relativePath, SyntaxNode root, IReadOnlyCollection<string> testAttributes)
+    /// <param name="partialTraits">
+    /// Class-level traits of every partial class, combined across its declarations: xUnit gives a
+    /// test the traits of all of them, so checking each declaration alone could miss a conflict.
+    /// </param>
+    public static IEnumerable<string> Problems(string relativePath, SyntaxNode root, IReadOnlyCollection<string> testAttributes,
+        IReadOnlyDictionary<string, List<(string Name, string Value)>>? partialTraits = null)
     {
         foreach (var cls in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
         {
-            var classTraits = TestSources.Traits(cls.AttributeLists).ToList();
+            var classTraits = partialTraits is not null && cls.Modifiers.Any(m => m.ValueText == "partial")
+                && partialTraits.TryGetValue(TestSources.ClassKey(relativePath, cls), out var combined)
+                ? combined
+                : TestSources.Traits(cls.AttributeLists).ToList();
             foreach (var method in cls.Members.OfType<MethodDeclarationSyntax>().Where(m => TestSources.IsTestMethod(m, testAttributes)))
             {
                 var traits = classTraits.Concat(TestSources.Traits(method.AttributeLists)).ToList();
