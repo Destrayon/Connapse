@@ -200,6 +200,21 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public void McpResult_ReadsTheIdLineNotAUuidInAFilename()
+    {
+        const string doc = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        var result = new ModelContextProtocol.Protocol.CallToolResult
+        {
+            Content = [new ModelContextProtocol.Protocol.TextContentBlock
+            {
+                Text = $"File 'notes ID: 11111111-1111-1111-1111-111111111111.txt' uploaded.\nDocument ID: {doc}\nJob ID: 7",
+            }],
+        };
+
+        Surfaces.Result(result).Should().Be($"ok id={doc}");
+    }
+
+    [Fact]
     public async Task RestAndMcp_DeleteNonEmptyContainer_ReportTheirErrors()
     {
         string name = UniqueName();

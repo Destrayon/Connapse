@@ -93,6 +93,10 @@ public static partial class Surfaces
             _ => "error:unknown",
         };
 
-    [GeneratedRegex(@"\bID:\s*([0-9a-fA-F-]{36})")]
+    /// <summary>
+    /// The id line a create answers with: "ID: ..." or "Document ID: ..." alone on its line, so a
+    /// UUID inside a filename (File 'notes ID: ....txt') or an indented list entry isn't taken for it.
+    /// </summary>
+    [GeneratedRegex(@"^(?:Document )?ID: ([0-9a-fA-F-]{36})\r?$", RegexOptions.Multiline)]
     private static partial Regex McpId();
 }
