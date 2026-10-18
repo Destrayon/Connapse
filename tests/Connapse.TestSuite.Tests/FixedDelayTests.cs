@@ -49,6 +49,7 @@ public class FixedDelayTests
                     while (pending > 0) { pending = await CountAsync(); await Task.Delay(100); } // polling: re-read each pass
                     int left = 5;
                     while (left > 0) { left--; await Task.Delay(100); }                       // fixed: a countdown
+                    while (sw.Elapsed < cap!.Value) await Task.Delay(100);                     // fixed: a null-forgiven limit
                     while (done < expected) { done++; expected += await NewJobsAsync(); await Task.Delay(100); } // polling: the limit moves
                     while (true)
                     {
@@ -64,8 +65,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(10);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 9", "f: 1"]);
+        delays.Should().HaveCount(11);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 10", "f: 1"]);
     }
 
     /// <summary>
@@ -182,7 +183,9 @@ public class FixedDelayTests
     private static bool Steps(StatementSyntax loop, string name) =>
         loop.DescendantNodes().Any(n => n switch
         {
-            PostfixUnaryExpressionSyntax { Operand: IdentifierNameSyntax o } => o.Identifier.ValueText == name,
+            // x++ and x--, not x! (the null-forgiving operator is postfix too, and changes nothing)
+            PostfixUnaryExpressionSyntax { Operand: IdentifierNameSyntax o } post => o.Identifier.ValueText == name
+                && (post.IsKind(SyntaxKind.PostIncrementExpression) || post.IsKind(SyntaxKind.PostDecrementExpression)),
             PrefixUnaryExpressionSyntax { Operand: IdentifierNameSyntax o } pre => o.Identifier.ValueText == name
                 && (pre.IsKind(SyntaxKind.PreIncrementExpression) || pre.IsKind(SyntaxKind.PreDecrementExpression)),
             AssignmentExpressionSyntax { Left: IdentifierNameSyntax l } a => l.Identifier.ValueText == name
