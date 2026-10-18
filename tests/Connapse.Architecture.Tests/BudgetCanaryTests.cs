@@ -214,4 +214,13 @@ public class BudgetCanaryTests
         RazorMetrics.MeasureRazor(small).CodeLines.Should().Be(0);
         RazorMetrics.MeasureRazor(grown).CodeLines.Should().Be(1);
     }
+
+    [Fact]
+    public void LogicBudget_MeasuresAHandlerPastAStringLiteralInIt()
+    {
+        const string small = """<button @onclick="async () => { error = "required"; }">Save</button>""";
+        const string grown = """<button @onclick="async () => { error = "required"; await SaveAsync(); }">Save</button>""";
+
+        RazorMetrics.MeasureRazor(grown).CodeLines.Should().Be(RazorMetrics.MeasureRazor(small).CodeLines + 1);
+    }
 }

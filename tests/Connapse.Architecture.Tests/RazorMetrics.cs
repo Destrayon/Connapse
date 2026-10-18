@@ -38,8 +38,7 @@ internal static partial class RazorMetrics
         // ValueChanged="@((string? v) => { a = v; b = null; })" or @onclick="() => { Save(); }".
         string markupText = RazorSource.WithoutCodeBlocks(razor);
         var markupCSharp = RazorSource.ExpressionBlocks(razor)
-            .Concat(AttributeLambda().Matches(markupText).Select(x => x.Groups["lambda"].Value))
-            .Concat(SingleQuotedAttributeLambda().Matches(markupText).Select(x => x.Groups["lambda"].Value))
+            .Concat(AttributeHandlers(markupText).Select(h => markupText[h.Start..h.End]))
             .Select(e => SyntaxFactory.ParseExpression(e))
             .ToList();
         int ternaries = markupCSharp.Sum(e => e.DescendantNodesAndSelf().OfType<ConditionalExpressionSyntax>().Count());
@@ -75,6 +74,14 @@ internal static partial class RazorMetrics
     internal static List<string> InlineStatements(string markupText)
     {
         string text = NonMarkupContent().Replace(markupText, "");
+        // Handlers in attribute values are measured as lambdas, so they are blanked out here, by the
+        // same quote-aware scan, before the rest of each line is read.
+        var blanked = text.ToCharArray();
+        foreach (var (start, end) in AttributeHandlers(text))
+            for (int i = start; i < end; i++)
+                if (blanked[i] != '\n')
+                    blanked[i] = ' ';
+        text = new string(blanked);
         var statements = new List<string>();
         foreach (string line in text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("//", StringComparison.Ordinal)))
         {
@@ -109,13 +116,50 @@ internal static partial class RazorMetrics
         _ => false,
     };
 
-    /// <summary>A lambda written directly as an attribute value (not inside @( ), which is parsed separately).</summary>
-    [GeneratedRegex(@"=""(?<lambda>\s*(?:async\s+)?(?:\([^""()]*\)|\w+)\s*=>[^""]*)""")]
-    private static partial Regex AttributeLambda();
+    /// <summary>
+    /// Lambdas written directly as attribute values (not inside @( ), which is parsed separately),
+    /// as spans of the text: @onclick="async () => { error = "required"; await SaveAsync(); }" or
+    /// @onclick='() => activeTab = "embedding"'. The value ends at its closing quote outside any
+    /// bracket or C# string, so a string literal inside the handler doesn't cut it short.
+    /// </summary>
+    internal static List<(int Start, int End)> AttributeHandlers(string text)
+    {
+        var spans = new List<(int, int)>();
+        foreach (Match m in AttributeHandlerStart().Matches(text))
+        {
+            char quote = m.Groups["q"].Value[0];
+            int start = m.Index + m.Length;
+            int depth = 0;
+            char inString = '\0';
+            for (int i = start; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (inString != '\0')
+                {
+                    if (c == '\\')
+                        i++;
+                    else if (c == inString)
+                        inString = '\0';
+                    continue;
+                }
+                if (c is '(' or '{' or '[')
+                    depth++;
+                else if (c is ')' or '}' or ']')
+                    depth--;
+                else if (c == quote && depth <= 0)
+                {
+                    spans.Add((start, i));
+                    break;
+                }
+                else if (c is '"' or '\'')
+                    inString = c;
+            }
+        }
+        return spans;
+    }
 
-    /// <summary>The same, in a single-quoted value: @onclick='() => activeTab = "embedding"'.</summary>
-    [GeneratedRegex(@"='(?<lambda>\s*(?:async\s+)?(?:\([^'()]*\)|\w+)\s*=>[^']*)'")]
-    private static partial Regex SingleQuotedAttributeLambda();
+    [GeneratedRegex(@"=\s*(?<q>[""'])(?=\s*(?:async\s+)?(?:\([^""'()]*\)|\w+)\s*=>)")]
+    private static partial Regex AttributeHandlerStart();
 
     /// <summary>A declaration (bool x = ...;), assignment (x = ...; x++;), call (Do(...);), or bare control statement.</summary>
     [GeneratedRegex(@"^(?:(?:if|for|foreach|while|switch)\s*\(|(?:var|bool|int|long|double|decimal|string|[A-Z]\w*(?:<[^>]*>)?\??)\s+\w+\s*=.*;$|[A-Za-z_][\w.\[\]]*\s*(?:[-+*/?]?=(?!=)|\+\+|--).*;$|(?:await\s+)?[A-Za-z_][\w.]*\(.*\)\s*;$)")]
