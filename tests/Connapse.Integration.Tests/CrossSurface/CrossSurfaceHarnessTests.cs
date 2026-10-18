@@ -21,17 +21,13 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         string name = UniqueName();
 
         var outcome = await SideEffects.CaptureAsync(fixture,
-            async () =>
-            {
-                var response = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name, description = "made over REST" });
-                return ((int)response.StatusCode).ToString();
-            },
+            async () => Surfaces.Result(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name, description = "made over REST" })),
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name));
 
-        outcome.Result.Should().Be("201");
+        outcome.Result.Should().Be("ok");
         outcome.State.Should().Equal("container {name} description=made over REST");
-        outcome.Audit.Should().Equal("container.created container {id1} actor=user");
+        outcome.Audit.Should().ContainSingle().Which.Should().StartWith("container.created container {id1} actor={admin} details=");
         outcome.Jobs.Should().BeEmpty();
     }
 
@@ -42,12 +38,8 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         await using var mcp = await Surfaces.McpAsync(fixture);
 
         var outcome = await SideEffects.CaptureAsync(fixture,
-            async () =>
-            {
-                var result = await mcp.CallToolAsync("container_create",
-                    new Dictionary<string, object?> { ["name"] = name, ["description"] = "made over MCP" });
-                return result.IsError == true ? "error" : "ok";
-            },
+            async () => Surfaces.Result(await mcp.CallToolAsync("container_create",
+                new Dictionary<string, object?> { ["name"] = name, ["description"] = "made over MCP" })),
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name));
 
@@ -56,7 +48,55 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Rest_Upload_ReportsTheQueuedIngestionJob()
+    public async Task RestAndMcp_DuplicateCreate_ReportTheSameError()
+    {
+        string name = UniqueName();
+        (await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name })).EnsureSuccessStatusCode();
+        await using var mcp = await Surfaces.McpAsync(fixture);
+
+        string rest = Surfaces.Result(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name }));
+        string viaMcp = Surfaces.Result(await mcp.CallToolAsync("container_create", new Dictionary<string, object?> { ["name"] = name }));
+
+        rest.Should().Be("error:conflict");
+        viaMcp.Should().Be(rest);
+    }
+
+    [Fact]
+    public async Task Capture_IgnoresAuditRowsWrittenBeforeTheAction()
+    {
+        string name = UniqueName();
+        (await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name })).EnsureSuccessStatusCode();
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            async () => Surfaces.Result(await Surfaces.Rest(fixture).GetAsync("/api/containers")),
+            sp => ContainerByNameAsync(sp, name),
+            Placeholders(name));
+
+        outcome.State.Should().ContainSingle();
+        outcome.Audit.Should().BeEmpty("the container.created row was written before the action began");
+    }
+
+    [Fact]
+    public async Task Capture_FindsTheAuditRowOfADeletedResourceByItsKnownId()
+    {
+        string name = UniqueName();
+        var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
+        created.EnsureSuccessStatusCode();
+        string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            async () => Surfaces.Result(await Surfaces.Rest(fixture).DeleteAsync($"/api/containers/{containerId}")),
+            sp => ContainerByNameAsync(sp, name),
+            Placeholders(name),
+            knownIds: [containerId]);
+
+        outcome.Result.Should().Be("ok");
+        outcome.State.Should().Equal("no container {name}");
+        outcome.Audit.Should().ContainSingle().Which.Should().StartWith("container.deleted container {id1} actor={admin}");
+    }
+
+    [Fact]
+    public async Task Rest_Upload_ReportsTheQueuedIngestionJobWithItsArguments()
     {
         string name = UniqueName();
         var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
@@ -69,17 +109,19 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
                 using var form = new MultipartFormDataContent();
                 form.Add(new ByteArrayContent("harness self-test"u8.ToArray()), "files", "note.txt");
                 form.Add(new StringContent("/"), "path");
-                var response = await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form);
-                return ((int)response.StatusCode).ToString();
+                return Surfaces.Result(await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form));
             },
             async sp =>
             {
                 var docs = await sp.GetRequiredService<IDocumentStore>().ListAsync(Guid.Parse(containerId));
                 return new StateProjection(docs.Select(d => $"document {d.FileName} in {d.Path}").ToList(), docs.Select(d => d.Id).ToList());
-            });
+            },
+            knownIds: [containerId]);
 
         outcome.State.Should().Equal("document note.txt in /note.txt");
-        outcome.Jobs.Should().Contain("IIngestionJobs.IngestAsync");
+        outcome.Jobs.Should().ContainSingle().Which.Should()
+            .StartWith("""IIngestionJobs.IngestAsync("{id1}", {"DocumentId":"{id1}","FileName":"note.txt",""")
+            .And.Contain("\"ContainerId\":\"{id2}\"").And.Contain("\"UploadedAt\":\"{time}\"");
     }
 
     private static async Task<StateProjection> ContainerByNameAsync(IServiceProvider services, string name)
