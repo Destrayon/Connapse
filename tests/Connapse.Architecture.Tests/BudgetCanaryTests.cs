@@ -125,4 +125,20 @@ public class BudgetCanaryTests
         after.CodeLines.Should().Be(before.CodeLines + 4);
         after.Complexity.Should().Be(before.Complexity + 1, "one added if");
     }
+
+    [Fact]
+    public void LogicBudget_MeasuresSingleQuotedMarkupHandlers()
+    {
+        const string small = """
+            <button @onclick='() => activeTab = "embedding"'>Embedding</button>
+            """;
+        const string grown = """
+            <button @onclick='() => { if (isAdmin) activeTab = "embedding"; }'>Embedding</button>
+            """;
+        var before = RazorMetrics.MeasureRazor(small);
+        var after = RazorMetrics.MeasureRazor(grown);
+
+        after.CodeLines.Should().BeGreaterThan(before.CodeLines);
+        after.Complexity.Should().Be(before.Complexity + 1, "one added if");
+    }
 }

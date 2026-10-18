@@ -39,6 +39,7 @@ internal static partial class RazorMetrics
         string markupText = RazorSource.WithoutCodeBlocks(razor);
         var markupCSharp = RazorSource.ExpressionBlocks(razor)
             .Concat(AttributeLambda().Matches(markupText).Select(x => x.Groups["lambda"].Value))
+            .Concat(SingleQuotedAttributeLambda().Matches(markupText).Select(x => x.Groups["lambda"].Value))
             .Select(e => SyntaxFactory.ParseExpression(e))
             .ToList();
         int ternaries = markupCSharp.Sum(e => e.DescendantNodesAndSelf().OfType<ConditionalExpressionSyntax>().Count());
@@ -73,6 +74,10 @@ internal static partial class RazorMetrics
     /// <summary>A lambda written directly as an attribute value (not inside @( ), which is parsed separately).</summary>
     [GeneratedRegex(@"=""(?<lambda>\s*(?:\([^""()]*\)|\w+)\s*=>[^""]*)""")]
     private static partial Regex AttributeLambda();
+
+    /// <summary>The same, in a single-quoted value: @onclick='() => activeTab = "embedding"'.</summary>
+    [GeneratedRegex(@"='(?<lambda>\s*(?:\([^'()]*\)|\w+)\s*=>[^']*)'")]
+    private static partial Regex SingleQuotedAttributeLambda();
 
     [GeneratedRegex(@"^\s*@inject\s", RegexOptions.Multiline)]
     private static partial Regex InjectDirective();
