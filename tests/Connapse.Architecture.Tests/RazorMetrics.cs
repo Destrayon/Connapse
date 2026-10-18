@@ -118,9 +118,10 @@ internal static partial class RazorMetrics
 
     /// <summary>
     /// Lambdas written directly as attribute values (not inside @( ), which is parsed separately),
-    /// as spans of the text: @onclick="async () => { error = "required"; await SaveAsync(); }" or
-    /// @onclick='() => activeTab = "embedding"'. The value ends at its closing quote outside any
-    /// bracket or C# string, so a string literal inside the handler doesn't cut it short.
+    /// as spans of the text: @onclick="async () => { await SaveAsync(); }" or
+    /// @onclick='() => activeTab = "embedding"'. The value ends at the first quote of its own kind,
+    /// as Razor reads it: a handler can't hold one (Razor fails to compile
+    /// @onclick="() => error = "required""), so a string inside it uses the other kind.
     /// </summary>
     internal static List<(int Start, int End)> AttributeHandlers(string text)
     {
@@ -129,34 +130,9 @@ internal static partial class RazorMetrics
         {
             char quote = m.Groups["q"].Value[0];
             int start = m.Index + m.Length;
-            int depth = 0;
-            char inString = '\0';
-            for (int i = start; i < text.Length; i++)
-            {
-                char c = text[i];
-                if (inString != '\0')
-                {
-                    if (c == '\\')
-                        i++;
-                    else if (c == inString)
-                        inString = '\0';
-                    continue;
-                }
-                if (c is '(' or '{' or '[')
-                    depth++;
-                else if (c is ')' or '}' or ']')
-                    depth--;
-                // At the top level the attribute's own quote closes it only where an attribute can end
-                // (before a space, > or /); "() => error = "required" + Hint()" opens a string instead.
-                else if (c == quote && depth <= 0
-                    && (i + 1 == text.Length || char.IsWhiteSpace(text[i + 1]) || text[i + 1] is '>' or '/'))
-                {
-                    spans.Add((start, i));
-                    break;
-                }
-                else if (c is '"' or '\'')
-                    inString = c;
-            }
+            int close = text.IndexOf(quote, start);
+            if (close > start)
+                spans.Add((start, close));
         }
         return spans;
     }

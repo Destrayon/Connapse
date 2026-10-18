@@ -216,19 +216,10 @@ public class BudgetCanaryTests
     }
 
     [Fact]
-    public void LogicBudget_MeasuresAHandlerPastAStringLiteralInIt()
+    public void LogicBudget_MeasuresAHandlerWithStringsOfTheOtherQuoteKind()
     {
-        const string small = """<button @onclick="async () => { error = "required"; }">Save</button>""";
-        const string grown = """<button @onclick="async () => { error = "required"; await SaveAsync(); }">Save</button>""";
-
-        RazorMetrics.MeasureRazor(grown).CodeLines.Should().Be(RazorMetrics.MeasureRazor(small).CodeLines + 1);
-    }
-
-    [Fact]
-    public void LogicBudget_MeasuresAHandlerPastATopLevelStringLiteral()
-    {
-        const string small = """<button @onclick="() => error = "required"">Save</button>""";
-        const string grown = """<button @onclick="() => error = "required" + GetValidationHint()">Save</button>""";
+        const string small = """<button @onclick="() => Save('a')">Save</button>""";
+        const string grown = """<button @onclick="() => Save('a').ContinueWith(Notify)">Save</button>""";
 
         RazorMetrics.MeasureRazor(grown).CodeLines.Should().Be(RazorMetrics.MeasureRazor(small).CodeLines + 1);
     }
