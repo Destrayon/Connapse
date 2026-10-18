@@ -112,7 +112,8 @@ internal static class SourceScan
         var root = handler.SyntaxTree.GetRoot();
         (string? name, SyntaxNode? scope) = handler switch
         {
-            IdentifierNameSyntax i => (i.Identifier.ValueText, root),
+            // Unqualified, like this.Get, names a method of the class the map call is in (or a top-level one).
+            IdentifierNameSyntax i => (i.Identifier.ValueText, (SyntaxNode?)handler.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault() ?? root),
             MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } =>
                 (n.Identifier.ValueText, handler.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault()),
             MemberAccessExpressionSyntax { Expression: var owner, Name: var n } =>
@@ -245,7 +246,8 @@ internal static class SourceScan
     /// </summary>
     private static string? MappedRoute(SyntaxNode function, string name)
     {
-        string? owner = function.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault()?.Identifier.ValueText;
+        var ownerType = function.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
+        string? owner = ownerType?.Identifier.ValueText;
         foreach (var map in function.SyntaxTree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
             if (map.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
@@ -253,8 +255,9 @@ internal static class SourceScan
                 continue;
             bool names = map.ArgumentList.Arguments[^1].Expression switch
             {
-                IdentifierNameSyntax i => i.Identifier.ValueText == name,
-                MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } => n.Identifier.ValueText == name,
+                // Unqualified and this.: only a map call in the function's own class (or both top level).
+                IdentifierNameSyntax i => i.Identifier.ValueText == name && SameType(map, ownerType),
+                MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } => n.Identifier.ValueText == name && SameType(map, ownerType),
                 MemberAccessExpressionSyntax { Expression: var o, Name: var n } => n.Identifier.ValueText == name && RightmostName(o) == owner,
                 _ => false,
             };
@@ -263,6 +266,9 @@ internal static class SourceScan
         }
         return null;
     }
+
+    private static bool SameType(SyntaxNode node, TypeDeclarationSyntax? type) =>
+        node.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault() == type;
 
     private static bool IsRouteSite(string site) =>
         site.Length > 0 && site.Split(' ')[0] is "GET" or "POST" or "PUT" or "PATCH" or "DELETE";

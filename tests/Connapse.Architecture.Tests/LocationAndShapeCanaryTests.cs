@@ -254,4 +254,21 @@ public class LocationAndShapeCanaryTests
             .Contain(e => e.StartsWith("Services/HealthHandler.cs: GET /x uses ", StringComparison.Ordinal));
         Rules.AnonymousResponses("Services/HealthHandler.cs", handler, routes).Should().Equal("Services/HealthHandler.cs: GET /x: 1");
     }
+
+    [Fact]
+    public void ShapeRule_KeepsSameNamedHandlersOfDifferentClassesApart()
+    {
+        const string program = """app.MapGet("/a", A.Handle);""";
+        const string handlers = """
+            static class A { public static object Handle() => new { id = 1 }; }
+            static class B
+            {
+                public static void Map(IEndpointRouteBuilder app) => app.MapGet("/b", Handle);
+                static Named Handle() => new Named();
+            }
+            """;
+        var routes = SourceScan.QualifiedRoutes([program, handlers]);
+
+        Rules.AnonymousResponses("Endpoints/Handlers.cs", handlers, routes).Should().Equal("Endpoints/Handlers.cs: GET /a: 1");
+    }
 }
