@@ -25,7 +25,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name));
 
-        outcome.Result.Should().Be("ok id={id1}", "the response names the container it created");
+        outcome.Result.Should().Be("ok", "the id the response names is the container it created");
         outcome.State.Should().Equal("container {name} description=made over REST");
         outcome.Audit.Should().ContainSingle().Which.Should().StartWith("container.created container {id1} actor={admin} details=");
         outcome.Jobs.Should().BeEmpty();
@@ -43,7 +43,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name));
 
-        outcome.Result.Should().Be("ok id={id1}", "the same shape REST gives");
+        outcome.Result.Should().Be("ok", "the same result REST gives");
         outcome.State.Should().Equal("container {name} description=made over MCP");
     }
 
@@ -152,6 +152,49 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         outcome.Jobs.Should().HaveCount(2, "the job for b.txt is found through its container");
         outcome.Jobs.Should().ContainSingle(j => j.Contains("\"FileName\":\"b.txt\""))
             .Which.Should().StartWith("""IIngestionJobs.IngestAsync("{id3}",""", "b.txt gets its own token, not a raw id");
+    }
+
+    [Fact]
+    public async Task Capture_FlagsASuccessThatNamesTheWrongId()
+    {
+        string name = UniqueName();
+        string stranger = Guid.NewGuid().ToString();
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            async () =>
+            {
+                await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name }));
+                return $"ok id={stranger}";
+            },
+            sp => ContainerByNameAsync(sp, name),
+            Placeholders(name));
+
+        outcome.Result.Should().Be($"ok wrong-id={stranger}");
+    }
+
+    [Fact]
+    public async Task RestAndMcp_DeleteNonEmptyContainer_ReportTheirErrors()
+    {
+        string name = UniqueName();
+        var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
+        created.EnsureSuccessStatusCode();
+        string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
+        using (var form = new MultipartFormDataContent())
+        {
+            form.Add(new ByteArrayContent("keep"u8.ToArray()), "files", "keep.txt");
+            form.Add(new StringContent("/"), "path");
+            (await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form)).EnsureSuccessStatusCode();
+        }
+        await using var mcp = await Surfaces.McpAsync(fixture);
+
+        string rest = await Surfaces.ResultAsync(await Surfaces.Rest(fixture).DeleteAsync($"/api/containers/{containerId}"));
+        string viaMcp = Surfaces.Result(await mcp.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = containerId }));
+
+        rest.Should().Be("error:validation");
+        // Known gap, measured rather than fixed here: MCP's container_delete throws on a non-empty
+        // container instead of returning its "is not empty" message, so the SDK answers with a
+        // generic error. #792's comparisons list it.
+        viaMcp.Should().Be("error:unknown");
     }
 
     private static async Task<StateProjection> ContainerByNameAsync(IServiceProvider services, string name)

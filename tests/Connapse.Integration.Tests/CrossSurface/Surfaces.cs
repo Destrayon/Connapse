@@ -35,11 +35,11 @@ public static partial class Surfaces
     }
 
     /// <summary>
-    /// What an action's response means, in words every surface shares: "ok id=...", "ok", or
-    /// "error:kind". REST says it with a status code and a JSON body, MCP with an error flag or an
-    /// "Error:" message and an "ID:" line, so comparing either surface's raw response would make
-    /// every equivalent pair differ. The id a response names is kept, so a create that returns the
-    /// wrong id differs; any other payload (a returned list) is the caller's to project in its act.
+    /// What an action's response means, in words every surface shares: "ok" or "error:kind". REST
+    /// says it with a status code and a JSON body, MCP with an error flag or an "Error:" message, so
+    /// comparing either surface's raw response would make every equivalent pair differ. An id the
+    /// response names comes back as "ok id=..." for the capture to check against the resources the
+    /// action touched; any other payload (a returned list) is the caller's to project in its act.
     /// </summary>
     public static async Task<string> ResultAsync(HttpResponseMessage response)
     {
@@ -83,6 +83,8 @@ public static partial class Surfaces
         {
             _ when text.Contains("already exists", StringComparison.OrdinalIgnoreCase) => "error:conflict",
             _ when text.Contains("not found", StringComparison.OrdinalIgnoreCase) => "error:not_found",
+            // REST answers a delete of a non-empty container with 400, a validation failure.
+            _ when text.Contains("not empty", StringComparison.OrdinalIgnoreCase) => "error:validation",
             _ when text.Contains("permission", StringComparison.OrdinalIgnoreCase)
                 || text.Contains("forbidden", StringComparison.OrdinalIgnoreCase) => "error:forbidden",
             _ when text.Contains("must", StringComparison.OrdinalIgnoreCase)
