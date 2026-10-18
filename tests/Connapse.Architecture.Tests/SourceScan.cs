@@ -46,7 +46,7 @@ internal static class SourceScan
             };
             if (!isResultCall)
                 continue;
-            int count = call.ArgumentList.Arguments.Sum(a => AnonymousObjects(a.Expression, depth: 0));
+            int count = call.ArgumentList.Arguments.Sum(a => AnonymousObjects(a.Expression, []));
             for (int i = 0; i < count; i++)
                 yield return Site(call);
         }
@@ -100,12 +100,26 @@ internal static class SourceScan
     /// it (an outer body and a projection inside it are two), plus those reaching it through a local
     /// initialised or assigned from one, or through a same-file helper's return value.
     /// </summary>
-    private static int AnonymousObjects(ExpressionSyntax arg, int depth)
+    private static int AnonymousObjects(ExpressionSyntax arg, HashSet<SyntaxNode> visited)
     {
-        if (depth > 4)
+        // The nodes on the current path, not a fixed limit: a chain of any length is followed, a cycle
+        // ends, and the same helper called twice counts twice.
+        if (!visited.Add(arg))
             return 0;
+        try
+        {
+            return CountAnonymousObjects(arg, visited);
+        }
+        finally
+        {
+            visited.Remove(arg);
+        }
+    }
+
+    private static int CountAnonymousObjects(ExpressionSyntax arg, HashSet<SyntaxNode> visited)
+    {
         int count = arg.DescendantNodesAndSelf().OfType<AnonymousObjectCreationExpressionSyntax>().Count();
-        count += arg.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Sum(call => ReturnedAnonymousObjects(call, depth));
+        count += arg.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Sum(call => ReturnedAnonymousObjects(call, visited));
         // Locals anywhere in the argument, so Ok(flag ? body : null) follows body too.
         // The whole handler or member, so a local declared in an outer block and returned from a nested one is found.
         var body = arg.Ancestors().FirstOrDefault(a => a is AnonymousFunctionExpressionSyntax or BaseMethodDeclarationSyntax
@@ -116,16 +130,16 @@ internal static class SourceScan
         {
             count += body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
                 .Where(v => v.Identifier.ValueText == name && v.Initializer is not null && !v.Initializer.Value.Span.Contains(arg.Span))
-                .Sum(v => AnonymousObjects(v.Initializer!.Value, depth + 1));
+                .Sum(v => AnonymousObjects(v.Initializer!.Value, visited));
             count += body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
                 .Where(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name && !a.Right.Span.Contains(arg.Span))
-                .Sum(a => AnonymousObjects(a.Right, depth + 1));
+                .Sum(a => AnonymousObjects(a.Right, visited));
         }
         return count;
     }
 
     /// <summary>Anonymous objects returned by a same-file method or local function (unqualified, this. or ClassName.).</summary>
-    private static int ReturnedAnonymousObjects(InvocationExpressionSyntax call, int depth)
+    private static int ReturnedAnonymousObjects(InvocationExpressionSyntax call, HashSet<SyntaxNode> visited)
     {
         string? name = call.Expression switch
         {
@@ -149,7 +163,7 @@ internal static class SourceScan
             var returned = body is ArrowExpressionClauseSyntax arrow
                 ? [arrow.Expression]
                 : body.DescendantNodes().OfType<ReturnStatementSyntax>().Select(r => r.Expression).OfType<ExpressionSyntax>();
-            count += returned.Sum(e => AnonymousObjects(e, depth + 1));
+            count += returned.Sum(e => AnonymousObjects(e, visited));
         }
         return count;
     }

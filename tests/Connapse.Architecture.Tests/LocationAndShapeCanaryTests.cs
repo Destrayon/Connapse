@@ -164,4 +164,25 @@ public class LocationAndShapeCanaryTests
             """;
         Rules.ServiceLocationCalls("Mcp/Planted.cs", source).Should().Contain("Mcp/Planted.cs: GET /all uses GetServices");
     }
+
+    [Fact]
+    public void ShapeRule_FollowsLocalAliasChainsOfAnyLength()
+    {
+        const string source = """
+            app.MapGet("/chain", () =>
+            {
+                var a = new { id = 1 };
+                var b = a; var c = b; var d = c; var e = d; var f = e;
+                return Results.Ok(f);
+            });
+            app.MapGet("/cycle", () =>
+            {
+                object x = null; object y = x; x = y;
+                return Results.Ok(x);
+            });
+            app.MapGet("/twice", () => Results.Ok(new { a = Describe(1), b = Describe(2) }));
+            static object Describe(int n) => new { n };
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(["Program.cs: GET /chain: 1", "Program.cs: GET /twice: 3"]);
+    }
 }
