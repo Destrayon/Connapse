@@ -110,7 +110,13 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
         while (true)
         {
             CustomListingPage page = await client.ListDocumentsAsync(scope.ScopeId, pageToken, ct);
-            files.AddRange((page.Items ?? []).Select(ToFile).OfType<ConnectorFile>());
+            // A full listing decides what is deleted, so a page that is not a complete protocol answer stops the
+            // cycle: a missing items array or an item without an ID would otherwise read as documents removed.
+            if (page.Items is null)
+                throw new CustomSourceException("The source server answered the document listing without an items array, so nothing was changed.");
+            if (page.Items.Any(item => string.IsNullOrEmpty(item.Id)))
+                throw new CustomSourceException("The source server listed a document without an ID, so nothing was changed.");
+            files.AddRange(page.Items.Select(ToFile).OfType<ConnectorFile>());
             if (string.IsNullOrEmpty(page.NextPageToken))
             {
                 changeCursor = page.ChangeCursor;
@@ -135,9 +141,16 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
         while (true)
         {
             CustomChangePage page = await client.ListChangesAsync(scope.ScopeId, cursor, pageToken, ct);
-            foreach (CustomDocument item in page.Items ?? [])
+            // Every change is applied, and the cursor moves past it, so a change this protocol version does not
+            // define stops the cycle rather than being read as a deletion.
+            if (page.Items is null)
+                throw new CustomSourceException("The source server answered the change feed without an items array, so nothing was changed.");
+            foreach (CustomDocument item in page.Items)
             {
-                if (string.IsNullOrEmpty(item.Id)) continue;
+                if (string.IsNullOrEmpty(item.Id))
+                    throw new CustomSourceException("The source server reported a change without a document ID, so nothing was changed.");
+                if (item.Op is not ("upsert" or "delete"))
+                    throw new CustomSourceException("The source server reported a change that is neither upsert nor delete, so nothing was changed.");
                 if (!last.ContainsKey(item.Id)) order.Add(item.Id);
                 last[item.Id] = item;
             }

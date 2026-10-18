@@ -57,6 +57,12 @@ public sealed class FakeMiddleMan : HttpMessageHandler
     /// <summary>Answers requests whatever token they carry, as a carelessly built middle man might.</summary>
     public bool AcceptAnyToken { get; set; }
 
+    /// <summary>Listing and change pages leave out their items array, as a malformed answer might.</summary>
+    public bool OmitItems { get; set; }
+
+    /// <summary>Set to send this op instead of upsert in the change feed, as a server on a later protocol might.</summary>
+    public string? ChangeOp { get; set; }
+
     /// <summary>Every paged response repeats the same next-page token, as a broken middle man might.</summary>
     public bool RepeatPageToken { get; set; }
     public HttpStatusCode? FailNextWith { get; set; }
@@ -234,7 +240,7 @@ public sealed class FakeMiddleMan : HttpMessageHandler
         string after = pageToken ?? "";
         List<FakeDocument> remaining = _documents.Values.Where(d => string.CompareOrdinal(d.Id, after) > 0).ToList();
         List<FakeDocument> page = remaining.Take(PageSize).ToList();
-        JsonObject body = new() { ["items"] = new JsonArray(page.Select(Item).ToArray<JsonNode?>()) };
+        JsonObject body = OmitItems ? new() : new() { ["items"] = new JsonArray(page.Select(Item).ToArray<JsonNode?>()) };
         if (RepeatPageToken) body["next_page_token"] = "again";
         else if (remaining.Count > page.Count) body["next_page_token"] = page[^1].Id;
         else body["change_cursor"] = $"c{_journal.Count}";
@@ -252,7 +258,10 @@ public sealed class FakeMiddleMan : HttpMessageHandler
             items.Add(deleted || !_documents.TryGetValue(id, out FakeDocument? d)
                 ? new JsonObject { ["id"] = id, ["op"] = "delete" }
                 : Upsert(d));
-        JsonObject body = new() { ["items"] = items };
+        if (ChangeOp is { } op)
+            foreach (JsonNode? item in items)
+                if (item?["op"]?.GetValue<string>() == "upsert") item["op"] = op;
+        JsonObject body = OmitItems ? new() : new() { ["items"] = items };
         if (end < _journal.Count) body["next_page_token"] = $"c{end}";
         else body["next_cursor"] = $"c{end}";
         return Json(body);
