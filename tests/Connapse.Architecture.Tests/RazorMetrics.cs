@@ -34,10 +34,21 @@ internal static partial class RazorMetrics
         int complexity = blocks.Sum(b => Complexity(CSharpSyntaxTree.ParseText($"class __Component {{\n{b}\n}}").GetRoot()))
             + statements.Sum(b => Complexity(CSharpSyntaxTree.ParseText($"class __Component {{ void __Render() {{\n{b}\n}} }}").GetRoot()) - 1)
             + extra.Sum(c => Complexity(CSharpSyntaxTree.ParseText(c).GetRoot()));
-        // Ternaries in @( ) expressions, plus the control flow, lambdas and conditions written in markup.
-        int ternaries = RazorSource.ExpressionBlocks(razor)
-            .Sum(e => SyntaxFactory.ParseExpression(e).DescendantNodesAndSelf().OfType<ConditionalExpressionSyntax>().Count());
-        int markup = MarkupLogicPattern().Matches(RazorSource.WithoutCodeBlocks(razor)).Count + ternaries;
+        // C# written in markup: @( ) expressions and handlers in attribute values, such as
+        // ValueChanged="@((string? v) => { a = v; b = null; })" or @onclick="() => { Save(); }".
+        string markupText = RazorSource.WithoutCodeBlocks(razor);
+        var markupCSharp = RazorSource.ExpressionBlocks(razor)
+            .Concat(AttributeLambda().Matches(markupText).Select(x => x.Groups["lambda"].Value))
+            .Select(e => SyntaxFactory.ParseExpression(e))
+            .ToList();
+        int ternaries = markupCSharp.Sum(e => e.DescendantNodesAndSelf().OfType<ConditionalExpressionSyntax>().Count());
+        var lambdaBodies = markupCSharp.SelectMany(e => e.DescendantNodesAndSelf().OfType<AnonymousFunctionExpressionSyntax>())
+            .Select(l => l.Body).ToList();
+        // A markup handler's statements count as lines and its decisions as complexity, so a body
+        // that grows moves the budget even though its single "=>" doesn't.
+        lines += lambdaBodies.Sum(b => b.DescendantNodesAndSelf().OfType<StatementSyntax>().Count(s => s is not BlockSyntax));
+        complexity += lambdaBodies.Sum(b => b.DescendantNodesAndSelf().Count(IsDecisionOrMember));
+        int markup = MarkupLogicPattern().Matches(markupText).Count + ternaries;
         return new ComponentMetrics(lines, injects, complexity, markup);
     }
 
@@ -58,6 +69,10 @@ internal static partial class RazorMetrics
             || b.IsKind(SyntaxKind.CoalesceExpression),
         _ => false,
     };
+
+    /// <summary>A lambda written directly as an attribute value (not inside @( ), which is parsed separately).</summary>
+    [GeneratedRegex(@"=""(?<lambda>\s*(?:\([^""()]*\)|\w+)\s*=>[^""]*)""")]
+    private static partial Regex AttributeLambda();
 
     [GeneratedRegex(@"^\s*@inject\s", RegexOptions.Multiline)]
     private static partial Regex InjectDirective();

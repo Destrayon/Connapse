@@ -105,4 +105,24 @@ public class BudgetCanaryTests
         // two ternaries in @( ) expressions
         m.MarkupLogic.Should().Be(2);
     }
+
+    [Fact]
+    public void LogicBudget_MeasuresTheBodiesOfMarkupHandlers()
+    {
+        const string small = """
+            <input ValueChanged="@((string? v) => { replaceClientId = v; })" />
+            <button @onclick="() => Save()">Save</button>
+            """;
+        const string grown = """
+            <input ValueChanged="@((string? v) => { replaceClientId = v; if (v is null) { error = "required"; } })" />
+            <button @onclick="() => { Save(); Close(); }">Save</button>
+            """;
+        var before = RazorMetrics.MeasureRazor(small);
+        var after = RazorMetrics.MeasureRazor(grown);
+
+        after.MarkupLogic.Should().Be(before.MarkupLogic, "both have the same two arrows");
+        // grown handler bodies: +2 statements in the first (if, its assignment), +2 in the second
+        after.CodeLines.Should().Be(before.CodeLines + 4);
+        after.Complexity.Should().Be(before.Complexity + 1, "one added if");
+    }
 }

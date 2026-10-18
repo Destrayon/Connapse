@@ -14,7 +14,7 @@
     "IsEmpty": false
   },
   "Connections/AtlassianConnectionForm.razor": {
-    "CodeLines": 412,
+    "CodeLines": 421,
     "Injects": 6,
     "Complexity": 101,
     "MarkupLogic": 53,
@@ -49,7 +49,7 @@
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
-    "CodeLines": 193,
+    "CodeLines": 195,
     "Injects": 3,
     "Complexity": 26,
     "MarkupLogic": 31,
@@ -58,7 +58,7 @@
   "Pages/Admin/UserManagement.razor": {
     "CodeLines": 227,
     "Injects": 6,
-    "Complexity": 36,
+    "Complexity": 37,
     "MarkupLogic": 26,
     "IsEmpty": false
   },
@@ -93,14 +93,14 @@
   "Pages/Connections.razor": {
     "CodeLines": 1533,
     "Injects": 21,
-    "Complexity": 415,
-    "MarkupLogic": 244,
+    "Complexity": 416,
+    "MarkupLogic": 245,
     "IsEmpty": false
   },
   "Pages/CustomProviderPage.razor": {
-    "CodeLines": 278,
+    "CodeLines": 283,
     "Injects": 7,
-    "Complexity": 76,
+    "Complexity": 79,
     "MarkupLogic": 45,
     "IsEmpty": false
   },
@@ -168,9 +168,9 @@
     "IsEmpty": false
   },
   "Pages/SourceEdit.razor": {
-    "CodeLines": 98,
+    "CodeLines": 100,
     "Injects": 5,
-    "Complexity": 25,
+    "Complexity": 26,
     "MarkupLogic": 48,
     "IsEmpty": false
   },
@@ -359,21 +359,21 @@
   "Sources/ConfluenceSpaceForm.razor": {
     "CodeLines": 119,
     "Injects": 3,
-    "Complexity": 33,
+    "Complexity": 34,
     "MarkupLogic": 18,
     "IsEmpty": false
   },
   "Sources/CustomSourceFields.razor": {
     "CodeLines": 56,
     "Injects": 3,
-    "Complexity": 14,
+    "Complexity": 15,
     "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Sources/JiraProjectForm.razor": {
     "CodeLines": 112,
     "Injects": 3,
-    "Complexity": 30,
+    "Complexity": 31,
     "MarkupLogic": 18,
     "IsEmpty": false
   }
