@@ -75,10 +75,24 @@ internal static partial class RazorMetrics
     internal static List<string> InlineStatements(string markupText)
     {
         string text = NonMarkupContent().Replace(markupText, "");
-        return text.Split('\n').Select(l => l.Trim())
-            .Where(l => l.Length > 0 && l[0] is not ('<' or '@' or '}' or '{') && !l.StartsWith("//", StringComparison.Ordinal))
-            .Where(l => InlineStatement().IsMatch(l) && !HtmlEntityEnd().IsMatch(l))
-            .ToList();
+        var statements = new List<string>();
+        foreach (string line in text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("//", StringComparison.Ordinal)))
+        {
+            if (line[0] is not ('<' or '@' or '}' or '{'))
+            {
+                if (InlineStatement().IsMatch(line) && !HtmlEntityEnd().IsMatch(line))
+                    statements.Add(line);
+                continue;
+            }
+            // A statement sharing a line with a Razor block or markup: @if (saving) { AuditSave(); <span>
+            // or } else { count = 0; </p>. The code runs from each "{" to the next tag or brace.
+            // Attribute values are left out: a handler there is measured as a lambda already.
+            foreach (Match code in BlockCode().Matches(AttributeValue().Replace(line, "")))
+                foreach (string piece in code.Groups["code"].Value.Split(';').SkipLast(1).Select(p => p.Trim() + ";"))
+                    if (InlineStatement().IsMatch(piece) && !HtmlEntityEnd().IsMatch(piece))
+                        statements.Add(piece);
+        }
+        return statements;
     }
 
     private static int Complexity(SyntaxNode root) => root.DescendantNodes().Count(IsDecisionOrMember);
@@ -96,16 +110,22 @@ internal static partial class RazorMetrics
     };
 
     /// <summary>A lambda written directly as an attribute value (not inside @( ), which is parsed separately).</summary>
-    [GeneratedRegex(@"=""(?<lambda>\s*(?:\([^""()]*\)|\w+)\s*=>[^""]*)""")]
+    [GeneratedRegex(@"=""(?<lambda>\s*(?:async\s+)?(?:\([^""()]*\)|\w+)\s*=>[^""]*)""")]
     private static partial Regex AttributeLambda();
 
     /// <summary>The same, in a single-quoted value: @onclick='() => activeTab = "embedding"'.</summary>
-    [GeneratedRegex(@"='(?<lambda>\s*(?:\([^'()]*\)|\w+)\s*=>[^']*)'")]
+    [GeneratedRegex(@"='(?<lambda>\s*(?:async\s+)?(?:\([^'()]*\)|\w+)\s*=>[^']*)'")]
     private static partial Regex SingleQuotedAttributeLambda();
 
     /// <summary>A declaration (bool x = ...;), assignment (x = ...; x++;), call (Do(...);), or bare control statement.</summary>
     [GeneratedRegex(@"^(?:(?:if|for|foreach|while|switch)\s*\(|(?:var|bool|int|long|double|decimal|string|[A-Z]\w*(?:<[^>]*>)?\??)\s+\w+\s*=.*;$|[A-Za-z_][\w.\[\]]*\s*(?:[-+*/?]?=(?!=)|\+\+|--).*;$|(?:await\s+)?[A-Za-z_][\w.]*\(.*\)\s*;$)")]
     private static partial Regex InlineStatement();
+
+    [GeneratedRegex(@"=\s*(?:""[^""]*""|'[^']*')")]
+    private static partial Regex AttributeValue();
+
+    [GeneratedRegex(@"\{(?<code>[^{}<]*)")]
+    private static partial Regex BlockCode();
 
     /// <summary>Text ending in an HTML entity such as &amp;nbsp; is markup, not a statement.</summary>
     [GeneratedRegex(@"&#?\w+;$")]

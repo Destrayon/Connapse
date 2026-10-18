@@ -192,4 +192,26 @@ public class BudgetCanaryTests
 
         RazorMetrics.MeasureRazor(grown).CodeLines.Should().Be(RazorMetrics.MeasureRazor(small).CodeLines + 1);
     }
+
+    [Fact]
+    public void LogicBudget_MeasuresAsyncMarkupHandlers()
+    {
+        const string small = """<button @onclick="async () => { await SaveAsync(); }">Save</button>""";
+        const string grown = """<button @onclick="async () => { await SaveAsync(); if (ok) { await NotifyAsync(); } }">Save</button>""";
+        var before = RazorMetrics.MeasureRazor(small);
+        var after = RazorMetrics.MeasureRazor(grown);
+
+        after.CodeLines.Should().Be(before.CodeLines + 2, "an if and its call");
+        after.Complexity.Should().Be(before.Complexity + 1);
+    }
+
+    [Fact]
+    public void LogicBudget_MeasuresStatementsSharingALineWithMarkup()
+    {
+        const string small = """@if (saving) { <span>Saving</span> }""";
+        const string grown = """@if (saving) { AuditSave(); <span>Saving</span> }""";
+
+        RazorMetrics.MeasureRazor(small).CodeLines.Should().Be(0);
+        RazorMetrics.MeasureRazor(grown).CodeLines.Should().Be(1);
+    }
 }
