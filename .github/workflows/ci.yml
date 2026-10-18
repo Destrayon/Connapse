@@ -73,27 +73,42 @@ jobs:
     # Tests run in three size tiers (epic #783, #788). Small is Category=Unit with no Size trait: no
     # Docker, no models, no child processes. Each tier writes its own TRX because TRX doesn't record
     # traits, and the budget step below reads them. The Small step's wall time is the fast gate's budget.
+    # Each step records its wall time even when tests fail, so the budget check below still reports.
     - name: Run Small tests
       run: |
         start=$(date +%s)
+        set +e
         dotnet test --no-build --configuration Release --filter "Category=Unit&Size!=Medium&Size!=Large" --verbosity normal --logger "trx;LogFileName=small-tests.trx"
+        status=$?
         echo "SMALL_WALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+        exit $status
 
     # Medium: slower unit tests, and integration tests on the shared PostgreSQL + MinIO pair
     # (SharedWebAppFixture) with Ollama on the host. Coverage is collected here, as before.
     - name: Run Medium tests
-      run: dotnet test --no-build --configuration Release --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)" --verbosity normal --logger "trx;LogFileName=medium-tests.trx" --collect:"XPlat Code Coverage"
+      if: success() || failure()
+      run: |
+        start=$(date +%s)
+        set +e
+        dotnet test --no-build --configuration Release --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)" --verbosity normal --logger "trx;LogFileName=medium-tests.trx" --collect:"XPlat Code Coverage"
+        status=$?
+        echo "MEDIUM_WALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+        exit $status
 
     # Large: PDF and OCR models, inference and parser child processes, and the eval runners.
     - name: Run Large tests
+      if: success() || failure()
       run: dotnet test --no-build --configuration Release --filter "Size=Large" --verbosity normal --logger "trx;LogFileName=large-tests.trx" --collect:"XPlat Code Coverage"
 
+    # Every tier is checked even if another fails, and every test project must have reported.
     - name: Check test-speed budgets
       if: success() || failure()
       run: |
-        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 3 --wall-seconds "$SMALL_WALL_SECONDS" --max-wall-seconds 30
-        python3 .github/scripts/test_budgets.py --tier Medium --trx medium-tests.trx --max-test-seconds 10
-        python3 .github/scripts/test_budgets.py --tier Large --trx large-tests.trx
+        rc=0
+        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 3 --wall-seconds "${SMALL_WALL_SECONDS:--1}" --max-wall-seconds 30 || rc=1
+        python3 .github/scripts/test_budgets.py --tier Medium --trx medium-tests.trx --max-test-seconds 10 --wall-seconds "${MEDIUM_WALL_SECONDS:--1}" --max-wall-seconds 480 || rc=1
+        python3 .github/scripts/test_budgets.py --tier Large --trx large-tests.trx || rc=1
+        exit $rc
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
