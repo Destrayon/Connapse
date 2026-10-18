@@ -54,6 +54,7 @@ public class FixedDelayTests
                     while (!Ready()) { _ = Task.Run(async () => await Task.Delay(500)); await Task.Delay(50); } // the callback's is fixed, the poll's isn't
                     for (int k = 0; k < 3; k++) { _ = Task.Run(() => { if (!Ready()) return; Signal(); }); await Task.Delay(500); } // fixed: the callback's return leaves only it
                     for (int j = 0; j < 3; j++) { switch (status) { case 1: break; } await Task.Delay(500); } // fixed: the break leaves the switch
+                    while (!Ready()) { switch (phase) { case 1: { await Task.Delay(100); break; } } } // polling: that break leaves the case
                     while (done < expected) { done++; expected += await NewJobsAsync(); await Task.Delay(100); } // polling: the limit moves
                     while (true)
                     {
@@ -103,7 +104,7 @@ public class FixedDelayTests
         if (statement?.Parent is BlockSyntax block)
         {
             var after = block.Statements.SkipWhile(st => st != statement).Skip(1);
-            if (after.Any(st => st is ReturnStatementSyntax or BreakStatementSyntax or ThrowStatementSyntax))
+            if (after.Any(st => st is ReturnStatementSyntax or ThrowStatementSyntax || BreaksOut(st, loop)))
                 return false;
         }
         return true;
