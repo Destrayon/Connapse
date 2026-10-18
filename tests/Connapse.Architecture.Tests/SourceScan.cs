@@ -123,10 +123,14 @@ internal static class SourceScan
         };
         if (name is null || scope is null)
             return [];
+        // Only what the name can reach from there: the scope's own methods (not those of classes
+        // nested or declared beside it), and local functions declared at the top level or in the
+        // member the map call is in.
+        var member = handler.Ancestors().OfType<MemberDeclarationSyntax>().FirstOrDefault();
         return scope.DescendantNodes()
-            .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == name
-                    && (scope is CompilationUnitSyntax || m.Parent == scope)
-                || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name)
+            .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == name && m.Parent == scope
+                || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name
+                    && (l.Parent is GlobalStatementSyntax || (member is not null && l.Ancestors().Contains(member))))
             .SelectMany(Returned);
     }
 

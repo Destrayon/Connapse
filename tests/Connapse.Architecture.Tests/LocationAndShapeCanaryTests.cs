@@ -271,4 +271,15 @@ public class LocationAndShapeCanaryTests
 
         Rules.AnonymousResponses("Endpoints/Handlers.cs", handlers, routes).Should().Equal("Endpoints/Handlers.cs: GET /a: 1");
     }
+
+    [Fact]
+    public void ShapeRule_ResolvesATopLevelHandlerToTheTopLevelFunction()
+    {
+        const string source = """
+            app.MapGet("/x", Handle);
+            static Named Handle() => new Named();
+            static class Other { public static object Handle() => new { id = 1 }; }
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEmpty();
+    }
 }
