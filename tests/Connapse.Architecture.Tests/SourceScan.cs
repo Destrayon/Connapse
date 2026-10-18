@@ -192,13 +192,38 @@ internal static class SourceScan
         {
             switch (ancestor)
             {
-                case LocalFunctionStatementSyntax f: return f.Identifier.ValueText;
-                case MethodDeclarationSyntax m: return m.Identifier.ValueText;
+                case LocalFunctionStatementSyntax f: return MappedRoute(f, f.Identifier.ValueText) ?? f.Identifier.ValueText;
+                case MethodDeclarationSyntax m: return MappedRoute(m, m.Identifier.ValueText) ?? m.Identifier.ValueText;
                 case ConstructorDeclarationSyntax c: return c.Identifier.ValueText;
                 case PropertyDeclarationSyntax p: return p.Identifier.ValueText;
             }
         }
         return "(top level)";
+    }
+
+    /// <summary>
+    /// The route a method or local function is mapped to as a method group (app.MapGet("/x", Handle)
+    /// or SummaryEndpoints.Get), so its body is a route handler's like a lambda's is.
+    /// </summary>
+    private static string? MappedRoute(SyntaxNode function, string name)
+    {
+        string? owner = function.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault()?.Identifier.ValueText;
+        foreach (var map in function.SyntaxTree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            if (map.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
+                || !MapMethods.Contains(verb) || map.ArgumentList.Arguments.Count < 2)
+                continue;
+            bool names = map.ArgumentList.Arguments[^1].Expression switch
+            {
+                IdentifierNameSyntax i => i.Identifier.ValueText == name,
+                MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } => n.Identifier.ValueText == name,
+                MemberAccessExpressionSyntax { Expression: var o, Name: var n } => n.Identifier.ValueText == name && RightmostName(o) == owner,
+                _ => false,
+            };
+            if (names)
+                return HandlerScan.RouteKey(map);
+        }
+        return null;
     }
 
     private static bool IsRouteSite(string site) =>

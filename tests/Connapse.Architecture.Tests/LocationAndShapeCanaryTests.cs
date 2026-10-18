@@ -222,4 +222,15 @@ public class LocationAndShapeCanaryTests
             """;
         Rules.AnonymousResponses("Program.cs", source).Should().BeEmpty();
     }
+
+    [Fact]
+    public void ArchRule_CountsServiceLocationInMethodGroupHandlersOutsideSurfaceFiles()
+    {
+        const string source = """
+            app.MapGet("/x", Handle);
+            static IResult Handle(HttpContext ctx) => Results.Ok(ctx.RequestServices.GetRequiredService<TimeProvider>());
+            """;
+        Rules.ServiceLocationCalls("Program.cs", source, wholeFile: false).Should()
+            .Contain(e => e.StartsWith("Program.cs: GET /x uses ", StringComparison.Ordinal));
+    }
 }
