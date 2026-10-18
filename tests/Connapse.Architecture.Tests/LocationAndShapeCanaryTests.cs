@@ -185,4 +185,28 @@ public class LocationAndShapeCanaryTests
             """;
         Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(["Program.cs: GET /chain: 1", "Program.cs: GET /twice: 3"]);
     }
+
+    [Fact]
+    public void ShapeRule_CountsAnonymousObjectsAHandlerReturnsDirectly()
+    {
+        const string source = """
+            app.MapGet("/direct", () => new { id = 1 });
+            app.MapGet("/block", (bool f) => { if (f) return Results.Ok(new { a = 1 }); return new { b = 2 }; });
+            app.MapGet("/group", Handler);
+            static object Handler() => new { id = 1 };
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(
+            ["Program.cs: GET /direct: 1", "Program.cs: GET /block: 2", "Program.cs: GET /group: 1"]);
+    }
+
+    [Fact]
+    public void ShapeRule_FollowsOnlyTheHelperOverloadThatFitsTheCall()
+    {
+        const string source = """
+            app.MapGet("/o", () => Results.Ok(Shape(1)));
+            static object Shape(int n) => new { id = n };
+            static object Shape(string s, int n) => new { id = s, n };
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(["Program.cs: GET /o: 1"]);
+    }
 }

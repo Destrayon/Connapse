@@ -36,20 +36,117 @@ internal static class SourceScan
                 staticImport = true;
         }
 
+        bool IsResultCall(InvocationExpressionSyntax call) => call.Expression switch
+        {
+            MemberAccessExpressionSyntax access => RightmostName(access.Expression) is { } t && resultTypes.Contains(t),
+            IdentifierNameSyntax or GenericNameSyntax when staticImport => !IsMapOrLocalCall(call),
+            _ => false,
+        };
+
         foreach (var call in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
-            bool isResultCall = call.Expression switch
-            {
-                MemberAccessExpressionSyntax access => RightmostName(access.Expression) is { } t && resultTypes.Contains(t),
-                IdentifierNameSyntax or GenericNameSyntax when staticImport => !IsMapOrLocalCall(call),
-                _ => false,
-            };
-            if (!isResultCall)
+            if (!IsResultCall(call))
                 continue;
             int count = call.ArgumentList.Arguments.Sum(a => AnonymousObjects(a.Expression, []));
             for (int i = 0; i < count; i++)
                 yield return Site(call);
         }
+
+        // A handler can also return the anonymous object itself, which ASP.NET serializes as the body:
+        // app.MapGet("/x", () => new { id = 1 }). Results calls among its returns are counted above.
+        foreach (var map in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            if (map.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb }
+                || !MapMethods.Contains(verb) || map.ArgumentList.Arguments.Count < 2)
+                continue;
+            int count = HandlerReturns(map.ArgumentList.Arguments[^1].Expression)
+                .Sum(e => DirectAnonymousObjects(e, IsResultCall));
+            for (int i = 0; i < count; i++)
+                yield return HandlerScan.RouteKey(map);
+        }
+    }
+
+    /// <summary>The expressions a route handler returns: a lambda's, or a same-file method group's.</summary>
+    private static IEnumerable<ExpressionSyntax> HandlerReturns(ExpressionSyntax handler)
+    {
+        SyntaxNode? body = handler switch
+        {
+            AnonymousFunctionExpressionSyntax f => f,
+            IdentifierNameSyntax i => handler.SyntaxTree.GetRoot().DescendantNodes()
+                .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == i.Identifier.ValueText
+                    || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == i.Identifier.ValueText)
+                .FirstOrDefault(),
+            _ => null,
+        };
+        return body is null ? [] : Returned(body);
+    }
+
+    /// <summary>Expressions a lambda, method or local function returns, not those of functions nested in it.</summary>
+    private static IEnumerable<ExpressionSyntax> Returned(SyntaxNode function)
+    {
+        var arrow = function switch
+        {
+            AnonymousFunctionExpressionSyntax f => f.ExpressionBody,
+            MethodDeclarationSyntax m => m.ExpressionBody?.Expression,
+            LocalFunctionStatementSyntax l => l.ExpressionBody?.Expression,
+            _ => null,
+        };
+        if (arrow is not null)
+            return [arrow];
+        return function.DescendantNodes().OfType<ReturnStatementSyntax>()
+            .Where(r => r.Ancestors().First(a => a is AnonymousFunctionExpressionSyntax or BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax) == function)
+            .Select(r => r.Expression).OfType<ExpressionSyntax>();
+    }
+
+    /// <summary>Anonymous objects a returned expression is itself, outside any Results call.</summary>
+    private static int DirectAnonymousObjects(ExpressionSyntax returned, Func<InvocationExpressionSyntax, bool> isResultCall) =>
+        DirectAnonymousObjects(returned, isResultCall, []);
+
+    private static int DirectAnonymousObjects(ExpressionSyntax returned, Func<InvocationExpressionSyntax, bool> isResultCall, HashSet<SyntaxNode> helpers)
+    {
+        int Direct(ExpressionSyntax e) => DirectAnonymousObjects(e, isResultCall, helpers);
+        switch (returned)
+        {
+            case ParenthesizedExpressionSyntax p: return Direct(p.Expression);
+            case ConditionalExpressionSyntax c: return Direct(c.WhenTrue) + Direct(c.WhenFalse);
+            case SwitchExpressionSyntax s: return s.Arms.Sum(a => Direct(a.Expression));
+            case BinaryExpressionSyntax { RawKind: (int)SyntaxKind.CoalesceExpression } b: return Direct(b.Left) + Direct(b.Right);
+            case AwaitExpressionSyntax a: return Direct(a.Expression);
+            case IdentifierNameSyntax local:
+                // A returned local is whatever it was set to, read the same way: a local holding a
+                // helper's Results.BadRequest(...) is that result, not a raw body.
+                var function = local.Ancestors().FirstOrDefault(n => n is AnonymousFunctionExpressionSyntax or BaseMethodDeclarationSyntax
+                    or LocalFunctionStatementSyntax or AccessorDeclarationSyntax or CompilationUnitSyntax);
+                if (function is null)
+                    return 0;
+                string name = local.Identifier.ValueText;
+                var values = function.DescendantNodes().OfType<VariableDeclaratorSyntax>()
+                    .Where(v => v.Identifier.ValueText == name && v.Initializer is not null).Select(v => v.Initializer!.Value)
+                    .Concat(function.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+                        .Where(x => x.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name).Select(x => x.Right));
+                int fromLocal = 0;
+                foreach (var value in values.Where(helpers.Add))
+                {
+                    fromLocal += Direct(value);
+                    helpers.Remove(value);
+                }
+                return fromLocal;
+            case InvocationExpressionSyntax call when IsSameFileHelper(call):
+                // A same-file helper's result is what it returns, not what it was passed, read the
+                // same way: a Results call it returns is counted at the helper's own site.
+                int count = 0;
+                foreach (var body in HelperBodies(call).Where(helpers.Add))
+                {
+                    count += Returned(body.Parent!).Sum(Direct);
+                    helpers.Remove(body);
+                }
+                return count;
+        }
+        // Anything holding a Results call produces that result, whose body is counted at the call.
+        // Any other expression (items.Select(x => new { ... }).ToList()) returns what was built in it.
+        if (returned.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Any(isResultCall))
+            return 0;
+        return AnonymousObjects(returned, []);
     }
 
     /// <summary>Inline service location, as (site, call) pairs.</summary>
@@ -141,6 +238,20 @@ internal static class SourceScan
     /// <summary>Anonymous objects returned by a same-file method or local function (unqualified, this. or ClassName.).</summary>
     private static int ReturnedAnonymousObjects(InvocationExpressionSyntax call, HashSet<SyntaxNode> visited)
     {
+        int count = 0;
+        foreach (var body in HelperBodies(call))
+        {
+            var returned = body is ArrowExpressionClauseSyntax arrow
+                ? [arrow.Expression]
+                : body.DescendantNodes().OfType<ReturnStatementSyntax>().Select(r => r.Expression).OfType<ExpressionSyntax>();
+            count += returned.Sum(e => AnonymousObjects(e, visited));
+        }
+        return count;
+    }
+
+    /// <summary>The bodies (block or arrow) of the same-file methods and local functions a call can reach.</summary>
+    private static IEnumerable<SyntaxNode> HelperBodies(InvocationExpressionSyntax call)
+    {
         string? name = call.Expression switch
         {
             IdentifierNameSyntax i => i.Identifier.ValueText,
@@ -150,22 +261,31 @@ internal static class SourceScan
             _ => null,
         };
         if (name is null)
-            return 0;
+            return [];
         var root = call.SyntaxTree.GetRoot();
-        var bodies = root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == name)
+        // Only overloads that can take this many arguments, so adding Shape(string) doesn't change
+        // what Shape(1) is counted as returning.
+        int args = call.ArgumentList.Arguments.Count;
+        return root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == name && Accepts(m.ParameterList, args))
                 .Select(m => (SyntaxNode?)m.ExpressionBody ?? m.Body)
-            .Concat(root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Where(f => f.Identifier.ValueText == name)
+            .Concat(root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Where(f => f.Identifier.ValueText == name && Accepts(f.ParameterList, args))
                 .Select(f => (SyntaxNode?)f.ExpressionBody ?? f.Body))
-            .OfType<SyntaxNode>();
-        int count = 0;
-        foreach (var body in bodies)
-        {
-            var returned = body is ArrowExpressionClauseSyntax arrow
-                ? [arrow.Expression]
-                : body.DescendantNodes().OfType<ReturnStatementSyntax>().Select(r => r.Expression).OfType<ExpressionSyntax>();
-            count += returned.Sum(e => AnonymousObjects(e, visited));
-        }
-        return count;
+            .OfType<SyntaxNode>()
+            .ToList();
+    }
+
+    private static bool IsSameFileHelper(InvocationExpressionSyntax call) =>
+        call.Expression is IdentifierNameSyntax { Identifier.ValueText: var name }
+        && call.SyntaxTree.GetRoot().DescendantNodes().Any(n =>
+            n is MethodDeclarationSyntax m && m.Identifier.ValueText == name
+            || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name);
+
+    private static bool Accepts(ParameterListSyntax parameters, int args)
+    {
+        var list = parameters.Parameters;
+        if (list.Any(p => p.Modifiers.Any(m => m.IsKind(SyntaxKind.ParamsKeyword))))
+            return args >= list.Count - 1 - list.Count(p => p.Default is not null);
+        return args >= list.Count(p => p.Default is null) && args <= list.Count;
     }
 
     /// <summary>With `using static Results`, a bare call could be Ok(...) or an unrelated local method.</summary>
