@@ -59,7 +59,8 @@ public class BudgetCanaryTests
         m.MarkupLogic.Should().Be(8);
         // one method, one if, from the code-behind
         m.Complexity.Should().Be(2);
-        m.CodeLines.Should().Be(4);
+        // four code-behind lines, plus the handler's call to Select
+        m.CodeLines.Should().Be(5);
     }
 
     [Fact]
@@ -121,8 +122,9 @@ public class BudgetCanaryTests
         var after = RazorMetrics.MeasureRazor(grown);
 
         after.MarkupLogic.Should().Be(before.MarkupLogic, "both have the same two arrows");
-        // grown handler bodies: +2 statements in the first (if, its assignment), +2 in the second
-        after.CodeLines.Should().Be(before.CodeLines + 4);
+        // grown handler bodies: +2 statements in the first (if, its assignment); the second goes from
+        // one call in an expression body to two statements, +1
+        after.CodeLines.Should().Be(before.CodeLines + 3);
         after.Complexity.Should().Be(before.Complexity + 1, "one added if");
     }
 
@@ -140,5 +142,54 @@ public class BudgetCanaryTests
 
         after.CodeLines.Should().BeGreaterThan(before.CodeLines);
         after.Complexity.Should().Be(before.Complexity + 1, "one added if");
+    }
+
+    [Fact]
+    public void LogicBudget_MeasuresStatementsInsideMarkupControlBlocks()
+    {
+        const string small = """
+            @foreach (var scope in Scopes)
+            {
+                bool confirmed = scope.Confirmed;
+                <li>@scope.Name</li>
+            }
+            """;
+        const string grown = """
+            @foreach (var scope in Scopes)
+            {
+                bool confirmed = scope.Confirmed;
+                if (scope.Optional) { confirmed = false; }
+                <li>@scope.Name</li>
+            }
+            """;
+        var before = RazorMetrics.MeasureRazor(small);
+        var after = RazorMetrics.MeasureRazor(grown);
+
+        before.CodeLines.Should().Be(1, "the declaration is a statement");
+        after.CodeLines.Should().Be(2);
+        after.Complexity.Should().Be(before.Complexity + 1, "one added if");
+    }
+
+    [Fact]
+    public void LogicBudget_IgnoresCssAndEntitiesInMarkup()
+    {
+        const string razor = """
+            <style>
+                .card { color: red; }
+                margin: 0;
+            </style>
+            <p>Saved&nbsp;</p>
+            Saved &amp;
+            """;
+        RazorMetrics.MeasureRazor(razor).CodeLines.Should().Be(0);
+    }
+
+    [Fact]
+    public void LogicBudget_CountsCallsInExpressionBodiedHandlers()
+    {
+        const string small = """<button @onclick="() => DeleteAsync(id)">Delete</button>""";
+        const string grown = """<button @onclick="() => DeleteAsync(id).ContinueWith(NotifyAdmin)">Delete</button>""";
+
+        RazorMetrics.MeasureRazor(grown).CodeLines.Should().Be(RazorMetrics.MeasureRazor(small).CodeLines + 1);
     }
 }

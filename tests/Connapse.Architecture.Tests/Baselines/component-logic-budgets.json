@@ -14,9 +14,9 @@
     "IsEmpty": false
   },
   "Connections/AtlassianConnectionForm.razor": {
-    "CodeLines": 421,
+    "CodeLines": 428,
     "Injects": 6,
-    "Complexity": 101,
+    "Complexity": 102,
     "MarkupLogic": 53,
     "IsEmpty": false
   },
@@ -49,14 +49,14 @@
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
-    "CodeLines": 195,
+    "CodeLines": 206,
     "Injects": 3,
-    "Complexity": 26,
+    "Complexity": 28,
     "MarkupLogic": 31,
     "IsEmpty": false
   },
   "Pages/Admin/UserManagement.razor": {
-    "CodeLines": 227,
+    "CodeLines": 237,
     "Injects": 6,
     "Complexity": 37,
     "MarkupLogic": 26,
@@ -91,14 +91,14 @@
     "IsEmpty": false
   },
   "Pages/Connections.razor": {
-    "CodeLines": 1533,
+    "CodeLines": 1569,
     "Injects": 21,
     "Complexity": 416,
     "MarkupLogic": 245,
     "IsEmpty": false
   },
   "Pages/CustomProviderPage.razor": {
-    "CodeLines": 283,
+    "CodeLines": 285,
     "Injects": 7,
     "Complexity": 79,
     "MarkupLogic": 45,
@@ -112,21 +112,21 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 856,
+    "CodeLines": 863,
     "Injects": 12,
     "Complexity": 200,
     "MarkupLogic": 80,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
-    "CodeLines": 152,
+    "CodeLines": 154,
     "Injects": 3,
     "Complexity": 22,
     "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
-    "CodeLines": 104,
+    "CodeLines": 111,
     "Injects": 3,
     "Complexity": 24,
     "MarkupLogic": 29,
@@ -140,49 +140,49 @@
     "IsEmpty": false
   },
   "Pages/ProfileIntegrations.razor": {
-    "CodeLines": 339,
+    "CodeLines": 344,
     "Injects": 17,
     "Complexity": 89,
     "MarkupLogic": 42,
     "IsEmpty": false
   },
   "Pages/Providers.razor": {
-    "CodeLines": 1974,
+    "CodeLines": 2004,
     "Injects": 23,
-    "Complexity": 382,
+    "Complexity": 385,
     "MarkupLogic": 194,
     "IsEmpty": false
   },
   "Pages/Search.razor": {
-    "CodeLines": 162,
+    "CodeLines": 163,
     "Injects": 8,
     "Complexity": 42,
     "MarkupLogic": 16,
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
-    "CodeLines": 69,
+    "CodeLines": 76,
     "Injects": 8,
     "Complexity": 10,
     "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Pages/SourceEdit.razor": {
-    "CodeLines": 100,
+    "CodeLines": 104,
     "Injects": 5,
     "Complexity": 26,
     "MarkupLogic": 48,
     "IsEmpty": false
   },
   "Pages/Sources.razor": {
-    "CodeLines": 980,
+    "CodeLines": 990,
     "Injects": 16,
-    "Complexity": 216,
+    "Complexity": 217,
     "MarkupLogic": 101,
     "IsEmpty": false
   },
   "Providers/AtlassianProviderCard.razor": {
-    "CodeLines": 417,
+    "CodeLines": 419,
     "Injects": 5,
     "Complexity": 88,
     "MarkupLogic": 20,
@@ -196,7 +196,7 @@
     "IsEmpty": false
   },
   "Providers/ProviderField.razor": {
-    "CodeLines": 37,
+    "CodeLines": 39,
     "Injects": 0,
     "Complexity": 8,
     "MarkupLogic": 21,
@@ -245,7 +245,7 @@
     "IsEmpty": false
   },
   "Settings/AzureProviderSettingsTab.razor": {
-    "CodeLines": 104,
+    "CodeLines": 107,
     "Injects": 0,
     "Complexity": 30,
     "MarkupLogic": 11,
@@ -259,7 +259,7 @@
     "IsEmpty": false
   },
   "Settings/EmbeddingSettingsTab.razor": {
-    "CodeLines": 228,
+    "CodeLines": 229,
     "Injects": 8,
     "Complexity": 48,
     "MarkupLogic": 16,
@@ -273,7 +273,7 @@
     "IsEmpty": false
   },
   "Settings/LlmSettingsTab.razor": {
-    "CodeLines": 86,
+    "CodeLines": 87,
     "Injects": 4,
     "Complexity": 25,
     "MarkupLogic": 9,
@@ -287,14 +287,14 @@
     "IsEmpty": false
   },
   "Settings/SearchSettingsTab.razor": {
-    "CodeLines": 103,
+    "CodeLines": 104,
     "Injects": 7,
     "Complexity": 26,
     "MarkupLogic": 14,
     "IsEmpty": false
   },
   "Settings/SummarySettingsTab.razor": {
-    "CodeLines": 226,
+    "CodeLines": 230,
     "Injects": 3,
     "Complexity": 44,
     "MarkupLogic": 24,
@@ -315,7 +315,7 @@
     "IsEmpty": false
   },
   "Shared/AuthorPicker.razor": {
-    "CodeLines": 94,
+    "CodeLines": 98,
     "Injects": 0,
     "Complexity": 37,
     "MarkupLogic": 14,
@@ -336,7 +336,7 @@
     "IsEmpty": false
   },
   "Shared/SecretTextArea.razor": {
-    "CodeLines": 37,
+    "CodeLines": 38,
     "Injects": 0,
     "Complexity": 7,
     "MarkupLogic": 8,
@@ -357,21 +357,21 @@
     "IsEmpty": false
   },
   "Sources/ConfluenceSpaceForm.razor": {
-    "CodeLines": 119,
+    "CodeLines": 121,
     "Injects": 3,
     "Complexity": 34,
     "MarkupLogic": 18,
     "IsEmpty": false
   },
   "Sources/CustomSourceFields.razor": {
-    "CodeLines": 56,
+    "CodeLines": 59,
     "Injects": 3,
     "Complexity": 15,
     "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Sources/JiraProjectForm.razor": {
-    "CodeLines": 112,
+    "CodeLines": 114,
     "Injects": 3,
     "Complexity": 31,
     "MarkupLogic": 18,
