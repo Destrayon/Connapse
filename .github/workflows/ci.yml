@@ -98,7 +98,13 @@ jobs:
     # Large: PDF and OCR models, inference and parser child processes, and the eval runners.
     - name: Run Large tests
       if: success() || failure()
-      run: dotnet test --no-build --configuration Release --filter "Size=Large" --verbosity normal --logger "trx;LogFileName=large-tests.trx" --collect:"XPlat Code Coverage"
+      run: |
+        start=$(date +%s)
+        set +e
+        dotnet test --no-build --configuration Release --filter "Size=Large" --verbosity normal --logger "trx;LogFileName=large-tests.trx" --collect:"XPlat Code Coverage"
+        status=$?
+        echo "LARGE_WALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+        exit $status
 
     # Every tier is checked even if another fails, and every test project must have reported.
     - name: Check test-speed budgets
@@ -107,7 +113,7 @@ jobs:
         rc=0
         python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 3 --wall-seconds "${SMALL_WALL_SECONDS:--1}" --max-wall-seconds 30 || rc=1
         python3 .github/scripts/test_budgets.py --tier Medium --trx medium-tests.trx --max-test-seconds 10 --wall-seconds "${MEDIUM_WALL_SECONDS:--1}" --max-wall-seconds 480 || rc=1
-        python3 .github/scripts/test_budgets.py --tier Large --trx large-tests.trx || rc=1
+        python3 .github/scripts/test_budgets.py --tier Large --trx large-tests.trx --wall-seconds "${LARGE_WALL_SECONDS:--1}" --max-wall-seconds 600 || rc=1
         exit $rc
 
     - name: Upload test results

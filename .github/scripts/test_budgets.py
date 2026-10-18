@@ -43,17 +43,21 @@ def results(trx_name: str, projects: list[str]):
     tier's filter, so a missing file means that project never ran: a crash, a build problem or a
     filter typo, and its tests went unmeasured.
     """
-    found, missing = [], []
+    found, missing, skipped, untimed = [], [], [], []
     for project in projects:
         paths = sorted(glob.glob(f"{project}/TestResults/{trx_name}"))
         if not paths:
             missing.append(project)
         for path in paths:
             for r in ET.parse(path).getroot().iterfind(".//t:UnitTestResult", NS):
-                if r.get("outcome") == "NotExecuted" or r.get("duration") is None:
-                    continue
-                found.append((re.sub(r"\(.*$", "", r.get("testName")), seconds(r.get("duration"))))
-    return found, missing
+                name = re.sub(r"\(.*$", "", r.get("testName"))
+                if r.get("outcome") == "NotExecuted":
+                    skipped.append(name)  # [Fact(Skip = ...)]: never ran, so it has no duration by design
+                elif r.get("duration") is None:
+                    untimed.append(name)
+                else:
+                    found.append((name, seconds(r.get("duration"))))
+    return found, missing, skipped, untimed
 
 
 def main() -> int:
@@ -67,15 +71,17 @@ def main() -> int:
     a = p.parse_args()
 
     projects = expected_projects(a.solution)
-    found, missing = results(a.trx, projects)
+    found, missing, skipped, untimed = results(a.trx, projects)
     tests = sorted(found, key=lambda t: t[1], reverse=True)
-    print(f"{a.tier}: {len(tests)} tests, {sum(t for _, t in tests):.1f} s summed")
+    print(f"{a.tier}: {len(tests)} tests, {sum(t for _, t in tests):.1f} s summed, {len(skipped)} skipped")
     for name, t in tests[:20]:
         print(f"  {t:7.2f} s  {name}")
 
     failures = []
     for project in missing:
         failures.append(f"{project} wrote no {a.trx}; its {a.tier} tests did not run")
+    for name in untimed:
+        failures.append(f"{name} ran but its result has no duration, so its speed can't be checked")
     if not tests:
         failures.append(f"{a.tier} ran no tests at all; a tier that measures nothing proves nothing")
     if a.max_test_seconds is not None:
