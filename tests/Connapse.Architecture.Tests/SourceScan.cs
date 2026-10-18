@@ -13,7 +13,8 @@ internal static class SourceScan
 {
     private static readonly HashSet<string> MapMethods = ["MapGet", "MapPost", "MapPut", "MapPatch", "MapDelete"];
     private static readonly HashSet<string> ResultTypes = ["Results", "TypedResults"];
-    private static readonly HashSet<string> LocatorCalls = ["RequestServices", "GetService", "GetRequiredService", "GetKeyedService", "GetRequiredKeyedService", "CreateScope", "CreateAsyncScope"];
+    private static readonly HashSet<string> LocatorCalls =
+        ["RequestServices", "GetService", "GetRequiredService", "GetServices", "GetKeyedService", "GetRequiredKeyedService", "GetKeyedServices", "CreateScope", "CreateAsyncScope"];
 
     /// <summary>
     /// Anonymous objects reaching a response body: anywhere inside an argument to a
@@ -105,18 +106,19 @@ internal static class SourceScan
             return 0;
         int count = arg.DescendantNodesAndSelf().OfType<AnonymousObjectCreationExpressionSyntax>().Count();
         count += arg.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Sum(call => ReturnedAnonymousObjects(call, depth));
-        if (arg is not IdentifierNameSyntax local)
-            return count;
+        // Locals anywhere in the argument, so Ok(flag ? body : null) follows body too.
         var body = arg.Ancestors().FirstOrDefault(a => a is BlockSyntax or ArrowExpressionClauseSyntax or CompilationUnitSyntax);
         if (body is null)
             return count;
-        string name = local.Identifier.ValueText;
-        count += body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
-            .Where(v => v.Identifier.ValueText == name && v.Initializer is not null)
-            .Sum(v => AnonymousObjects(v.Initializer!.Value, depth + 1));
-        count += body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
-            .Where(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name)
-            .Sum(a => AnonymousObjects(a.Right, depth + 1));
+        foreach (string name in arg.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>().Select(i => i.Identifier.ValueText).Distinct())
+        {
+            count += body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
+                .Where(v => v.Identifier.ValueText == name && v.Initializer is not null && !v.Initializer.Value.Span.Contains(arg.Span))
+                .Sum(v => AnonymousObjects(v.Initializer!.Value, depth + 1));
+            count += body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+                .Where(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name && !a.Right.Span.Contains(arg.Span))
+                .Sum(a => AnonymousObjects(a.Right, depth + 1));
+        }
         return count;
     }
 

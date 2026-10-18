@@ -125,4 +125,26 @@ public class LocationAndShapeCanaryTests
             "Endpoints/PlantedEndpoints.cs: POST /test2: 1",
         ]);
     }
+
+    [Fact]
+    public void ShapeRule_FollowsLocalsInsideConditionalArguments()
+    {
+        const string source = """
+            app.MapGet("/c", (bool flag) =>
+            {
+                var body = new { id = 1 };
+                return Results.Ok(flag ? body : null);
+            });
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(["Program.cs: GET /c: 1"]);
+    }
+
+    [Fact]
+    public void ArchRule_CountsEnumerableResolutionAsServiceLocation()
+    {
+        const string source = """
+            app.MapGet("/all", (IServiceProvider sp) => sp.GetServices<IFoo>().Count());
+            """;
+        Rules.ServiceLocationCalls("Mcp/Planted.cs", source).Should().Contain("Mcp/Planted.cs: GET /all uses GetServices");
+    }
 }
