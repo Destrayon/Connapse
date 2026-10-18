@@ -83,7 +83,7 @@ public static partial class Surfaces
     /// <summary>Phrases MCP's and the UI's validation messages use. McpErrorKindTests keeps every MCP message covered.</summary>
     private static readonly string[] ValidationWords =
         ["must", "invalid", "required", "not supported", "unsupported", "not allowed", "no parser", "provide either", "maximum",
-            "exceeds", "empty", "too large"];
+            "exceeds", "empty", "too large", "not writable"];
 
     /// <summary>The kind of failure an error message describes, for MCP text and UI alerts alike.</summary>
     public static string ErrorKind(string text) => text switch
@@ -97,7 +97,8 @@ public static partial class Surfaces
             // A document still ingesting, or whose ingestion failed, is in the wrong state: 409 over REST.
             _ when text.Contains("being ingested", StringComparison.OrdinalIgnoreCase)
                 || text.Contains("failed ingestion", StringComparison.OrdinalIgnoreCase) => "error:conflict",
-            _ when text.Contains("could not be", StringComparison.OrdinalIgnoreCase) => "error:server",
+            _ when text.Contains("could not be", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("upload failed", StringComparison.OrdinalIgnoreCase) => "error:server",
             _ when ValidationWords.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase)) => "error:validation",
             // An exception the tool didn't handle: the SDK answers with this and nothing more.
             _ => "error:unknown",

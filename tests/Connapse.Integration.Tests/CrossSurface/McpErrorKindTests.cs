@@ -27,7 +27,8 @@ public partial class McpErrorKindTests
 
     /// <summary>
     /// The one message MCP passes through from a service, upload_file's "Error: {result.Error}",
-    /// carries UploadService's validation messages, so those are read and checked too. A second
+    /// carries UploadService's messages, returned by its validation or built into an UploadResult,
+    /// so those are read and checked too. A second
     /// pass-through fails the count, so its source gets the same coverage before it ships.
     /// </summary>
     [Fact]
@@ -37,12 +38,12 @@ public partial class McpErrorKindTests
         PassThrough().Matches(tools).Select(m => m.Value).Should().Equal(["$\"Error: {result.Error}\""]);
 
         string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"));
-        var messages = ReturnedMessage().Matches(upload)
+        var messages = ReturnedMessage().Matches(upload).Concat(ResultError().Matches(upload))
             .Select(m => "Error: " + Hole().Replace(m.Groups["text"].Value, "x"))
             .Distinct()
             .ToList();
 
-        messages.Should().Contain("Error: Path traversal is not allowed.");
+        messages.Should().Contain("Error: Path traversal is not allowed.").And.Contain("Error: This container is not writable.");
         messages.Where(t => Surfaces.ErrorKind(t) == "error:unknown").Should().BeEmpty();
     }
 
@@ -62,6 +63,10 @@ public partial class McpErrorKindTests
 
     [GeneratedRegex(@"return \$?""(?<text>[A-Z][^""]*)"";")]
     private static partial Regex ReturnedMessage();
+
+    /// <summary>An error built into the result rather than returned: new UploadResult(false, Error: "...").</summary>
+    [GeneratedRegex(@"Error: \$?""(?<text>[^""]*)""")]
+    private static partial Regex ResultError();
 
     [GeneratedRegex(@"\{[^}]*\}")]
     private static partial Regex Hole();
