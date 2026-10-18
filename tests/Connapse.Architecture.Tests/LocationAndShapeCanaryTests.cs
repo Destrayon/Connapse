@@ -295,4 +295,28 @@ public class LocationAndShapeCanaryTests
         Rules.ServiceLocationCalls("Program.cs", source, wholeFile: false).Should().BeEquivalentTo(
             ["Program.cs: GET /info uses RequestServices", "Program.cs: GET /info uses GetRequiredService"]);
     }
+
+    [Fact]
+    public void ArchRule_FollowsHelpersOfHandlersMappedElsewhereAndSharedByRoutes()
+    {
+        const string program = """
+            app.MapGet("/health", HealthHandler.Handle);
+            app.MapGet("/a", () => Common());
+            app.MapGet("/b", () => Common());
+            static object Common() => Locator.Current.GetRequiredService<IFoo>();
+            """;
+        const string handler = """
+            static class HealthHandler
+            {
+                public static object Handle() => Resolve();
+                static object Resolve() => Locator.Current.GetRequiredService<IFoo>();
+            }
+            """;
+        var routes = SourceScan.QualifiedRoutes([program, handler]);
+
+        Rules.ServiceLocationCalls("Services/HealthHandler.cs", handler, wholeFile: false, routes).Should()
+            .Equal("Services/HealthHandler.cs: GET /health uses GetRequiredService");
+        Rules.ServiceLocationCalls("Program.cs", program, wholeFile: false, routes).Should()
+            .BeEquivalentTo(["Program.cs: GET /a uses GetRequiredService", "Program.cs: GET /b uses GetRequiredService"]);
+    }
 }

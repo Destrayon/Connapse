@@ -140,11 +140,13 @@ internal static class SourceScan
 
     /// <summary>
     /// Same-file methods and local functions a route handler calls, directly or through each other,
-    /// with the route that reaches them first: BuildInfo in app.MapGet("/info", ctx => BuildInfo(ctx)).
+    /// with every route that reaches them: BuildInfo in app.MapGet("/info", ctx => BuildInfo(ctx)).
+    /// Handlers are those mapped in this file and those the cross-file index names.
     /// </summary>
-    private static Dictionary<SyntaxNode, string> HelpersReachedFromRoutes(SyntaxNode root)
+    private static Dictionary<SyntaxNode, SortedSet<string>> HelpersReachedFromRoutes(SyntaxNode root,
+        IReadOnlyDictionary<string, string>? routes)
     {
-        var reached = new Dictionary<SyntaxNode, string>();
+        var reached = new Dictionary<SyntaxNode, SortedSet<string>>();
         var queue = new Queue<(SyntaxNode Function, string Route)>();
         foreach (var map in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
@@ -153,11 +155,22 @@ internal static class SourceScan
                 foreach (var function in HandlerFunctions(map.ArgumentList.Arguments[^1].Expression))
                     queue.Enqueue((function, HandlerScan.RouteKey(map)));
         }
+        if (routes is not null)
+            foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+                if (routes.TryGetValue(QualifiedName(method), out var route))
+                    queue.Enqueue((method, route));
+        // Visited as (function, route) pairs, so a helper two routes share is counted under both.
         while (queue.TryDequeue(out var next))
             foreach (var call in next.Function.DescendantNodes().OfType<InvocationExpressionSyntax>())
                 foreach (var body in HelperBodies(call))
-                    if (body.Parent is { } helper && reached.TryAdd(helper, next.Route))
+                {
+                    if (body.Parent is not { } helper)
+                        continue;
+                    if (!reached.TryGetValue(helper, out var set))
+                        reached[helper] = set = [];
+                    if (set.Add(next.Route))
                         queue.Enqueue((helper, next.Route));
+                }
         return reached;
     }
 
@@ -234,7 +247,7 @@ internal static class SourceScan
         IReadOnlyDictionary<string, string>? routes = null)
     {
         var root = CSharpSyntaxTree.ParseText(csharp).GetRoot();
-        var helpers = wholeFile ? [] : HelpersReachedFromRoutes(root);
+        var helpers = wholeFile ? [] : HelpersReachedFromRoutes(root, routes);
         foreach (var name in root.DescendantNodes().OfType<SimpleNameSyntax>())
         {
             string id = name.Identifier.ValueText;
@@ -245,8 +258,9 @@ internal static class SourceScan
                 yield return (site, id);
             // Outside surface files, a helper a route handler calls is part of that route.
             else if (name.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or LocalFunctionStatementSyntax) is { } function
-                && helpers.TryGetValue(function, out var route))
-                yield return (route, id);
+                && helpers.TryGetValue(function, out var reachedBy))
+                foreach (string route in reachedBy)
+                    yield return (route, id);
         }
     }
 
