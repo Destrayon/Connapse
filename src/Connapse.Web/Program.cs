@@ -157,7 +157,7 @@ builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
-builder.Services.AddScoped<Connapse.Web.Services.CustomSourceTokenReplacement>();
+builder.Services.AddScoped<Connapse.Web.Services.CustomSourceConnectionMigration>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkRemovalJob>();
@@ -275,6 +275,16 @@ using (var scope = app.Services.CreateScope())
     // Seed default roles and admin user
     var adminSeed = scope.ServiceProvider.GetRequiredService<AdminSeedService>();
     await adminSeed.SeedAsync();
+
+    // Custom sources made before they needed a connection move onto one; it runs before the sync starts.
+    try
+    {
+        await scope.ServiceProvider.GetRequiredService<Connapse.Web.Services.CustomSourceConnectionMigration>().RunAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Custom sources could not be moved onto connections; they keep reading with their own tokens until the next start.");
+    }
 
     var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
     if (minio is not null)

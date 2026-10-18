@@ -103,7 +103,7 @@ public static class CustomLinkEndpoints
             catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
             {
                 return Results.Problem(statusCode: StatusCodes.Status502BadGateway,
-                    title: "The custom provider's middle man did not remove the link.");
+                    title: "The custom provider's source server did not remove the link.");
             }
 
             await audit.LogAsync(UnlinkedEvent, "user", userId.ToString(), new { ProviderId = providerId }, ct);

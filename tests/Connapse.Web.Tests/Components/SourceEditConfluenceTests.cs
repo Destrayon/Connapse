@@ -48,10 +48,6 @@ public class SourceEditConfluenceTests : IDisposable
         ctx.Services.AddSingleton(connections);
         ctx.Services.AddSingleton(Substitute.For<IConnectorFactory>());
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
-        ctx.Services.AddSingleton(new Connapse.Web.Services.CustomSourceTokenReplacement(sources, connections,
-            new Connapse.Web.Services.CustomSourceSetup(Substitute.For<IHttpClientFactory>(),
-                Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<CustomSourceSettings>>()),
-            Substitute.For<IAuditLogger>()));
         ctx.Services.AddLogging();
     }
 

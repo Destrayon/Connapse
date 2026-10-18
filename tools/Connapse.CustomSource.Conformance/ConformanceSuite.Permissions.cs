@@ -15,7 +15,7 @@ public sealed partial class ConformanceSuite
 
     private async Task RunPermissionChecksAsync(CancellationToken ct)
     {
-        await RunCheckAsync("permissions.declared", "A middle man declaring any permission capability declares check with a positive max_batch", PermissionsDeclaredAsync, ct);
+        await RunCheckAsync("permissions.declared", "A source server declaring any permission capability declares check with a positive max_batch", PermissionsDeclaredAsync, ct);
         await RunCheckAsync("check.missing-token", "A permission check without a token is refused with 401", CheckMissingTokenAsync, ct);
         await RunCheckAsync("check.unknown-user", "An unknown user is denied every document", CheckUnknownUserAsync, ct);
         await RunCheckAsync("check.unknown-document", "An unknown document is denied", CheckUnknownDocumentAsync, ct);
@@ -33,7 +33,7 @@ public sealed partial class ConformanceSuite
     {
         _ = Documents;
         if (PermissionsMalformed) throw new CheckFailedException("Discovery's permissions member is not an object.");
-        if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only middle man.");
+        if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only source server.");
         if (Permissions["check"] is not JsonObject)
             throw new CheckFailedException("Discovery declares permissions without permissions.check, which every custom provider needs.");
         if (MaxBatch is not > 0)
@@ -49,7 +49,7 @@ public sealed partial class ConformanceSuite
     {
         _ = Documents;
         if (PermissionsMalformed) throw new CheckFailedException("Discovery's permissions member is not an object.");
-        if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only middle man.");
+        if (Permissions is null) throw new CheckSkippedException("Discovery declares no permissions: a content-only source server.");
         if (Permissions["check"] is not JsonObject || MaxBatch is not > 0)
             throw new CheckFailedException("Discovery declares permissions without permissions.check and a positive max_batch.");
     }
@@ -115,7 +115,7 @@ public sealed partial class ConformanceSuite
     private async Task CheckUnknownUserAsync(CancellationToken ct)
     {
         RequireCheck();
-        ExpectDenied(await EvaluateAsync(UnknownUser(), SampleIds(10), ct), "A user the middle man cannot know");
+        ExpectDenied(await EvaluateAsync(UnknownUser(), SampleIds(10), ct), "A user the source server cannot know");
     }
 
     private async Task CheckUnknownDocumentAsync(CancellationToken ct)
@@ -169,7 +169,7 @@ public sealed partial class ConformanceSuite
     {
         RequireKeys();
         if ((await KeysAsync(UnknownUser(), 1000, ct)).Count > 0)
-            throw new CheckFailedException("A user the middle man cannot know holds access keys.");
+            throw new CheckFailedException("A user the source server cannot know holds access keys.");
     }
 
     private async Task KeysPaginationAsync(CancellationToken ct)

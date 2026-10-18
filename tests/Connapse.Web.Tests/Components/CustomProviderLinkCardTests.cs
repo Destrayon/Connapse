@@ -82,6 +82,21 @@ public class CustomProviderLinkCardTests : IDisposable
     }
 
     [Fact]
+    public void CheckAgain_KeepsTheButtonOnThePageWhileItReloads()
+    {
+        remote.FailNextWith = HttpStatusCode.InternalServerError;
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.Find("[data-action=retry]"));
+
+        remote.Hold = new TaskCompletionSource();
+        cut.Find("[data-action=retry]").Click();
+
+        cut.Find("[data-action=retry]").HasAttribute("disabled").Should().BeTrue("the focused button stays, disabled, while the status reloads");
+        remote.Hold.SetResult();
+        cut.WaitForAssertion(() => cut.Find("[data-action=link]"));
+    }
+
+    [Fact]
     public void Disconnect_RemovesTheLinkAndRecordsIt()
     {
         remote.Links[User.ToString()] = "alice@acme";

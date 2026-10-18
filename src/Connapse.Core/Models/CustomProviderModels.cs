@@ -39,10 +39,37 @@ public sealed record SaveCustomProviderRequest(
     }
 }
 
-/// <summary>A custom connection's configuration: the custom provider it checks permissions with, and nothing else.</summary>
+/// <summary>
+/// A custom connection's configuration. Either it names the custom provider whose middle man it reads and checks
+/// permissions with (<c>{ "providerId" }</c>; the address and token are the provider's), or it holds a middle man
+/// itself for content only (<c>{ "baseUrl" }</c>; the token is the connection's own secret).
+/// </summary>
 public static class CustomConnectionConfig
 {
     public static string ToJson(Guid providerId) => JsonSerializer.Serialize(new { providerId });
+
+    /// <summary>A connection without a provider: its sources read this middle man, and nothing is checked per user.</summary>
+    public static string ForMiddleMan(string baseUrl) => JsonSerializer.Serialize(new { baseUrl });
+
+    /// <summary>The middle man a connection without a provider holds, or null.</summary>
+    public static string? BaseUrlOf(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson)) return null;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(configJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("baseUrl", out JsonElement url)
+                && url.ValueKind == JsonValueKind.String
+                && url.GetString() is { Length: > 0 } value
+                    ? value
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     public static Guid? ProviderIdOf(string? configJson)
     {

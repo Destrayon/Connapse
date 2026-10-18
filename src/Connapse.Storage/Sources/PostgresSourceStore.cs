@@ -42,7 +42,7 @@ public class PostgresSourceStore(
         // The URL rules depend on deployment settings and are applied where those are read (the setup
         // check and the connector factory); the store only refuses a scope that names no middle man.
         if (request.Provider is ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
-            throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+            throw new ArgumentException("a custom source's scope must name the source server's baseUrl and scopeId", nameof(request));
 
         await using var context = await factory.CreateDbContextAsync(ct);
 
@@ -53,8 +53,12 @@ public class PostgresSourceStore(
                 throw new InvalidOperationException($"Connection '{request.ConnectionId}' does not exist.");
 
             // A custom source is the same with or without a custom connection: its scope must name the middle man.
-            if (connectionProvider == (int)ConnectionProvider.Custom && CustomSourceScope.TryParse(request.ScopeJson) is null)
-                throw new ArgumentException("a custom source's scope must name the middle man's baseUrl and scopeId", nameof(request));
+            if (connectionProvider == (int)ConnectionProvider.Custom)
+            {
+                CustomSourceScope scope = CustomSourceScope.TryParse(request.ScopeJson)
+                    ?? throw new ArgumentException("a custom source's scope must name the source server's baseUrl and scopeId", nameof(request));
+                await RequireCustomScopeAsync(context, cid, scope, ct);
+            }
         }
 
         bool nameTaken = await context.Sources.AnyAsync(s => s.Name == name, ct);
@@ -87,14 +91,48 @@ public class PostgresSourceStore(
         return MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
     }
 
-    public async Task<bool> ReplaceSecretAsync(Guid id, string secret, CancellationToken ct = default)
+    /// <summary>
+    /// A custom source on a connection reads that connection's own server (its provider's, or the one it holds),
+    /// so the connection's token never goes anywhere else; and a connection has one source per scope, so the same
+    /// documents are not ingested twice.
+    /// </summary>
+    private static async Task RequireCustomScopeAsync(KnowledgeDbContext context, Guid connectionId, CustomSourceScope scope, CancellationToken ct)
+    {
+        JsonDocument? config = await context.Connections.Where(c => c.Id == connectionId).Select(c => c.ConfigJson).FirstOrDefaultAsync(ct);
+        string? configJson = config?.RootElement.GetRawText();
+        string? expected = CustomConnectionConfig.BaseUrlOf(configJson);
+        if (expected is null && CustomConnectionConfig.ProviderIdOf(configJson) is { } providerId)
+            expected = await context.CustomProviders.Where(p => p.Id == providerId).Select(p => p.BaseUrl).FirstOrDefaultAsync(ct);
+        if (expected is null || !Connapse.Core.Utilities.CustomSourceEndpoint.SameAddress(scope.BaseUrl, expected))
+            throw new ArgumentException($"a custom source must read its connection's source server ({expected ?? "none is set"})");
+
+        List<JsonDocument> siblings = await context.Sources.Where(s => s.ConnectionId == connectionId).Select(s => s.ScopeJson).ToListAsync(ct);
+        if (siblings.Any(s => CustomSourceScope.TryParse(s.RootElement.GetRawText())?.ScopeId == scope.ScopeId))
+            throw new DuplicateSourceScopeException($"This connection already has a source for the scope '{scope.ScopeId}'.");
+    }
+
+    public async Task<bool> ClearSecretAsync(Guid id, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
-        string ciphertext = Protector.Protect(secret);
         DateTime now = DateTime.UtcNow;
-        int updated = await context.Sources.Where(s => s.Id == id).ExecuteUpdateAsync(s => s
-            .SetProperty(e => e.SecretProtected, ciphertext)
-            .SetProperty(e => e.UpdatedAt, now), ct);
+        int updated = await context.Sources.Where(s => s.Id == id && s.SecretProtected != null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.SecretProtected, (string?)null)
+                .SetProperty(e => e.UpdatedAt, now), ct);
+        return updated > 0;
+    }
+
+    public async Task<bool> MoveOntoConnectionAsync(Guid id, Guid connectionId, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        DateTime now = DateTime.UtcNow;
+        int updated = await context.Sources
+            .Where(s => s.Id == id && s.ConnectionId == null && s.Provider == (int)ConnectionProvider.Custom)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.ConnectionId, connectionId)
+                .SetProperty(e => e.Provider, (int?)null)
+                .SetProperty(e => e.SecretProtected, (string?)null)
+                .SetProperty(e => e.UpdatedAt, now), ct);
         return updated > 0;
     }
 

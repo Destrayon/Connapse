@@ -5,6 +5,7 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.Connectors
 @using Connapse.Storage.Connectors.GitHub
+@using Connapse.Web.Components.Providers
 @using Connapse.Web.Components.Settings
 @using Connapse.Web.Components.Shared
 @using Connapse.Web.Components.Sources
@@ -13,7 +14,6 @@
 @inject IConnectionStore ConnectionStore
 @inject IConnectorFactory ConnectorFactory
 @inject IAuditLogger AuditLogger
-@inject CustomSourceTokenReplacement TokenReplacement
 @inject ILogger<SourceEdit> Logger
 
 @*
@@ -43,6 +43,10 @@
             @if (form.Attachments is { } guided)
             {
                 <SetupGuideLink Id="atlassian-setup-guide" Href="@guided.SetupGuideUrl" />
+            }
+            else if (connection is { Provider: ConnectionProvider.Custom })
+            {
+                <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
             }
         </div>
 
@@ -107,44 +111,32 @@
             </div>
         </section>
 
-        @if (holdsToken)
+        @if (connection is { Provider: ConnectionProvider.Custom })
         {
+            @* A custom source holds no token: it reads with its connection's, which is replaced where it is kept. *@
             <section class="card mb-3" id="source-token-section">
                 <div class="card-body">
                     <h2 class="h6 mb-2">Token</h2>
-                    <p class="small text-muted mb-2" id="source-token-help">
-                        The token Connapse sends to the middle man. When the middle man's token changes, enter the new one
-                        here: it is checked with the middle man before it replaces the stored one, and nothing is re-read.
+                    @if (connection.Health is { CredentialRejected: true })
+                    {
+                        <p class="small text-danger fw-semibold mb-2" id="source-token-refused" role="status">
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span>The source server refused this token, so the source is not reading.
+                            <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                        </p>
+                    }
+                    <p class="small mb-0" id="source-token-where">
+                        <span class="bi-key me-1" aria-hidden="true"></span>
+                        @if (CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } providerId)
+                        {
+                            <text>This source reads with its custom provider's token. When your source server's token changes, replace it on </text>
+                            <a href="/admin/providers/custom/@providerId">the custom provider's page</a><text>.</text>
+                        }
+                        else
+                        {
+                            <text>This source reads with its connection's token. When your source server's token changes, replace it on </text>
+                            <a href="/connections?edit=@connection.Id">@connection.Name</a><text>.</text>
+                        }
                     </p>
-                    <div class="d-flex gap-2 align-items-start">
-                        <div class="flex-grow-1">
-                            <label class="visually-hidden" for="source-token">New token</label>
-                            <input id="source-token" type="password" autocomplete="off"
-                                   class="form-control @(tokenError is null ? "" : "is-invalid")" placeholder="New token"
-                                   aria-describedby="@(tokenError is null ? "source-token-help" : "source-token-error source-token-help")"
-                                   aria-invalid="@(tokenError is null ? null : "true")"
-                                   @bind="newToken" />
-                            @if (tokenError is not null)
-                            {
-                                <div id="source-token-error" class="invalid-feedback d-block fw-semibold" role="alert">
-                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@tokenError
-                                </div>
-                            }
-                            @if (tokenReplaced)
-                            {
-                                <div id="source-token-replaced" class="small text-success mt-1" role="status">
-                                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Token replaced. The next sync uses it.
-                                </div>
-                            }
-                        </div>
-                        <button id="source-token-replace" class="btn btn-outline-secondary" @onclick="ReplaceTokenAsync" disabled="@replacingToken">
-                            @if (replacingToken)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
-                            }
-                            Replace token
-                        </button>
-                    </div>
                 </div>
             </section>
         }
@@ -285,12 +277,6 @@
     private bool saving;
     private ElementReference nameInput;
     private ElementReference intervalInput;
-    private bool holdsToken;
-    private string? newToken;
-    private string? tokenError;
-    private bool tokenReplaced;
-    private bool replacingToken;
-
     protected override async Task OnParametersSetAsync()
     {
         try
@@ -304,7 +290,6 @@
 
             connection = source.ConnectionId is Guid connectionId ? await ConnectionStore.GetAsync(connectionId) : null;
             form = SourceEditForm.From(source, connection?.Provider);
-            holdsToken = await TokenReplacement.AppliesToAsync(source, CancellationToken.None);
 
             // Read from the source's local records, so suggesting authors costs no GitHub requests.
             if (form.GitHubKind == GitHubContentKind.IssuesAndPullRequests && connection is not null
@@ -337,37 +322,6 @@
     {
         if (form?.Attachments is { } atlassian && (atlassian.MaxAttachmentMbError is not null || !atlassian.IncludeAttachments))
             atlassian.ValidateMaxAttachmentMb();
-    }
-
-    private async Task ReplaceTokenAsync()
-    {
-        if (source is null) return;
-        replacingToken = true;
-        tokenError = null;
-        tokenReplaced = false;
-        try
-        {
-            CustomTokenReplacement result = await TokenReplacement.ReplaceAsync(source.Id, newToken, CancellationToken.None);
-            if (result.Error is null)
-            {
-                newToken = null;
-                tokenReplaced = true;
-            }
-            else
-            {
-                tokenError = result.Error;
-            }
-        }
-        catch (Exception ex)
-        {
-            // An exception escaping a Blazor event handler tears down the circuit.
-            Logger.LogError(ex, "Could not replace the token of source {SourceId}", source.Id);
-            tokenError = "Could not replace the token, so the old one is still in use. Try again; if it keeps failing, the server log has the cause.";
-        }
-        finally
-        {
-            replacingToken = false;
-        }
     }
 
     private async Task Save()

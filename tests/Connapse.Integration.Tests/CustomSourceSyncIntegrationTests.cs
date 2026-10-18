@@ -15,7 +15,7 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
 {
-    private const string Token = "middle-man-token";
+    private const string Token = "source-server-token";
 
     [Fact]
     public async Task Sync_ContentOnlySource_PassesItsTokenAndDeletesByPrefixButKeepsTheNewPath()
@@ -43,7 +43,7 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Sync_ConnectedSource_UsesItsOwnTokenAndStoresUrisAndKeysWithoutReingestingForAKeyChange()
+    public async Task Sync_ConnectedSource_UsesTheProvidersTokenAndStoresUrisAndKeysWithoutReingestingForAKeyChange()
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();
         CustomProvider provider = await scope.ServiceProvider.GetRequiredService<ICustomProviderStore>().CreateAsync(
@@ -52,7 +52,7 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
             new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom, CustomConnectionConfig.ToJson(provider.Id)), null);
         Source source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
             $"custom-conn-{Guid.NewGuid():N}"[..24], connection.Id,
-            new CustomSourceScope("https://bridge.acme.test", "eng").ToJson(), Secret: Token));
+            new CustomSourceScope("https://bridge.acme.test", "eng").ToJson()));
 
         DateTime modified = new(2026, 10, 13, 0, 0, 0, DateTimeKind.Utc);
         string uri = Connapse.Core.Utilities.CustomResourceUri.For(source.Id, "a");
@@ -63,7 +63,7 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
         (await SyncAsync(source, factory, connection, queue)).Error.Should().BeNull();
         int enqueued = queue.Jobs.Count;
 
-        factory.Secret.Should().Be(Token, "a connected custom source reads content with its own token");
+        factory.Secret.Should().Be("provider-token", "a source on a provider's connection reads with the provider's token");
         (string? storedUri, string[]? storedKeys) = await RowAsync(source.Id, "/a/a.md");
         storedUri.Should().Be(uri);
         storedKeys.Should().Equal("folder:", "team:eng");
@@ -76,6 +76,65 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
 
         queue.Jobs.Count.Should().Be(enqueued, "a key-only change must not re-embed the document");
         (await RowAsync(source.Id, "/a/a.md")).AccessKeys.Should().Equal("team:ops");
+    }
+
+    [Fact]
+    public async Task Sync_SourceOnAConnectionWithoutAProvider_UsesTheConnectionsTokenAndStaysContentOnly()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        Connection connection = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+            new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom,
+                CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"), Secret: "connection-token"), null);
+        Source source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"custom-plain-{Guid.NewGuid():N}"[..24], connection.Id, new CustomSourceScope("https://bridge.acme.test", "eng").ToJson()));
+        CapturingFactory factory = new(new DeltaConnector(new SyncDelta(
+            [new ConnectorFile("/a/a.md", 10, DateTime.UtcNow, "text/markdown")], [], "c1", false)));
+
+        (await SyncAsync(source, factory, connection)).Error.Should().BeNull();
+
+        factory.Secret.Should().Be("connection-token");
+        (await RowAsync(source.Id, "/a/a.md")).ResourceUri.Should().BeNull("a connection without a provider checks nothing per user");
+    }
+
+    [Fact]
+    public async Task Sync_TokenTheMiddleManRefuses_MarksTheConnectionUntilASyncSucceeds()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        IConnectionStore connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        Connection connection = await connections.CreateAsync(
+            new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom,
+                CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"), Secret: "rotated-away"), null);
+        Source source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"custom-refused-{Guid.NewGuid():N}"[..24], connection.Id, new CustomSourceScope("https://bridge.acme.test", "eng").ToJson()));
+
+        (await SyncAsync(source, new CapturingFactory(new RefusingConnector()), connection)).Error.Should().NotBeNull();
+
+        Connection refused = (await connections.GetAsync(connection.Id))!;
+        refused.Health.Should().NotBeNull();
+        refused.Health!.CredentialRejected.Should().BeTrue();
+        refused.Health.Origin.Should().Be("sync");
+        refused.Health.Message.Should().Contain("Replace it on this connection");
+
+        CapturingFactory working = new(new DeltaConnector(new SyncDelta([], [], "c1", false)));
+        (await SyncAsync(source, working, refused)).Error.Should().BeNull();
+
+        Connection recovered = (await connections.GetAsync(connection.Id))!;
+        recovered.Health!.CredentialRejected.Should().BeFalse();
+        recovered.Health.Succeeded.Should().BeTrue();
+    }
+
+    private sealed class RefusingConnector : ISyncCursorConnector
+    {
+        public ConnectorType Type => ConnectorType.Custom;
+        public bool SupportsLiveWatch => false;
+        public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default) =>
+            throw new Connapse.Storage.Connectors.Custom.CustomSourceUnauthorizedException("The source server refused the token (401).");
+        public string ResolveJobPath(string relativePath) => relativePath;
+        public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
+        public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default) => Task.FromResult<Stream>(new MemoryStream());
+        public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
+        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private async Task<(string? ResourceUri, string[]? AccessKeys)> RowAsync(Guid sourceId, string path)

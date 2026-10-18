@@ -804,6 +804,39 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
+    public void Create_SourceOnACustomConnectionWithAProvider_ChecksPermissionsForThatSource()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ToJson(Guid.NewGuid()));
+        Source source = MakeCustomSource("https://bridge.acme.test") with { ConnectionId = connection.Id, Provider = null };
+
+        var connector = (Connapse.Storage.Connectors.Custom.CustomSourceConnector)_factory.Create(source, connection, "token");
+
+        connector.PermissionsFor.Should().Be(source.Id);
+    }
+
+    [Fact]
+    public void Create_SourceOnACustomConnectionWithoutAProvider_ReadsContentOnly()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"));
+        Source source = MakeCustomSource("https://bridge.acme.test") with { ConnectionId = connection.Id, Provider = null };
+
+        var connector = (Connapse.Storage.Connectors.Custom.CustomSourceConnector)_factory.Create(source, connection, "token");
+
+        connector.PermissionsFor.Should().BeNull("a connection without a provider checks nothing per user");
+    }
+
+    [Fact]
+    public void Create_SourceReadingAnotherMiddleManThanItsConnection_IsRefused()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"));
+        Source source = MakeCustomSource("https://other.acme.test") with { ConnectionId = connection.Id, Provider = null };
+
+        Action act = () => _factory.Create(source, connection, "token");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*its connection's source server*");
+    }
+
+    [Fact]
     public void Create_CustomSourceOverPlainHttpToAHostNotAllowed_IsRefused()
     {
         Action act = () => _factory.Create(MakeCustomSource("http://bridge.acme.test"), secret: "token");

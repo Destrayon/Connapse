@@ -5,11 +5,15 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Web.Components.Providers
+@using Connapse.Web.Components.Shared
 @using Connapse.Web.Services
 @inject CustomProviderSetup Setup
 @inject ICustomProviderStore Store
+@inject IConnectionStore Connections
 @inject IAuditLogger AuditLogger
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ILogger<CustomProviderPage> Logger
 
 <PageTitle>@(existing?.Name ?? "New custom provider") - Connapse</PageTitle>
 
@@ -20,10 +24,18 @@
     </ol>
 </nav>
 
-<h1 class="mb-1"><span class="bi-hdd-network me-2" aria-hidden="true"></span>@(existing?.Name ?? "New custom provider")</h1>
-<p class="text-muted">
-    A middle man you run that answers, live, what each Connapse user may read. Custom sources on a connection that
-    uses this provider show a search result only when the middle man says that user may read it.
+<div class="d-flex flex-wrap align-items-baseline gap-2 mb-1">
+    <h1 class="mb-0"><span class="bi-hdd-network me-2" aria-hidden="true"></span>@(existing?.Name ?? "New custom provider")</h1>
+    <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
+</div>
+<p class="text-muted mb-2">
+    A source server you run that answers, live, what each Connapse user may read. Custom sources on a connection that
+    uses this provider show a search result only when the source server says that user may read it.
+</p>
+<p class="small mb-3" id="custom-provider-prerequisites">
+    You need: a running source server that speaks protocol version 1 and answers permission checks (it declares
+    <code>permissions.check</code>), the token it expects, and an HTTPS address (or a host an administrator allowed for plain HTTP).
+    <a href="@CustomSourceFieldSpecs.Prerequisites" target="_blank" rel="noopener">Before you start<span class="visually-hidden"> (opens in a new tab)</span></a>
 </p>
 
 @if (loadError is not null)
@@ -34,65 +46,74 @@ else
 {
     @if (message is not null)
     {
-        <div class="alert alert-success py-2 small" role="status">@message</div>
+        <div @ref="savedMessage" tabindex="-1" class="alert alert-success py-2 small" role="status" id="custom-provider-saved">
+            @message
+            @if (savedNew)
+            {
+                <a class="btn btn-sm btn-outline-primary ms-2" id="custom-provider-next" href="/connections?new=custom&provider=@existing?.Id">Add a connection</a>
+            }
+        </div>
+    }
+    @if (refusedBy.Count > 0)
+    {
+        <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-token-refused">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>
+            The source server refused this provider's token while syncing sources on @string.Join(", ", refusedBy).
+            Replace the token below; once a check passes and you save, those connections read again.
+            <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </div>
     }
     @if (error is not null)
     {
-        <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-error">@error</div>
+        <div class="alert alert-danger py-2 small" role="alert" id="custom-provider-error">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>@error
+            <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </div>
     }
 
     <ProviderStepCard Id="custom-endpoint"
-                      Title="Middle man"
-                      Description="The address and token Connapse uses to ask your middle man about permissions. It must refuse any request without its token."
+                      Title="Source server"
+                      Description="The address and token Connapse uses to ask your source server about permissions. It must refuse any request without its token."
                       Status="@EndpointStatus"
-                      StatusLabel="@(check?.EndpointOk == true ? "Reachable" : "Not checked")"
+                      StatusLabel="@EndpointLabel"
                       @bind-Expanded="editEndpoint"
                       EditLabel="Change address or token"
                       EasyTitle="Try it with the example server">
         <Summary>
-            <span class="font-monospace">@(check?.BaseUrl ?? existing?.BaseUrl)</span>
+            <span class="font-monospace text-break">@(check?.BaseUrl ?? existing?.BaseUrl)</span>
         </Summary>
         <ManualContent>
-            <div class="mb-3">
-                <label class="form-label" for="custom-provider-name">Name</label>
-                <input id="custom-provider-name" class="form-control" value="@name"
-                       @onchange="e => name = e.Value?.ToString() ?? string.Empty" placeholder="Acme bridge" />
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="custom-provider-url">Address</label>
-                <input id="custom-provider-url" class="form-control font-monospace" value="@baseUrl"
-                       @onchange="e => { baseUrl = e.Value?.ToString() ?? string.Empty; check = null; }"
-                       placeholder="https://bridge.example.com" />
-                @if (check?.Field == "baseUrl" && check.Error is not null)
-                {
-                    <div id="custom-provider-url-error" class="text-danger small mt-1" role="alert">@check.Error</div>
-                }
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="custom-provider-token">Token</label>
-                <input id="custom-provider-token" type="password" class="form-control" autocomplete="off" value="@token"
-                       @onchange="e => { token = e.Value?.ToString() ?? string.Empty; check = null; }"
-                       placeholder="@(existing?.HasToken == true ? "Leave empty to keep the stored token" : "")" />
-                @if (check?.Field == "secret" && check.Error is not null)
-                {
-                    <div id="custom-provider-token-error" class="text-danger small mt-1" role="alert">@check.Error</div>
-                }
-                <div class="form-text">Sent as a bearer token on every permission question. Stored encrypted and never shown again.</div>
-            </div>
+            <ProviderField @ref="urlField" Spec="CustomSourceFieldSpecs.ProviderBaseUrl" Value="@baseUrl"
+                           ValueChanged="v => { baseUrl = v ?? string.Empty; check = null; urlError = null; }"
+                           Error="@(urlError ?? (check?.Field == "baseUrl" ? check.Error : null))">
+                <ErrorContent><a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a></ErrorContent>
+            </ProviderField>
+            <PlainHttpWarning Id="custom-provider-plain-http" BaseUrl="@baseUrl" />
+            <ProviderField @ref="tokenField" Spec="CustomSourceFieldSpecs.ProviderToken" Value="@token" HasStoredValue="@(existing?.HasToken == true)"
+                           ValueChanged="v => { token = v ?? string.Empty; check = null; }"
+                           Error="@(check?.Field == "secret" ? check.Error : null)">
+                <ErrorContent><a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a></ErrorContent>
+            </ProviderField>
             <button id="custom-provider-check" type="button" class="btn btn-outline-secondary btn-sm" @onclick="CheckAsync" disabled="@checking">
                 @if (checking)
                 {
                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
                 }
-                Check middle man
+                Check source server
             </button>
+            @if (check is { EndpointOk: true, PermissionsOk: true })
+            {
+                <div id="custom-provider-check-result" class="small text-success mt-2" role="status">
+                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Check passed: reachable, token accepted, wrong token refused, permission check answered.
+                </div>
+            }
         </ManualContent>
         <EasyContent>
             <p class="small mb-2">
                 The example server in <code>samples/Connapse.CustomSource.Example</code> answers every part of the
                 protocol from a folder of files. Run it on Connapse's Docker network:
             </p>
-            <pre class="small mb-2"><code>docker build -t connapse-custom-source-example samples/Connapse.CustomSource.Example
+            <pre class="small mb-2 text-wrap"><code>docker build -t connapse-custom-source-example samples/Connapse.CustomSource.Example
 docker run -d --name cs-example --network &lt;connapse-project&gt;_backend connapse-custom-source-example</code></pre>
             <p class="small mb-0">
                 Then use the address <code>http://cs-example:8080</code> and the token <code>change-me-example-token</code>,
@@ -101,64 +122,99 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         </EasyContent>
     </ProviderStepCard>
 
+    <ProviderField @ref="nameField" Spec="CustomSourceFieldSpecs.ProviderName" Value="@name" ValueChanged="v => name = v ?? string.Empty"
+                   Error="@nameError" />
+
     <ProviderStepCard Id="custom-permissions"
                       Title="Permission check"
-                      Description="Your middle man must answer live permission checks. Connapse asks it before showing any search result from this provider's sources, and shows nothing it cannot confirm."
+                      Description="Your source server must answer live permission checks. Connapse asks it before showing any search result from this provider's sources, and shows nothing it cannot confirm."
                       Status="@PermissionsStatus"
-                      StatusLabel="@(check?.PermissionsOk == true ? "Answering" : check?.EndpointOk == true ? "Not answering" : "Waiting for the middle man")">
+                      StatusLabel="@PermissionsLabel">
         <Summary>
             @if (check?.PermissionsOk == true)
             {
-                <span>Checks up to @check.MaxCheckBatch documents per request.</span>
-                <span>@(check.SupportsAccessKeys ? " Offers access keys, so searches rank only what each user may hold." : " Offers no access keys, so every result is checked.")</span>
+                <span>A test check was answered. Checks up to @check.MaxCheckBatch documents per request.</span>
+                <span>@(check.SupportsAccessKeys
+                    ? " It gives documents access keys, so searches look only at documents each user holds a key for."
+                    : " It gives documents no access keys, so every result is checked.")</span>
+            }
+            else if (check is null && existing?.VerifiedAt is not null)
+            {
+                <span>Answered a test check when the provider was last verified. Checks up to @existing.MaxCheckBatch documents per request.</span>
+                <span>@(existing.SupportsAccessKeys
+                    ? " It gives documents access keys, so searches look only at documents each user holds a key for."
+                    : " It gives documents no access keys, so every result is checked.")</span>
+            }
+            else if (check is { EndpointOk: true, PermissionsOk: false, Error: { } permissionError })
+            {
+                <div id="custom-provider-permissions-error" class="invalid-feedback d-block fw-semibold" role="alert">
+                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@permissionError
+                    <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                </div>
             }
         </Summary>
-        <ManualContent>
-            @if (check is { EndpointOk: true, PermissionsOk: false, Error: { } permissionError })
-            {
-                <div id="custom-provider-permissions-error" class="text-danger small" role="alert">@permissionError</div>
-            }
-            else
-            {
-                <p class="small text-muted mb-0">Checked together with the middle man above.</p>
-            }
-        </ManualContent>
     </ProviderStepCard>
 
     @if (existing is not null && LinkUrl is not null)
     {
         <ProviderStepCard Id="custom-linking"
                           Title="Account linking"
-                          Description="Your middle man runs a page where each user links their Connapse account to their account in your system. Connapse signs the request with a link secret only it and your middle man know."
+                          Description="Your source server runs a page where each user links their Connapse account to their account in your system. Connapse signs each link request with a link secret that only it and your source server know."
                           Status="@(existing.HasLinkSecret ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured)"
                           StatusLabel="@(existing.HasLinkSecret ? "Link secret set" : "No link secret")"
                           @bind-Expanded="editLinking"
                           EditLabel="Show linking values">
             <Summary>
-                <span>Users link from their profile's integrations page at <span class="font-monospace">@LinkUrl</span>.</span>
+                <span>Users link from Profile, then Integrations, using the page at <span class="font-monospace">@LinkUrl</span>.</span>
             </Summary>
             <ManualContent>
-                <p class="small mb-2">Configure your middle man with these values. Link tokens are HS256, signed with the UTF-8 bytes of the link secret.</p>
+                <p class="small mb-2">
+                    Configure your source server with these values. Each link request is a signed token (a JSON Web Token,
+                    signed with HS256 using the link secret's characters exactly as shown).
+                </p>
                 <dl class="row small mb-2">
                     <dt class="col-sm-4">Issuer (Connapse address)</dt>
-                    <dd class="col-sm-8 font-monospace" id="custom-link-issuer">@ConnapseAddress</dd>
+                    <dd class="col-sm-8 font-monospace text-break" id="custom-link-issuer">@ConnapseAddress</dd>
                     <dt class="col-sm-4">Audience (provider ID)</dt>
-                    <dd class="col-sm-8 font-monospace" id="custom-link-audience">@existing.Id</dd>
+                    <dd class="col-sm-8 font-monospace text-break" id="custom-link-audience">@existing.Id</dd>
                 </dl>
                 @if (newLinkSecret is not null)
                 {
                     <div class="alert alert-warning small mb-2" role="status">
-                        Copy this link secret into your middle man now. It is not shown again.
-                        <input id="custom-link-secret" class="form-control form-control-sm font-monospace mt-2" readonly value="@newLinkSecret" />
+                        <label class="form-label small fw-semibold mb-1" for="custom-link-secret">Link secret</label>
+                        <div class="input-group input-group-sm">
+                            <input @ref="linkSecretInput" id="custom-link-secret" class="form-control font-monospace" readonly value="@newLinkSecret"
+                                   type="@(showLinkSecret ? "text" : "password")" autocomplete="off" aria-describedby="custom-link-secret-help" />
+                            <button id="custom-link-show" type="button" class="btn btn-outline-secondary" aria-pressed="@(showLinkSecret ? "true" : "false")"
+                                    aria-label="Show link secret" aria-controls="custom-link-secret"
+                                    @onclick="() => showLinkSecret = !showLinkSecret">
+                                <span class="@(showLinkSecret ? "bi-eye-slash" : "bi-eye") me-1" aria-hidden="true"></span>Show
+                            </button>
+                            <button id="custom-link-copy" type="button" class="btn btn-outline-secondary" @onclick="CopyLinkSecretAsync">
+                                <span class="bi-clipboard me-1" aria-hidden="true"></span>@(copied ? "Copied" : "Copy")
+                            </button>
+                        </div>
+                        <div id="custom-link-secret-help" class="mt-1">Copy it into your source server now. It is not shown again.</div>
                     </div>
                 }
-                <button id="custom-link-generate" type="button" class="btn btn-outline-secondary btn-sm"
-                        @onclick="GenerateLinkSecretAsync" disabled="@saving">
-                    @(existing.HasLinkSecret ? "Replace link secret" : "Generate link secret")
-                </button>
                 @if (existing.HasLinkSecret)
                 {
-                    <div class="form-text">Replacing it stops new links until your middle man has the new one. Existing links stay, because your middle man keeps them.</div>
+                    <div id="custom-link-replace">
+                        <ProviderResetAction Label="Replace link secret" ConfirmLabel="Replace link secret" RestoreFocus="false"
+                                             BusyLabel="Replacing…" Disabled="@saving" OnReset="GenerateLinkSecretAsync"
+                                             HelpText="New links fail until your source server has the new secret. Existing links stay, because your source server keeps them." />
+                    </div>
+                }
+                else
+                {
+                    <button id="custom-link-generate" type="button" class="btn btn-outline-secondary btn-sm"
+                            @onclick="GenerateLinkSecretAsync" disabled="@saving">
+                        @if (saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                        }
+                        Generate link secret
+                    </button>
                 }
             </ManualContent>
         </ProviderStepCard>
@@ -166,15 +222,41 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
 
     <div class="d-flex gap-2 mt-3">
         <button id="custom-provider-save" class="btn btn-primary" @onclick="SaveAsync"
-                disabled="@(saving || check is not { EndpointOk: true, PermissionsOk: true })">
+                disabled="@(saving || check is not { EndpointOk: true, PermissionsOk: true })" aria-describedby="custom-provider-save-help">
+            @if (saving)
+            {
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+            }
             @(existing is null ? "Save provider" : "Save changes")
         </button>
         <a class="btn btn-secondary" href="/admin/providers">Cancel</a>
-        @if (existing is not null)
-        {
-            <button id="custom-provider-delete" class="btn btn-outline-danger ms-auto" @onclick="DeleteAsync" disabled="@saving">Delete provider</button>
-        }
     </div>
+    @if (check is not { EndpointOk: true, PermissionsOk: true })
+    {
+        <div id="custom-provider-save-help" class="form-text">Saving is available once both checks above pass.</div>
+    }
+
+    @if (existing is not null)
+    {
+        <section class="card border-danger-subtle mt-4" id="custom-provider-danger">
+            <div class="card-body">
+                <h2 class="h6">Delete this provider</h2>
+                @if (dependants.Count > 0)
+                {
+                    <p class="small mb-2" id="custom-provider-dependants">
+                        These connections use it, so it cannot be deleted until they are removed on the
+                        <a href="/connections">Connections page</a>: @string.Join(", ", dependants).
+                    </p>
+                }
+                <div id="custom-provider-delete">
+                    <ProviderResetAction Label="Delete provider" ConfirmLabel="Delete provider"
+                                         ConfirmText="@existing.Name" BusyLabel="Deleting…" Disabled="@(saving || dependants.Count > 0)"
+                                         OnReset="DeleteAsync"
+                                         HelpText="Deletes the stored token and link secret. Links people made stay in your source server until you clear them there." />
+                </div>
+            </div>
+        </section>
+    }
 }
 
 @code {
@@ -188,11 +270,51 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     private bool checking;
     private bool saving;
     private bool editEndpoint;
+    private bool savedNew;
+    private bool copied;
     private string? message;
     private string? error;
+    private string? nameError;
+    private string? urlError;
     private string? loadError;
     private string? newLinkSecret;
     private bool editLinking;
+    private bool showLinkSecret;
+    private IReadOnlyList<string> dependants = [];
+    private ProviderField? urlField;
+    private ProviderField? tokenField;
+    private ProviderField? nameField;
+    private ElementReference linkSecretInput;
+    private ElementReference savedMessage;
+
+    /// <summary>Where focus goes after the next render: the field a check refused, the name, the new secret, or the result.</summary>
+    private enum Focus { None, Url, Token, Name, LinkSecret, Saved }
+    private Focus focus;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        Focus target = focus;
+        focus = Focus.None;
+        try
+        {
+            switch (target)
+            {
+                case Focus.Url when urlField is not null: await urlField.FocusAsync(); break;
+                case Focus.Token when tokenField is not null: await tokenField.FocusAsync(); break;
+                case Focus.Name when nameField is not null: await nameField.FocusAsync(); break;
+                case Focus.LinkSecret: await linkSecretInput.FocusAsync(); break;
+                case Focus.Saved: await savedMessage.FocusAsync(); break;
+            }
+        }
+        catch (JSException)
+        {
+            // The element left the page before focus reached it.
+        }
+    }
+
+    /// <summary>The dependant connections whose last sync had this provider's token refused.</summary>
+    private IReadOnlyList<string> refusedBy = [];
+    private IReadOnlyList<Connection> dependantConnections = [];
 
     /// <summary>The middle man's linking page, from the latest check or the saved provider.</summary>
     private string? LinkUrl => check?.EndpointOk == true ? check.LinkUrl : existing?.LinkUrl;
@@ -200,13 +322,33 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     /// <summary>The <c>iss</c> of link tokens: this Connapse's address as the browser reaches it.</summary>
     private string ConnapseAddress => Navigation.BaseUri.TrimEnd('/');
 
-    private RequirementStatus EndpointStatus => check?.EndpointOk == true ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
+    /// <summary>When the saved provider last passed a check; shown until a new check runs.</summary>
+    private string? VerifiedLabel => check is null && existing?.VerifiedAt is { } verified
+        ? $"Verified {verified.ToLocalTime():MMM d, yyyy HH:mm}"
+        : null;
+
+    private RequirementStatus EndpointStatus => check?.EndpointOk == true || VerifiedLabel is not null
+        ? RequirementStatus.Satisfied
+        : check?.Error is not null ? RequirementStatus.Failed : RequirementStatus.NotConfigured;
+
+    private string EndpointLabel => check?.EndpointOk == true
+        ? "Reachable, token accepted, wrong token refused"
+        : VerifiedLabel ?? (check?.Error is not null ? "Check failed" : "Not checked");
 
     private RequirementStatus PermissionsStatus => check switch
     {
         { PermissionsOk: true } => RequirementStatus.Satisfied,
         { EndpointOk: true } => RequirementStatus.Failed,
+        null when VerifiedLabel is not null => RequirementStatus.Satisfied,
         _ => RequirementStatus.NotConfigured,
+    };
+
+    private string PermissionsLabel => check switch
+    {
+        { PermissionsOk: true } => "Answering",
+        { EndpointOk: true } => "Not answering",
+        null when VerifiedLabel is not null => VerifiedLabel!,
+        _ => "Waiting for the source server",
     };
 
     protected override async Task OnParametersSetAsync()
@@ -222,6 +364,19 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
 
         name = existing.Name;
         baseUrl = existing.BaseUrl;
+        await LoadDependantsAsync();
+        // Opened on the token when a sync had it refused, which is what the page is then visited for.
+        editEndpoint = refusedBy.Count > 0;
+    }
+
+    private async Task LoadDependantsAsync()
+    {
+        if (existing is null) return;
+        dependantConnections = (await Connections.ListAsync(take: int.MaxValue))
+            .Where(c => c.Provider == ConnectionProvider.Custom && CustomConnectionConfig.ProviderIdOf(c.ConfigJson) == existing.Id)
+            .ToList();
+        dependants = dependantConnections.Select(c => c.Name).ToList();
+        refusedBy = dependantConnections.Where(c => c.Health is { CredentialRejected: true }).Select(c => c.Name).ToList();
     }
 
     private async Task CheckAsync()
@@ -229,17 +384,37 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         checking = true;
         error = null;
         message = null;
+        // The step stays open after a check, so the button keeps focus and the values can still be changed.
+        editEndpoint = true;
         try
         {
-            // A blank token on an existing provider means "the stored one", which must still pass the check.
+            // A blank token on an existing provider means "the stored one", which must still pass the check. It is
+            // only ever sent to the stored address: a new address needs its token typed, or anyone who can edit
+            // the provider could have the stored token sent to a server of their choosing.
+            if (token.Length == 0 && existing is not null && !Connapse.Core.Utilities.CustomSourceEndpoint.SameAddress(baseUrl, existing.BaseUrl))
+            {
+                check = new CustomProviderCheck(null, false, false,
+                    Error: $"Enter the token for this address. The saved token is only sent to {existing.BaseUrl}.", Field: "secret");
+                focus = Focus.Token;
+                return;
+            }
             string? tokenToCheck = token.Length > 0 || existing is null ? token : await Store.GetTokenAsync(existing.Id);
             check = await Setup.CheckAsync(baseUrl, tokenToCheck, CancellationToken.None);
             if (check.BaseUrl is { } normalized) baseUrl = normalized;
+            focus = check.Field switch { "baseUrl" => Focus.Url, "secret" => Focus.Token, _ => Focus.None };
+            if (name.Trim().Length == 0 && check.EndpointOk)
+                name = check.Name is { Length: > 0 } reported ? reported : new Uri(check.BaseUrl!).Host;
+
+            await AuditLogger.LogAsync(check is { EndpointOk: true, PermissionsOk: true } ? "custom_provider.check_passed" : "custom_provider.check_failed",
+                "custom_provider", existing?.Id.ToString(),
+                new { BaseUrl = check.BaseUrl, Step = check.EndpointOk ? "permissions" : check.Field ?? "endpoint" });
         }
         catch (Exception ex)
         {
-            // An exception escaping an event handler would end the circuit.
-            check = new CustomProviderCheck(null, false, false, Error: ex.Message, Field: "baseUrl");
+            // An exception escaping an event handler would end the circuit; its text is for the log.
+            Logger.LogWarning(ex, "Could not check a custom provider's source server");
+            check = new CustomProviderCheck(null, false, false,
+                Error: "Could not check the source server. Try again; if it keeps failing, the server log has the cause.", Field: "baseUrl");
         }
         finally
         {
@@ -250,9 +425,11 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     private async Task SaveAsync()
     {
         if (check is not { EndpointOk: true, PermissionsOk: true, BaseUrl: { } checkedUrl } passed) return;
+        nameError = null;
         if (string.IsNullOrWhiteSpace(name))
         {
-            error = "A name is required.";
+            nameError = "Enter a name for this provider.";
+            focus = Focus.Name;
             return;
         }
 
@@ -260,8 +437,10 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         error = null;
         try
         {
+            bool isNew = existing is null;
+            bool tokenReplaced = token.Length > 0;
             SaveCustomProviderRequest request = new(
-                name.Trim(), checkedUrl, token.Length > 0 ? token.Trim() : null,
+                name.Trim(), checkedUrl, tokenReplaced ? token.Trim() : null,
                 passed.MaxCheckBatch, passed.SupportsAccessKeys, passed.LinkUrl);
 
             CustomProvider? result = existing is null
@@ -273,15 +452,37 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
                 return;
             }
 
-            await AuditLogger.LogAsync(existing is null ? "custom_provider.created" : "custom_provider.updated",
-                "custom_provider", result.Id.ToString(), new { result.Name, result.BaseUrl });
+            await AuditLogger.LogAsync(isNew ? "custom_provider.created" : "custom_provider.updated",
+                "custom_provider", result.Id.ToString(), new { result.Name, result.BaseUrl, TokenReplaced = tokenReplaced });
+
+            // The check that just passed used the token now saved, so connections it was refused for read again.
+            foreach (Connection refused in dependantConnections.Where(c => c.Health is { CredentialRejected: true }))
+                await Connections.RecordHealthAsync(refused.Id, new ConnectionHealth(
+                    DateTime.UtcNow, Succeeded: true, Step: null, "The provider's token was accepted.", Origin: "test"));
             existing = result;
             token = "";
-            message = $"'{result.Name}' saved. Add a Custom connection that uses it on the Connections page.";
+            check = null;
+            editEndpoint = false;
+            savedNew = isNew;
+            focus = Focus.Saved;
+            message = isNew
+                ? $"'{result.Name}' saved. Next, add a Custom connection that uses it."
+                : $"'{result.Name}' saved.";
+            await LoadDependantsAsync();
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            error = ex.Message;
+            // The store refuses a taken name, or an address change while connections use the provider.
+            if (ex.Message.Contains("name", StringComparison.OrdinalIgnoreCase))
+                (nameError, focus) = (ex.Message, Focus.Name);
+            else
+                (urlError, focus) = (ex.Message, Focus.Url);
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping an event handler would end the circuit and lose the form.
+            Logger.LogWarning(ex, "Could not save a custom provider");
+            error = "Could not save the provider, so nothing was changed. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {
@@ -295,6 +496,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         saving = true;
         error = null;
         message = null;
+        copied = false;
         try
         {
             newLinkSecret = await Store.GenerateLinkSecretAsync(existing.Id);
@@ -307,10 +509,32 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             await AuditLogger.LogAsync("custom_provider.link_secret_generated", "custom_provider", existing.Id.ToString(), new { existing.Name });
             existing = await Store.GetAsync(existing.Id) ?? existing;
             editLinking = true; // keep the new secret on screen once the step shows as done
+            showLinkSecret = false;
+            focus = Focus.LinkSecret;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not generate a custom provider's link secret");
+            error = "Could not generate the link secret, so the old one still works. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {
             saving = false;
+        }
+    }
+
+    private async Task CopyLinkSecretAsync()
+    {
+        if (newLinkSecret is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", newLinkSecret);
+            copied = true;
+        }
+        catch (JSException)
+        {
+            // Clipboard access can be refused; the value stays selectable in the field.
+            copied = false;
         }
     }
 
@@ -328,6 +552,12 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         catch (InvalidOperationException ex)
         {
             error = ex.Message;
+            await LoadDependantsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not delete a custom provider");
+            error = "Could not delete the provider, so nothing was changed. Try again; if it keeps failing, the server log has the cause.";
         }
         finally
         {

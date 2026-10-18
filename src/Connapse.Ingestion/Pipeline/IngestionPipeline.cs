@@ -41,6 +41,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IDocumentStore _documentStore;
     private readonly ISourceStore _sourceStore;
     private readonly IConnectionStore _connectionStore;
+    private readonly ICustomProviderStore? _customProviders;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
     private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
@@ -163,9 +164,11 @@ public class IngestionPipeline : IKnowledgeIngester
         IDocumentLifecycle lifecycle,
         IOptionsMonitor<UploadSettings> uploadSettings,
         ILogger<IngestionPipeline> logger,
-        ParserProcessPool? parserPool = null)
+        ParserProcessPool? parserPool = null,
+        ICustomProviderStore? customProviders = null)
     {
         _parserPool = parserPool;
+        _customProviders = customProviders;
         _context = context;
         _fileSystem = fileSystem;
         _embeddingProvider = embeddingProvider;
@@ -787,9 +790,10 @@ public class IngestionPipeline : IKnowledgeIngester
         // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
         // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
         // rather than being swallowed.
-        // A custom connection holds no credential; its sources read content with their own token.
+        // A custom source reads with its connection's token, or its provider's.
         string? secret = connection.Provider == ConnectionProvider.Custom
-            ? source.HasSecret ? await _sourceStore.GetSecretAsync(source.Id, ct) : null
+            ? await Connapse.Storage.Connectors.Custom.CustomSourceCredentials.TokenAsync(
+                source, connection, _sourceStore, _connectionStore, _customProviders, ct)
             : connection.HasSecret
                 ? await _connectionStore.GetSecretAsync(connection.Id, ct)
                 : null;

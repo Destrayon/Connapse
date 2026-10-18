@@ -27,6 +27,7 @@
 @inject Connapse.Storage.Connectors.GitHub.GitHubCredentialPool GitHubPool
 @inject IProviderCredentialStore CredentialStore
 @inject ICustomProviderStore CustomProviders
+@inject CustomSourceSetup CustomSetup
 @inject NavigationManager Navigation
 @inject IAuditLogger AuditLogger
 @inject ConnectionAdminService Admin
@@ -472,6 +473,43 @@
                                                 <button type="button" class="btn btn-sm btn-link p-0" @onclick="() => StartEdit(c)">Replace credentials</button>
                                             }
                                         }
+                                        else if (c.Provider == ConnectionProvider.Custom)
+                                        {
+                                            @* Before the stored-secret branch: a custom connection without a provider holds its token. *@
+                                            @if (CustomConnectionConfig.BaseUrlOf(c.ConfigJson) is { } middleMan)
+                                            {
+                                                <div class="text-muted">Token for <span class="font-monospace text-break">@middleMan</span></div>
+                                            }
+                                            else
+                                            {
+                                                <div class="text-muted">Permission checks by @CustomProviderName(c)</div>
+                                            }
+                                            @if (c.Health is { CredentialRejected: true } refused)
+                                            {
+                                                <div class="text-danger fw-semibold" data-token-refused="@c.Id">
+                                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>Token refused. @refused.Message
+                                                    <a class="fw-normal" href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                                                </div>
+                                                @if (CustomConnectionConfig.ProviderIdOf(c.ConfigJson) is { } refusedProvider)
+                                                {
+                                                    <a class="btn btn-sm btn-link px-0 py-1" href="/admin/providers/custom/@refusedProvider">Replace the provider's token</a>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-link px-0 py-1" @onclick="() => StartEdit(c)">Replace token</button>
+                                                }
+                                            }
+                                            else if (c.Health is { } health)
+                                            {
+                                                <div class="@(health.Succeeded ? "text-success" : "text-danger")" data-custom-health="@c.Id">
+                                                    <span class="@(health.Succeeded ? "bi-check-circle" : "bi-x-circle") me-1" aria-hidden="true"></span>@(health.Succeeded ? "Working" : "Last check failed")
+                                                    @if (health.LastSucceededAt is { } lastOk)
+                                                    {
+                                                        <span class="text-muted">(last successful check @AtlassianSiteStatus.When(lastOk))</span>
+                                                    }
+                                                </div>
+                                            }
+                                        }
                                         else if (c.HasSecret)
                                         {
                                             @* Only reachable for a connection created before this tab
@@ -494,11 +532,6 @@
                                             {
                                                 <span class="text-muted">GitHub App installation</span>
                                             }
-                                        }
-                                        else if (c.Provider == ConnectionProvider.Custom)
-                                        {
-                                            @* No credential of its own: each source keeps its token, and the provider answers permissions. *@
-                                            <span class="text-muted">Permission checks by @CustomProviderName(c)</span>
                                         }
                                         else
                                         {
@@ -545,8 +578,31 @@
                 {
                     <SetupGuideLink Id="atlassian-setup-guide" Href="@AtlassianSiteFieldSpecs.SiteConnectionSection" />
                 }
+                else if (form.Provider == ConnectionProvider.Custom)
+                {
+                    <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
+                }
             </div>
         </div>
+
+        @if (form.Provider == ConnectionProvider.Custom)
+        {
+            <div class="col-12">
+                <p class="small mb-0" id="custom-connection-prerequisites">
+                    @if (form.CustomContentOnly)
+                    {
+                        <text>You need: a running source server that speaks protocol version 1, the token it expects, and an HTTPS
+                        address (or a host an administrator allowed for plain HTTP).</text>
+                    }
+                    else
+                    {
+                        <text>You need: a custom provider that passed its check on the Providers page, or choose No provider
+                        (content only) below to enter a source server here.</text>
+                    }
+                    <a href="@CustomSourceFieldSpecs.Prerequisites" target="_blank" rel="noopener">Before you start<span class="visually-hidden"> (opens in a new tab)</span></a>
+                </p>
+            </div>
+        }
 
         @* A new Atlassian site is named after its host by the service that saves it, so its Name
            field stays in place, disabled, saying so. *@
@@ -591,6 +647,10 @@
                 {
                     <text>Filled in from the installation you choose if left blank.</text>
                 }
+                else if (form.Provider == ConnectionProvider.Custom && isNew)
+                {
+                    <text>Filled in from the provider's name, or the source server's host, if left blank.</text>
+                }
             </div>
         </div>
 
@@ -606,9 +666,7 @@
                 </option>
                 <option value="@ConnectionForm.ConfluenceSiteChoice">Confluence site</option>
                 <option value="@ConnectionForm.JiraSiteChoice">Jira site</option>
-                <option value="@ConnectionProvider.Custom" disabled="@(customProviders is { Count: 0 } && isNew)">
-                    Custom provider (permission checks)@(customProviders is { Count: 0 } ? " (add a custom provider first)" : "")
-                </option>
+                <option value="@ConnectionProvider.Custom">Custom source server</option>
             </select>
             @if (!isNew)
             {
@@ -919,33 +977,47 @@
         }
         else if (form.Provider == ConnectionProvider.Custom)
         {
-            @* A custom connection holds no credential: it names the custom provider whose middle man
-               answers the permission questions for the custom sources that use it. *@
-            <div class="col-12" style="max-width:32rem">
-                <label class="form-label" for="custom-provider">Custom provider</label>
-                @if (customProviders is { Count: 0 })
-                {
-                    <div class="alert alert-info py-2 small mb-0" role="status">
-                        No custom providers yet. <a class="alert-link" href="/admin/providers/custom/new">Add one</a> first.
-                    </div>
-                }
-                else
-                {
-                    <select id="custom-provider" class="form-select" value="@form.CustomProviderId"
-                            @onchange="e => form.CustomProviderId = Guid.TryParse(e.Value?.ToString(), out Guid id) ? id : null"
-                            disabled="@(!isNew)" aria-describedby="custom-provider-help">
-                        <option value="">Choose a custom provider</option>
-                        @foreach (var provider in customProviders ?? [])
+            @* A custom connection either names the custom provider whose middle man answers the permission
+               questions, or holds a middle man's address and token itself for content only. *@
+            <div class="col-12">
+                <ProviderField @ref="customProviderField" Spec="CustomSourceFieldSpecs.ConnectionProvider" Value="@CustomProviderChoice"
+                               ValueChanged="SelectCustomProvider" Options="@CustomProviderOptions" Disabled="@(!isNew)"
+                               Error="@(customField == "provider" ? customError : null)">
+                    <HelpContent>
+                        @if (form.CustomContentOnly)
                         {
-                            <option value="@provider.Id">@provider.Name (@provider.BaseUrl)</option>
+                            <text>Without a provider, everyone who can search this connection's sources in Connapse sees every document in them, even ones they could not open in the original system.</text>
                         }
-                    </select>
-                    <div id="custom-provider-help" class="form-text">
-                        Custom sources on this connection are searched with this provider's live permission check.
-                        Each source still enters its own token.
-                    </div>
-                }
+                        else if (customProviders is { Count: 0 })
+                        {
+                            <text>No custom providers yet: <a href="/admin/providers/custom/new">add one</a> for permission checks.</text>
+                        }
+                    </HelpContent>
+                </ProviderField>
             </div>
+            @if (form.CustomContentOnly)
+            {
+                <div class="col-12">
+                    <ProviderField @ref="customUrlField" Spec="CustomSourceFieldSpecs.ConnectionBaseUrl" Value="@form.CustomBaseUrl"
+                                   ValueChanged="CustomBaseUrlChanged" Disabled="@CustomAddressLocked"
+                                   Error="@(customField == "baseUrl" ? customError : null)">
+                        <ErrorContent><a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a></ErrorContent>
+                        <HelpContent>
+                            @if (CustomAddressLocked)
+                            {
+                                <text>Sources read this address, so it cannot change. Create a new connection for another source server.</text>
+                            }
+                        </HelpContent>
+                    </ProviderField>
+                    <PlainHttpWarning Id="custom-connection-plain-http" BaseUrl="@form.CustomBaseUrl" />
+                </div>
+                <div class="col-12">
+                    <ProviderField @ref="customTokenField" Spec="CustomSourceFieldSpecs.ConnectionToken" Value="@form.CustomToken"
+                                   ErrorContent="@CustomTroubleshootingLink"
+                                   ValueChanged="v => form.CustomToken = v" HasStoredValue="@(!isNew && editing?.HasSecret == true)"
+                                   Error="@(customField == "secret" ? customError : null)" />
+                </div>
+            }
         }
         else if (form.Provider == ConnectionProvider.GitHub)
         {
@@ -1335,7 +1407,7 @@
         {
         <div class="col-12 mt-3">
             @* One primary action at a time: while a site's credential is being replaced, that is it. *@
-            <button id="connection-save" class="btn @(atlassianReplacing ? "btn-outline-secondary" : "btn-primary") me-2" @onclick="Save" disabled="@saving">
+            <button id="connection-save" class="btn @(atlassianReplacing ? "btn-outline-secondary" : "btn-primary") me-2" @onclick="Save" disabled="@(saving || testing)">
                 @if (saving)
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
@@ -1343,9 +1415,9 @@
                 <span>@(isNew ? "Create connection" : form.Provider == ConnectionProvider.Atlassian ? "Save name" : "Save changes")</span>
             </button>
             <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
-            @if (form.IsCloudProvider || form.Provider is ConnectionProvider.Sftp or ConnectionProvider.GitHub)
+            @if (form.IsCloudProvider || form.Provider is ConnectionProvider.Sftp or ConnectionProvider.GitHub or ConnectionProvider.Custom)
             {
-                <button id="connection-test" class="btn btn-outline-secondary" @onclick="Test" disabled="@testing">
+                <button id="connection-test" class="btn btn-outline-secondary" @onclick="Test" disabled="@(testing || saving)">
                     @if (testing)
                     {
                         <span class="spinner-border spinner-border-sm me-1"></span>
@@ -1571,6 +1643,137 @@
     /// <summary>The custom providers a Custom connection may name.</summary>
     private IReadOnlyList<CustomProvider>? customProviders;
 
+    private const string NoCustomProvider = "none";
+
+    private string CustomProviderChoice =>
+        form.CustomContentOnly ? NoCustomProvider : form.CustomProviderId?.ToString() ?? "";
+
+    private IReadOnlyList<KeyValuePair<string, string>> CustomProviderOptions =>
+    [
+        new("", "Choose"),
+        new(NoCustomProvider, "No provider (content only)"),
+        .. (customProviders ?? []).Select(p => new KeyValuePair<string, string>(p.Id.ToString(), $"{p.Name} ({p.BaseUrl})")),
+    ];
+
+    private RenderFragment CustomTroubleshootingLink => @<a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>;
+
+    private ProviderField? customUrlField;
+    private ProviderField? customTokenField;
+    private ProviderField? customProviderField;
+
+    /// <summary>Moves focus to the custom field a check refused.</summary>
+    private async Task FocusCustomFieldAsync()
+    {
+        StateHasChanged();
+        try
+        {
+            if (customField == "provider" && customProviderField is not null) await customProviderField.FocusAsync();
+            else if (customField == "baseUrl" && customUrlField is not null) await customUrlField.FocusAsync();
+            else if (customField == "secret" && customTokenField is not null) await customTokenField.FocusAsync();
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException) { } // prerender or a closed circuit
+    }
+
+    /// <summary>The name last filled in for the admin; replaced while the field still holds it.</summary>
+    private string? customAutoName;
+
+    private void FillCustomName(string? name)
+    {
+        if (!isNew || string.IsNullOrWhiteSpace(name)) return;
+        if (string.IsNullOrWhiteSpace(form.Name) || form.Name == customAutoName)
+            form.Name = customAutoName = name;
+    }
+
+    private void CustomBaseUrlChanged(string? value)
+    {
+        form.CustomBaseUrl = value;
+        if (Uri.TryCreate(value?.Trim(), UriKind.Absolute, out Uri? address) && address.Host.Length > 0)
+            FillCustomName(address.Host);
+    }
+
+    private void SelectCustomProvider(string? choice)
+    {
+        if (Guid.TryParse(choice, out Guid chosen))
+            FillCustomName(customProviders?.FirstOrDefault(p => p.Id == chosen)?.Name);
+        form.CustomContentOnly = choice == NoCustomProvider;
+        form.CustomProviderId = Guid.TryParse(choice, out Guid id) ? id : null;
+        (customError, customField) = (null, null);
+    }
+
+    /// <summary>A content-only connection's address is what its sources read, so it is fixed while any exist.</summary>
+    private bool CustomAddressLocked => !isNew && editing is { SourceCount: > 0 };
+
+    // What checking the middle man refused, shown under the field it belongs to.
+    private string? customError;
+    private string? customField;
+
+    /// <summary>
+    /// Checks a content-only custom connection's middle man with the address and token about to be saved (the
+    /// stored token when none was typed), and keeps the address as normalised. Null when it may be saved.
+    /// </summary>
+    private async Task<string?> CheckCustomMiddleManAsync()
+    {
+        (customError, customField) = (null, null);
+        string? stored = CustomConnectionConfig.BaseUrlOf(editing?.ConfigJson);
+        bool typedToken = !string.IsNullOrWhiteSpace(form.CustomToken);
+
+        // The stored token is only ever sent to the stored address: a new address needs its token typed, or
+        // anyone who can edit the connection could have the stored token sent to a server of their choosing.
+        if (!typedToken && !isNew && !CustomSourceEndpoint.SameAddress(form.CustomBaseUrl, stored))
+        {
+            (customError, customField) = ($"Enter the token for this address. The saved token is only sent to {stored}.", "secret");
+            await AuditCustomCheckAsync(passed: false, "token", checkedUrl: null);
+            return customError;
+        }
+
+        string? token = typedToken ? form.CustomToken
+            : !isNew && editing is { HasSecret: true } ? await ConnectionStore.GetSecretAsync(editing.Id)
+            : null;
+
+        CustomSourceProbe probe = await CustomSetup.ProbeAsync(form.CustomBaseUrl, token, CancellationToken.None);
+        if (probe.Error is not null)
+        {
+            (customError, customField) = (probe.Error, probe.Field);
+            await AuditCustomCheckAsync(passed: false, probe.Field == "secret" ? "token" : "endpoint", probe.BaseUrl);
+            return probe.Error;
+        }
+        customScopeCount = probe.Scopes.Count;
+
+        if (CustomAddressLocked && !string.Equals(probe.BaseUrl, stored, StringComparison.Ordinal))
+        {
+            (customError, customField) = ("Sources read this address, so it cannot change.", "baseUrl");
+            return customError;
+        }
+
+        form.CustomBaseUrl = probe.BaseUrl;
+        await AuditCustomCheckAsync(passed: true, "scopes", probe.BaseUrl);
+        return null;
+    }
+
+    private int customScopeCount;
+
+    /// <summary>
+    /// Audits a custom connection check with the step it reached, so setup drop-off can be measured. The address is
+    /// only ever one that passed normalisation: the raw text typed could hold a credential or a pasted token.
+    /// </summary>
+    private Task AuditCustomCheckAsync(bool passed, string step, string? checkedUrl) =>
+        AuditLogger.LogAsync(passed ? "connection.test_verified" : "connection.test_step_failed", "connection",
+            isNew ? null : editing?.Id.ToString(),
+            new { Provider = nameof(ConnectionProvider.Custom), BaseUrl = checkedUrl, Step = step });
+
+    /// <summary>
+    /// The custom fields' problems, each shown beside its field rather than above the form. Null when there are none.
+    /// </summary>
+    private (string Field, string Message)? CustomFieldProblem() =>
+        form.Provider != ConnectionProvider.Custom ? null
+        : !form.CustomContentOnly && form.CustomProviderId is null
+            ? ("provider", "Choose a custom provider, or No provider (content only).")
+        : form.CustomContentOnly && string.IsNullOrWhiteSpace(form.CustomBaseUrl)
+            ? ("baseUrl", "Enter the source server's base URL.")
+        : form.CustomContentOnly && isNew && string.IsNullOrWhiteSpace(form.CustomToken)
+            ? ("secret", "Enter the token the source server expects.")
+        : null;
+
     private string CustomProviderName(Connection connection) =>
         CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } id
         && customProviders?.FirstOrDefault(p => p.Id == id) is { } provider
@@ -1733,6 +1936,7 @@
         {
             "atlassian" or "confluence" => ConnectionForm.ConfluenceSiteChoice,
             "jira" => ConnectionForm.JiraSiteChoice,
+            "custom" => nameof(ConnectionProvider.Custom),
             _ => null,
         };
         if (choice is null)
@@ -1740,6 +1944,9 @@
 
         await StartCreate();
         form.ProviderChoice = choice;
+        // From a custom provider just saved: the connection names it.
+        if (choice == nameof(ConnectionProvider.Custom) && query.TryGetValue("provider", out var provider))
+            SelectCustomProvider(provider.ToString());
     }
 
     /// <summary>Opened from a source that needs a permission the site's credential lacks.</summary>
@@ -2630,6 +2837,22 @@
         statusMessage = null;
         nameError = null;
 
+        if (form.Provider == ConnectionProvider.Custom)
+        {
+            (customError, customField) = (null, null);
+            if (string.IsNullOrWhiteSpace(form.Name))
+            {
+                await RefuseNameAsync("Enter a name for this connection.");
+                return;
+            }
+            if (CustomFieldProblem() is { } customProblem)
+            {
+                (customField, customError) = customProblem;
+                await FocusCustomFieldAsync();
+                return;
+            }
+        }
+
         if (form.Validate(isNew) is { } problem)
         {
             Fail(problem);
@@ -2676,6 +2899,15 @@
         saving = true;
         try
         {
+            // Checked before anything is stored: a token the middle man refuses is never saved. The refusal is
+            // shown beside its field, so it is not repeated above the form.
+            if (form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
+                && await CheckCustomMiddleManAsync() is not null)
+            {
+                await FocusCustomFieldAsync();
+                return;
+            }
+
             // Applied to the form itself, not just on the way to the store, so the operator ends
             // up looking at the address their connection actually holds. Saving what was typed
             // while testing something else would make the test meaningless: it would pass here
@@ -2711,6 +2943,7 @@
                 ReturnFocusToList(created.Id);
                 await AuditLogger.LogAsync("connection.created", "connection", created.Id.ToString(),
                     new { created.Name, Provider = created.Provider.ToString() });
+                await RecordCustomCheckAsync(created.Id);
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
                 statusLink = (created.Provider == ConnectionProvider.GitHub ? "Add a repository" : "Add a source", $"/sources?new={created.Id}");
             }
@@ -2744,6 +2977,10 @@
                     return;
                 }
 
+                if (form.Provider == ConnectionProvider.Custom && secret is not null)
+                    await AuditLogger.LogAsync("connection.credentials_replaced", "connection", updated.Id.ToString(),
+                        new { updated.Name });
+                await RecordCustomCheckAsync(updated.Id);
                 Succeed($"Connection '{form.Name.Trim()}' saved.{HostRewriteSuffix()}");
                 ReturnFocusToList(updated.Id);
             }
@@ -2761,6 +2998,48 @@
         {
             saving = false;
         }
+    }
+
+    /// <summary>
+    /// Checks a custom connection without saving it: a content-only one against the address and token in the form
+    /// (the stored token, for the stored address), one with a provider against the provider's middle man.
+    /// </summary>
+    private async Task TestCustomAsync()
+    {
+        if (CustomFieldProblem() is { } problem)
+        {
+            (customField, customError) = problem;
+            await FocusCustomFieldAsync();
+            return;
+        }
+
+        if (form.CustomContentOnly)
+        {
+            if (await CheckCustomMiddleManAsync() is not null)
+            {
+                await FocusCustomFieldAsync();
+                return;
+            }
+            testSuccess = true;
+            testMessage = $"Reachable, token accepted, and it offers {customScopeCount} scope{(customScopeCount == 1 ? "" : "s")}. Nothing was saved.";
+            if (!isNew && editing is not null) await RecordCustomCheckAsync(editing.Id);
+            return;
+        }
+
+        Connection draft = new(editing?.Id ?? Guid.Empty, form.Name, ConnectionProvider.Custom,
+            CustomConnectionConfig.ToJson(form.CustomProviderId!.Value), null, DateTime.UtcNow, DateTime.UtcNow);
+        CustomSourceProbe probe = await CustomSetup.ProbeConnectionAsync(draft, CancellationToken.None);
+        testSuccess = probe.Error is null;
+        testMessage = probe.Error ?? $"The provider's source server is reachable, accepts its token, and offers {probe.Scopes.Count} scope{(probe.Scopes.Count == 1 ? "" : "s")}.";
+        await AuditCustomCheckAsync(testSuccess, testSuccess ? "scopes" : "provider", probe.BaseUrl);
+    }
+
+    /// <summary>A content-only custom connection was just checked against its middle man: that is its health.</summary>
+    private async Task RecordCustomCheckAsync(Guid id)
+    {
+        if (form.Provider != ConnectionProvider.Custom || !form.CustomContentOnly) return;
+        await ConnectionStore.RecordHealthAsync(id, new ConnectionHealth(
+            DateTime.UtcNow, Succeeded: true, Step: null, "Reachable, token accepted.", Origin: "test"));
     }
 
     /// <summary>Refuses while sources depend on the connection; otherwise asks before deleting.</summary>
@@ -2868,6 +3147,12 @@
 
         try
         {
+            if (form.Provider == ConnectionProvider.Custom)
+            {
+                await TestCustomAsync();
+                return;
+            }
+
             if (form.Provider == ConnectionProvider.GitHub)
             {
                 if (form.GitHubInstallationId is not { } installationId)

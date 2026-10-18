@@ -50,7 +50,9 @@ public class SourcesSyncStatusTests : IDisposable
         ctx.Services.AddSingleton(NSubstitute.Substitute.For<Connapse.Core.Interfaces.ICustomProviderStore>());
         ctx.Services.AddSingleton(new Connapse.Web.Services.CustomSourceSetup(
             NSubstitute.Substitute.For<IHttpClientFactory>(),
-            NSubstitute.Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.CustomSourceSettings>>()));
+            NSubstitute.Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.CustomSourceSettings>>(),
+            NSubstitute.Substitute.For<Connapse.Core.Interfaces.ICustomProviderStore>(),
+            NSubstitute.Substitute.For<Connapse.Core.Interfaces.IConnectionStore>()));
         ctx.Services.AddSingleton(new AtlassianSiteService(
             http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(),
             new AtlassianTokenSource(http, TimeProvider.System)));
