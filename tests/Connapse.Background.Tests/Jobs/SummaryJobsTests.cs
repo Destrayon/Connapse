@@ -10,6 +10,7 @@ using NSubstitute;
 namespace Connapse.Background.Tests.Jobs;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SummaryJobsTests
 {
     [Fact]

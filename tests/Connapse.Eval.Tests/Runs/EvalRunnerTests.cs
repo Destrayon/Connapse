@@ -12,6 +12,7 @@ using Parquet.Serialization;
 namespace Connapse.Eval.Tests.Runs;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class EvalRunnerTests : IDisposable
 {
     private readonly string _repo = Path.Combine(Path.GetTempPath(), "eval-repo-" + Guid.NewGuid().ToString("N"));

@@ -12,6 +12,7 @@ using static Connapse.Core.Tests.CloudScope.ConfluencePermissionCheckerTests;
 namespace Connapse.Core.Tests.CloudScope;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class AtlassianSearchResultVerifierTests : IDisposable
 {
     private const string Account = "557058:abc";

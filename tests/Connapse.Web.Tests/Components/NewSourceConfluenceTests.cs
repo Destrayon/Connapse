@@ -22,6 +22,7 @@ namespace Connapse.Web.Tests.Components;
 /// <c>ConnectorFactory</c> reads.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class NewSourceConfluenceTests : IDisposable
 {
     private const string CloudId = "11111111-2222-3333-4444-555555555555";

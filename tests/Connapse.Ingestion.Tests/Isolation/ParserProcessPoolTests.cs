@@ -14,6 +14,7 @@ namespace Connapse.Ingestion.Tests.Isolation;
 /// purpose (#624). Each test starts real processes, so they run as integration tests.
 /// </summary>
 [Trait("Category", "Integration")]
+[Trait("Size", "Large")]
 public sealed class ParserProcessPoolTests : IDisposable
 {
     private static readonly string TestHostPath = Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.TestHost.dll");

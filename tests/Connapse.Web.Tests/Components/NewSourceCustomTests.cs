@@ -18,6 +18,7 @@ namespace Connapse.Web.Tests.Components;
 /// and token (or names a provider that does); the source only loads and picks a scope, and holds no token.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class NewSourceCustomTests : IDisposable
 {
     private readonly BunitContext ctx = new();

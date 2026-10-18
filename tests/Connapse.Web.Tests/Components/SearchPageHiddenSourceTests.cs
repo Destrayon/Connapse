@@ -23,6 +23,7 @@ namespace Connapse.Web.Tests.Components;
 /// telling a hidden source apart from an id that does not exist.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SearchPageHiddenSourceTests : IDisposable
 {
     private readonly BunitContext ctx = new();

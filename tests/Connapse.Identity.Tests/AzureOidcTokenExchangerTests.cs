@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 namespace Connapse.Identity.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AzureOidcTokenExchangerTests
 {
     private const string ClientId = "44444444-4444-4444-4444-444444444444";

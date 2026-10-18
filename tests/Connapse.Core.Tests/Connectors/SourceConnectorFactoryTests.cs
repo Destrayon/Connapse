@@ -19,6 +19,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// has to recombine them into the config each connector already understands.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SourceConnectorFactoryTests
 {
     private readonly IConnectorFactory _factory = BuildFactory(new SourceSecuritySettings());

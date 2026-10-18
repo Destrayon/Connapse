@@ -17,6 +17,7 @@ namespace Connapse.Core.Tests.Settings;
 /// </para>
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ConnectionFormTests
 {
     private static Connection Stored(ConnectionProvider provider, string configJson, bool hasSecret = false) => new(

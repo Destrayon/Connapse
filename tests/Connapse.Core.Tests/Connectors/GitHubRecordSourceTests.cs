@@ -12,6 +12,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// The issues-and-pull-requests kind of the GitHub connector, against an in-memory GitHub API.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubRecordSourceTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "gh-records-" + Guid.NewGuid().ToString("N"));

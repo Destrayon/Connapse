@@ -5,6 +5,7 @@ using FluentAssertions;
 namespace Connapse.Ingestion.Tests.Utilities;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class PragmaticSentenceSegmenterTests
 {
     private readonly ISentenceSegmenter _segmenter = new PragmaticSentenceSegmenter();

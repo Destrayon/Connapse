@@ -17,6 +17,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// and the visibility check that stops a repository gone private from being read at all.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubCredentialPoolTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "gh-pool-" + Guid.NewGuid().ToString("N"));

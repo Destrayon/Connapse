@@ -13,6 +13,7 @@ namespace Connapse.Web.Tests.Components;
 
 /// <summary>The custom provider page: check the middle man in two steps, then save.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class CustomProviderPageTests : IDisposable
 {
     private readonly BunitContext ctx = new();

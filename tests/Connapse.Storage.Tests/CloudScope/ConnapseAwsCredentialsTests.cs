@@ -14,6 +14,7 @@ using Xunit;
 namespace Connapse.Storage.Tests.CloudScope;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ConnapseAwsCredentialsTests
 {
     [Fact]
