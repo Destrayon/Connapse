@@ -26,7 +26,7 @@ public class FixedDelayTests
     }
 
     [Fact]
-    public void FixedDelays_CountsSleepsButNotPollingOrHangSimulation()
+    public void FixedDelays_CountsSleepsAndPacingButNotPollingOrHangSimulation()
     {
         const string source = """
             class C
@@ -38,7 +38,9 @@ public class FixedDelayTests
                     await Task.Delay(500, CancellationToken.None);          // fixed: the token can't cancel
                     await Task.Delay(250, ct);                              // fixed: a finite wait, cancellable or not
                     while (!done) { await Task.Delay(200); }                // polling
-                    for (int i = 0; i < 3; i++) Thread.Sleep(10);           // polling
+                    for (int i = 0; i < 3; i++) Thread.Sleep(10);           // fixed: pacing, not waiting for anything
+                    for (int i = 0; i < 50; i++) { if (Ready()) return; await Task.Delay(100); } // polling
+                    for (int i = 0; i < 20 && !Ready(); i++) await Task.Delay(50);            // polling
                     while (true)
                     {
                         if (Ready()) { await Task.Delay(500); return; }     // fixed: after the condition succeeded
@@ -53,8 +55,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(6);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 5", "f: 1"]);
+        delays.Should().HaveCount(7);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 6", "f: 1"]);
     }
 
     /// <summary>
@@ -80,7 +82,8 @@ public class FixedDelayTests
     /// </summary>
     private static bool IsPolling(SyntaxNode call)
     {
-        if (!InsideLoop(call))
+        var loop = EnclosingLoop(call);
+        if (loop is null || !WaitsOnACondition(loop))
             return false;
         var statement = call.Ancestors().OfType<StatementSyntax>().FirstOrDefault();
         if (statement?.Parent is BlockSyntax block)
@@ -92,16 +95,41 @@ public class FixedDelayTests
         return true;
     }
 
-    private static bool InsideLoop(SyntaxNode node)
+    private static StatementSyntax? EnclosingLoop(SyntaxNode node)
     {
         for (var n = node.Parent; n is not null; n = n.Parent)
         {
             if (n is WhileStatementSyntax or ForStatementSyntax or ForEachStatementSyntax or DoStatementSyntax)
-                return true;
+                return (StatementSyntax)n;
             if (n is MemberDeclarationSyntax or LocalFunctionStatementSyntax)
-                return false;
+                return null;
         }
-        return false;
+        return null;
+    }
+
+    /// <summary>
+    /// Polling means the loop can end on a condition: a while or do with a real condition, or a body
+    /// that leaves (return, break, throw) under an if or switch. A for or foreach that only counts,
+    /// sleeping each pass, is pacing: a fixed wait multiplied, not a wait for anything.
+    /// </summary>
+    private static bool WaitsOnACondition(StatementSyntax loop)
+    {
+        var condition = loop switch
+        {
+            WhileStatementSyntax w => w.Condition,
+            DoStatementSyntax d => d.Condition,
+            _ => null,
+        };
+        if (condition is not null && !condition.IsKind(SyntaxKind.TrueLiteralExpression))
+            return true;
+        // for (i = 0; i < 100 && !Ready(); i++): the condition itself waits on something besides the count.
+        if (loop is ForStatementSyntax { Condition: { } forCondition }
+            && forCondition.DescendantNodesAndSelf().Any(n => n is InvocationExpressionSyntax
+                || n.IsKind(SyntaxKind.LogicalAndExpression) || n.IsKind(SyntaxKind.LogicalOrExpression)))
+            return true;
+        return loop.DescendantNodes().OfType<StatementSyntax>()
+            .Where(st => st is IfStatementSyntax or SwitchStatementSyntax)
+            .Any(st => st.DescendantNodes().Any(x => x is ReturnStatementSyntax or BreakStatementSyntax or ThrowStatementSyntax));
     }
 
     /// <summary>The method, local function, property or field a delay sits in, so entries don't move with line numbers.</summary>

@@ -11,6 +11,6 @@
   "tests/Connapse.Integration.Tests/ReindexIntegrationTests.cs: Reindex_UnchangedDocument_SkipsReprocessing: 1",
   "tests/Connapse.Integration.Tests/ReindexIntegrationTests.cs: WaitForIngestionToCompleteInContainer: 1",
   "tests/Connapse.Integration.Tests/SftpServerFixture.cs: RegenerateHostKeysAsync: 1",
-  "tests/Connapse.ParserHost.TestHost/TestHostProgram.cs: Main: 1",
+  "tests/Connapse.ParserHost.TestHost/TestHostProgram.cs: Main: 2",
   "tests/Connapse.Web.Tests/Components/NewSourceConfluenceTests.cs: Dialog_SwitchingSitesWhileTheFirstListIsLoading_NeverOffersTheFirstSitesSpaces: 1"
 ]
