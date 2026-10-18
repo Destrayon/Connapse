@@ -31,7 +31,8 @@ public static partial class SideEffects
         Func<Task<string>> act,
         Func<IServiceProvider, Task<StateProjection>> project,
         IReadOnlyDictionary<string, string>? placeholders = null,
-        IReadOnlyCollection<string>? knownIds = null)
+        IReadOnlyCollection<string>? knownIds = null,
+        IReadOnlyCollection<string>? responseIds = null)
     {
         var before = await BoundaryAsync(fixture);
         string result = await act();
@@ -49,24 +50,26 @@ public static partial class SideEffects
         var jobs = await JobsAsync(scope.ServiceProvider, ids, before);
 
         return new Outcome(
-            Normalize(CheckReturnedId(result, ids), tokens),
+            Normalize(CheckReturnedId(result, projection.ResourceIds.Concat(responseIds ?? []).ToList()), tokens),
             projection.State.Select(s => Normalize(s, tokens)).ToList(),
             audit.Select(s => Normalize(s, tokens)).ToList(),
             jobs.Select(s => Normalize(s, tokens)).ToList());
     }
 
     /// <summary>
-    /// "ok id=X" becomes "ok" when X is a resource the action touched (the one it created, deleted
-    /// or changed), and "ok wrong-id=X" when it isn't. Surfaces differ in whether a success names an
+    /// "ok id=X" becomes "ok" when X is an id the response may name, and "ok wrong-id=X" when it
+    /// isn't. The ids it may name are the projection's (the resource created or changed) and the
+    /// caller's responseIds (a deleted one), never the wider set used to find audit rows and jobs,
+    /// so an upload that answers with its container's id instead of the document's is caught. Surfaces differ in whether a success names an
     /// id at all (REST's 204, the Home page's closed dialog), so only a wrong one is a difference.
     /// </summary>
-    private static string CheckReturnedId(string result, List<string> ids)
+    private static string CheckReturnedId(string result, List<string> valid)
     {
         const string prefix = "ok id=";
         if (!result.StartsWith(prefix, StringComparison.Ordinal))
             return result;
         string id = result[prefix.Length..].Trim('"');
-        return ids.Contains(id, StringComparer.OrdinalIgnoreCase) ? "ok" : $"ok wrong-id={id}";
+        return valid.Contains(id, StringComparer.OrdinalIgnoreCase) ? "ok" : $"ok wrong-id={id}";
     }
 
     /// <summary>Documents of any container among the ids, oldest first, so their tokens are stable.</summary>

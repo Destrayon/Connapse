@@ -173,6 +173,33 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Capture_FlagsAnUploadThatNamesItsContainerInsteadOfTheDocument()
+    {
+        string name = UniqueName();
+        var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
+        created.EnsureSuccessStatusCode();
+        string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            async () =>
+            {
+                using var form = new MultipartFormDataContent();
+                form.Add(new ByteArrayContent("doc"u8.ToArray()), "files", "doc.txt");
+                form.Add(new StringContent("/"), "path");
+                await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form);
+                return $"ok id={containerId}";
+            },
+            async sp =>
+            {
+                var docs = await sp.GetRequiredService<IDocumentStore>().ListAsync(Guid.Parse(containerId));
+                return new StateProjection(docs.Select(d => $"document {d.FileName}").ToList(), docs.Select(d => d.Id).ToList());
+            },
+            knownIds: [containerId]);
+
+        outcome.Result.Should().Be("ok wrong-id={id2}", "the container is touched, but it isn't what an upload answers with");
+    }
+
+    [Fact]
     public async Task RestAndMcp_DeleteNonEmptyContainer_ReportTheirErrors()
     {
         string name = UniqueName();
