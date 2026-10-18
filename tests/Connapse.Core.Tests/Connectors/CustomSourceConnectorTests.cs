@@ -32,6 +32,39 @@ public class CustomSourceConnectorTests
     }
 
     [Fact]
+    public async Task GetChanges_ListingWithoutItems_FailsRatherThanReadingAsEmpty()
+    {
+        _remote.Put("a", "README.md", "# Readme");
+        _remote.OmitItems = true;
+
+        Func<Task> act = () => Connector().GetChangesAsync(null);
+
+        await act.Should().ThrowAsync<CustomSourceException>().WithMessage("*without an items array*");
+    }
+
+    [Fact]
+    public async Task GetChanges_ChangeFeedWithoutItems_FailsRatherThanAdvancingTheCursor()
+    {
+        _remote.Put("a", "README.md", "# Readme");
+        _remote.OmitItems = true;
+
+        Func<Task> act = () => Connector().GetChangesAsync("c0");
+
+        await act.Should().ThrowAsync<CustomSourceException>();
+    }
+
+    [Fact]
+    public async Task GetChanges_ChangeThatIsNeitherUpsertNorDelete_FailsRatherThanDeleting()
+    {
+        _remote.Put("a", "README.md", "# Readme");
+        _remote.ChangeOp = "archive";
+
+        Func<Task> act = () => Connector().GetChangesAsync("c0");
+
+        await act.Should().ThrowAsync<CustomSourceException>().WithMessage("*neither upsert nor delete*");
+    }
+
+    [Fact]
     public async Task GetChanges_FileWithoutExtension_GetsOneFromItsContentType()
     {
         _remote.Put("C123/1697.0001", "general/deploy-freeze", "# Freeze");

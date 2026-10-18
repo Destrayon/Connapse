@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Tests.Connectors;
 using Connapse.Web.Services;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,25 +57,43 @@ public class CustomSourceConnectionMigrationTests(SharedWebAppFixture fixture)
         (await connections.ListAsync(take: int.MaxValue)).Should().HaveCount(connectionCount);
     }
 
-    [Fact]
-    public async Task Run_SourceAlreadyOnAProviderConnection_LosesTheTokenItNoLongerReadsWith()
+    private async Task<(ISourceStore Sources, Source Source, IServiceScope Scope)> SourceOnAProviderConnectionAsync(string providerToken)
     {
-        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        IServiceScope scope = fixture.Factory.Services.CreateScope();
         ISourceStore sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
-        string baseUrl = $"https://p{Guid.NewGuid():N}"[..20] + ".acme.test";
         CustomProvider provider = await scope.ServiceProvider.GetRequiredService<ICustomProviderStore>().CreateAsync(
-            new SaveCustomProviderRequest($"p-{Guid.NewGuid():N}"[..20], baseUrl, "provider-token", 100, true, null));
+            new SaveCustomProviderRequest($"p-{Guid.NewGuid():N}"[..20], FakeMiddleMan.BaseUrl, providerToken, 100, true, null));
         Connection connection = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
             new CreateConnectionRequest($"c-{Guid.NewGuid():N}"[..20], ConnectionProvider.Custom, CustomConnectionConfig.ToJson(provider.Id)), null);
         Source source = await sources.CreateAsync(new CreateSourceRequest($"old-{Guid.NewGuid():N}"[..20], connection.Id,
-            new CustomSourceScope(baseUrl, "eng").ToJson(), Secret: "the-sources-own-token"));
+            new CustomSourceScope(FakeMiddleMan.BaseUrl, FakeMiddleMan.Scope).ToJson(), Secret: "the-sources-own-token"));
         source.HasSecret.Should().BeTrue("sources on custom connections held their own token before this change");
+        return (sources, source, scope);
+    }
 
-        await scope.ServiceProvider.GetRequiredService<CustomSourceConnectionMigration>().RunAsync();
+    [Fact]
+    public async Task Run_SourceOnAProviderConnectionWhoseTokenReadsItsScope_LosesItsOwnToken()
+    {
+        var (sources, source, scope) = await SourceOnAProviderConnectionAsync(FakeMiddleMan.Token);
+        using (scope)
+        {
+            await scope.ServiceProvider.GetRequiredService<CustomSourceConnectionMigration>().RunAsync();
 
-        Source after = (await sources.GetAsync(source.Id))!;
-        after.HasSecret.Should().BeFalse();
-        after.ConnectionId.Should().Be(connection.Id);
+            (await sources.GetAsync(source.Id))!.HasSecret.Should().BeFalse();
+        }
+    }
+
+    [Fact]
+    public async Task Run_SourceOnAProviderConnectionWhoseTokenIsRefused_KeepsItsOwnToken()
+    {
+        var (sources, source, scope) = await SourceOnAProviderConnectionAsync("a-token-the-server-refuses");
+        using (scope)
+        {
+            await scope.ServiceProvider.GetRequiredService<CustomSourceConnectionMigration>().RunAsync();
+
+            (await sources.GetAsync(source.Id))!.HasSecret.Should().BeTrue("nothing is removed until a replacement is confirmed");
+            (await sources.GetSecretAsync(source.Id)).Should().Be("the-sources-own-token");
+        }
     }
 
     [Fact]
