@@ -25,6 +25,27 @@ public partial class McpErrorKindTests
         messages.Where(t => Surfaces.ErrorKind(t) == "error:unknown").Should().BeEmpty();
     }
 
+    /// <summary>
+    /// The one message MCP passes through from a service, upload_file's "Error: {result.Error}",
+    /// carries UploadService's validation messages, so those are read and checked too. A second
+    /// pass-through fails the count, so its source gets the same coverage before it ships.
+    /// </summary>
+    [Fact]
+    public void ErrorKind_MapsEveryUploadValidationMessageMcpPassesThrough()
+    {
+        string tools = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Mcp", "McpTools.cs"));
+        PassThrough().Matches(tools).Select(m => m.Value).Should().Equal(["$\"Error: {result.Error}\""]);
+
+        string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"));
+        var messages = ReturnedMessage().Matches(upload)
+            .Select(m => "Error: " + Hole().Replace(m.Groups["text"].Value, "x"))
+            .Distinct()
+            .ToList();
+
+        messages.Should().Contain("Error: Path traversal is not allowed.");
+        messages.Where(t => Surfaces.ErrorKind(t) == "error:unknown").Should().BeEmpty();
+    }
+
     private static string RepoRoot()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
@@ -35,6 +56,12 @@ public partial class McpErrorKindTests
 
     [GeneratedRegex(@"\$?""(?<text>Error: [^""]*)""")]
     private static partial Regex ErrorLiteral();
+
+    [GeneratedRegex(@"\$""Error: \{[^""]*""")]
+    private static partial Regex PassThrough();
+
+    [GeneratedRegex(@"return \$?""(?<text>[A-Z][^""]*)"";")]
+    private static partial Regex ReturnedMessage();
 
     [GeneratedRegex(@"\{[^}]*\}")]
     private static partial Regex Hole();
