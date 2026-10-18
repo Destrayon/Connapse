@@ -788,6 +788,101 @@ public class SourceConnectorFactoryTests
         act.Should().Throw<ArgumentException>();
     }
 
+    private static Source MakeCustomSource(string baseUrl, string scopeId = "eng") =>
+        MakeSource(Guid.NewGuid(), new CustomSourceScope(baseUrl, scopeId).ToJson()) with
+        {
+            ConnectionId = null,
+            Provider = ConnectionProvider.Custom,
+        };
+
+    [Fact]
+    public void Create_ContentOnlyCustomSource_BuildsACustomConnector()
+    {
+        IConnector connector = _factory.Create(MakeCustomSource("https://bridge.acme.test"), secret: "token");
+
+        connector.Should().BeOfType<Connapse.Storage.Connectors.Custom.CustomSourceConnector>();
+    }
+
+    [Fact]
+    public void Create_SourceOnACustomConnectionWithAProvider_ChecksPermissionsForThatSource()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ToJson(Guid.NewGuid()));
+        Source source = MakeCustomSource("https://bridge.acme.test") with { ConnectionId = connection.Id, Provider = null };
+
+        var connector = (Connapse.Storage.Connectors.Custom.CustomSourceConnector)_factory.Create(source, connection, "token");
+
+        connector.PermissionsFor.Should().Be(source.Id);
+    }
+
+    [Fact]
+    public void Create_SourceOnACustomConnectionWithoutAProvider_ReadsContentOnly()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"));
+        Source source = MakeCustomSource("https://bridge.acme.test") with { ConnectionId = connection.Id, Provider = null };
+
+        var connector = (Connapse.Storage.Connectors.Custom.CustomSourceConnector)_factory.Create(source, connection, "token");
+
+        connector.PermissionsFor.Should().BeNull("a connection without a provider checks nothing per user");
+    }
+
+    [Fact]
+    public void Create_SourceReadingAnotherMiddleManThanItsConnection_IsRefused()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://bridge.acme.test"));
+        Source source = MakeCustomSource("https://other.acme.test") with { ConnectionId = connection.Id, Provider = null };
+
+        Action act = () => _factory.Create(source, connection, "token");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*its connection's source server*");
+    }
+
+    [Fact]
+    public void Create_CustomSourceOverPlainHttpToAHostNotAllowed_IsRefused()
+    {
+        Action act = () => _factory.Create(MakeCustomSource("http://bridge.acme.test"), secret: "token");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*HTTPS*");
+    }
+
+    [Fact]
+    public void Create_CustomSourceWithoutItsToken_IsRefused()
+    {
+        Action act = () => _factory.Create(MakeCustomSource("https://bridge.acme.test"));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*token*");
+    }
+
+    [Fact]
+    public void Create_CustomSourceWithAMalformedScope_IsRefused()
+    {
+        Source source = MakeCustomSource("https://bridge.acme.test") with { ScopeJson = """{"baseUrl":"https://x.test"}""" };
+
+        Action act = () => _factory.Create(source, secret: "token");
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Create_CustomSourceOnACustomConnection_BuildsTheSameConnectorWithPermissions()
+    {
+        Connection connection = MakeConnection(ConnectionProvider.Custom, CustomConnectionConfig.ToJson(Guid.NewGuid()));
+        Source source = MakeSource(connection.Id, new CustomSourceScope("https://bridge.acme.test", "eng").ToJson());
+
+        IConnector connector = _factory.Create(source, connection, secret: "token");
+
+        connector.Should().BeOfType<Connapse.Storage.Connectors.Custom.CustomSourceConnector>()
+            .Which.PermissionsFor.Should().Be(source.Id);
+    }
+
+    [Fact]
+    public void Create_ContentOnlyCustomSource_HasNoPermissions()
+    {
+        IConnector connector = _factory.Create(MakeCustomSource("https://bridge.acme.test"), secret: "token");
+
+        connector.Should().BeOfType<Connapse.Storage.Connectors.Custom.CustomSourceConnector>()
+            .Which.PermissionsFor.Should().BeNull();
+    }
+
     private const string AtlassianCloudId = "11111111-2222-3333-4444-555555555555";
 
     private static readonly Connection AtlassianConnection = MakeConnection(

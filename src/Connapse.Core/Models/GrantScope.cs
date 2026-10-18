@@ -3,7 +3,11 @@ namespace Connapse.Core;
 /// <summary>One rule from a cloud permission grant, and how to compare a document URI to it.</summary>
 /// <param name="Value">The URI, or URI prefix, the grant permits.</param>
 /// <param name="IsExact">True when only this exact URI is permitted, false when anything beneath it is.</param>
-public readonly record struct GrantMatch(string Value, bool IsExact);
+/// <param name="AccessKeys">
+/// A connected custom source's grant: the keys the user holds in it. When set, a document under the prefix
+/// matches only if its <c>access_keys</c> overlap these; null means the prefix alone decides.
+/// </param>
+public readonly record struct GrantMatch(string Value, bool IsExact, IReadOnlyList<string>? AccessKeys = null);
 
 /// <summary>
 /// Reads the scope string an S3 access grant reports.

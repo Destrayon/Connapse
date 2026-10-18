@@ -5,6 +5,7 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.Connectors
 @using Connapse.Storage.Connectors.GitHub
+@using Connapse.Web.Components.Providers
 @using Connapse.Web.Components.Settings
 @using Connapse.Web.Components.Shared
 @using Connapse.Web.Components.Sources
@@ -42,6 +43,10 @@
             @if (form.Attachments is { } guided)
             {
                 <SetupGuideLink Id="atlassian-setup-guide" Href="@guided.SetupGuideUrl" />
+            }
+            else if (connection is { Provider: ConnectionProvider.Custom })
+            {
+                <SetupGuideLink Id="custom-setup-guide" Href="@CustomSourceFieldSpecs.Guide" Name="Custom source setup guide" />
             }
         </div>
 
@@ -89,7 +94,7 @@
                 <h2 class="h6 mb-2">Reads from</h2>
                 <dl class="row small mb-0">
                     <dt class="col-sm-3 fw-normal text-muted">Connection</dt>
-                    <dd class="col-sm-9">@(connection?.Name ?? (source.Provider is { } p ? $"{p} (no connection)" : "(missing connection)"))</dd>
+                    <dd class="col-sm-9">@(connection?.Name ?? (source.Provider is { } p ? $"{(p == ConnectionProvider.Custom ? "Custom source" : p.ToString())} (no connection)" : "(missing connection)"))</dd>
                     <dt class="col-sm-3 fw-normal text-muted">Scope</dt>
                     <dd class="col-sm-9 font-monospace">@(SourceScopeSummary.Describe(source.ScopeJson, SiteHost) ?? "—")</dd>
                 </dl>
@@ -105,6 +110,36 @@
                 </div>
             </div>
         </section>
+
+        @if (connection is { Provider: ConnectionProvider.Custom })
+        {
+            @* A custom source holds no token: it reads with its connection's, which is replaced where it is kept. *@
+            <section class="card mb-3" id="source-token-section">
+                <div class="card-body">
+                    <h2 class="h6 mb-2">Token</h2>
+                    @if (connection.Health is { CredentialRejected: true })
+                    {
+                        <p class="small text-danger fw-semibold mb-2" id="source-token-refused" role="status">
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span>The source server refused this token, so the source is not reading.
+                            <a href="@CustomSourceFieldSpecs.Troubleshooting" target="_blank" rel="noopener">Troubleshooting<span class="visually-hidden"> (opens in a new tab)</span></a>
+                        </p>
+                    }
+                    <p class="small mb-0" id="source-token-where">
+                        <span class="bi-key me-1" aria-hidden="true"></span>
+                        @if (CustomConnectionConfig.ProviderIdOf(connection.ConfigJson) is { } providerId)
+                        {
+                            <text>This source reads with its custom provider's token. When your source server's token changes, replace it on </text>
+                            <a href="/admin/providers/custom/@providerId">the custom provider's page</a><text>.</text>
+                        }
+                        else
+                        {
+                            <text>This source reads with its connection's token. When your source server's token changes, replace it on </text>
+                            <a href="/connections?edit=@connection.Id">@connection.Name</a><text>.</text>
+                        }
+                    </p>
+                </div>
+            </section>
+        }
 
         @if (form.Attachments is { } atlassian)
         {
@@ -242,7 +277,6 @@
     private bool saving;
     private ElementReference nameInput;
     private ElementReference intervalInput;
-
     protected override async Task OnParametersSetAsync()
     {
         try

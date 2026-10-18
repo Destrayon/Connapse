@@ -94,4 +94,17 @@ public class PrivateSourceVisibilityTests
         PrivateSourceVisibility.IsSearchableWhenHidden(jira).Should().BeTrue(
             "every Jira hit is checked per user, so naming the project returns only what Jira allows");
     }
+
+    [Fact]
+    public void ConnectedCustomSource_IsHiddenFromNonAdminsButStaysSearchableById()
+    {
+        Guid customConnection = Guid.NewGuid();
+        Source connected = new(Guid.NewGuid(), "eng", null, customConnection,
+            new CustomSourceScope("https://bridge.acme.test", "eng").ToJson(), DateTime.UtcNow, DateTime.UtcNow);
+        Source contentOnly = connected with { ConnectionId = null, Provider = ConnectionProvider.Custom };
+
+        PrivateSourceVisibility.IsVisible(connected, new HashSet<string>(), new HashSet<Guid> { customConnection }).Should().BeFalse();
+        PrivateSourceVisibility.IsSearchableWhenHidden(connected).Should().BeTrue("every hit is checked live with its provider");
+        PrivateSourceVisibility.IsVisible(contentOnly, new HashSet<string>(), new HashSet<Guid>()).Should().BeTrue();
+    }
 }

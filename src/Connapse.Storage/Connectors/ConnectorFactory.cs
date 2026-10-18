@@ -22,7 +22,8 @@ public class ConnectorFactory(
     Atlassian.AtlassianTokenSource? atlassianTokens = null,
     IOptionsMonitor<AtlassianSourceSettings>? atlassianSettings = null,
     ILoggerFactory? loggerFactory = null,
-    IFileTypeValidator? fileTypes = null) : IConnectorFactory
+    IFileTypeValidator? fileTypes = null,
+    IOptionsMonitor<CustomSourceSettings>? customSourceSettings = null) : IConnectorFactory
 {
     /// <summary>The named client GitHub sources and the GitHub App read the REST API through.</summary>
     public const string GitHubHttpClientName = "GitHub";
@@ -145,11 +146,18 @@ public class ConnectorFactory(
 
             ConnectionProvider.Atlassian => CreateAtlassian(source, scope, connection, secret),
 
+            // The same connector a content-only custom source uses, with its own token; the custom
+            // connection only adds the URIs and keys its documents are checked by.
+            // Only a connection that names a custom provider checks permissions; one without reads content only.
+            ConnectionProvider.Custom => CreateCustomSource(source, secret,
+                permissionsFor: Custom.CustomSourceCredentials.ChecksPermissions(connection) ? source.Id : null,
+                connectionBaseUrl: CustomConnectionConfig.BaseUrlOf(connection.ConfigJson)),
+
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };
     }
 
-    public IConnector Create(Source source)
+    public IConnector Create(Source source, string? secret = null)
     {
         if (source.Provider is null)
             throw new ArgumentException(
@@ -169,9 +177,40 @@ public class ConnectorFactory(
                 + "installation: set the App up on the Providers page, add an installation on the "
                 + "Connections page, and recreate this source on that connection."),
 
+            ConnectionProvider.Custom => CreateCustomSource(source, secret),
+
             _ => throw new NotSupportedException(
                 $"Provider {source.Provider} is not supported for connection-less sources")
         };
+    }
+
+    /// <summary>
+    /// A content-only custom source. The URL rules are checked again here, not only when the source is
+    /// saved, so a tightened <c>CustomSources:AllowedHttpHosts</c> stops an existing source from syncing.
+    /// </summary>
+    private Custom.CustomSourceConnector CreateCustomSource(
+        Source source, string? secret, Guid? permissionsFor = null, string? connectionBaseUrl = null)
+    {
+        CustomSourceScope scope = CustomSourceScope.TryParse(source.ScopeJson)
+            ?? throw new InvalidOperationException(
+                $"Source '{source.Name}' has a scope that does not name a source server URL and scope.");
+
+        // A connection's token is only sent to the middle man the connection names.
+        if (connectionBaseUrl is not null && !CustomSourceEndpoint.SameAddress(scope.BaseUrl, connectionBaseUrl))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' cannot sync: it reads {scope.BaseUrl}, but its connection's source server is {connectionBaseUrl}.");
+
+        IReadOnlyCollection<string> allowedHttpHosts = customSourceSettings?.CurrentValue.AllowedHttpHosts ?? [];
+        if (!CustomSourceEndpoint.TryNormalize(scope.BaseUrl, allowedHttpHosts, out string baseUrl, out string? error))
+            throw new InvalidOperationException($"Source '{source.Name}' cannot sync: {error}");
+
+        if (string.IsNullOrEmpty(secret))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' cannot sync: its connection holds no token. Enter one on the connection or its custom provider.");
+
+        Custom.CustomSourceClient client = new(
+            httpClientFactory.CreateClient(Custom.CustomSourceClient.HttpClientName), baseUrl, secret);
+        return new Custom.CustomSourceConnector(client, scope with { BaseUrl = baseUrl }, permissionsFor);
     }
 
     /// <summary>

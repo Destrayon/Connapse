@@ -22,6 +22,7 @@
 @inject NavigationManager Navigation
 @inject ILogger<ProfileIntegrations> Logger
 @inject Connapse.Core.Interfaces.IAuditLogger AuditLogger
+@inject Connapse.Web.Services.CustomLinkService CustomLinks
 @rendermode InteractiveServer
 
 <PageTitle>Integrations - Connapse</PageTitle>
@@ -412,6 +413,11 @@
 
         <AtlassianIdentityCard Link="atlassianIdentity" SignInAvailable="atlassianSignInAvailable" Busy="isProcessing"
                                OnConnect="ConnectAtlassian" OnDisconnect="DisconnectAtlassianAsync" />
+
+        @foreach (var provider in customProviders)
+        {
+            <CustomProviderLinkCard @key="provider.Id" Provider="provider" UserId="currentUserId" />
+        }
     </div>
 </div>
 
@@ -450,6 +456,7 @@
         ApplyAzureErrorFromQuery();
         ApplyGitHubErrorFromQuery();
         ApplyAtlassianErrorFromQuery();
+        ApplyCustomErrorFromQuery();
 
         await LoadIdentitiesAsync();
     }
@@ -468,6 +475,31 @@
 
         atlassianIdentity = await AtlassianIdentityLinks.GetAsync(currentUserId);
         atlassianSignInAvailable = await ProviderCredentials.GetAtlassianLinkAppAsync() is { SignInEnabled: true };
+        customProviders = await CustomLinks.LinkableAsync(CancellationToken.None);
+    }
+
+    private IReadOnlyList<Connapse.Core.CustomProvider> customProviders = [];
+
+    private void ApplyCustomErrorFromQuery()
+    {
+        var query = QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (query.TryGetValue("linked", out var linked) && linked.ToString() == "custom")
+        {
+            (statusMessage, statusSuccess) = ("Account linked. Content you can read there now appears in your search results.", true);
+            return;
+        }
+
+        if (!query.TryGetValue("error", out var errorValues)) return;
+        string error = errorValues.ToString();
+        if (!error.StartsWith("custom_link_", StringComparison.Ordinal)) return;
+
+        statusMessage = error switch
+        {
+            "custom_link_unavailable" => "Linking is not set up for that provider yet. An administrator generates its link secret under Providers.",
+            "custom_link_rejected" => "Nothing was linked: the sign-in was started by a different Connapse user, took too long, or was already used. Sign in to Connapse as yourself and start again.",
+            _ => "The provider did not complete the link, so nothing was linked. Try again; if it keeps failing, tell an administrator.",
+        };
+        statusSuccess = false;
     }
 
     private Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity? atlassianIdentity;

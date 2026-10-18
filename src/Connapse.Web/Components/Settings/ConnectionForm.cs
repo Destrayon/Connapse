@@ -118,7 +118,19 @@ public sealed record ConnectionForm
     /// <summary>True for a provider whose config this form can rebuild from its own fields.</summary>
     public bool OwnsConfig =>
         Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.Filesystem
-            or ConnectionProvider.Sftp or ConnectionProvider.GitHub;
+            or ConnectionProvider.Sftp or ConnectionProvider.GitHub or ConnectionProvider.Custom;
+
+    /// <summary>Custom only: the custom provider this connection checks permissions with.</summary>
+    public Guid? CustomProviderId { get; set; }
+
+    /// <summary>Custom only: the connection names no provider and holds a middle man itself, for content only.</summary>
+    public bool CustomContentOnly { get; set; }
+
+    /// <summary>Custom without a provider: the middle man's address.</summary>
+    public string? CustomBaseUrl { get; set; }
+
+    /// <summary>Custom without a provider: the middle man's token, or blank to keep the stored one.</summary>
+    public string? CustomToken { get; set; }
 
     /// <summary>GitHub only: the organisation or user the installation is on, for display.</summary>
     public string? GitHubAccount { get; set; }
@@ -236,6 +248,12 @@ public sealed record ConnectionForm
     public static ConnectionForm FromConnection(Connection connection)
     {
         var form = new ConnectionForm { Name = connection.Name, Provider = connection.Provider };
+        if (connection.Provider == ConnectionProvider.Custom)
+        {
+            form.CustomProviderId = CustomConnectionConfig.ProviderIdOf(connection.ConfigJson);
+            form.CustomBaseUrl = CustomConnectionConfig.BaseUrlOf(connection.ConfigJson);
+            form.CustomContentOnly = form.CustomProviderId is null && form.CustomBaseUrl is not null;
+        }
 
         if (!form.OwnsConfig)
             form.unownedConfigJson = connection.ConfigJson;
@@ -353,6 +371,13 @@ public sealed record ConnectionForm
             // One installation of the App. No secret: tokens are minted from the App itself,
             // which lives on the Providers page, the way S3 connections borrow Connapse's AWS
             // identity rather than carrying their own.
+            // Either which custom provider answers the permission questions (its address and token live
+            // on the provider), or, without one, the middle man's address; its token is the secret.
+            case ConnectionProvider.Custom:
+                return CustomContentOnly
+                    ? Blank(CustomBaseUrl) ? "{}" : CustomConnectionConfig.ForMiddleMan(CustomBaseUrl!.Trim())
+                    : CustomProviderId is { } providerId ? CustomConnectionConfig.ToJson(providerId) : "{}";
+
             case ConnectionProvider.GitHub:
                 if (GitHubInstallationId is { } installationId) node["installationId"] = installationId;
                 if (!Blank(GitHubAccount)) node["account"] = GitHubAccount!.Trim();
@@ -428,9 +453,14 @@ public sealed record ConnectionForm
     /// because Connapse does not accept pasted cloud keys; an SSH key for a server you run is a
     /// different thing from an AWS access key, but only if the distinction is enforced rather
     /// than described. Returning null for every other provider is where it is enforced.
+    /// The one other credential is a custom connection's token for a middle man you run, which
+    /// is stored as typed.
     /// </remarks>
     public string? ToSecretJson()
     {
+        if (Provider == ConnectionProvider.Custom)
+            return CustomContentOnly && !Blank(CustomToken) ? CustomToken!.Trim() : null;
+
         if (Provider != ConnectionProvider.Sftp || Blank(PrivateKey))
             return null;
 
@@ -467,6 +497,11 @@ public sealed record ConnectionForm
             ConnectionProvider.Sftp when isNew && Blank(PrivateKey) => "A private key is required.",
 
             ConnectionProvider.GitHub when GitHubInstallationId is not > 0 => "Choose the installation this connection reads through.",
+
+            ConnectionProvider.Custom when !CustomContentOnly && CustomProviderId is null =>
+                "Choose the custom provider this connection checks permissions with, or No provider (content only).",
+            ConnectionProvider.Custom when CustomContentOnly && Blank(CustomBaseUrl) => "Enter the source server's base URL.",
+            ConnectionProvider.Custom when CustomContentOnly && isNew && Blank(CustomToken) => "Enter the token the source server expects.",
 
             _ => null
         };

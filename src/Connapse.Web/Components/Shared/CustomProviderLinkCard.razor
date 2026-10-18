@@ -1,0 +1,221 @@
+@*
+    One custom provider's row on the integrations page. The link lives only in the provider's middle man, so
+    the card asks it live for this user's status every time it renders the page; when the middle man cannot
+    answer, the row says so instead of guessing.
+*@
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.Connectors.Custom
+@using Connapse.Web.Endpoints
+@using Connapse.Web.Services
+@inject CustomLinkService Links
+@inject IAuditLogger AuditLogger
+@inject NavigationManager Navigation
+
+<div class="col-md-6">
+    <div class="card h-100 provider-card @(status?.Linked == true ? "provider-connected" : "")" id="@CardId"
+         style="--provider-color: #6c757d;">
+        <div class="card-body p-4">
+            <div class="d-flex align-items-center mb-3">
+                <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
+                     style="width: 40px; height: 40px; background: rgba(108, 117, 125, 0.1); border: 1px solid rgba(108, 117, 125, 0.25);">
+                    <span class="bi-hdd-network" style="font-size: 1.1rem; color: #6c757d;" aria-hidden="true"></span>
+                </div>
+                <div class="ms-3 flex-grow-1">
+                    <strong>@Provider.Name</strong>
+                </div>
+                @if (status?.Linked == true)
+                {
+                    <span class="badge rounded-pill text-bg-success">
+                        <span class="bi-check-circle-fill me-1" aria-hidden="true"></span>Connected
+                    </span>
+                }
+            </div>
+
+            @if (loading)
+            {
+                <small class="text-muted" data-status="loading">Checking your link…</small>
+            }
+            else if (statusUnknown)
+            {
+                <small class="text-muted d-block" data-status="unknown">
+                    <span class="bi-question-circle me-1" aria-hidden="true"></span>
+                    Status unknown: @Provider.Name did not answer. Try again later.
+                </small>
+            }
+            else if (status?.Linked == true)
+            {
+                <div data-status="linked">
+                    <small class="text-muted d-block">Linked to your account in @Provider.Name</small>
+                    @if (status.DisplayName is { Length: > 0 } displayName)
+                    {
+                        <small class="font-monospace">@displayName</small>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="text-muted small mb-0" data-status="unlinked">
+                    <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>
+                    You sign in at <strong>@Provider.Name</strong>, which receives your Connapse user ID and then tells
+                    Connapse what you can read there. Connapse stores nothing about the link.
+                </p>
+            }
+
+            @if (error is not null)
+            {
+                <div class="text-danger small fw-semibold mt-2" role="alert"><span class="bi-x-circle me-1" aria-hidden="true"></span>@error</div>
+            }
+        </div>
+        @* Mounted once the first status arrives and kept through reloads, so the focused button is never removed. *@
+        @if (status is not null || statusUnknown)
+        {
+            <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                @if (status?.Linked == true)
+                {
+                    @if (confirmUnlink)
+                    {
+                        <p class="small text-muted mb-2">You will stop seeing @Provider.Name content that needs your account.</p>
+                        <div class="d-flex gap-2">
+                            <button @ref="confirmButton" class="btn btn-sm btn-danger" data-action="unlink-confirm" @onclick="UnlinkAsync" disabled="@(busy || loading)">
+                                @if (busy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                }
+                                Disconnect @Provider.Name
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" data-action="unlink-cancel" @onclick="CancelUnlink" disabled="@(busy || loading)">Cancel</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button @ref="unlinkButton" class="btn btn-sm btn-outline-danger" data-action="unlink" @onclick="AskUnlink" disabled="@(busy || loading)">
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span>Disconnect
+                        </button>
+                    }
+                }
+                else if (statusUnknown)
+                {
+                    <button @ref="retryButton" class="btn btn-sm btn-outline-secondary" data-action="retry" @onclick="RetryAsync" disabled="@(busy || loading)">
+                        @if (loading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                        }
+                        Check again
+                    </button>
+                }
+                else if (Provider.LinkUrl is null)
+                {
+                    <p class="small text-muted mb-0" data-status="linking-withdrawn">@Provider.Name no longer offers account linking.</p>
+                }
+                else
+                {
+                    <button @ref="linkButton" class="btn btn-sm btn-primary" data-action="link" @onclick="Link" disabled="@(busy || loading)">
+                        <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>Continue to @Provider.Name sign-in
+                    </button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public CustomProvider Provider { get; set; } = null!;
+    [Parameter, EditorRequired] public Guid UserId { get; set; }
+
+    private CustomLinkStatus? status;
+    private bool loading = true;
+    private bool statusUnknown;
+    private bool confirmUnlink;
+    private ElementReference unlinkButton;
+    private ElementReference confirmButton;
+    private ElementReference retryButton;
+    private ElementReference linkButton;
+
+    /// <summary>Where focus goes after the next render, as the buttons swap.</summary>
+    private enum Focus { None, Confirm, Unlink, Footer }
+    private Focus focus;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        Focus target = focus;
+        focus = Focus.None;
+        try
+        {
+            switch (target)
+            {
+                case Focus.Confirm: await confirmButton.FocusAsync(); break;
+                case Focus.Unlink: await unlinkButton.FocusAsync(); break;
+                // Whichever button the footer now shows.
+                case Focus.Footer when status?.Linked == true: await unlinkButton.FocusAsync(); break;
+                case Focus.Footer when statusUnknown: await retryButton.FocusAsync(); break;
+                case Focus.Footer: await linkButton.FocusAsync(); break;
+            }
+        }
+        catch (JSException)
+        {
+            // The button left the page before focus reached it.
+        }
+    }
+
+    private void AskUnlink() => (confirmUnlink, focus) = (true, Focus.Confirm);
+
+    private void CancelUnlink() => (confirmUnlink, focus) = (false, Focus.Unlink);
+
+    private async Task RetryAsync()
+    {
+        await LoadAsync();
+        focus = Focus.Footer;
+    }
+    private bool busy;
+    private string? error;
+
+    private string CardId => $"custom-link-{Provider.Id}";
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            status = await Links.StatusAsync(Provider.Id, UserId, CancellationToken.None);
+            statusUnknown = false;
+        }
+        catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
+        {
+            status = null;
+            statusUnknown = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private void Link() =>
+        Navigation.NavigateTo($"/api/v1/auth/custom/{Provider.Id}/connect", forceLoad: true);
+
+    private async Task UnlinkAsync()
+    {
+        busy = true;
+        error = null;
+        try
+        {
+            await Links.UnlinkAsync(Provider.Id, UserId, CancellationToken.None);
+            await AuditLogger.LogAsync(CustomLinkEndpoints.UnlinkedEvent, "user", UserId.ToString(), new { ProviderId = Provider.Id });
+            confirmUnlink = false;
+            await LoadAsync();
+            focus = Focus.Footer;
+        }
+        catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
+        {
+            // An exception escaping an event handler would end the circuit.
+            error = $"{Provider.Name} did not remove the link, so you are still linked. Try again later.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

@@ -12,6 +12,21 @@ public interface ISourceStore
     Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
+    /// The credential the source holds itself, decrypted, or null when it has none. Throws
+    /// <see cref="SourceSecretUnavailableException"/> when the ciphertext cannot be decrypted.
+    /// </summary>
+    Task<string?> GetSecretAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves a custom source that has no connection onto one and discards the token it held, which the
+    /// connection now holds. False when there is no such source, or it already has a connection.
+    /// </summary>
+    Task<bool> MoveOntoConnectionAsync(Guid id, Guid connectionId, CancellationToken ct = default);
+
+    /// <summary>Removes a custom source's own token, which a source on a connection no longer reads with. False when it had none.</summary>
+    Task<bool> ClearSecretAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
     /// Unconditionally persists the sync cursor and outcome. Passing a null cursor clears
     /// it, which is what a RequiresFullResync response demands.
     /// <para>

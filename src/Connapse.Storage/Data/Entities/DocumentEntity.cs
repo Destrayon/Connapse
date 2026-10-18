@@ -49,6 +49,13 @@ public class DocumentEntity
     /// </para>
     /// </remarks>
     public string? ResourceUri { get; set; }
+
+    /// <summary>
+    /// The access keys a connected custom source's middle man listed for this document. A search ranks the
+    /// document only for a user who holds one of them; the live check still decides what is shown. Null for
+    /// every other source.
+    /// </summary>
+    public string[]? AccessKeys { get; set; }
     public string ContentHash { get; set; } = string.Empty;
     public long SizeBytes { get; set; }
     public int ChunkCount { get; set; }

@@ -103,7 +103,19 @@ public class PostgresConnectionStore(
             entity.Name = request.Name.Trim();
 
         if (request.ConfigJson is not null)
+        {
+            // Sources send the connection's token to the address in their scope, so a content-only custom
+            // connection's address cannot move while any source reads it.
+            string? before = entity.ConfigJson?.RootElement.GetRawText();
+            if (entity.Provider == (int)ConnectionProvider.Custom
+                && (!Connapse.Core.Utilities.CustomSourceEndpoint.SameAddress(
+                        CustomConnectionConfig.BaseUrlOf(before), CustomConnectionConfig.BaseUrlOf(request.ConfigJson))
+                    || CustomConnectionConfig.ProviderIdOf(before) != CustomConnectionConfig.ProviderIdOf(request.ConfigJson))
+                && await context.Sources.AnyAsync(s => s.ConnectionId == id, ct))
+                throw new InvalidOperationException("Sources read this connection's source server, so its address cannot change.");
+
             entity.ConfigJson = string.IsNullOrEmpty(request.ConfigJson) ? null : JsonDocument.Parse(request.ConfigJson);
+        }
 
         // A null or empty Secret means "leave it alone" — only a real value replaces it.
         // Without this, a settings-form save that omits the password field would wipe it.

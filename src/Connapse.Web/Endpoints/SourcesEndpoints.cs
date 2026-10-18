@@ -91,10 +91,57 @@ public static class SourcesEndpoints
             [FromServices] IAuditLogger auditLogger,
             [FromServices] Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup gitHubRepositories,
             [FromServices] AtlassianSiteService atlassianSites,
+            [FromServices] CustomSourceSetup customSources,
             CancellationToken ct) =>
         {
             string? scopeJson = request.ScopeJson;
+
+            // Every source authenticates through its connection, a custom one included, so a secret here
+            // would be silently dropped.
+            if (request.Secret is not null)
+                return Results.BadRequest(new
+                {
+                    error = "A source takes no secret: its connection holds the credential. A custom source reads with its custom connection's token.",
+                    field = "secret",
+                });
+            if (request.Provider is ConnectionProvider.Custom)
+                return Results.BadRequest(new
+                {
+                    error = "A custom source needs a custom connection: pass its connectionId. An administrator adds one on the Connections page.",
+                    field = "connectionId",
+                });
             string name = request.Name?.Trim() ?? "";
+
+            // The same checks the New source dialog makes: the connection's middle man answers with its token,
+            // speaks protocol version 1, and offers the scope. The scope names only the scopeId; a baseUrl, if
+            // given, must be the connection's, and the one stored is the connection's normalised address.
+            async Task<IResult?> CheckCustomSourceAsync(Connection connection)
+            {
+                (string? scopeId, string? baseUrl) = CustomScopeRequest(scopeJson);
+                if (scopeId is null)
+                    return Results.BadRequest(new { error = "The scope must name the source server's scopeId.", field = "scopeId" });
+
+                CustomSourceProbe probe = await customSources.ProbeConnectionAsync(connection, ct);
+                if (probe.Error is not null)
+                {
+                    return probe.Unreachable
+                        ? Results.Json(new { error = probe.Error, field = probe.Field }, statusCode: StatusCodes.Status502BadGateway)
+                        : Results.BadRequest(new { error = probe.Error, field = probe.Field });
+                }
+
+                if (baseUrl is not null && !string.Equals(baseUrl.TrimEnd('/'), probe.BaseUrl, StringComparison.OrdinalIgnoreCase))
+                    return Results.BadRequest(new
+                    {
+                        error = $"A custom source reads its connection's source server ({probe.BaseUrl}). Leave baseUrl out, or pass that one.",
+                        field = "baseUrl",
+                    });
+
+                if (!probe.Scopes.Any(s => s.Id == scopeId))
+                    return Results.BadRequest(new { error = $"The source server offers no scope '{scopeId}'.", field = "scopeId" });
+
+                scopeJson = new CustomSourceScope(probe.BaseUrl!, scopeId).ToJson();
+                return null;
+            }
 
             // Only a Confluence source may leave its name out: like the dialog, it is then named after the site and space.
             if (name.Length == 0 && request.ConnectionId is null)
@@ -113,6 +160,10 @@ public static class SourcesEndpoints
                 var connection = await connectionStore.GetAsync(cid, ct);
                 if (connection is null)
                     return Results.BadRequest(new { error = $"Connection {cid} not found" });
+
+                if (connection.Provider == ConnectionProvider.Custom
+                    && await CheckCustomSourceAsync(connection) is { } refusal)
+                    return refusal;
 
                 // The same lookup the New source dialog makes: GitHub, as this installation, says
                 // which repository the name is and whether it is private. Its answer replaces
@@ -190,6 +241,10 @@ public static class SourcesEndpoints
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+            catch (DuplicateSourceScopeException ex)
+            {
+                return Results.Conflict(new { error = ex.Message, field = "scopeId" });
+            }
 
             await auditLogger.LogAsync("source.created", "source", created.Id.ToString(),
                 new { created.Name, created.ConnectionId }, ct);
@@ -203,12 +258,25 @@ public static class SourcesEndpoints
         // PATCH /api/sources/{sourceId}
         group.MapPatch("/{sourceId:guid}", async (
             Guid sourceId,
-            [FromBody] UpdateSourceRequest request,
+            [FromBody] JsonElement body,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
             CancellationToken ct) =>
         {
+            if (body.ValueKind != JsonValueKind.Object)
+                return Results.BadRequest(new { error = "The body must be a JSON object." });
+            UpdateSourceRequest request;
+            try
+            {
+                request = body.Deserialize<UpdateSourceRequest>(jsonOptions.Value.SerializerOptions) ?? new UpdateSourceRequest();
+            }
+            catch (JsonException ex)
+            {
+                return Results.BadRequest(new { error = $"Invalid request: {ex.Message}" });
+            }
+
             if (!string.IsNullOrWhiteSpace(request.ScopeJson))
             {
                 // Disposed: JsonDocument rents pooled buffers, and this runs per request.
@@ -232,6 +300,23 @@ public static class SourcesEndpoints
                 });
             }
 
+            // A custom source's scope names the middle man its connection's token is sent to. Changing it in
+            // place would let anyone who may edit sources point that token at another server, so it is fixed
+            // at creation; to read elsewhere, create a new source.
+            if (request.ScopeJson is not null
+                && await sourceStore.GetAsync(sourceId, ct) is { } custom
+                && (custom.Provider is ConnectionProvider.Custom
+                    || (custom.ConnectionId is Guid customConnectionId
+                        && await connectionStore.GetAsync(customConnectionId, ct) is { Provider: ConnectionProvider.Custom }))
+                && CustomSourceScope.TryParse(request.ScopeJson) != CustomSourceScope.TryParse(custom.ScopeJson))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "A custom source's source server and scope cannot be changed. Create a new source instead.",
+                    field = "scope",
+                });
+            }
+
             // A Confluence source keeps its space; what it reads from it is checked as on creation.
             // A Jira source, known by its stored kind, keeps its project the same way.
             if (request.ScopeJson is not null
@@ -246,6 +331,14 @@ public static class SourcesEndpoints
                 request = request with { ScopeJson = atlassian.ScopeJson };
             }
 
+            // A source holds no token: a custom source reads with its connection's, which is replaced there.
+            if (request.Secret is not null)
+                return Results.BadRequest(new
+                {
+                    error = "A source takes no secret. Replace a custom source's token on its connection, or on its custom provider.",
+                    field = "secret",
+                });
+
             var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
             if (updated is null)
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
@@ -255,6 +348,7 @@ public static class SourcesEndpoints
 
             return Results.Ok(SourceResponse.From(updated, includeDiagnostics: true));
         })
+        .Accepts<UpdateSourceRequest>("application/json")
         .WithName("UpdateSource")
         .WithDescription("Update a source's name, description, scope, sync interval, or enabled state.")
         .RequireAuthorization("RequireAdmin");
@@ -373,6 +467,25 @@ public static class SourcesEndpoints
         return app;
     }
 
+    /// <summary>A custom source's requested scope: its scopeId, and the baseUrl if one was named.</summary>
+    internal static (string? ScopeId, string? BaseUrl) CustomScopeRequest(string? scopeJson)
+    {
+        if (string.IsNullOrWhiteSpace(scopeJson)) return (null, null);
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(scopeJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (null, null);
+            static string? Text(JsonElement root, string name) =>
+                root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
+                    && value.GetString() is { Length: > 0 } text ? text : null;
+            return (Text(doc.RootElement, "scopeId"), Text(doc.RootElement, "baseUrl"));
+        }
+        catch (JsonException)
+        {
+            return (null, null);
+        }
+    }
+
     /// <summary>Whether an update changes a GitHub source's private flag or repository id.</summary>
     internal static bool GitHubIdentityChanged(string before, string after)
     {
@@ -418,4 +531,14 @@ public record CreateSourceApiRequest(
     string? ScopeJson = null,
     string? Description = null,
     int? SyncIntervalSeconds = null,
-    ConnectionProvider? Provider = null);
+    ConnectionProvider? Provider = null,
+    string? Secret = null)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Description = {Description}, ")
+            .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Provider = {Provider}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}

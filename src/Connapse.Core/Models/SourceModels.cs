@@ -50,7 +50,11 @@ public record Source(
 
     // Documents queued for or undergoing ingestion. Beside FailedDocumentCount so the page can
     // tell "still working" from "done" without reading every row.
-    int ProcessingDocumentCount = 0);
+    int ProcessingDocumentCount = 0,
+
+    // Whether the source holds its own credential — a content-only custom source's middle-man
+    // token. The secret itself never appears on the read model; see ISourceStore.GetSecretAsync.
+    bool HasSecret = false);
 
 /// <summary>
 /// The remote refused to let this source read it any more — a public repository made private,
@@ -60,17 +64,41 @@ public record Source(
 /// </summary>
 public class SourceAccessRevokedException(string message, Exception inner) : IOException(message, inner);
 
+/// <summary>A custom connection already has a source for the scope a new one names.</summary>
+public sealed class DuplicateSourceScopeException(string message) : InvalidOperationException(message);
+
 public record CreateSourceRequest(
     string Name,
     Guid? ConnectionId,
     string ScopeJson,
     string? Description = null,
     int? SyncIntervalSeconds = null,
-    ConnectionProvider? Provider = null);
+    ConnectionProvider? Provider = null,
+    string? Secret = null)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Description = {Description}, ")
+            .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Provider = {Provider}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}
 
+/// <param name="Secret">A custom source's new token, replacing the stored one; refused for any other source.</param>
 public record UpdateSourceRequest(
     string? Name = null,
     string? Description = null,
     string? ScopeJson = null,
     int? SyncIntervalSeconds = null,
-    bool? Enabled = null);
+    bool? Enabled = null,
+    string? Secret = null)
+{
+    // The generated ToString would print the token into any log line or message it reached.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, Description = {Description}, ScopeJson = {ScopeJson}, ")
+            .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Enabled = {Enabled}, Secret = {(Secret is null ? "null" : "***")}");
+        return true;
+    }
+}

@@ -35,6 +35,7 @@
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
 @inject GitHubManifestRequests GitHubManifests
 @inject AuthenticationStateProvider AuthState
+@inject ICustomProviderStore CustomProviderStore
 @using System.Security.Claims
 @using System.Security.Cryptography.X509Certificates
 @using Microsoft.AspNetCore.Components.Authorization
@@ -124,6 +125,43 @@
                         </a>
                     }
                 </div>
+            }
+
+            @* Custom providers are middle men you run; there can be any number of them, so they are a
+               list of their own rather than one entry among the built-in providers. *@
+            <div class="d-flex align-items-center mt-4 mb-2">
+                <h2 class="h6 text-uppercase text-muted mb-0">Custom providers</h2>
+                <SetupGuideLink Id="custom-setup-guide" Href="@Connapse.Web.Components.Providers.CustomSourceFieldSpecs.Guide"
+                                Name="Custom source setup guide" CssClass="ms-2 me-auto" />
+                <a id="add-custom-provider" class="btn btn-sm btn-outline-primary" href="/admin/providers/custom/new">
+                    <span class="bi-plus-lg me-1" aria-hidden="true"></span>Add custom provider
+                </a>
+            </div>
+            @if (customProviders is { Count: > 0 })
+            {
+                <div class="list-group">
+                    @foreach (var custom in customProviders)
+                    {
+                        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                           href="/admin/providers/custom/@custom.Id">
+                            <span class="bi-hdd-network text-muted fs-5" aria-hidden="true"></span>
+                            <div class="flex-grow-1" style="min-width:0">
+                                <div class="fw-semibold">@custom.Name</div>
+                                <div class="small text-muted font-monospace text-break">@custom.BaseUrl</div>
+                            </div>
+                            <span class="small text-muted text-nowrap">
+                                @(custom.VerifiedAt is { } verified ? $"Verified {verified.ToLocalTime():MMM d, yyyy}" : "Not verified")
+                            </span>
+                            <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
+                        </a>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="small text-muted">
+                    A source server you run that answers, live, what each person may read in a custom source.
+                </p>
             }
         }
     }
@@ -2086,6 +2124,7 @@
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
+    private IReadOnlyList<CustomProvider>? customProviders;
 
     // ── GitHub App ─────────────────────────────────────────────────────────
 
@@ -2401,6 +2440,7 @@
         if (!firstRender) return;
 
         setups = await SetupReader.ReadAsync();
+        customProviders = await CustomProviderStore.ListAsync();
         await LoadAwsCredentialModeAsync();
         if (Key == "github")
             await LoadGitHubAsync();
@@ -2966,6 +3006,7 @@
                 ? DetectHostIdentityAsync(refresh: true)
                 : Task.CompletedTask;
             setups = await SetupReader.ReadAsync();
+        customProviders = await CustomProviderStore.ListAsync();
             await detection;
             await LoadAwsCredentialModeAsync();
             LoadAzureCertificateExpiry();

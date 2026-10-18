@@ -9,11 +9,11 @@
         @Spec.Label
         @if (Spec.IsSecret && HasStoredValue)
         {
-            <span class="text-muted">(optional — leave blank to keep the current one)</span>
+            <span class="text-muted ms-1">(optional — leave blank to keep the current one)</span>
         }
         else if (!Spec.Required)
         {
-            <span class="text-muted">(optional)</span>
+            <span class="text-muted ms-1">(optional)</span>
         }
     </label>
 
@@ -24,6 +24,17 @@
             <SecretTextArea @ref="secret" Id="@Spec.Id" Label="@Spec.Label" Multiline="@(Spec.Kind == ProviderFieldKind.MultilineSecret)" Rows="@Spec.Rows"
                             CssClass="@InputClass" Placeholder="@(HasStoredValue ? Spec.KeptPlaceholder : Spec.Placeholder)"
                             DescribedBy="@DescribedBy" Invalid="@(Error is not null)" Disabled="@Disabled" @bind-Value="CurrentValue" />
+            break;
+
+        case ProviderFieldKind.Choice:
+            <select @ref="input" id="@Spec.Id" class="form-select @InputClass" disabled="@Disabled" value="@Value"
+                    aria-invalid="@(Error is not null ? "true" : "false")" aria-describedby="@DescribedBy"
+                    @onchange="e => CurrentValue = e.Value?.ToString()">
+                @foreach (KeyValuePair<string, string> option in Options ?? [])
+                {
+                    <option value="@option.Key">@option.Value</option>
+                }
+            </select>
             break;
 
         case ProviderFieldKind.Multiline:
@@ -77,6 +88,9 @@
 
     [Parameter] public string? ListId { get; set; }
     [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>A choice field's options: value, then the text shown.</summary>
+    [Parameter] public IReadOnlyList<KeyValuePair<string, string>>? Options { get; set; }
     [Parameter] public bool Small { get; set; }
     [Parameter] public string CssClass { get; set; } = "mb-3";
 

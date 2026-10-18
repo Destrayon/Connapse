@@ -666,6 +666,89 @@ public class ConnectionFormTests
         (SftpForm() with { Port = port }).Validate()
             .Should().Be("The port must be between 1 and 65535.");
     }
+
+    [Fact]
+    public void Custom_WritesOnlyTheProviderItChecksPermissionsWith()
+    {
+        Guid providerId = Guid.NewGuid();
+        ConnectionForm form = new() { Name = "acme", Provider = ConnectionProvider.Custom, CustomProviderId = providerId };
+
+        form.Validate().Should().BeNull();
+        CustomConnectionConfig.ProviderIdOf(form.ToConfigJson()).Should().Be(providerId);
+        form.ToSecretJson().Should().BeNull("a custom connection holds no credential of its own");
+    }
+
+    [Fact]
+    public void Custom_WithoutAProvider_IsRefused()
+    {
+        ConnectionForm form = new() { Name = "acme", Provider = ConnectionProvider.Custom };
+
+        form.Validate().Should().Contain("custom provider");
+    }
+
+    [Fact]
+    public void Custom_ReadsItsProviderBackFromAStoredConnection()
+    {
+        Guid providerId = Guid.NewGuid();
+        Connection connection = new(Guid.NewGuid(), "acme", ConnectionProvider.Custom,
+            CustomConnectionConfig.ToJson(providerId), null, DateTime.UtcNow, DateTime.UtcNow);
+
+        ConnectionForm form = ConnectionForm.FromConnection(connection);
+
+        form.CustomProviderId.Should().Be(providerId);
+        CustomConnectionConfig.ProviderIdOf(form.ToConfigJson()).Should().Be(providerId);
+    }
+
+    [Fact]
+    public void Custom_ContentOnly_WritesTheMiddleManAndItsToken()
+    {
+        ConnectionForm form = new()
+        {
+            Name = "acme", Provider = ConnectionProvider.Custom, CustomContentOnly = true,
+            CustomBaseUrl = " https://bridge.example.com ", CustomToken = " tok "
+        };
+
+        form.Validate().Should().BeNull();
+        CustomConnectionConfig.BaseUrlOf(form.ToConfigJson()).Should().Be("https://bridge.example.com");
+        CustomConnectionConfig.ProviderIdOf(form.ToConfigJson()).Should().BeNull();
+        form.ToSecretJson().Should().Be("tok");
+    }
+
+    [Fact]
+    public void Custom_ContentOnly_NeedsAnAddressAndANewConnectionAToken()
+    {
+        ConnectionForm form = new() { Name = "acme", Provider = ConnectionProvider.Custom, CustomContentOnly = true };
+        form.Validate().Should().Contain("base URL");
+
+        form.CustomBaseUrl = "https://bridge.example.com";
+        form.Validate().Should().Contain("token");
+        form.Validate(isNew: false).Should().BeNull("an existing connection keeps its stored token");
+        form.ToSecretJson().Should().BeNull("a blank token leaves the stored one alone");
+    }
+
+    [Fact]
+    public void Custom_ContentOnly_ReadsBackFromAStoredConnection()
+    {
+        Connection connection = Stored(ConnectionProvider.Custom,
+            CustomConnectionConfig.ForMiddleMan("https://bridge.example.com"), hasSecret: true);
+
+        ConnectionForm form = ConnectionForm.FromConnection(connection);
+
+        form.CustomContentOnly.Should().BeTrue();
+        form.CustomProviderId.Should().BeNull();
+        form.CustomBaseUrl.Should().Be("https://bridge.example.com");
+        form.CustomToken.Should().BeNull("the stored token is never read into the form");
+        form.ToConfigJson().Should().Be(connection.ConfigJson);
+    }
+
+    [Fact]
+    public void Custom_WithAProvider_IgnoresAnyTypedToken()
+    {
+        ConnectionForm form = new()
+        {
+            Name = "acme", Provider = ConnectionProvider.Custom, CustomProviderId = Guid.NewGuid(), CustomToken = "tok"
+        };
+
+        form.ToSecretJson().Should().BeNull("a connection that names a provider reads with the provider's token");
+    }
 }
-
-

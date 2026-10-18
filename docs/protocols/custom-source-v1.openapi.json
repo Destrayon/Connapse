@@ -1,0 +1,301 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Connapse custom source protocol",
+    "version": "1",
+    "description": "Endpoints a source server implements so Connapse can sync content from it and check permissions live. Prose specification: custom-source-v1.md."
+  },
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/.well-known/connapse-source": {
+      "get": {
+        "summary": "Discovery document",
+        "responses": {
+          "200": { "description": "Capabilities", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Discovery" } } } },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/v1/scopes": {
+      "get": {
+        "summary": "List scopes",
+        "parameters": [{ "$ref": "#/components/parameters/PageToken" }],
+        "responses": {
+          "200": { "description": "Scopes", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScopePage" } } } },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/v1/scopes/{scope}/documents": {
+      "get": {
+        "summary": "Full listing",
+        "parameters": [{ "$ref": "#/components/parameters/Scope" }, { "$ref": "#/components/parameters/PageToken" }],
+        "responses": {
+          "200": { "description": "One page of documents", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentPage" } } } },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" },
+          "410": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/v1/scopes/{scope}/changes": {
+      "get": {
+        "summary": "Change feed",
+        "parameters": [
+          { "$ref": "#/components/parameters/Scope" },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": { "description": "One page of changes", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChangePage" } } } },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" },
+          "410": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/v1/scopes/{scope}/documents/{id}/content": {
+      "get": {
+        "summary": "Document bytes",
+        "parameters": [
+          { "$ref": "#/components/parameters/Scope" },
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 512 } },
+          { "name": "If-None-Match", "in": "header", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "The bytes", "headers": { "ETag": { "schema": { "type": "string" } } }, "content": { "*/*": { "schema": { "type": "string", "contentMediaType": "application/octet-stream" } } } },
+          "304": { "description": "Unchanged" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" },
+          "410": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/access/v1/search/resource": {
+      "post": {
+        "summary": "Access keys the user holds in a scope (AuthZEN resource search)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceSearchRequest" } } } },
+        "responses": {
+          "200": { "description": "Keys", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceSearchResponse" } } } },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/access/v1/evaluations": {
+      "post": {
+        "summary": "Batched permission check (AuthZEN evaluations)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EvaluationsRequest" } } } },
+        "responses": {
+          "200": { "description": "One decision per item, in order", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EvaluationsResponse" } } } },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/v1/links/confirm": {
+      "post": {
+        "summary": "Activate a pending link for the signed-in Connapse user",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConfirmRequest" } } } },
+        "responses": {
+          "200": { "description": "Linked", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkStatus" } } } },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "409": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/v1/links/{connapse_user_id}": {
+      "parameters": [{ "name": "connapse_user_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "summary": "Link status",
+        "responses": {
+          "200": { "description": "Status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkStatus" } } } },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      },
+      "delete": {
+        "summary": "Unlink (idempotent)",
+        "responses": {
+          "204": { "description": "Not linked any more" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearer": { "type": "http", "scheme": "bearer" } },
+    "parameters": {
+      "Scope": { "name": "scope", "in": "path", "required": true, "schema": { "type": "string" } },
+      "PageToken": { "name": "page_token", "in": "query", "schema": { "type": "string" } }
+    },
+    "responses": {
+      "Problem": { "description": "RFC 9457 problem details", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" }, "title": { "type": "string" }, "status": { "type": "integer" },
+          "detail": { "type": "string" }, "retryable": { "type": "boolean" }
+        }
+      },
+      "Discovery": {
+        "type": "object",
+        "required": ["protocol_versions", "name", "capabilities"],
+        "properties": {
+          "protocol_versions": { "type": "array", "items": { "type": "string" } },
+          "name": { "type": "string" },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "changes": { "type": "boolean" },
+              "tombstones": { "type": "boolean" },
+              "min_sync_interval_seconds": { "type": "integer", "minimum": 0 },
+              "max_page_size": { "type": "integer", "minimum": 1 },
+              "permissions": {
+                "type": "object",
+                "required": ["check"],
+                "properties": {
+                  "check": { "type": "object", "required": ["max_batch"], "properties": { "max_batch": { "type": "integer", "minimum": 1 } } },
+                  "access_keys": { "type": "object", "properties": { "cache_ttl_seconds": { "type": "integer", "minimum": 0 } } },
+                  "linking": { "type": "object", "required": ["link_url"], "properties": { "link_url": { "type": "string", "format": "uri" } } }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Scope": {
+        "type": "object", "required": ["id", "name"],
+        "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" } }
+      },
+      "ScopePage": {
+        "type": "object", "required": ["items"],
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Scope" } }, "next_page_token": { "type": ["string", "null"] } }
+      },
+      "Document": {
+        "type": "object",
+        "required": ["id", "path", "content_type", "size", "version"],
+        "properties": {
+          "id": { "type": "string", "maxLength": 512 },
+          "path": { "type": "string" },
+          "title": { "type": "string" },
+          "content_type": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0 },
+          "version": { "type": "string" },
+          "modified_at": { "type": "string", "format": "date-time" },
+          "url": { "type": "string", "format": "uri" },
+          "access_keys": { "type": "array", "items": { "type": "string" } },
+          "access_version": { "type": "string" }
+        }
+      },
+      "DocumentPage": {
+        "type": "object", "required": ["items"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Document" } },
+          "next_page_token": { "type": ["string", "null"] },
+          "change_cursor": { "type": ["string", "null"] }
+        }
+      },
+      "Change": {
+        "oneOf": [
+          {
+            "description": "An upsert carries every member a listing item requires.",
+            "allOf": [
+              { "$ref": "#/components/schemas/Document" },
+              { "type": "object", "required": ["op"], "properties": { "op": { "const": "upsert" } } }
+            ]
+          },
+          {
+            "type": "object", "required": ["id", "op"],
+            "properties": { "id": { "type": "string", "maxLength": 512 }, "op": { "const": "delete" } }
+          }
+        ]
+      },
+      "ChangePage": {
+        "type": "object", "required": ["items"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Change" } },
+          "next_page_token": { "type": ["string", "null"] },
+          "next_cursor": { "type": ["string", "null"] }
+        }
+      },
+      "Subject": {
+        "type": "object", "required": ["type", "id"],
+        "properties": { "type": { "const": "user" }, "id": { "type": "string" } }
+      },
+      "Action": { "type": "object", "required": ["name"], "properties": { "name": { "const": "read" } } },
+      "ScopeProperties": { "type": "object", "required": ["scope"], "properties": { "scope": { "type": "string" } } },
+      "ResourceSearchRequest": {
+        "type": "object", "required": ["subject", "action", "resource"],
+        "properties": {
+          "subject": { "$ref": "#/components/schemas/Subject" },
+          "action": { "$ref": "#/components/schemas/Action" },
+          "resource": {
+            "type": "object", "required": ["type", "properties"],
+            "properties": { "type": { "const": "access_key" }, "properties": { "$ref": "#/components/schemas/ScopeProperties" } }
+          },
+          "page": { "type": "object", "properties": { "token": { "type": "string" }, "limit": { "type": "integer", "minimum": 1 } } }
+        }
+      },
+      "ResourceSearchResponse": {
+        "type": "object", "required": ["results", "page"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": { "type": "object", "required": ["type", "id"], "properties": { "type": { "const": "access_key" }, "id": { "type": "string" } } }
+          },
+          "page": { "type": "object", "required": ["next_token"], "properties": { "next_token": { "type": "string" } } }
+        }
+      },
+      "EvaluationsRequest": {
+        "type": "object", "required": ["subject", "action", "evaluations"],
+        "properties": {
+          "subject": { "$ref": "#/components/schemas/Subject" },
+          "action": { "$ref": "#/components/schemas/Action" },
+          "evaluations": {
+            "type": "array",
+            "items": {
+              "type": "object", "required": ["resource"],
+              "properties": {
+                "resource": {
+                  "type": "object", "required": ["type", "id", "properties"],
+                  "properties": { "type": { "const": "document" }, "id": { "type": "string" }, "properties": { "$ref": "#/components/schemas/ScopeProperties" } }
+                }
+              }
+            }
+          }
+        }
+      },
+      "EvaluationsResponse": {
+        "type": "object", "required": ["evaluations"],
+        "properties": {
+          "evaluations": {
+            "type": "array",
+            "items": {
+              "type": "object", "required": ["decision"],
+              "description": "An item whose context carries an error is no access, even when decision is true.",
+              "properties": {
+                "decision": { "type": "boolean" },
+                "context": { "type": "object", "properties": { "error": { "type": "string" } } }
+              }
+            }
+          }
+        }
+      },
+      "ConfirmRequest": {
+        "type": "object", "required": ["code", "connapse_user_id"],
+        "properties": { "code": { "type": "string" }, "connapse_user_id": { "type": "string" } }
+      },
+      "LinkStatus": {
+        "type": "object", "required": ["linked"],
+        "properties": { "linked": { "type": "boolean" }, "display_name": { "type": "string" } }
+      }
+    }
+  }
+}

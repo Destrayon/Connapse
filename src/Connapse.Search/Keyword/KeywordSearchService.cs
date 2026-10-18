@@ -127,13 +127,24 @@ public class KeywordSearchService
                     // A grant scoped to one object is exact-matched rather than treated as a
                     // prefix: as a prefix it would also let through a sibling like
                     // "report.pdf.bak", a different object nobody granted.
-                    ors.Add(match.IsExact
+                    string predicate = match.IsExact
                         ? $"d.resource_uri = {{{scopeIdx}}}"
-                        : $"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'");
+                        : $"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'";
 
                     parameters.Add(match.IsExact
                         ? match.Value
                         : SearchScopes.ToLikePattern(match.Value));
+
+                    // A custom source's grant also needs a key the user holds; the keys are a parameter,
+                    // never spliced into the SQL.
+                    if (match.AccessKeys is { } keys)
+                    {
+                        int keysIdx = parameters.Count;
+                        predicate = $"({predicate} AND d.access_keys && {{{keysIdx}}})";
+                        parameters.Add(keys.ToArray());
+                    }
+
+                    ors.Add(predicate);
                 }
 
                 whereClauses.Add($"(d.resource_uri IS NULL OR ({string.Join(" OR ", ors)}))");

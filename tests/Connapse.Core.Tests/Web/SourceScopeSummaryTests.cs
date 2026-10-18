@@ -27,6 +27,13 @@ public class SourceScopeSummaryTests
         SourceScopeSummary.Describe(scope, host).Should().Be(expected);
     }
 
+    [Fact]
+    public void Describe_CustomSourceScope_ShowsTheScopeAndTheMiddleMansHost()
+    {
+        SourceScopeSummary.Describe("""{"baseUrl":"http://cs-example:8080/api","scopeId":"eng"}""")
+            .Should().Be("eng · cs-example:8080");
+    }
+
     [Theory]
     [InlineData("""{"kind":"jira-project","projectId":"10000","projectKey":"ENG","projectName":"Engineering","includeAttachments":true,"maxAttachmentMb":40}""",
         "acme.atlassian.net", "acme.atlassian.net / Jira project ENG · attachments up to 40 MB")]

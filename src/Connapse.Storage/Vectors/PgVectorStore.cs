@@ -278,14 +278,23 @@ public class PgVectorStore : IVectorStore
 
                     // An object-scoped grant is one object. As a prefix it would also admit
                     // "report.pdf.bak", which is a different object nobody named.
-                    ors.Add(match.IsExact
+                    string predicate = match.IsExact
                         ? $"d.resource_uri = @scope{i}"
-                        : $"d.resource_uri LIKE @scope{i} ESCAPE '{SearchScopes.LikeEscape}'");
+                        : $"d.resource_uri LIKE @scope{i} ESCAPE '{SearchScopes.LikeEscape}'";
 
                     parameters.Add(new NpgsqlParameter($"@scope{i}", NpgsqlDbType.Text)
                     {
                         Value = match.IsExact ? match.Value : SearchScopes.ToLikePattern(match.Value)
                     });
+
+                    // A custom source's grant also needs a key the user holds.
+                    if (match.AccessKeys is { } keys)
+                    {
+                        predicate = $"({predicate} AND d.access_keys && @keys{i})";
+                        parameters.Add(new NpgsqlParameter($"@keys{i}", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = keys.ToArray() });
+                    }
+
+                    ors.Add(predicate);
                 }
 
                 whereClauses.Add($"(d.resource_uri IS NULL OR ({string.Join(" OR ", ors)}))");

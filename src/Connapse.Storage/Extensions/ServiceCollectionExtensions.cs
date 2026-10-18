@@ -154,6 +154,8 @@ public static class ServiceCollectionExtensions
         // Container store
         services.AddScoped<IContainerStore, PostgresContainerStore>();
         services.AddScoped<IConnectionStore, PostgresConnectionStore>();
+        services.AddScoped<ICustomProviderStore, Connections.PostgresCustomProviderStore>();
+        services.AddScoped<ICustomLinkRemovalStore, Connections.PostgresCustomLinkRemovalStore>();
         services.AddScoped<ISourceStore, PostgresSourceStore>();
 
         // Folder store
@@ -192,6 +194,13 @@ public static class ServiceCollectionExtensions
         // Where Confluence sources keep their page state. Configuration-only, for the same reason.
         services.Configure<AtlassianSourceSettings>(
             configuration.GetSection(AtlassianSourceSettings.SectionName));
+        services.Configure<CustomSourceSettings>(
+            configuration.GetSection(CustomSourceSettings.SectionName));
+
+        // Custom sources call a customer-run middle man. Redirects are never followed, so nothing it
+        // answers can send the bearer token, or the next request, to another host.
+        services.AddHttpClient(Connectors.Custom.CustomSourceClient.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 
         // GitHub issues sources read the REST API anonymously; headers are set per request.
         services.AddHttpClient(Connectors.ConnectorFactory.GitHubHttpClientName);
@@ -311,6 +320,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<JiraPermissionChecker>();
         services.AddSingleton(_ => new AtlassianConnectionPresence(TimeProvider.System));
         services.AddScoped<IPerSchemeResultVerifier, AtlassianSearchResultVerifier>();
+        // Connected custom sources: every custom:// hit is checked live with its provider, batched.
+        services.AddSingleton<CustomConnectionPresence>();
+        services.AddScoped<IPerSchemeResultVerifier, CustomSearchResultVerifier>();
         services.AddScoped<ISearchResultVerifier>(sp => new CompositeSearchResultVerifier(
             sp.GetServices<IPerSchemeResultVerifier>()));
         services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
@@ -340,6 +352,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CloudScope.AzureSearchScopeResolver>();
         services.AddScoped<CloudScope.GitHubSearchScopeResolver>();
         services.AddScoped<CloudScope.AtlassianSearchScopeResolver>();
+        services.AddScoped<CloudScope.CustomSearchScopeResolver>();
         services.AddSingleton<CloudScope.GitHubRepositoryAccess>();
         services.AddScoped<ISearchScopeResolver>(sp => new CloudScope.CompositeSearchScopeResolver(
         [
@@ -347,6 +360,7 @@ public static class ServiceCollectionExtensions
             new(sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(), "azblob://", CloudScope.ScopeKind.Cloud),
             new(sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>(), CloudScope.GitHubSearchScopeResolver.Scheme, CloudScope.ScopeKind.GrantOnly),
             new(sp.GetRequiredService<CloudScope.AtlassianSearchScopeResolver>(), CloudScope.AtlassianUri.Scheme, CloudScope.ScopeKind.GrantOnly),
+            new(sp.GetRequiredService<CloudScope.CustomSearchScopeResolver>(), Connapse.Core.Utilities.CustomResourceUri.Scheme, CloudScope.ScopeKind.GrantOnly),
         ]));
 
         // Reads the connections, so scoped alongside the store it uses.

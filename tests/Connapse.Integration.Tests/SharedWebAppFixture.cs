@@ -54,6 +54,9 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     /// <summary>Stands in for Atlassian's token endpoint, tenant_info and Confluence API.</summary>
     public Connapse.Core.Tests.Connectors.FakeAtlassianApi Atlassian { get; } = new();
 
+    /// <summary>The middle man every content-only custom source in these tests reads from.</summary>
+    public Connapse.Core.Tests.Connectors.FakeMiddleMan CustomSource { get; } = new();
+
     /// <summary>Where Confluence sources built by the app keep their page state; removed on dispose.</summary>
     public string AtlassianStateDirectory { get; } =
         Path.Combine(Path.GetTempPath(), "connapse-atlassian-" + Guid.NewGuid().ToString("N"));
@@ -121,6 +124,8 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                         .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(Atlassian));
                     services.AddHttpClient(Connapse.Storage.Connectors.Atlassian.AtlassianSiteResolver.HttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(Atlassian));
+                    services.AddHttpClient(Connapse.Storage.Connectors.Custom.CustomSourceClient.HttpClientName)
+                        .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(CustomSource));
                 });
             });
 
