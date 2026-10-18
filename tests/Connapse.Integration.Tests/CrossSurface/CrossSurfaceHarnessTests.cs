@@ -255,6 +255,27 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Mcp_BulkUploadWithARejectedFile_ReportsThePartialFailure()
+    {
+        string name = UniqueName();
+        var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
+        created.EnsureSuccessStatusCode();
+        string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
+        await using var mcp = await Surfaces.McpAsync(fixture);
+
+        string result = Surfaces.Result(await mcp.CallToolAsync("bulk_upload", new Dictionary<string, object?>
+        {
+            ["containerId"] = containerId,
+            ["files"] = """[{"filename":"ok.txt","content":"fine"},{"filename":"a.exe","content":"MZ"}]""",
+        }));
+
+        result.Should().StartWith("partial:1/2 failed=[");
+        // Known gap, measured rather than fixed here: bulk_upload lists a rejection from the upload
+        // service by its message alone, so the response doesn't say which file it was. #792 lists it.
+        result.Should().NotContain("a.exe");
+    }
+
+    [Fact]
     public async Task RestAndMcp_DeleteNonEmptyContainer_ReportTheirErrors()
     {
         string name = UniqueName();

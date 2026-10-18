@@ -70,8 +70,8 @@ public partial class McpErrorKindTests
 
     [Theory]
     [InlineData("Uploaded 1 of 1 file(s) to container 'c'.", "ok")]
-    [InlineData("Uploaded 0 of 1 file(s) to container 'c'.\n\nFailures:\n- a.exe: not supported", "error:all_failed failed=[a.exe]")]
-    [InlineData("Deleted 1 of 2 file(s).\n\nFailures:\n- x: not found", "partial:1/2 failed=[x]")]
+    [InlineData("Uploaded 0 of 1 file(s) to container 'c'.\n\nFailures:\n- a.exe: not supported", "error:all_failed failed=[a.exe: not supported]")]
+    [InlineData("Deleted 1 of 2 file(s).\n\nFailures:\n- x: not found", "partial:1/2 failed=[x: not found]")]
     [InlineData("Deleted 2 of 2 file(s).\n\nWarnings (1):\n- d1: storage cleanup failed", "ok;storage_cleanup_failed=[d1]")]
     [InlineData("Deleted 2 of 2 file(s).\n\nWarnings (1):\n- d2: storage cleanup failed", "ok;storage_cleanup_failed=[d2]")]
     [InlineData("Deleted 2 of 2 file(s).\n\nWarnings (2):\n- d1: storage cleanup failed\n- d2: storage cleanup failed",

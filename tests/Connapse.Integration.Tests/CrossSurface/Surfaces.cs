@@ -79,14 +79,15 @@ public static partial class Surfaces
             return ErrorKind(text);
         // A delete that removed the row but left the stored file says so in a warning, which a
         // client must act on (manual cleanup), so it stays in the result with the files it names.
-        // A bulk call's failed items are named the same way. The capture turns the ids into tokens.
+        // A bulk call's failures are kept as written ("a.exe: invalid base64 content"): a line names
+        // its item only when MCP labels it, and is never guessed. The capture turns ids into tokens.
         var cleanup = CleanupWarningId().Matches(text).Select(m => m.Groups["id"].Value)
             .Concat(SingleCleanupWarning().Matches(text).Select(m => m.Groups["id"].Value)).ToList();
         var failed = FailureSection().Match(text) is { Success: true } section
-            ? FailureId().Matches(section.Groups["body"].Value).Select(m => m.Groups["id"].Value).ToList()
+            ? FailureLine().Matches(section.Groups["body"].Value).Select(m => m.Groups["line"].Value.Trim()).ToList()
             : [];
         return SuccessResult(text)
-            + (failed.Count > 0 ? $" failed=[{string.Join(",", failed)}]" : "")
+            + (failed.Count > 0 ? $" failed=[{string.Join(" | ", failed)}]" : "")
             + (cleanup.Count > 0 ? $";storage_cleanup_failed=[{string.Join(",", cleanup)}]" : "");
     }
 
@@ -113,8 +114,8 @@ public static partial class Surfaces
     [GeneratedRegex(@"\n\nFailures:\n(?<body>(?:- [^\n]*(?:\n|$))+)")]
     private static partial Regex FailureSection();
 
-    [GeneratedRegex(@"^- (?<id>[^:\n]+):", RegexOptions.Multiline)]
-    private static partial Regex FailureId();
+    [GeneratedRegex(@"^- (?<line>[^\n]*)", RegexOptions.Multiline)]
+    private static partial Regex FailureLine();
 
     [GeneratedRegex(@"^(?:Uploaded|Deleted) (?<done>\d+) of (?<total>\d+) file\(s\)")]
     private static partial Regex BulkSummary();
