@@ -146,7 +146,10 @@ internal static partial class RazorMetrics
                     depth++;
                 else if (c is ')' or '}' or ']')
                     depth--;
-                else if (c == quote && depth <= 0)
+                // At the top level the attribute's own quote closes it only where an attribute can end
+                // (before a space, > or /); "() => error = "required" + Hint()" opens a string instead.
+                else if (c == quote && depth <= 0
+                    && (i + 1 == text.Length || char.IsWhiteSpace(text[i + 1]) || text[i + 1] is '>' or '/'))
                 {
                     spans.Add((start, i));
                     break;
