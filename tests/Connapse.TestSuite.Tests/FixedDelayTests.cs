@@ -49,6 +49,7 @@ public class FixedDelayTests
                     while (pending > 0) { pending = await CountAsync(); await Task.Delay(100); } // polling: re-read each pass
                     int left = 5;
                     while (left > 0) { left--; await Task.Delay(100); }                       // fixed: a countdown
+                    while (done < expected) { done++; expected += await NewJobsAsync(); await Task.Delay(100); } // polling: the limit moves
                     while (true)
                     {
                         if (Ready()) { await Task.Delay(500); return; }     // fixed: after the condition succeeded
@@ -189,10 +190,14 @@ public class FixedDelayTests
             _ => false,
         });
 
-    /// <summary>The loop sets a local outright (x = await ReadAsync()), so comparing it reads live state.</summary>
+    /// <summary>
+    /// The loop changes a local in any way (x = await ReadAsync(), expected += await CountAsync(),
+    /// x++), so it can't be a fixed limit: comparing against it reads live state.
+    /// </summary>
     private static bool Assigned(StatementSyntax loop, string name) =>
-        loop.DescendantNodes().OfType<AssignmentExpressionSyntax>()
-            .Any(a => a.IsKind(SyntaxKind.SimpleAssignmentExpression) && a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name);
+        Steps(loop, name)
+        || loop.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+            .Any(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name);
 
     /// <summary>The method, local function, property or field a delay sits in, so entries don't move with line numbers.</summary>
     internal static string Member(SyntaxNode node)
