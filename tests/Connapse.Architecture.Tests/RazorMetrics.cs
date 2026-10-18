@@ -8,10 +8,10 @@ namespace Connapse.Architecture.Tests;
 /// <summary>Measures page logic in Razor components from source text.</summary>
 internal static partial class RazorMetrics
 {
-    /// <param name="CodeLines">Non-blank lines of C# in code blocks, code-behind and a web base class.</param>
+    /// <param name="CodeLines">Non-blank lines of C# in code and @{ } blocks, code-behind and a web base class.</param>
     /// <param name="Injects">@inject directives.</param>
     /// <param name="Complexity">Methods plus decision points in that C#.</param>
-    /// <param name="MarkupLogic">Control flow, lambdas and conditions written in the markup itself.</param>
+    /// <param name="MarkupLogic">Control flow, lambdas, conditions and ternaries written in the markup itself.</param>
     public sealed record ComponentMetrics(int CodeLines, int Injects, int Complexity, int MarkupLogic)
     {
         public bool IsEmpty => CodeLines == 0 && Injects == 0 && Complexity == 0 && MarkupLogic == 0;
@@ -27,12 +27,17 @@ internal static partial class RazorMetrics
     {
         int injects = InjectDirective().Matches(razor).Count;
         var blocks = RazorSource.CodeBlocks(razor);
+        var statements = RazorSource.StatementBlocks(razor);
         var extra = componentCSharp?.ToList() ?? [];
 
-        int lines = blocks.Concat(extra).Sum(b => b.Split('\n').Count(l => !string.IsNullOrWhiteSpace(l)));
+        int lines = blocks.Concat(statements).Concat(extra).Sum(b => b.Split('\n').Count(l => !string.IsNullOrWhiteSpace(l)));
         int complexity = blocks.Sum(b => Complexity(CSharpSyntaxTree.ParseText($"class __Component {{\n{b}\n}}").GetRoot()))
+            + statements.Sum(b => Complexity(CSharpSyntaxTree.ParseText($"class __Component {{ void __Render() {{\n{b}\n}} }}").GetRoot()) - 1)
             + extra.Sum(c => Complexity(CSharpSyntaxTree.ParseText(c).GetRoot()));
-        int markup = MarkupLogicPattern().Matches(RazorSource.WithoutCodeBlocks(razor)).Count;
+        // Ternaries in @( ) expressions, plus the control flow, lambdas and conditions written in markup.
+        int ternaries = RazorSource.ExpressionBlocks(razor)
+            .Sum(e => SyntaxFactory.ParseExpression(e).DescendantNodesAndSelf().OfType<ConditionalExpressionSyntax>().Count());
+        int markup = MarkupLogicPattern().Matches(RazorSource.WithoutCodeBlocks(razor)).Count + ternaries;
         return new ComponentMetrics(lines, injects, complexity, markup);
     }
 

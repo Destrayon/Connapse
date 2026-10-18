@@ -12,44 +12,57 @@ namespace Connapse.Architecture.Tests;
 /// </summary>
 internal static partial class RazorSource
 {
-    /// <summary>The bodies of every <c>@code { }</c> and <c>@functions { }</c> block.</summary>
+    /// <summary>The bodies of every <c>@code { }</c> and <c>@functions { }</c> block: class members.</summary>
     public static IReadOnlyList<string> CodeBlocks(string razor) =>
-        BlockSpans(razor).Select(s => razor[(s.Open + 1)..s.Close]).ToList();
+        Spans(razor, CodeBlockStart(), SyntaxKind.OpenBraceToken, SyntaxKind.CloseBraceToken).Select(s => razor[(s.Open + 1)..s.Close]).ToList();
 
-    /// <summary>The component's markup with its code blocks removed.</summary>
+    /// <summary>The bodies of every <c>@{ }</c> statement block in the markup: statements.</summary>
+    public static IReadOnlyList<string> StatementBlocks(string razor) =>
+        Spans(razor, StatementBlockStart(), SyntaxKind.OpenBraceToken, SyntaxKind.CloseBraceToken).Select(s => razor[(s.Open + 1)..s.Close]).ToList();
+
+    /// <summary>The contents of every <c>@( )</c> explicit expression in the markup.</summary>
+    public static IReadOnlyList<string> ExpressionBlocks(string razor) =>
+        Spans(razor, ExpressionStart(), SyntaxKind.OpenParenToken, SyntaxKind.CloseParenToken).Select(s => razor[(s.Open + 1)..s.Close]).ToList();
+
+    /// <summary>The component's markup with its @code, @functions and @{ } blocks removed.</summary>
     public static string WithoutCodeBlocks(string razor)
     {
+        var spans = Spans(razor, CodeBlockStart(), SyntaxKind.OpenBraceToken, SyntaxKind.CloseBraceToken)
+            .Concat(Spans(razor, StatementBlockStart(), SyntaxKind.OpenBraceToken, SyntaxKind.CloseBraceToken))
+            .OrderBy(s => s.Start);
         var text = new System.Text.StringBuilder();
         int at = 0;
-        foreach (var (start, _, close) in BlockSpans(razor))
+        foreach (var (start, _, close) in spans)
         {
+            if (start < at)
+                continue;
             text.Append(razor, at, start - at);
             at = close + 1;
         }
         return text.Append(razor, at, razor.Length - at).ToString();
     }
 
-    /// <summary>(directive start, opening brace, closing brace) of every code block.</summary>
-    private static IReadOnlyList<(int Start, int Open, int Close)> BlockSpans(string razor)
+    /// <summary>(directive start, opening token, matching closing token) for every match of a block start.</summary>
+    private static IReadOnlyList<(int Start, int Open, int Close)> Spans(string razor, Regex start, SyntaxKind open, SyntaxKind close)
     {
         var blocks = new List<(int, int, int)>();
-        foreach (Match m in CodeBlockStart().Matches(razor))
+        foreach (Match m in start.Matches(razor))
         {
-            int open = m.Index + m.Length - 1;
+            int openAt = m.Index + m.Length - 1;
             int depth = 0, end = -1;
-            foreach (var token in SyntaxFactory.ParseTokens(razor[open..]))
+            foreach (var token in SyntaxFactory.ParseTokens(razor[openAt..]))
             {
-                if (token.IsKind(SyntaxKind.OpenBraceToken))
+                if (token.IsKind(open))
                     depth++;
-                else if (token.IsKind(SyntaxKind.CloseBraceToken) && --depth == 0)
+                else if (token.IsKind(close) && --depth == 0)
                 {
-                    end = open + token.SpanStart;
+                    end = openAt + token.SpanStart;
                     break;
                 }
             }
             if (end < 0)
-                throw new InvalidOperationException($"Unbalanced {m.Value.TrimEnd('{').Trim()} block at offset {m.Index}; the measurement would be wrong.");
-            blocks.Add((m.Index, open, end));
+                throw new InvalidOperationException($"Unbalanced {m.Value} block at offset {m.Index}; the measurement would be wrong.");
+            blocks.Add((m.Index, openAt, end));
         }
         return blocks;
     }
@@ -79,6 +92,12 @@ internal static partial class RazorSource
 
     [GeneratedRegex(@"@(code|functions)\s*\{")]
     private static partial Regex CodeBlockStart();
+
+    [GeneratedRegex(@"(?<!@)@\{")]
+    private static partial Regex StatementBlockStart();
+
+    [GeneratedRegex(@"(?<!@)@\(")]
+    private static partial Regex ExpressionStart();
 
     [GeneratedRegex(@"\bGet(?:Required)?(?:Keyed)?Services?\s*(?:<\s*(?<generic>[\w.]+(?:<[\w.,\s]+>)?)\s*>\s*\(|\(\s*typeof\s*\(\s*(?<typeof>[\w.]+)\s*\))")]
     private static partial Regex ResolverCall();

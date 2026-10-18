@@ -89,4 +89,20 @@ public class BudgetCanaryTests
             .And.Contain(p => p.StartsWith("+ Tiny.razor has page logic"), "a split-off small component still needs a reviewed budget")
             .And.Contain(p => p.StartsWith("- Deleted.razor no longer exists"));
     }
+
+    [Fact]
+    public void LogicBudget_CountsStatementBlocksAndTernaries()
+    {
+        const string razor = """
+            @{ var choices = AllowedScopes(); if (choices.Count == 0) { choices = Defaults(); } }
+            <span class="@(active ? "on" : "off")">@(count > 1 ? $"{count} items" : "1 item")</span>
+            """;
+        var m = RazorMetrics.MeasureRazor(razor);
+
+        // the statement block: one line, one if
+        m.CodeLines.Should().Be(1);
+        m.Complexity.Should().Be(1);
+        // two ternaries in @( ) expressions
+        m.MarkupLogic.Should().Be(2);
+    }
 }

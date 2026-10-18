@@ -17,21 +17,21 @@
     "CodeLines": 412,
     "Injects": 6,
     "Complexity": 101,
-    "MarkupLogic": 46,
+    "MarkupLogic": 53,
     "IsEmpty": false
   },
   "Connections/AtlassianTestResultView.razor": {
     "CodeLines": 10,
     "Injects": 0,
     "Complexity": 5,
-    "MarkupLogic": 10,
+    "MarkupLogic": 13,
     "IsEmpty": false
   },
   "Connections/ConnectionInUseList.razor": {
     "CodeLines": 3,
     "Injects": 0,
     "Complexity": 0,
-    "MarkupLogic": 1,
+    "MarkupLogic": 3,
     "IsEmpty": false
   },
   "Layout/NavMenu.razor": {
@@ -52,14 +52,14 @@
     "CodeLines": 193,
     "Injects": 3,
     "Complexity": 26,
-    "MarkupLogic": 25,
+    "MarkupLogic": 31,
     "IsEmpty": false
   },
   "Pages/Admin/UserManagement.razor": {
     "CodeLines": 227,
     "Injects": 6,
     "Complexity": 36,
-    "MarkupLogic": 25,
+    "MarkupLogic": 26,
     "IsEmpty": false
   },
   "Pages/Auth/Login.razor": {
@@ -87,21 +87,21 @@
     "CodeLines": 160,
     "Injects": 0,
     "Complexity": 32,
-    "MarkupLogic": 9,
+    "MarkupLogic": 13,
     "IsEmpty": false
   },
   "Pages/Connections.razor": {
-    "CodeLines": 1531,
+    "CodeLines": 1533,
     "Injects": 21,
     "Complexity": 415,
-    "MarkupLogic": 188,
+    "MarkupLogic": 244,
     "IsEmpty": false
   },
   "Pages/CustomProviderPage.razor": {
     "CodeLines": 278,
     "Injects": 7,
     "Complexity": 76,
-    "MarkupLogic": 34,
+    "MarkupLogic": 45,
     "IsEmpty": false
   },
   "Pages/Error.razor": {
@@ -112,24 +112,24 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 855,
+    "CodeLines": 856,
     "Injects": 12,
-    "Complexity": 198,
-    "MarkupLogic": 71,
+    "Complexity": 200,
+    "MarkupLogic": 80,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
     "CodeLines": 152,
     "Injects": 3,
     "Complexity": 22,
-    "MarkupLogic": 19,
+    "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
     "CodeLines": 104,
     "Injects": 3,
     "Complexity": 24,
-    "MarkupLogic": 23,
+    "MarkupLogic": 29,
     "IsEmpty": false
   },
   "Pages/Profile.razor": {
@@ -143,49 +143,49 @@
     "CodeLines": 339,
     "Injects": 17,
     "Complexity": 89,
-    "MarkupLogic": 34,
+    "MarkupLogic": 42,
     "IsEmpty": false
   },
   "Pages/Providers.razor": {
     "CodeLines": 1974,
     "Injects": 23,
     "Complexity": 382,
-    "MarkupLogic": 162,
+    "MarkupLogic": 194,
     "IsEmpty": false
   },
   "Pages/Search.razor": {
-    "CodeLines": 156,
+    "CodeLines": 162,
     "Injects": 8,
-    "Complexity": 39,
-    "MarkupLogic": 19,
+    "Complexity": 42,
+    "MarkupLogic": 16,
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
     "CodeLines": 69,
     "Injects": 8,
     "Complexity": 10,
-    "MarkupLogic": 14,
+    "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Pages/SourceEdit.razor": {
     "CodeLines": 98,
     "Injects": 5,
     "Complexity": 25,
-    "MarkupLogic": 33,
+    "MarkupLogic": 48,
     "IsEmpty": false
   },
   "Pages/Sources.razor": {
-    "CodeLines": 979,
+    "CodeLines": 980,
     "Injects": 16,
     "Complexity": 216,
-    "MarkupLogic": 77,
+    "MarkupLogic": 101,
     "IsEmpty": false
   },
   "Providers/AtlassianProviderCard.razor": {
     "CodeLines": 417,
     "Injects": 5,
     "Complexity": 88,
-    "MarkupLogic": 12,
+    "MarkupLogic": 20,
     "IsEmpty": false
   },
   "Providers/PlainHttpWarning.razor": {
@@ -199,7 +199,7 @@
     "CodeLines": 37,
     "Injects": 0,
     "Complexity": 8,
-    "MarkupLogic": 13,
+    "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Providers/ProviderPageAlert.razor": {
@@ -213,7 +213,7 @@
     "CodeLines": 59,
     "Injects": 0,
     "Complexity": 12,
-    "MarkupLogic": 8,
+    "MarkupLogic": 9,
     "IsEmpty": false
   },
   "Providers/ProviderSetupGuide.razor": {
@@ -227,7 +227,7 @@
     "CodeLines": 48,
     "Injects": 0,
     "Complexity": 21,
-    "MarkupLogic": 7,
+    "MarkupLogic": 8,
     "IsEmpty": false
   },
   "Routes.razor": {
@@ -241,14 +241,14 @@
     "CodeLines": 86,
     "Injects": 0,
     "Complexity": 25,
-    "MarkupLogic": 3,
+    "MarkupLogic": 8,
     "IsEmpty": false
   },
   "Settings/AzureProviderSettingsTab.razor": {
     "CodeLines": 104,
     "Injects": 0,
     "Complexity": 30,
-    "MarkupLogic": 6,
+    "MarkupLogic": 11,
     "IsEmpty": false
   },
   "Settings/ChunkingSettingsTab.razor": {
@@ -262,7 +262,7 @@
     "CodeLines": 228,
     "Injects": 8,
     "Complexity": 48,
-    "MarkupLogic": 14,
+    "MarkupLogic": 16,
     "IsEmpty": false
   },
   "Settings/IdentityCenterSettingsTab.razor": {
@@ -276,7 +276,7 @@
     "CodeLines": 86,
     "Injects": 4,
     "Complexity": 25,
-    "MarkupLogic": 7,
+    "MarkupLogic": 9,
     "IsEmpty": false
   },
   "Settings/SamlSignInSettingsTab.razor": {
@@ -290,14 +290,14 @@
     "CodeLines": 103,
     "Injects": 7,
     "Complexity": 26,
-    "MarkupLogic": 12,
+    "MarkupLogic": 14,
     "IsEmpty": false
   },
   "Settings/SummarySettingsTab.razor": {
     "CodeLines": 226,
     "Injects": 3,
     "Complexity": 44,
-    "MarkupLogic": 21,
+    "MarkupLogic": 24,
     "IsEmpty": false
   },
   "Settings/UploadSettingsTab.razor": {
@@ -311,27 +311,27 @@
     "CodeLines": 43,
     "Injects": 0,
     "Complexity": 12,
-    "MarkupLogic": 6,
+    "MarkupLogic": 7,
     "IsEmpty": false
   },
   "Shared/AuthorPicker.razor": {
     "CodeLines": 94,
     "Injects": 0,
     "Complexity": 37,
-    "MarkupLogic": 10,
+    "MarkupLogic": 14,
     "IsEmpty": false
   },
   "Shared/CustomProviderLinkCard.razor": {
     "CodeLines": 87,
     "Injects": 3,
     "Complexity": 16,
-    "MarkupLogic": 19,
+    "MarkupLogic": 20,
     "IsEmpty": false
   },
   "Shared/Pagination.razor": {
-    "CodeLines": 20,
+    "CodeLines": 22,
     "Injects": 0,
-    "Complexity": 7,
+    "Complexity": 8,
     "MarkupLogic": 2,
     "IsEmpty": false
   },
@@ -339,7 +339,7 @@
     "CodeLines": 37,
     "Injects": 0,
     "Complexity": 7,
-    "MarkupLogic": 2,
+    "MarkupLogic": 8,
     "IsEmpty": false
   },
   "Shared/SetupGuideLink.razor": {
@@ -353,28 +353,28 @@
     "CodeLines": 6,
     "Injects": 0,
     "Complexity": 0,
-    "MarkupLogic": 2,
+    "MarkupLogic": 3,
     "IsEmpty": false
   },
   "Sources/ConfluenceSpaceForm.razor": {
     "CodeLines": 119,
     "Injects": 3,
     "Complexity": 33,
-    "MarkupLogic": 13,
+    "MarkupLogic": 18,
     "IsEmpty": false
   },
   "Sources/CustomSourceFields.razor": {
     "CodeLines": 56,
     "Injects": 3,
     "Complexity": 14,
-    "MarkupLogic": 14,
+    "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Sources/JiraProjectForm.razor": {
     "CodeLines": 112,
     "Injects": 3,
     "Complexity": 30,
-    "MarkupLogic": 13,
+    "MarkupLogic": 18,
     "IsEmpty": false
   }
 }
