@@ -211,4 +211,15 @@ public class LocationAndShapeCanaryTests
             """;
         Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(["Program.cs: GET /o: 1"]);
     }
+
+    [Fact]
+    public void ShapeRule_LooksUpAQualifiedHandlerInItsOwnClass()
+    {
+        const string source = """
+            app.MapGet("/named", LinkAppEndpoints.Get);
+            static class LinkAppEndpoints { public static LinkApp Get() => new LinkApp(); }
+            static class SiteEndpoints { public static object Get() => new { id = 1 }; }
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEmpty();
+    }
 }

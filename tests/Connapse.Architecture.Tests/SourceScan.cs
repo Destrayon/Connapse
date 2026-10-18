@@ -71,20 +71,24 @@ internal static class SourceScan
     {
         if (handler is AnonymousFunctionExpressionSyntax f)
             return Returned(f);
-        // A method group: Get, this.Get, or SummaryEndpoints.Get for a class declared in this file.
-        string? name = handler switch
+        // A method group: Get, this.Get, or SummaryEndpoints.Get for a class declared in this file. A
+        // qualified one is looked up in that class only, so another class's Get isn't mistaken for it.
+        var root = handler.SyntaxTree.GetRoot();
+        (string? name, SyntaxNode? scope) = handler switch
         {
-            IdentifierNameSyntax i => i.Identifier.ValueText,
-            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } => n.Identifier.ValueText,
-            MemberAccessExpressionSyntax { Expression: var owner, Name: var n }
-                when handler.SyntaxTree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>()
-                    .Any(t => t.Identifier.ValueText == RightmostName(owner)) => n.Identifier.ValueText,
-            _ => null,
+            IdentifierNameSyntax i => (i.Identifier.ValueText, root),
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } =>
+                (n.Identifier.ValueText, handler.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault()),
+            MemberAccessExpressionSyntax { Expression: var owner, Name: var n } =>
+                (n.Identifier.ValueText, root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+                    .FirstOrDefault(t => t.Identifier.ValueText == RightmostName(owner))),
+            _ => ((string?)null, (SyntaxNode?)null),
         };
-        if (name is null)
+        if (name is null || scope is null)
             return [];
-        return handler.SyntaxTree.GetRoot().DescendantNodes()
+        return scope.DescendantNodes()
             .Where(n => n is MethodDeclarationSyntax m && m.Identifier.ValueText == name
+                    && (scope is CompilationUnitSyntax || m.Parent == scope)
                 || n is LocalFunctionStatementSyntax l && l.Identifier.ValueText == name)
             .SelectMany(Returned);
     }
