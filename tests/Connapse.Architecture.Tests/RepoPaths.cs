@@ -19,6 +19,14 @@ internal static class RepoPaths
     public static string Baseline(string fileName) =>
         Path.Combine(Root, "tests", "Connapse.Architecture.Tests", "Baselines", fileName);
 
+    /// <summary>Every C# source file in the web project, minus build output, as (relative path, text).</summary>
+    public static IEnumerable<(string Path, string Source)> WebCSharpFiles() =>
+        Directory.EnumerateFiles(WebProject, "*.cs", SearchOption.AllDirectories)
+            .Select(f => (Full: f, Rel: RelativeToWeb(f)))
+            .Where(f => !f.Rel.StartsWith("bin/", StringComparison.Ordinal) && !f.Rel.StartsWith("obj/", StringComparison.Ordinal))
+            .OrderBy(f => f.Rel, StringComparer.Ordinal)
+            .Select(f => (f.Rel, File.ReadAllText(f.Full)));
+
     /// <summary>A path relative to the web project, with forward slashes, for stable list entries.</summary>
     public static string RelativeToWeb(string fullPath) =>
         Path.GetRelativePath(WebProject, fullPath).Replace('\\', '/');

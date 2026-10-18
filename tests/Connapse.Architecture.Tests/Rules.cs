@@ -10,18 +10,23 @@ internal static class Rules
 {
     public static readonly string[] WebSurfaceNamespaces = ["Connapse.Web.Endpoints", "Connapse.Web.Mcp"];
 
-    /// <summary>Components that inject a store, a DbContext or an EF context factory.</summary>
+    /// <summary>
+    /// Components that take a store, DbContext or EF context factory, through [Inject] or a
+    /// constructor, bare or wrapped (Lazy, Func, IEnumerable).
+    /// </summary>
     public static IEnumerable<string> ComponentStoreInjections(Assembly assembly) =>
         StructureScan.Components(assembly)
-            .SelectMany(c => StructureScan.InjectedTypes(c).Where(StructureScan.IsStore)
+            .SelectMany(c => StructureScan.ComponentDependencies(c).Where(StructureScan.IsStore)
                 .Select(t => $"{ComponentName(c)} -> {StructureScan.Display(t)}"))
             .Distinct();
 
-    /// <summary>Endpoint and MCP tool classes whose handlers take a store, DbContext or factory.</summary>
-    public static IEnumerable<string> HandlerStoreDependencies(Assembly assembly, string[] namespaces) =>
-        StructureScan.SurfaceHandlers(assembly, namespaces)
-            .SelectMany(h => StructureScan.HandlerParameterTypes(h).Where(StructureScan.IsStore)
-                .Select(t => $"{h.Name} -> {StructureScan.Display(t)}"))
+    /// <summary>
+    /// One entry per route handler or MCP tool and store it reaches, whether as a parameter or
+    /// resolved in its body. Per handler, so a second handler using an already-listed store is new.
+    /// </summary>
+    public static IEnumerable<string> HandlerStoreDependencies(IEnumerable<(string Path, string Source)> files) =>
+        files.SelectMany(f => HandlerScan.Handlers(f.Path, f.Source))
+            .SelectMany(h => h.Dependencies.Where(HandlerScan.IsStore).Select(t => $"{h.Name} -> {HandlerScan.Display(t)}"))
             .Distinct();
 
     /// <summary>Components are listed by their path under Components, so same-named files don't collide.</summary>

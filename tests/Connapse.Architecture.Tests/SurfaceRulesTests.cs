@@ -21,7 +21,7 @@ public class SurfaceRulesTests
     {
         ExactMatchList.AssertMatches(
             "handler-store-dependencies.json",
-            Rules.HandlerStoreDependencies(StructureScan.WebAssembly, Rules.WebSurfaceNamespaces),
+            Rules.HandlerStoreDependencies(RepoPaths.WebCSharpFiles()),
             "Endpoint and MCP handlers call operations, not stores.");
     }
 }

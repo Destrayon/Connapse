@@ -16,7 +16,7 @@ internal static class StructureScan
 
     public static Assembly WebAssembly => typeof(Connapse.Web.Mcp.McpTools).Assembly;
 
-    /// <summary>Data-access types: anything named *Store, EF context factories, and DbContexts.</summary>
+    /// <summary>Data-access types: anything named *Store, EF context factories and DbContexts, also inside generic wrappers.</summary>
     public static bool IsStore(Type t)
     {
         if (t.IsGenericType && t.GetGenericTypeDefinition().FullName == "Microsoft.EntityFrameworkCore.IDbContextFactory`1")
@@ -24,6 +24,10 @@ internal static class StructureScan
         for (Type? b = t; b is not null; b = b.BaseType)
             if (b.FullName == "Microsoft.EntityFrameworkCore.DbContext")
                 return true;
+        if (t.IsGenericType && t.GetGenericArguments().Any(IsStore))
+            return true;
+        if (t.IsArray && t.GetElementType() is { } element && IsStore(element))
+            return true;
         return t.Namespace?.StartsWith("Connapse", StringComparison.Ordinal) == true
             && t.Name.EndsWith("Store", StringComparison.Ordinal);
     }
@@ -39,6 +43,11 @@ internal static class StructureScan
     /// <summary>Top-level classes that map routes or declare MCP tools.</summary>
     public static IEnumerable<Type> SurfaceHandlers(Assembly assembly, params string[] namespaces) =>
         SafeTypes(assembly).Where(t => t.DeclaringType is null && t.IsClass && namespaces.Contains(t.Namespace));
+
+    /// <summary>What a component receives from DI: [Inject] properties and constructor parameters.</summary>
+    public static IEnumerable<Type> ComponentDependencies(Type component) =>
+        InjectedTypes(component).Concat(component.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .SelectMany(c => c.GetParameters()).Select(p => p.ParameterType));
 
     public static IEnumerable<Type> InjectedTypes(Type component)
     {

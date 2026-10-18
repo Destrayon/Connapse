@@ -15,6 +15,12 @@ internal sealed class PlantedComponent : ComponentBase
 {
     [Inject] public ISourceStore Sources { get; set; } = null!;
     [Inject] public IServiceScopeFactory Scopes { get; set; } = null!;
+    [Inject] public Lazy<IFolderStore> Folders { get; set; } = null!;
+}
+
+internal sealed class PlantedConstructorComponent(ISettingsStore settings) : ComponentBase
+{
+    public ISettingsStore Settings => settings;
 }
 
 internal static class PlantedEndpoints
