@@ -78,9 +78,16 @@ public static partial class Surfaces
         if (result.IsError == true || text.StartsWith("Error:", StringComparison.Ordinal))
             return ErrorKind(text);
         // A delete that removed the row but left the stored file says so in a warning, which a
-        // client must act on (manual cleanup), so it stays in the result.
-        string warning = StorageCleanupWarning().IsMatch(text) ? ";storage_cleanup_failed" : "";
-        return SuccessResult(text) + warning;
+        // client must act on (manual cleanup), so it stays in the result with the files it names.
+        // A bulk call's failed items are named the same way. The capture turns the ids into tokens.
+        var cleanup = CleanupWarningId().Matches(text).Select(m => m.Groups["id"].Value)
+            .Concat(SingleCleanupWarning().Matches(text).Select(m => m.Groups["id"].Value)).ToList();
+        var failed = FailureSection().Match(text) is { Success: true } section
+            ? FailureId().Matches(section.Groups["body"].Value).Select(m => m.Groups["id"].Value).ToList()
+            : [];
+        return SuccessResult(text)
+            + (failed.Count > 0 ? $" failed=[{string.Join(",", failed)}]" : "")
+            + (cleanup.Count > 0 ? $";storage_cleanup_failed=[{string.Join(",", cleanup)}]" : "");
     }
 
     private static string SuccessResult(string text)
@@ -95,8 +102,19 @@ public static partial class Surfaces
         return McpId().Match(text) is { Success: true } m ? $"ok id={m.Groups[1].Value}" : "ok";
     }
 
-    [GeneratedRegex(@"storage cleanup failed|backing storage file could not be removed", RegexOptions.IgnoreCase)]
-    private static partial Regex StorageCleanupWarning();
+    /// <summary>bulk_delete's "- {id}: storage cleanup failed" warning lines.</summary>
+    [GeneratedRegex(@"^- (?<id>\S+): storage cleanup failed\r?$", RegexOptions.Multiline)]
+    private static partial Regex CleanupWarningId();
+
+    /// <summary>delete_file's "(ID: {id}) deleted from database, but the backing storage file could not be removed".</summary>
+    [GeneratedRegex(@"\(ID: (?<id>[^)]+)\) deleted from database, but the backing storage file could not be removed")]
+    private static partial Regex SingleCleanupWarning();
+
+    [GeneratedRegex(@"\n\nFailures:\n(?<body>(?:- [^\n]*(?:\n|$))+)")]
+    private static partial Regex FailureSection();
+
+    [GeneratedRegex(@"^- (?<id>[^:\n]+):", RegexOptions.Multiline)]
+    private static partial Regex FailureId();
 
     [GeneratedRegex(@"^(?:Uploaded|Deleted) (?<done>\d+) of (?<total>\d+) file\(s\)")]
     private static partial Regex BulkSummary();
