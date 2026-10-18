@@ -107,7 +107,9 @@ internal static class SourceScan
         int count = arg.DescendantNodesAndSelf().OfType<AnonymousObjectCreationExpressionSyntax>().Count();
         count += arg.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Sum(call => ReturnedAnonymousObjects(call, depth));
         // Locals anywhere in the argument, so Ok(flag ? body : null) follows body too.
-        var body = arg.Ancestors().FirstOrDefault(a => a is BlockSyntax or ArrowExpressionClauseSyntax or CompilationUnitSyntax);
+        // The whole handler or member, so a local declared in an outer block and returned from a nested one is found.
+        var body = arg.Ancestors().FirstOrDefault(a => a is AnonymousFunctionExpressionSyntax or BaseMethodDeclarationSyntax
+            or LocalFunctionStatementSyntax or AccessorDeclarationSyntax or CompilationUnitSyntax);
         if (body is null)
             return count;
         foreach (string name in arg.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>().Select(i => i.Identifier.ValueText).Distinct())

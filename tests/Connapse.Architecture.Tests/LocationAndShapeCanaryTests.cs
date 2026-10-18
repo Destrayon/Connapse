@@ -140,6 +140,23 @@ public class LocationAndShapeCanaryTests
     }
 
     [Fact]
+    public void ShapeRule_FollowsLocalsDeclaredInAnOuterBlock()
+    {
+        const string source = """
+            app.MapGet("/n", (bool failed) =>
+            {
+                var body = new { error = "x" };
+                if (failed)
+                {
+                    return Results.BadRequest(body);
+                }
+                return Results.Ok();
+            });
+            """;
+        Rules.AnonymousResponses("Program.cs", source).Should().BeEquivalentTo(["Program.cs: GET /n: 1"]);
+    }
+
+    [Fact]
     public void ArchRule_CountsEnumerableResolutionAsServiceLocation()
     {
         const string source = """
