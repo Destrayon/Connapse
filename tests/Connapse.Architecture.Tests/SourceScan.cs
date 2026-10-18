@@ -72,11 +72,12 @@ internal static class SourceScan
             yield break;
         foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
         {
-            if (MappedRoute(method, method.Identifier.ValueText) is not null
-                || !routes.TryGetValue(QualifiedName(method), out var mapped))
+            if (!routes.TryGetValue(QualifiedName(method), out var mapped))
                 continue;
+            // Routes mapped in this file were counted at their map calls above; these are the rest.
+            var local = MappedRoutes(method, method.Identifier.ValueText);
             int count = Returned(method).Sum(e => DirectAnonymousObjects(e, IsResultCall));
-            foreach (string route in mapped)
+            foreach (string route in mapped.Except(local))
                 for (int i = 0; i < count; i++)
                     yield return route;
         }
@@ -282,12 +283,15 @@ internal static class SourceScan
     public static List<string> Sites(SyntaxNode node, IReadOnlyDictionary<string, IReadOnlyList<string>>? routes)
     {
         string site = Site(node, routes);
-        if (routes is not null && !IsLambdaRoute(node)
-            && node.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or LocalFunctionStatementSyntax) is MethodDeclarationSyntax m
-            && MappedRoute(m, m.Identifier.ValueText) is null
-            && routes.TryGetValue(QualifiedName(m), out var mapped))
-            return [.. mapped];
-        return [site];
+        if (IsLambdaRoute(node)
+            || node.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or LocalFunctionStatementSyntax) is not { } function)
+            return [site];
+        // Every route the function serves: mapped here (any number of times) and mapped elsewhere.
+        string name = function is MethodDeclarationSyntax m ? m.Identifier.ValueText : ((LocalFunctionStatementSyntax)function).Identifier.ValueText;
+        var all = new SortedSet<string>(MappedRoutes(function, name), StringComparer.Ordinal);
+        if (routes is not null && function is MethodDeclarationSyntax method && routes.TryGetValue(QualifiedName(method), out var mapped))
+            all.UnionWith(mapped);
+        return all.Count > 0 ? [.. all] : [site];
     }
 
     private static bool IsLambdaRoute(SyntaxNode node) => node.Ancestors().Any(a =>
@@ -310,8 +314,8 @@ internal static class SourceScan
         {
             switch (ancestor)
             {
-                case LocalFunctionStatementSyntax f: return MappedRoute(f, f.Identifier.ValueText) ?? f.Identifier.ValueText;
-                case MethodDeclarationSyntax m: return MappedRoute(m, m.Identifier.ValueText)
+                case LocalFunctionStatementSyntax f: return MappedRoutes(f, f.Identifier.ValueText).FirstOrDefault() ?? f.Identifier.ValueText;
+                case MethodDeclarationSyntax m: return MappedRoutes(m, m.Identifier.ValueText).FirstOrDefault()
                     ?? (routes is not null && routes.TryGetValue(QualifiedName(m), out var mapped) ? mapped[0] : m.Identifier.ValueText);
                 case ConstructorDeclarationSyntax c: return c.Identifier.ValueText;
                 case PropertyDeclarationSyntax p: return p.Identifier.ValueText;
@@ -324,8 +328,9 @@ internal static class SourceScan
     /// The route a method or local function is mapped to as a method group (app.MapGet("/x", Handle)
     /// or SummaryEndpoints.Get), so its body is a route handler's like a lambda's is.
     /// </summary>
-    private static string? MappedRoute(SyntaxNode function, string name)
+    private static List<string> MappedRoutes(SyntaxNode function, string name)
     {
+        var found = new List<string>();
         var ownerType = function.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
         string? owner = ownerType?.Identifier.ValueText;
         foreach (var map in function.SyntaxTree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
@@ -342,9 +347,9 @@ internal static class SourceScan
                 _ => false,
             };
             if (names)
-                return HandlerScan.RouteKey(map);
+                found.Add(HandlerScan.RouteKey(map));
         }
-        return null;
+        return found;
     }
 
     private static bool SameType(SyntaxNode node, TypeDeclarationSyntax? type) =>

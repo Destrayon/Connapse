@@ -341,4 +341,23 @@ public class LocationAndShapeCanaryTests
         Rules.AnonymousResponses("Services/HealthHandler.cs", handler, routes).Should().BeEquivalentTo(
             ["Services/HealthHandler.cs: GET /v1/health: 1", "Services/HealthHandler.cs: GET /v2/health: 1"]);
     }
+
+    [Fact]
+    public void Rules_CountAHandlerMappedHereAndElsewhereUnderBothRoutes()
+    {
+        const string program = """app.MapGet("/new", Endpoints.Handle);""";
+        const string endpoints = """
+            static class Endpoints
+            {
+                public static void Map(IEndpointRouteBuilder app) => app.MapGet("/old", Handle);
+                static IResult Handle(HttpContext ctx) => Results.Ok(new { id = ctx.RequestServices.GetRequiredService<IFoo>() });
+            }
+            """;
+        var routes = SourceScan.QualifiedRoutes([program, endpoints]);
+
+        Rules.AnonymousResponses("Endpoints/Endpoints.cs", endpoints, routes).Should().BeEquivalentTo(
+            ["Endpoints/Endpoints.cs: GET /new: 1", "Endpoints/Endpoints.cs: GET /old: 1"]);
+        Rules.ServiceLocationCalls("Services/Endpoints.cs", endpoints, wholeFile: false, routes).Should().Contain(
+            ["Services/Endpoints.cs: GET /new uses GetRequiredService", "Services/Endpoints.cs: GET /old uses GetRequiredService"]);
+    }
 }
