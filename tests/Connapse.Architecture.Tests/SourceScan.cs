@@ -21,7 +21,7 @@ internal static class SourceScan
     /// <c>Results</c>/<c>TypedResults</c> call (so <c>Ok(list.Select(x => new { ... }))</c> counts),
     /// or through a local initialised from one. Aliases and <c>using static</c> imports are followed.
     /// </summary>
-    public static IEnumerable<string> AnonymousResponseSites(string csharp, IReadOnlyDictionary<string, string>? routes = null)
+    public static IEnumerable<string> AnonymousResponseSites(string csharp, IReadOnlyDictionary<string, IReadOnlyList<string>>? routes = null)
     {
         var root = CSharpSyntaxTree.ParseText(csharp).GetRoot();
         var resultTypes = new HashSet<string>(ResultTypes);
@@ -48,8 +48,9 @@ internal static class SourceScan
             if (!IsResultCall(call))
                 continue;
             int count = call.ArgumentList.Arguments.Sum(a => AnonymousObjects(a.Expression, []));
-            for (int i = 0; i < count; i++)
-                yield return Site(call, routes);
+            foreach (string site in Sites(call, routes))
+                for (int i = 0; i < count; i++)
+                    yield return site;
         }
 
         // A handler can also return the anonymous object itself, which ASP.NET serializes as the body:
@@ -72,11 +73,12 @@ internal static class SourceScan
         foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
         {
             if (MappedRoute(method, method.Identifier.ValueText) is not null
-                || !routes.TryGetValue(QualifiedName(method), out var route))
+                || !routes.TryGetValue(QualifiedName(method), out var mapped))
                 continue;
             int count = Returned(method).Sum(e => DirectAnonymousObjects(e, IsResultCall));
-            for (int i = 0; i < count; i++)
-                yield return route;
+            foreach (string route in mapped)
+                for (int i = 0; i < count; i++)
+                    yield return route;
         }
     }
 
@@ -84,9 +86,10 @@ internal static class SourceScan
     /// "Owner.Method" to route, for every handler mapped by a qualified method group in these
     /// files, so a handler declared in one file and mapped in another is still a route handler.
     /// </summary>
-    public static Dictionary<string, string> QualifiedRoutes(IEnumerable<string> sources)
+    public static Dictionary<string, IReadOnlyList<string>> QualifiedRoutes(IEnumerable<string> sources)
     {
-        var routes = new Dictionary<string, string>(StringComparer.Ordinal);
+        // Every route a handler is mapped to: /v1/health and /v2/health can share HealthHandler.Handle.
+        var routes = new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal);
         foreach (string source in sources)
             foreach (var map in CSharpSyntaxTree.ParseText(source).GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
@@ -94,9 +97,14 @@ internal static class SourceScan
                     && MapMethods.Contains(verb) && map.ArgumentList.Arguments.Count >= 2
                     && map.ArgumentList.Arguments[^1].Expression is MemberAccessExpressionSyntax { Expression: var owner, Name: var n }
                     && RightmostName(owner) is { } ownerName)
-                    routes.TryAdd($"{ownerName}.{n.Identifier.ValueText}", HandlerScan.RouteKey(map));
+                {
+                    string key = $"{ownerName}.{n.Identifier.ValueText}";
+                    if (!routes.TryGetValue(key, out var set))
+                        routes[key] = set = new SortedSet<string>(StringComparer.Ordinal);
+                    set.Add(HandlerScan.RouteKey(map));
+                }
             }
-        return routes;
+        return routes.ToDictionary(r => r.Key, r => (IReadOnlyList<string>)[.. r.Value], StringComparer.Ordinal);
     }
 
     private static string QualifiedName(MethodDeclarationSyntax method) =>
@@ -144,7 +152,7 @@ internal static class SourceScan
     /// Handlers are those mapped in this file and those the cross-file index names.
     /// </summary>
     private static Dictionary<SyntaxNode, SortedSet<string>> HelpersReachedFromRoutes(SyntaxNode root,
-        IReadOnlyDictionary<string, string>? routes)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? routes)
     {
         var reached = new Dictionary<SyntaxNode, SortedSet<string>>();
         var queue = new Queue<(SyntaxNode Function, string Route)>();
@@ -157,8 +165,9 @@ internal static class SourceScan
         }
         if (routes is not null)
             foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
-                if (routes.TryGetValue(QualifiedName(method), out var route))
-                    queue.Enqueue((method, route));
+                if (routes.TryGetValue(QualifiedName(method), out var mapped))
+                    foreach (string route in mapped)
+                        queue.Enqueue((method, route));
         // Visited as (function, route) pairs, so a helper two routes share is counted under both.
         while (queue.TryDequeue(out var next))
             foreach (var call in next.Function.DescendantNodes().OfType<InvocationExpressionSyntax>())
@@ -244,7 +253,7 @@ internal static class SourceScan
 
     /// <summary>Inline service location, as (site, call) pairs.</summary>
     public static IEnumerable<(string Site, string Call)> ServiceLocationCalls(string csharp, bool wholeFile,
-        IReadOnlyDictionary<string, string>? routes = null)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? routes = null)
     {
         var root = CSharpSyntaxTree.ParseText(csharp).GetRoot();
         var helpers = wholeFile ? [] : HelpersReachedFromRoutes(root, routes);
@@ -253,9 +262,10 @@ internal static class SourceScan
             string id = name.Identifier.ValueText;
             if (!LocatorCalls.Contains(id))
                 continue;
-            string site = Site(name, routes);
-            if (wholeFile || IsRouteSite(site))
-                yield return (site, id);
+            var sites = Sites(name, routes);
+            if (wholeFile || IsRouteSite(sites[0]))
+                foreach (string site in sites)
+                    yield return (site, id);
             // Outside surface files, a helper a route handler calls is part of that route.
             else if (name.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or LocalFunctionStatementSyntax) is { } function
                 && helpers.TryGetValue(function, out var reachedBy))
@@ -265,7 +275,27 @@ internal static class SourceScan
     }
 
     /// <summary>The route ("GET /x") or member a node sits in; nested lambdas belong to their route.</summary>
-    public static string Site(SyntaxNode node, IReadOnlyDictionary<string, string>? routes = null)
+    /// <summary>
+    /// Every site a node belongs to: its one route or member, or each route a handler mapped from
+    /// another file serves, so mapping it to a second route adds that route's entries.
+    /// </summary>
+    public static List<string> Sites(SyntaxNode node, IReadOnlyDictionary<string, IReadOnlyList<string>>? routes)
+    {
+        string site = Site(node, routes);
+        if (routes is not null && !IsLambdaRoute(node)
+            && node.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or LocalFunctionStatementSyntax) is MethodDeclarationSyntax m
+            && MappedRoute(m, m.Identifier.ValueText) is null
+            && routes.TryGetValue(QualifiedName(m), out var mapped))
+            return [.. mapped];
+        return [site];
+    }
+
+    private static bool IsLambdaRoute(SyntaxNode node) => node.Ancestors().Any(a =>
+        a is ArgumentSyntax { Expression: AnonymousFunctionExpressionSyntax } arg
+        && arg.Parent?.Parent is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: var verb } }
+        && MapMethods.Contains(verb));
+
+    public static string Site(SyntaxNode node, IReadOnlyDictionary<string, IReadOnlyList<string>>? routes = null)
     {
         foreach (var ancestor in node.Ancestors())
         {
@@ -282,7 +312,7 @@ internal static class SourceScan
             {
                 case LocalFunctionStatementSyntax f: return MappedRoute(f, f.Identifier.ValueText) ?? f.Identifier.ValueText;
                 case MethodDeclarationSyntax m: return MappedRoute(m, m.Identifier.ValueText)
-                    ?? (routes is not null && routes.TryGetValue(QualifiedName(m), out var route) ? route : m.Identifier.ValueText);
+                    ?? (routes is not null && routes.TryGetValue(QualifiedName(m), out var mapped) ? mapped[0] : m.Identifier.ValueText);
                 case ConstructorDeclarationSyntax c: return c.Identifier.ValueText;
                 case PropertyDeclarationSyntax p: return p.Identifier.ValueText;
             }

@@ -319,4 +319,26 @@ public class LocationAndShapeCanaryTests
         Rules.ServiceLocationCalls("Program.cs", program, wholeFile: false, routes).Should()
             .BeEquivalentTo(["Program.cs: GET /a uses GetRequiredService", "Program.cs: GET /b uses GetRequiredService"]);
     }
+
+    [Fact]
+    public void Rules_CountAHandlerMappedToTwoRoutesFromAnotherFileUnderBoth()
+    {
+        const string program = """
+            app.MapGet("/v1/health", HealthHandler.Handle);
+            app.MapGet("/v2/health", HealthHandler.Handle);
+            """;
+        const string handler = """
+            static class HealthHandler
+            {
+                public static object Handle() { var x = Resolve(); return new { ok = true }; }
+                static object Resolve() => Locator.Current.GetRequiredService<IFoo>();
+            }
+            """;
+        var routes = SourceScan.QualifiedRoutes([program, handler]);
+
+        Rules.ServiceLocationCalls("Services/HealthHandler.cs", handler, wholeFile: false, routes).Should().BeEquivalentTo(
+            ["Services/HealthHandler.cs: GET /v1/health uses GetRequiredService", "Services/HealthHandler.cs: GET /v2/health uses GetRequiredService"]);
+        Rules.AnonymousResponses("Services/HealthHandler.cs", handler, routes).Should().BeEquivalentTo(
+            ["Services/HealthHandler.cs: GET /v1/health: 1", "Services/HealthHandler.cs: GET /v2/health: 1"]);
+    }
 }
