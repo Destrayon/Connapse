@@ -73,6 +73,7 @@ public class LocationAndShapeCanaryTests
             });
             app.MapGet("/d", () => R.Json(new { a = 1 }));
             app.MapGet("/e", () => flag ? Results.NotFound(new { a = 1 }) : Results.Conflict(new { b = 2 }));
+            app.MapGet("/nested", () => Results.Ok(new { items = list.Select(s => new { s.Id }), extra = new { a = 1 } }));
             app.MapGet("/typed", () => TypedResults.Ok(new SourceResponse(1)));
             app.MapGet("/plain", () => Results.Ok(list));
             Log(new { ignored = true });
@@ -84,6 +85,7 @@ public class LocationAndShapeCanaryTests
             "Program.cs: GET /c: 1",
             "Program.cs: GET /d: 1",
             "Program.cs: GET /e: 2",
+            "Program.cs: GET /nested: 3",
         ]);
     }
 

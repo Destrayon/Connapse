@@ -43,7 +43,10 @@ internal static class SourceScan
                 IdentifierNameSyntax or GenericNameSyntax when staticImport => !IsMapOrLocalCall(call),
                 _ => false,
             };
-            if (isResultCall && call.ArgumentList.Arguments.Any(a => CarriesAnonymousObject(a.Expression)))
+            if (!isResultCall)
+                continue;
+            int count = call.ArgumentList.Arguments.Sum(a => AnonymousObjects(a.Expression, depth: 0));
+            for (int i = 0; i < count; i++)
                 yield return Site(call);
         }
     }
@@ -91,60 +94,60 @@ internal static class SourceScan
     private static bool IsRouteSite(string site) =>
         site.Length > 0 && site.Split(' ')[0] is "GET" or "POST" or "PUT" or "PATCH" or "DELETE";
 
-    private static bool CarriesAnonymousObject(ExpressionSyntax arg) => CarriesAnonymousObject(arg, depth: 0);
-
     /// <summary>
-    /// An anonymous object inside the expression; or a local initialised or assigned from one; or a
-    /// call to a same-file helper whose return value carries one (Results.Ok(Report(result))).
+    /// How many anonymous objects an expression contributes to a response body: each one written in
+    /// it (an outer body and a projection inside it are two), plus those reaching it through a local
+    /// initialised or assigned from one, or through a same-file helper's return value.
     /// </summary>
-    private static bool CarriesAnonymousObject(ExpressionSyntax arg, int depth)
+    private static int AnonymousObjects(ExpressionSyntax arg, int depth)
     {
         if (depth > 4)
-            return false;
-        if (arg.DescendantNodesAndSelf().OfType<AnonymousObjectCreationExpressionSyntax>().Any())
-            return true;
-        if (arg.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Any(call => ReturnsAnonymousObject(call, depth)))
-            return true;
+            return 0;
+        int count = arg.DescendantNodesAndSelf().OfType<AnonymousObjectCreationExpressionSyntax>().Count();
+        count += arg.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Sum(call => ReturnedAnonymousObjects(call, depth));
         if (arg is not IdentifierNameSyntax local)
-            return false;
+            return count;
         var body = arg.Ancestors().FirstOrDefault(a => a is BlockSyntax or ArrowExpressionClauseSyntax or CompilationUnitSyntax);
         if (body is null)
-            return false;
+            return count;
         string name = local.Identifier.ValueText;
-        return body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
-                .Any(v => v.Identifier.ValueText == name && v.Initializer is { } init && CarriesAnonymousObject(init.Value, depth + 1))
-            || body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
-                .Any(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name && CarriesAnonymousObject(a.Right, depth + 1));
+        count += body.DescendantNodes().OfType<VariableDeclaratorSyntax>()
+            .Where(v => v.Identifier.ValueText == name && v.Initializer is not null)
+            .Sum(v => AnonymousObjects(v.Initializer!.Value, depth + 1));
+        count += body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+            .Where(a => a.Left is IdentifierNameSyntax l && l.Identifier.ValueText == name)
+            .Sum(a => AnonymousObjects(a.Right, depth + 1));
+        return count;
     }
 
-    /// <summary>A call to a same-file method or local function (unqualified, this. or ClassName.) that returns an anonymous object.</summary>
-    private static bool ReturnsAnonymousObject(InvocationExpressionSyntax call, int depth)
+    /// <summary>Anonymous objects returned by a same-file method or local function (unqualified, this. or ClassName.).</summary>
+    private static int ReturnedAnonymousObjects(InvocationExpressionSyntax call, int depth)
     {
         string? name = call.Expression switch
         {
             IdentifierNameSyntax i => i.Identifier.ValueText,
-            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax or IdentifierNameSyntax, Name: var n } ma
-                when ma.Expression is ThisExpressionSyntax || call.Ancestors().OfType<TypeDeclarationSyntax>()
-                    .Any(t => t.Identifier.ValueText == ((IdentifierNameSyntax)ma.Expression).Identifier.ValueText) => n.Identifier.ValueText,
+            MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax, Name: var n } => n.Identifier.ValueText,
+            MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax receiver, Name: var n }
+                when call.Ancestors().OfType<TypeDeclarationSyntax>().Any(t => t.Identifier.ValueText == receiver.Identifier.ValueText) => n.Identifier.ValueText,
             _ => null,
         };
         if (name is null)
-            return false;
+            return 0;
         var root = call.SyntaxTree.GetRoot();
         var bodies = root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == name)
                 .Select(m => (SyntaxNode?)m.ExpressionBody ?? m.Body)
             .Concat(root.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Where(f => f.Identifier.ValueText == name)
                 .Select(f => (SyntaxNode?)f.ExpressionBody ?? f.Body))
             .OfType<SyntaxNode>();
+        int count = 0;
         foreach (var body in bodies)
         {
             var returned = body is ArrowExpressionClauseSyntax arrow
                 ? [arrow.Expression]
                 : body.DescendantNodes().OfType<ReturnStatementSyntax>().Select(r => r.Expression).OfType<ExpressionSyntax>();
-            if (returned.Any(e => CarriesAnonymousObject(e, depth + 1)))
-                return true;
+            count += returned.Sum(e => AnonymousObjects(e, depth + 1));
         }
-        return false;
+        return count;
     }
 
     /// <summary>With `using static Results`, a bare call could be Ok(...) or an unrelated local method.</summary>
