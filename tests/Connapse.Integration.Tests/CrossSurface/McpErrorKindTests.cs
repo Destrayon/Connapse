@@ -25,6 +25,27 @@ public partial class McpErrorKindTests
         messages.Where(t => Surfaces.ErrorKind(t) == "error:unknown").Should().BeEmpty();
     }
 
+    [Fact]
+    public void ErrorKind_IgnoresWhatTheCallerSuppliedInQuotes()
+    {
+        string tools = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Mcp", "McpTools.cs"));
+        string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"));
+        var templates = ErrorLiteral().Matches(tools).Select(m => m.Groups["text"].Value)
+            .Concat(ReturnedMessage().Matches(upload).Concat(ResultError().Matches(upload)).Select(m => "Error: " + m.Groups["text"].Value))
+            .Where(t => QuotedHole().IsMatch(t))
+            .Distinct()
+            .ToList();
+        const string hostile = "permission forbidden already exists not found invalid";
+
+        templates.Should().NotBeEmpty();
+        foreach (string template in templates)
+        {
+            string plain = Hole().Replace(template, "x");
+            string loaded = Hole().Replace(QuotedHole().Replace(template, $"'{hostile}'"), "x");
+            Surfaces.ErrorKind(loaded).Should().Be(Surfaces.ErrorKind(plain), template);
+        }
+    }
+
     /// <summary>
     /// The one message MCP passes through from a service, upload_file's "Error: {result.Error}",
     /// carries UploadService's messages, returned by its validation or built into an UploadResult,
@@ -67,6 +88,9 @@ public partial class McpErrorKindTests
     /// <summary>An error built into the result rather than returned: new UploadResult(false, Error: "...").</summary>
     [GeneratedRegex(@"Error: \$?""(?<text>[^""]*)""")]
     private static partial Regex ResultError();
+
+    [GeneratedRegex(@"'\{[^}]*\}'")]
+    private static partial Regex QuotedHole();
 
     [GeneratedRegex(@"\{[^}]*\}")]
     private static partial Regex Hole();

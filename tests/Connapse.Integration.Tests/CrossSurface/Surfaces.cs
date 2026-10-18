@@ -85,8 +85,17 @@ public static partial class Surfaces
         ["must", "invalid", "required", "not supported", "unsupported", "not allowed", "no parser", "provide either", "maximum",
             "exceeds", "empty", "too large", "not writable"];
 
-    /// <summary>The kind of failure an error message describes, for MCP text and UI alerts alike.</summary>
-    public static string ErrorKind(string text) => text switch
+    /// <summary>
+    /// The kind of failure an error message describes, for MCP text and UI alerts alike. What the
+    /// caller supplied sits in single quotes (Error: invalid filename 'permission/notes.txt') and is
+    /// left out, so a name like that can't turn a validation failure into a permission one.
+    /// </summary>
+    public static string ErrorKind(string text) => Classify(QuotedInput().Replace(text, "''"));
+
+    [GeneratedRegex(@"'[^']*'")]
+    private static partial Regex QuotedInput();
+
+    private static string Classify(string text) => text switch
         {
             _ when text.Contains("already exists", StringComparison.OrdinalIgnoreCase) => "error:conflict",
             _ when text.Contains("not found", StringComparison.OrdinalIgnoreCase) => "error:not_found",
