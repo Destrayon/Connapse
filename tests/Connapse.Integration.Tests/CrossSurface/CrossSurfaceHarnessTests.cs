@@ -370,7 +370,8 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
 
     /// <summary>
     /// Creates a container through the Home page's dialog, and reads the outcome the way a user
-    /// would: the dialog closes on success, and an alert in it describes a failure.
+    /// would: the dialog closes on success, and an alert in it describes a failure. A page-level
+    /// alert after the dialog closed (the list failing to reload) isn't the create's result.
     /// </summary>
     private static async Task<string> CreateOnHomeAsync(UiSurface ui, string name, string description)
     {
@@ -380,10 +381,13 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         page.Find("input[placeholder='my-project']").Input(name);
         page.Find("input[placeholder='What is this container for?']").Change(description);
         await page.Find(".modal-footer-custom button.btn-primary").ClickAsync(new());
-        page.WaitForAssertion(() => (page.FindAll(".modal-footer-custom").Count == 0
-            || page.FindAll(".alert-danger").Count > 0).Should().BeTrue(), TimeSpan.FromSeconds(10));
-        string? alert = page.FindAll(".alert-danger").FirstOrDefault()?.TextContent.Trim();
-        return alert is null ? "ok" : Surfaces.ErrorKind(alert);
+        page.WaitForAssertion(() => (page.FindAll(".modal-content-custom").Count == 0
+            || page.FindAll(".modal-content-custom .alert-danger").Count > 0).Should().BeTrue(), TimeSpan.FromSeconds(10));
+        // A closed dialog is a created container, whatever the page shows after it; only an alert
+        // inside the still-open dialog is the create's own failure.
+        if (page.FindAll(".modal-content-custom").Count == 0)
+            return "ok";
+        return Surfaces.ErrorKind(page.Find(".modal-content-custom .alert-danger").TextContent.Trim());
     }
 
     private static async Task<StateProjection> ContainerByNameAsync(IServiceProvider services, string name)
