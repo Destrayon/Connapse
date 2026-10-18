@@ -39,6 +39,9 @@ public class FixedDelayTests
                     await Task.Delay(250, ct);                              // fixed: a finite wait, cancellable or not
                     while (!done) { await Task.Delay(200); }                // polling
                     for (int i = 0; i < 3; i++) Thread.Sleep(10);           // fixed: pacing, not waiting for anything
+                    int attempt = 0;
+                    while (attempt++ < 10) Thread.Sleep(500);               // fixed: a counted while waits for nothing
+                    while (sw.Elapsed < limit) { if (Ready()) break; await Task.Delay(50); }  // polling: the body checks
                     for (int i = 0; i < 50; i++) { if (Ready()) return; await Task.Delay(100); } // polling
                     for (int i = 0; i < 20 && !Ready(); i++) await Task.Delay(50);            // polling
                     while (true)
@@ -55,8 +58,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(7);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 6", "f: 1"]);
+        delays.Should().HaveCount(8);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 7", "f: 1"]);
     }
 
     /// <summary>
@@ -112,20 +115,28 @@ public class FixedDelayTests
     /// that leaves (return, break, throw) under an if or switch. A for or foreach that only counts,
     /// sleeping each pass, is pacing: a fixed wait multiplied, not a wait for anything.
     /// </summary>
+    /// <summary>
+    /// A loop condition that only counts or measures time: one comparison (attempt++ &lt; 10,
+    /// i &lt; 3, sw.Elapsed &lt; timeout) with no call and no &amp;&amp; or ||. Such a loop waits a fixed
+    /// time unless its body checks something; !done, status != Ready or Ready() are readiness checks.
+    /// </summary>
+    private static bool IsCountOnly(ExpressionSyntax condition) =>
+        condition is BinaryExpressionSyntax b
+        && (b.IsKind(SyntaxKind.LessThanExpression) || b.IsKind(SyntaxKind.LessThanOrEqualExpression)
+            || b.IsKind(SyntaxKind.GreaterThanExpression) || b.IsKind(SyntaxKind.GreaterThanOrEqualExpression))
+        && !condition.DescendantNodes().Any(n => n is InvocationExpressionSyntax
+            || n.IsKind(SyntaxKind.LogicalAndExpression) || n.IsKind(SyntaxKind.LogicalOrExpression));
+
     private static bool WaitsOnACondition(StatementSyntax loop)
     {
         var condition = loop switch
         {
             WhileStatementSyntax w => w.Condition,
             DoStatementSyntax d => d.Condition,
+            ForStatementSyntax f => f.Condition,
             _ => null,
         };
-        if (condition is not null && !condition.IsKind(SyntaxKind.TrueLiteralExpression))
-            return true;
-        // for (i = 0; i < 100 && !Ready(); i++): the condition itself waits on something besides the count.
-        if (loop is ForStatementSyntax { Condition: { } forCondition }
-            && forCondition.DescendantNodesAndSelf().Any(n => n is InvocationExpressionSyntax
-                || n.IsKind(SyntaxKind.LogicalAndExpression) || n.IsKind(SyntaxKind.LogicalOrExpression)))
+        if (condition is not null && !condition.IsKind(SyntaxKind.TrueLiteralExpression) && !IsCountOnly(condition))
             return true;
         return loop.DescendantNodes().OfType<StatementSyntax>()
             .Where(st => st is IfStatementSyntax or SwitchStatementSyntax)
