@@ -1,0 +1,9 @@
+[
+  "tests/Connapse.Identity.Tests/AwsIdentityLinkServiceTests.cs: 1",
+  "tests/Connapse.Identity.Tests/AzureLinkRevocationTests.cs: 2",
+  "tests/Connapse.Ingestion.Tests/Isolation/ParserProcessPoolTests.cs: 2",
+  "tests/Connapse.Integration.Tests/ReindexIntegrationTests.cs: 1",
+  "tests/Connapse.Integration.Tests/SftpServerFixture.cs: 1",
+  "tests/Connapse.ParserHost.TestHost/TestHostProgram.cs: 1",
+  "tests/Connapse.Web.Tests/Components/NewSourceConfluenceTests.cs: 1"
+]
