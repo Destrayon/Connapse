@@ -146,6 +146,23 @@ public class StoreCanaryTests
     }
 
     [Fact]
+    public void ArchRule_DetectsStoresResolvedInRazorMarkup()
+    {
+        const string razor = """
+            @inject IServiceScopeFactory Scopes
+            <p>@(Scopes.CreateScope().ServiceProvider.GetRequiredService<Connapse.Core.Interfaces.ISourceStore>().ToString())</p>
+            @{ var folders = Scopes.CreateScope().ServiceProvider.GetService(typeof(IFolderStore)); }
+            <p>@(Scopes.CreateScope().ServiceProvider.GetRequiredService<ILogger<Planted>>())</p>
+            """;
+        Rules.ComponentStoreInjections(TestAssembly, [("Components/Pages/Planted.razor", razor)])
+            .Where(e => e.StartsWith("Pages.Planted")).Should().BeEquivalentTo(
+            [
+                "Pages.Planted -> ISourceStore (resolved)",
+                "Pages.Planted -> IFolderStore (resolved)",
+            ]);
+    }
+
+    [Fact]
     public void RazorSource_FailsClosedOnAnUnbalancedBlock()
     {
         var act = () => RazorSource.CodeBlocks("@code { private void M() { ");

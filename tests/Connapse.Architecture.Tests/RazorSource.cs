@@ -41,6 +41,15 @@ internal static partial class RazorSource
     public static SyntaxNode ParseCodeBlocks(string razor) =>
         CSharpSyntaxTree.ParseText($"partial class __Component {{\n{string.Join("\n", CodeBlocks(razor))}\n}}").GetRoot();
 
+    /// <summary>
+    /// Types a component resolves from a provider anywhere in its file, markup included:
+    /// <c>@(Scopes.CreateScope().ServiceProvider.GetRequiredService&lt;ISourceStore&gt;())</c> never
+    /// reaches a code block, so the markup is searched as text. Names come back without namespaces.
+    /// </summary>
+    public static IEnumerable<string> ResolvedTypeNames(string razor) =>
+        ResolverCall().Matches(razor).Select(m => (m.Groups["generic"].Success ? m.Groups["generic"] : m.Groups["typeof"]).Value)
+            .Select(name => System.Text.RegularExpressions.Regex.Replace(name.Trim(), @"\b[\w]+\.", ""));
+
     /// <summary>"Components/Pages/Sources.razor" or ".razor.cs" as the component name the reflection rules use: "Pages.Sources".</summary>
     public static string ComponentName(string pathUnderWeb)
     {
@@ -53,4 +62,7 @@ internal static partial class RazorSource
 
     [GeneratedRegex(@"@(code|functions)\s*\{")]
     private static partial Regex CodeBlockStart();
+
+    [GeneratedRegex(@"\bGet(?:Required)?(?:Keyed)?Services?\s*(?:<\s*(?<generic>[\w.]+(?:<[\w.,\s]+>)?)\s*>\s*\(|\(\s*typeof\s*\(\s*(?<typeof>[\w.]+)\s*\))")]
+    private static partial Regex ResolverCall();
 }
