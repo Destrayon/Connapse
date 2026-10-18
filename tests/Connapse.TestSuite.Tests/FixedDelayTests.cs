@@ -50,6 +50,7 @@ public class FixedDelayTests
                     int left = 5;
                     while (left > 0) { left--; await Task.Delay(100); }                       // fixed: a countdown
                     while (sw.Elapsed < cap!.Value) await Task.Delay(100);                     // fixed: a null-forgiven limit
+                    while (tries! < 10) { tries++; await Task.Delay(500); }                    // fixed: a null-forgiven counter
                     while (done < expected) { done++; expected += await NewJobsAsync(); await Task.Delay(100); } // polling: the limit moves
                     while (true)
                     {
@@ -65,8 +66,8 @@ public class FixedDelayTests
             """;
         var delays = FixedDelays(CSharpSyntaxTree.ParseText(source).GetRoot()).ToList();
 
-        delays.Should().HaveCount(11);
-        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 10", "f: 1"]);
+        delays.Should().HaveCount(12);
+        delays.GroupBy(Member).Select(g => $"{g.Key}: {g.Count()}").Should().BeEquivalentTo(["M: 11", "f: 1"]);
     }
 
     /// <summary>
@@ -152,12 +153,20 @@ public class FixedDelayTests
             IsBound(b.Left, loop) && IsBound(b.Right, loop),
         BinaryExpressionSyntax b when b.IsKind(SyntaxKind.LessThanExpression) || b.IsKind(SyntaxKind.LessThanOrEqualExpression)
             || b.IsKind(SyntaxKind.GreaterThanExpression) || b.IsKind(SyntaxKind.GreaterThanOrEqualExpression) =>
-            (IsCounterOrClock(b.Left, loop) && IsLimit(b.Right, loop)) || (IsCounterOrClock(b.Right, loop) && IsLimit(b.Left, loop)),
+            (IsCounterOrClock(Unwrap(b.Left), loop) && IsLimit(b.Right, loop)) || (IsCounterOrClock(Unwrap(b.Right), loop) && IsLimit(b.Left, loop)),
         _ => false,
     };
 
     private static readonly HashSet<string> ClockMembers =
         ["Elapsed", "ElapsedMilliseconds", "ElapsedTicks", "UtcNow", "Now", "TickCount", "TickCount64"];
+
+    /// <summary>(x) and x! are x: neither changes what a comparison side reads.</summary>
+    private static ExpressionSyntax Unwrap(ExpressionSyntax e) => e switch
+    {
+        ParenthesizedExpressionSyntax p => Unwrap(p.Expression),
+        PostfixUnaryExpressionSyntax post when post.IsKind(SyntaxKind.SuppressNullableWarningExpression) => Unwrap(post.Operand),
+        _ => e,
+    };
 
     private static bool IsCounterOrClock(ExpressionSyntax e, StatementSyntax loop)
     {
