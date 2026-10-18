@@ -21,11 +21,11 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         string name = UniqueName();
 
         var outcome = await SideEffects.CaptureAsync(fixture,
-            async () => Surfaces.Result(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name, description = "made over REST" })),
+            async () => await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name, description = "made over REST" })),
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name));
 
-        outcome.Result.Should().Be("ok");
+        outcome.Result.Should().Be("ok id={id1}", "the response names the container it created");
         outcome.State.Should().Equal("container {name} description=made over REST");
         outcome.Audit.Should().ContainSingle().Which.Should().StartWith("container.created container {id1} actor={admin} details=");
         outcome.Jobs.Should().BeEmpty();
@@ -43,7 +43,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name));
 
-        outcome.Result.Should().Be("ok");
+        outcome.Result.Should().Be("ok id={id1}", "the same shape REST gives");
         outcome.State.Should().Equal("container {name} description=made over MCP");
     }
 
@@ -54,7 +54,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         (await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name })).EnsureSuccessStatusCode();
         await using var mcp = await Surfaces.McpAsync(fixture);
 
-        string rest = Surfaces.Result(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name }));
+        string rest = await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name }));
         string viaMcp = Surfaces.Result(await mcp.CallToolAsync("container_create", new Dictionary<string, object?> { ["name"] = name }));
 
         rest.Should().Be("error:conflict");
@@ -68,7 +68,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         (await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name })).EnsureSuccessStatusCode();
 
         var outcome = await SideEffects.CaptureAsync(fixture,
-            async () => Surfaces.Result(await Surfaces.Rest(fixture).GetAsync("/api/containers")),
+            async () => await Surfaces.ResultAsync(await Surfaces.Rest(fixture).GetAsync("/api/containers")),
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name));
 
@@ -85,7 +85,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
 
         var outcome = await SideEffects.CaptureAsync(fixture,
-            async () => Surfaces.Result(await Surfaces.Rest(fixture).DeleteAsync($"/api/containers/{containerId}")),
+            async () => await Surfaces.ResultAsync(await Surfaces.Rest(fixture).DeleteAsync($"/api/containers/{containerId}")),
             sp => ContainerByNameAsync(sp, name),
             Placeholders(name),
             knownIds: [containerId]);
@@ -109,7 +109,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
                 using var form = new MultipartFormDataContent();
                 form.Add(new ByteArrayContent("harness self-test"u8.ToArray()), "files", "note.txt");
                 form.Add(new StringContent("/"), "path");
-                return Surfaces.Result(await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form));
+                return await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form));
             },
             async sp =>
             {
@@ -122,6 +122,36 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         outcome.Jobs.Should().ContainSingle().Which.Should()
             .StartWith("""IIngestionJobs.IngestAsync("{id1}", {"DocumentId":"{id1}","FileName":"note.txt",""")
             .And.Contain("\"ContainerId\":\"{id2}\"").And.Contain("\"UploadedAt\":\"{time}\"");
+    }
+
+    [Fact]
+    public async Task Capture_IncludesJobsForOtherDocumentsOfTheContainer()
+    {
+        string name = UniqueName();
+        var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
+        created.EnsureSuccessStatusCode();
+        string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
+
+        var outcome = await SideEffects.CaptureAsync(fixture,
+            async () =>
+            {
+                using var form = new MultipartFormDataContent();
+                form.Add(new ByteArrayContent("first"u8.ToArray()), "files", "a.txt");
+                form.Add(new ByteArrayContent("second"u8.ToArray()), "files", "b.txt");
+                form.Add(new StringContent("/"), "path");
+                return await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/files", form));
+            },
+            async sp =>
+            {
+                // Lists only a.txt, as a projection blind to a misdirected job would.
+                var docs = (await sp.GetRequiredService<IDocumentStore>().ListAsync(Guid.Parse(containerId))).Where(d => d.FileName == "a.txt").ToList();
+                return new StateProjection(docs.Select(d => $"document {d.FileName}").ToList(), docs.Select(d => d.Id).ToList());
+            },
+            knownIds: [containerId]);
+
+        outcome.Jobs.Should().HaveCount(2, "the job for b.txt is found through its container");
+        outcome.Jobs.Should().ContainSingle(j => j.Contains("\"FileName\":\"b.txt\""))
+            .Which.Should().StartWith("""IIngestionJobs.IngestAsync("{id3}",""", "b.txt gets its own token, not a raw id");
     }
 
     private static async Task<StateProjection> ContainerByNameAsync(IServiceProvider services, string name)

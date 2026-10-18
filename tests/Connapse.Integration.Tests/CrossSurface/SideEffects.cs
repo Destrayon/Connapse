@@ -18,9 +18,11 @@ namespace Connapse.Integration.Tests.CrossSurface;
 /// Only records written during the action count: audit rows and jobs that existed before it are
 /// excluded, so a resource reused across actions doesn't carry earlier effects forward. Within
 /// that window, records are matched by resource id: the ids the projection reports, plus the ids
-/// the caller already knows (a resource the action deletes no longer appears in any projection).
-/// Every integration test shares one host and one database, so matching by time alone would pick
-/// up other tests' work.
+/// the caller already knows (a resource the action deletes no longer appears in any projection),
+/// and every document in a container among them, so a job or row aimed at the wrong document of
+/// that container still shows up. Every integration test shares one host and one database, and an
+/// earlier test's background work can still be running, so matching by time alone would pick up
+/// other tests' work.
 /// </remarks>
 public static partial class SideEffects
 {
@@ -37,6 +39,7 @@ public static partial class SideEffects
         using var scope = fixture.Factory.Services.CreateScope();
         var projection = await project(scope.ServiceProvider);
         var ids = projection.ResourceIds.Concat(knownIds ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        ids.AddRange((await DocumentsInContainersAsync(scope.ServiceProvider, ids)).Where(d => !ids.Contains(d, StringComparer.OrdinalIgnoreCase)));
 
         var tokens = new Dictionary<string, string>(placeholders ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < ids.Count; i++)
@@ -51,6 +54,25 @@ public static partial class SideEffects
             audit.Select(s => Normalize(s, tokens)).ToList(),
             jobs.Select(s => Normalize(s, tokens)).ToList());
     }
+
+    /// <summary>Documents of any container among the ids, oldest first, so their tokens are stable.</summary>
+    private static async Task<List<string>> DocumentsInContainersAsync(IServiceProvider services, List<string> ids)
+    {
+        if (ids.Count == 0)
+            return [];
+        await using var conn = await OpenHangfireAsync(services);
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id::text FROM documents WHERE container_id::text = ANY(@ids) ORDER BY created_at, id", conn);
+        cmd.Parameters.AddWithValue("ids", ids.Select(i => i.ToLowerInvariant()).ToArray());
+        var docs = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            docs.Add(reader.GetString(0));
+        return docs;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> ActorTokens = new();
+    private static int _actors;
 
     /// <summary>Where the audit log and the job table ended before the action.</summary>
     private sealed record Boundary(DateTime LastAuditAt, HashSet<Guid> AuditIdsAtLast, long LastJobId);
@@ -71,7 +93,8 @@ public static partial class SideEffects
 
     /// <summary>
     /// "action type resource actor=... details=...", oldest first. The seeded admin is {admin} and
-    /// any other user a numbered {userN}, so an event attributed to the wrong user doesn't compare
+    /// any other user a numbered {userN}, numbered once for the whole test run, so the same account
+    /// is the same token in every capture and an event attributed to the wrong user doesn't compare
     /// equal; details are kept because they record what the action decided.
     /// </summary>
     private static async Task<List<string>> AuditRowsAsync(IServiceProvider services, List<string> ids, Boundary before,
@@ -92,7 +115,7 @@ public static partial class SideEffects
         if (admin is not null)
             tokens.TryAdd(admin.Value.ToString(), "{admin}");
         foreach (var user in rows.Select(r => r.UserId).OfType<Guid>().Distinct())
-            tokens.TryAdd(user.ToString(), $"{{user{tokens.Values.Count(v => v.StartsWith("{user", StringComparison.Ordinal)) + 1}}}");
+            tokens.TryAdd(user.ToString(), ActorTokens.GetOrAdd(user, _ => $"{{user{Interlocked.Increment(ref _actors)}}}"));
 
         return rows.Select(a =>
             $"{a.Action} {a.ResourceType} {a.ResourceId} actor={(a.UserId is null ? "none" : a.UserId.ToString())}"
