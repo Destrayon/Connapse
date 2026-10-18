@@ -8,26 +8,39 @@ namespace Connapse.Architecture.Tests;
 /// <summary>Measures page logic in Razor components from source text.</summary>
 internal static partial class RazorMetrics
 {
-    public sealed record ComponentMetrics(int CodeLines, int Injects, int Complexity);
+    /// <param name="CodeLines">Non-blank lines of C# in code blocks, code-behind and a web base class.</param>
+    /// <param name="Injects">@inject directives.</param>
+    /// <param name="Complexity">Methods plus decision points in that C#.</param>
+    /// <param name="MarkupLogic">Control flow, lambdas and conditions written in the markup itself.</param>
+    public sealed record ComponentMetrics(int CodeLines, int Injects, int Complexity, int MarkupLogic)
+    {
+        public bool IsEmpty => CodeLines == 0 && Injects == 0 && Complexity == 0 && MarkupLogic == 0;
+    }
 
     /// <summary>
-    /// Lines of C# in <c>@code</c>/<c>@functions</c> blocks, <c>@inject</c> directives, and cyclomatic
-    /// complexity (methods plus decision points) of that C#. Markup-level <c>@if</c> isn't counted.
+    /// Measures a component: its <c>@code</c>/<c>@functions</c> blocks (found with Roslyn's lexer, so
+    /// raw strings of any length are handled and an unbalanced block fails), any extra C# that
+    /// belongs to it (a <c>.razor.cs</c> code-behind, a web base class named by <c>@inherits</c>),
+    /// and the logic left in its markup.
     /// </summary>
-    public static ComponentMetrics MeasureRazor(string razor)
+    public static ComponentMetrics MeasureRazor(string razor, IEnumerable<string>? componentCSharp = null)
     {
         int injects = InjectDirective().Matches(razor).Count;
-        var blocks = CodeBlocks(razor).ToList();
-        int lines = blocks.Sum(b => b.Split('\n').Count(l => !string.IsNullOrWhiteSpace(l)));
+        var blocks = RazorSource.CodeBlocks(razor);
+        var extra = componentCSharp?.ToList() ?? [];
 
-        int complexity = 0;
-        foreach (string block in blocks)
-        {
-            var root = CSharpSyntaxTree.ParseText($"class __Component {{\n{block}\n}}").GetRoot();
-            complexity += root.DescendantNodes().Count(IsDecisionOrMember);
-        }
-        return new ComponentMetrics(lines, injects, complexity);
+        int lines = blocks.Concat(extra).Sum(b => b.Split('\n').Count(l => !string.IsNullOrWhiteSpace(l)));
+        int complexity = blocks.Sum(b => Complexity(CSharpSyntaxTree.ParseText($"class __Component {{\n{b}\n}}").GetRoot()))
+            + extra.Sum(c => Complexity(CSharpSyntaxTree.ParseText(c).GetRoot()));
+        int markup = MarkupLogicPattern().Matches(RazorSource.WithoutCodeBlocks(razor)).Count;
+        return new ComponentMetrics(lines, injects, complexity, markup);
     }
+
+    /// <summary>The web base class a component names with @inherits, if any (framework bases have none to measure).</summary>
+    public static string? InheritedClass(string razor) =>
+        InheritsDirective().Match(razor) is { Success: true } m ? m.Groups[1].Value.Split('.')[^1].Split('<')[0] : null;
+
+    private static int Complexity(SyntaxNode root) => root.DescendantNodes().Count(IsDecisionOrMember);
 
     private static bool IsDecisionOrMember(SyntaxNode n) => n switch
     {
@@ -41,62 +54,16 @@ internal static partial class RazorMetrics
         _ => false,
     };
 
-    /// <summary>The bodies of <c>@code { }</c> and <c>@functions { }</c>, matching braces outside strings and comments.</summary>
-    public static IEnumerable<string> CodeBlocks(string razor)
-    {
-        foreach (Match m in CodeBlockStart().Matches(razor))
-        {
-            int open = m.Index + m.Length - 1;
-            int close = MatchingBrace(razor, open);
-            if (close > open)
-                yield return razor[(open + 1)..close];
-        }
-    }
-
-    private static int MatchingBrace(string s, int open)
-    {
-        int depth = 0;
-        for (int i = open; i < s.Length; i++)
-        {
-            char c = s[i];
-            if (c == '/' && i + 1 < s.Length && s[i + 1] == '/') { i = s.IndexOf('\n', i); if (i < 0) return -1; continue; }
-            if (c == '/' && i + 1 < s.Length && s[i + 1] == '*') { i = s.IndexOf("*/", i + 2, StringComparison.Ordinal) + 1; if (i <= 0) return -1; continue; }
-            if (c == '"') { i = SkipString(s, i); continue; }
-            if (c == '\'') { i = SkipChar(s, i); continue; }
-            if (c == '{') depth++;
-            else if (c == '}' && --depth == 0) return i;
-        }
-        return -1;
-    }
-
-    private static int SkipString(string s, int quote)
-    {
-        bool verbatim = quote > 0 && (s[quote - 1] == '@' || (quote > 1 && s[quote - 1] == '$' && s[quote - 2] == '@'));
-        bool raw = quote + 2 < s.Length && s[quote + 1] == '"' && s[quote + 2] == '"';
-        if (raw)
-        {
-            int end = s.IndexOf("\"\"\"", quote + 3, StringComparison.Ordinal);
-            return end < 0 ? s.Length : end + 2;
-        }
-        for (int i = quote + 1; i < s.Length; i++)
-        {
-            if (verbatim && s[i] == '"' && i + 1 < s.Length && s[i + 1] == '"') { i++; continue; }
-            if (!verbatim && s[i] == '\\') { i++; continue; }
-            if (s[i] == '"') return i;
-        }
-        return s.Length;
-    }
-
-    private static int SkipChar(string s, int quote)
-    {
-        if (quote + 2 >= s.Length) return quote;
-        int end = s[quote + 1] == '\\' ? s.IndexOf('\'', quote + 3) : quote + 2;
-        return end < 0 || end >= s.Length || s[end] != '\'' ? quote : end;
-    }
-
-    [GeneratedRegex(@"@(code|functions)\s*\{")]
-    private static partial Regex CodeBlockStart();
-
     [GeneratedRegex(@"^\s*@inject\s", RegexOptions.Multiline)]
     private static partial Regex InjectDirective();
+
+    [GeneratedRegex(@"^\s*@inherits\s+([\w.<>]+)", RegexOptions.Multiline)]
+    private static partial Regex InheritsDirective();
+
+    /// <summary>
+    /// Markup control flow (@if, else if, @foreach, @for, @while, @switch, case), lambdas
+    /// (event handlers written inline) and boolean or null-coalescing conditions.
+    /// </summary>
+    [GeneratedRegex(@"@if\b|\belse\s+if\b|@foreach\b|@for\b|@while\b|@switch\b|\bcase\b|=>|&&|\|\||\?\?")]
+    private static partial Regex MarkupLogicPattern();
 }

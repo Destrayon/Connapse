@@ -13,9 +13,26 @@ namespace Connapse.Architecture.Tests;
 internal static partial class RazorSource
 {
     /// <summary>The bodies of every <c>@code { }</c> and <c>@functions { }</c> block.</summary>
-    public static IReadOnlyList<string> CodeBlocks(string razor)
+    public static IReadOnlyList<string> CodeBlocks(string razor) =>
+        BlockSpans(razor).Select(s => razor[(s.Open + 1)..s.Close]).ToList();
+
+    /// <summary>The component's markup with its code blocks removed.</summary>
+    public static string WithoutCodeBlocks(string razor)
     {
-        var blocks = new List<string>();
+        var text = new System.Text.StringBuilder();
+        int at = 0;
+        foreach (var (start, _, close) in BlockSpans(razor))
+        {
+            text.Append(razor, at, start - at);
+            at = close + 1;
+        }
+        return text.Append(razor, at, razor.Length - at).ToString();
+    }
+
+    /// <summary>(directive start, opening brace, closing brace) of every code block.</summary>
+    private static IReadOnlyList<(int Start, int Open, int Close)> BlockSpans(string razor)
+    {
+        var blocks = new List<(int, int, int)>();
         foreach (Match m in CodeBlockStart().Matches(razor))
         {
             int open = m.Index + m.Length - 1;
@@ -32,7 +49,7 @@ internal static partial class RazorSource
             }
             if (end < 0)
                 throw new InvalidOperationException($"Unbalanced {m.Value.TrimEnd('{').Trim()} block at offset {m.Index}; the measurement would be wrong.");
-            blocks.Add(razor[(open + 1)..end]);
+            blocks.Add((m.Index, open, end));
         }
         return blocks;
     }
