@@ -26,7 +26,7 @@ internal static class HandlerScan
     /// <summary>Every route lambda or method group and every [McpServerTool] method across the given files.</summary>
     public static IEnumerable<Handler> Handlers(IReadOnlyList<(string Path, string Source)> files)
     {
-        var parsed = files.Select(f => (f.Path, Root: CSharpSyntaxTree.ParseText(f.Source).GetRoot())).ToList();
+        var parsed = files.Select(f => (f.Path, Root: TreeIndex.Parse(f.Source))).ToList();
         var index = new Index(parsed.Select(p => p.Root));
 
         foreach (var (path, root) in parsed)
