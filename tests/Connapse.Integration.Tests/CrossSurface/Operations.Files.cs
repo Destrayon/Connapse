@@ -14,6 +14,14 @@ public static partial class Operations
 {
     private static string Content(bool returned) => returned ? "content" : "no-content";
 
+    /// <summary>get_document's text: everything after the header's "---" line.</summary>
+    private static string? McpDocumentText(string text)
+    {
+        const string separator = "\n---\n";
+        int at = text.IndexOf(separator, StringComparison.Ordinal);
+        return at < 0 ? null : text[(at + separator.Length)..].TrimEnd('\n');
+    }
+
     /// <summary>Search and the file operations, each on a container made for its case.</summary>
     private static readonly Operation[] FileOperations =
     [
@@ -171,10 +179,11 @@ public static partial class Operations
                 using var rest = await Surfaces.RestAsync(f, p);
                 // Reading a document means its text: the content route, as get_document returns it.
                 var response = await rest.GetAsync($"/api/containers/{Target(c, k)}/files/{FileTarget(c, k)}/content");
-                return await WithPayloadAsync(response, body => Content(body.Contains(Body, StringComparison.Ordinal)));
+                // The whole text and nothing else: a body with another document's text appended isn't the same read.
+                return await WithPayloadAsync(response, body => Content(JsonDocument.Parse(body).RootElement.GetProperty("content").GetString() == Body));
             },
             Mcp: (f, c, p, k) => McpAsync(f, p, "get_document", new() { ["containerId"] = Target(c, k), ["fileId"] = FileTarget(c, k) },
-                text => Content(text.Contains(Body, StringComparison.Ordinal))),
+                text => Content(McpDocumentText(text) == Body)),
             Ui: async (f, c, p, k) =>
             {
                 using var ui = await Surfaces.UiAsync(f, p);
