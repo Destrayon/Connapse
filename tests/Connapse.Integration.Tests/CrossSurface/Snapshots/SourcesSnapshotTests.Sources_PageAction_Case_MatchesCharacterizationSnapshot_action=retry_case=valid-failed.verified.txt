@@ -1,0 +1,13 @@
+﻿{
+  Result: ok,
+  State: [
+    source {name} enabled=True connection={connection} status=Succeeded synced=True cursor=none,
+    documents owned: 1
+  ],
+  Audit: [
+    source.retry_failed source {id1} actor={admin} details={"Name": "{name}", "enqueued": 1}
+  ],
+  Jobs: [
+    IIngestionJobs.IngestAsync("Guid_1", {"DocumentId":"Guid_1","FileName":"doc.txt","Path":"{root}/doc.txt","Metadata":{"Source":"SourceSync","SyncedAt":"{time}","RemoteSize":"25","OriginalFileName":"doc.txt","IndexedWith:Parser":"TextParser","RemoteLastModified":"{time}","IndexedWith:ParserVersion":"2","IndexedWith:EmbeddingModel":"nomic-embed-text-recipe-de2cc160","IndexedWith:ChunkingMaxSize":"200","IndexedWith:ChunkingOverlap":"20","IndexedWith:ChunkingStrategy":"Semantic","IndexedWith:EmbeddingProvider":"Ollama","IndexedWith:EmbeddingDimensions":"768"},"Generation":3,"Owner":{"Id":"{id1}","IsSource":true,"SourceId":"{id1}"}}, null)
+  ]
+}

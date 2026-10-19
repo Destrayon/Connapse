@@ -26,6 +26,9 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
     /// <summary>A valid delete of a source that has synced, so it owns an indexed document.</summary>
     private const string Synced = "valid-synced";
 
+    /// <summary>A valid retry of a source that owns a document whose ingestion failed, so there is something to retry.</summary>
+    private const string Failed = "valid-failed";
+
     public static TheoryData<string, string> Rows() => new()
     {
         { "list", Case.Valid }, { "list", Case.UnderScoped },
@@ -34,7 +37,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         { "update", Case.Valid }, { "update", Case.Invalid }, { "update", Case.UnderScoped }, { "update", Case.Preflight },
         { "delete", Case.Valid }, { "delete", Synced }, { "delete", Case.Invalid }, { "delete", Case.UnderScoped }, { "delete", Case.Preflight },
         { "sync", Case.Valid }, { "sync", Case.UnderScoped }, { "sync", Case.Preflight },
-        { "retry-failed", Case.Valid }, { "retry-failed", Case.UnderScoped }, { "retry-failed", Case.Preflight },
+        { "retry-failed", Case.Valid }, { "retry-failed", Failed }, { "retry-failed", Case.UnderScoped }, { "retry-failed", Case.Preflight },
     };
 
     [Theory]
@@ -48,6 +51,8 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         Guid? sourceId = action == "create" ? null : await CreateSourceAsync(connectionId, name);
         if (@case == Synced)
             await SyncAsync(sourceId!.Value);
+        if (@case == Failed)
+            await SeedFailedDocumentAsync(sourceId!.Value);
         string unknown = Guid.NewGuid().ToString();
         // Viewer for an action that changes something, no role for a read: neither is enough.
         var principal = @case != Case.UnderScoped ? Principal.Admin : action is "list" or "get" ? Principal.NoRole : Principal.Viewer;
@@ -102,6 +107,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         { "list", Case.Valid }, { "list", Case.UnderScoped },
         { "sync", Case.Valid }, { "sync", Case.UnderScoped },
         { "pause", Case.Valid }, { "pause", Case.UnderScoped },
+        { "retry", Failed },
         { "delete", Case.Valid }, { "delete", Synced }, { "delete", Case.Invalid }, { "delete", Case.UnderScoped },
     };
 
@@ -120,6 +126,8 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         Guid sourceId = await CreateSourceAsync(connectionId, name);
         if (@case == Synced)
             await SyncAsync(sourceId);
+        if (@case == Failed)
+            await SeedFailedDocumentAsync(sourceId);
         var principal = @case != Case.UnderScoped ? Principal.Admin : action == "list" ? Principal.NoRole : Principal.Viewer;
 
         var outcome = await SideEffects.CaptureAsync(fixture,
@@ -146,6 +154,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
                 {
                     "sync" => "Sync",
                     "pause" => "Pause syncing",
+                    "retry" => "Retry failed",
                     _ => "Delete",
                 }, StringComparison.Ordinal));
                 if (button is null)
@@ -222,6 +231,35 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         await using var cmd = new Npgsql.NpgsqlCommand("SELECT count(*) FROM documents WHERE source_id = @id", conn);
         cmd.Parameters.AddWithValue("id", sourceId);
         return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>
+    /// Syncs the source, waits for its document's ingestion to settle, then marks it as failed and
+    /// retryable: a real failure needs a broken parser or model, and this is the state one leaves.
+    /// </summary>
+    private async Task SeedFailedDocumentAsync(Guid sourceId)
+    {
+        await SyncAsync(sourceId);
+        using var scope = fixture.Factory.Services.CreateScope();
+        string connection = scope.ServiceProvider.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")!;
+        await using var conn = new Npgsql.NpgsqlConnection(connection);
+        await conn.OpenAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (true)
+        {
+            await using var read = new Npgsql.NpgsqlCommand("SELECT ingestion_status FROM documents WHERE source_id = @id", conn);
+            read.Parameters.AddWithValue("id", sourceId);
+            string? status = (string?)await read.ExecuteScalarAsync();
+            if (status is "Ready" or "FailedRetryable" or "FailedPermanent")
+                break;
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"The source's document never settled (status {status ?? "missing"})");
+            await Task.Delay(250);
+        }
+        await using var fail = new Npgsql.NpgsqlCommand(
+            "UPDATE documents SET ingestion_status = 'FailedRetryable' WHERE source_id = @id", conn);
+        fail.Parameters.AddWithValue("id", sourceId);
+        (await fail.ExecuteNonQueryAsync()).Should().Be(1);
     }
 
     private async Task SyncAsync(Guid sourceId) =>
