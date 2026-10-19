@@ -1,0 +1,380 @@
+{
+  "Auth/RedirectToAccessDenied.razor": {
+    "CodeLines": 4,
+    "Injects": 1,
+    "Complexity": 1,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
+  "Auth/RedirectToLogin.razor": {
+    "CodeLines": 6,
+    "Injects": 1,
+    "Complexity": 1,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
+  "Connections/AtlassianConnectionForm.razor": {
+    "CodeLines": 428,
+    "Injects": 6,
+    "Complexity": 102,
+    "MarkupLogic": 53,
+    "IsEmpty": false
+  },
+  "Connections/AtlassianTestResultView.razor": {
+    "CodeLines": 10,
+    "Injects": 0,
+    "Complexity": 5,
+    "MarkupLogic": 13,
+    "IsEmpty": false
+  },
+  "Connections/ConnectionInUseList.razor": {
+    "CodeLines": 3,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 3,
+    "IsEmpty": false
+  },
+  "Layout/NavMenu.razor": {
+    "CodeLines": 0,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 1,
+    "IsEmpty": false
+  },
+  "Layout/ProfileLayout.razor": {
+    "CodeLines": 7,
+    "Injects": 1,
+    "Complexity": 1,
+    "MarkupLogic": 1,
+    "IsEmpty": false
+  },
+  "Pages/Admin/AgentManagement.razor": {
+    "CodeLines": 206,
+    "Injects": 3,
+    "Complexity": 28,
+    "MarkupLogic": 31,
+    "IsEmpty": false
+  },
+  "Pages/Admin/UserManagement.razor": {
+    "CodeLines": 237,
+    "Injects": 6,
+    "Complexity": 37,
+    "MarkupLogic": 26,
+    "IsEmpty": false
+  },
+  "Pages/Auth/Login.razor": {
+    "CodeLines": 62,
+    "Injects": 0,
+    "Complexity": 13,
+    "MarkupLogic": 1,
+    "IsEmpty": false
+  },
+  "Pages/Auth/Logout.razor": {
+    "CodeLines": 11,
+    "Injects": 0,
+    "Complexity": 1,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
+  "Pages/Auth/OAuthAuthorize.razor": {
+    "CodeLines": 172,
+    "Injects": 0,
+    "Complexity": 32,
+    "MarkupLogic": 4,
+    "IsEmpty": false
+  },
+  "Pages/Auth/Register.razor": {
+    "CodeLines": 160,
+    "Injects": 0,
+    "Complexity": 32,
+    "MarkupLogic": 13,
+    "IsEmpty": false
+  },
+  "Pages/Connections.razor": {
+    "CodeLines": 1569,
+    "Injects": 21,
+    "Complexity": 416,
+    "MarkupLogic": 245,
+    "IsEmpty": false
+  },
+  "Pages/CustomProviderPage.razor": {
+    "CodeLines": 285,
+    "Injects": 7,
+    "Complexity": 79,
+    "MarkupLogic": 45,
+    "IsEmpty": false
+  },
+  "Pages/Error.razor": {
+    "CodeLines": 6,
+    "Injects": 0,
+    "Complexity": 2,
+    "MarkupLogic": 1,
+    "IsEmpty": false
+  },
+  "Pages/FileBrowser.razor": {
+    "CodeLines": 863,
+    "Injects": 12,
+    "Complexity": 200,
+    "MarkupLogic": 80,
+    "IsEmpty": false
+  },
+  "Pages/Home.razor": {
+    "CodeLines": 154,
+    "Injects": 3,
+    "Complexity": 22,
+    "MarkupLogic": 21,
+    "IsEmpty": false
+  },
+  "Pages/PersonalTokens.razor": {
+    "CodeLines": 111,
+    "Injects": 3,
+    "Complexity": 24,
+    "MarkupLogic": 29,
+    "IsEmpty": false
+  },
+  "Pages/Profile.razor": {
+    "CodeLines": 10,
+    "Injects": 1,
+    "Complexity": 2,
+    "MarkupLogic": 4,
+    "IsEmpty": false
+  },
+  "Pages/ProfileIntegrations.razor": {
+    "CodeLines": 344,
+    "Injects": 17,
+    "Complexity": 89,
+    "MarkupLogic": 42,
+    "IsEmpty": false
+  },
+  "Pages/Providers.razor": {
+    "CodeLines": 2004,
+    "Injects": 23,
+    "Complexity": 385,
+    "MarkupLogic": 194,
+    "IsEmpty": false
+  },
+  "Pages/Search.razor": {
+    "CodeLines": 163,
+    "Injects": 8,
+    "Complexity": 42,
+    "MarkupLogic": 16,
+    "IsEmpty": false
+  },
+  "Pages/Settings.razor": {
+    "CodeLines": 76,
+    "Injects": 8,
+    "Complexity": 10,
+    "MarkupLogic": 21,
+    "IsEmpty": false
+  },
+  "Pages/SourceEdit.razor": {
+    "CodeLines": 104,
+    "Injects": 5,
+    "Complexity": 26,
+    "MarkupLogic": 48,
+    "IsEmpty": false
+  },
+  "Pages/Sources.razor": {
+    "CodeLines": 990,
+    "Injects": 16,
+    "Complexity": 217,
+    "MarkupLogic": 101,
+    "IsEmpty": false
+  },
+  "Providers/AtlassianProviderCard.razor": {
+    "CodeLines": 419,
+    "Injects": 5,
+    "Complexity": 88,
+    "MarkupLogic": 20,
+    "IsEmpty": false
+  },
+  "Providers/PlainHttpWarning.razor": {
+    "CodeLines": 3,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 1,
+    "IsEmpty": false
+  },
+  "Providers/ProviderField.razor": {
+    "CodeLines": 39,
+    "Injects": 0,
+    "Complexity": 8,
+    "MarkupLogic": 21,
+    "IsEmpty": false
+  },
+  "Providers/ProviderPageAlert.razor": {
+    "CodeLines": 4,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 2,
+    "IsEmpty": false
+  },
+  "Providers/ProviderResetAction.razor": {
+    "CodeLines": 59,
+    "Injects": 0,
+    "Complexity": 12,
+    "MarkupLogic": 9,
+    "IsEmpty": false
+  },
+  "Providers/ProviderSetupGuide.razor": {
+    "CodeLines": 3,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
+  "Providers/ProviderStepCard.razor": {
+    "CodeLines": 48,
+    "Injects": 0,
+    "Complexity": 21,
+    "MarkupLogic": 8,
+    "IsEmpty": false
+  },
+  "Routes.razor": {
+    "CodeLines": 0,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 1,
+    "IsEmpty": false
+  },
+  "Settings/AzureAdSignInSettingsTab.razor": {
+    "CodeLines": 86,
+    "Injects": 0,
+    "Complexity": 25,
+    "MarkupLogic": 8,
+    "IsEmpty": false
+  },
+  "Settings/AzureProviderSettingsTab.razor": {
+    "CodeLines": 107,
+    "Injects": 0,
+    "Complexity": 30,
+    "MarkupLogic": 11,
+    "IsEmpty": false
+  },
+  "Settings/ChunkingSettingsTab.razor": {
+    "CodeLines": 75,
+    "Injects": 0,
+    "Complexity": 19,
+    "MarkupLogic": 6,
+    "IsEmpty": false
+  },
+  "Settings/EmbeddingSettingsTab.razor": {
+    "CodeLines": 229,
+    "Injects": 8,
+    "Complexity": 48,
+    "MarkupLogic": 16,
+    "IsEmpty": false
+  },
+  "Settings/IdentityCenterSettingsTab.razor": {
+    "CodeLines": 18,
+    "Injects": 0,
+    "Complexity": 3,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
+  "Settings/LlmSettingsTab.razor": {
+    "CodeLines": 87,
+    "Injects": 4,
+    "Complexity": 25,
+    "MarkupLogic": 9,
+    "IsEmpty": false
+  },
+  "Settings/SamlSignInSettingsTab.razor": {
+    "CodeLines": 50,
+    "Injects": 1,
+    "Complexity": 12,
+    "MarkupLogic": 3,
+    "IsEmpty": false
+  },
+  "Settings/SearchSettingsTab.razor": {
+    "CodeLines": 104,
+    "Injects": 7,
+    "Complexity": 26,
+    "MarkupLogic": 14,
+    "IsEmpty": false
+  },
+  "Settings/SummarySettingsTab.razor": {
+    "CodeLines": 230,
+    "Injects": 3,
+    "Complexity": 44,
+    "MarkupLogic": 24,
+    "IsEmpty": false
+  },
+  "Settings/UploadSettingsTab.razor": {
+    "CodeLines": 75,
+    "Injects": 0,
+    "Complexity": 17,
+    "MarkupLogic": 5,
+    "IsEmpty": false
+  },
+  "Shared/AtlassianIdentityCard.razor": {
+    "CodeLines": 43,
+    "Injects": 0,
+    "Complexity": 12,
+    "MarkupLogic": 7,
+    "IsEmpty": false
+  },
+  "Shared/AuthorPicker.razor": {
+    "CodeLines": 98,
+    "Injects": 0,
+    "Complexity": 37,
+    "MarkupLogic": 14,
+    "IsEmpty": false
+  },
+  "Shared/CustomProviderLinkCard.razor": {
+    "CodeLines": 87,
+    "Injects": 3,
+    "Complexity": 16,
+    "MarkupLogic": 20,
+    "IsEmpty": false
+  },
+  "Shared/Pagination.razor": {
+    "CodeLines": 22,
+    "Injects": 0,
+    "Complexity": 8,
+    "MarkupLogic": 2,
+    "IsEmpty": false
+  },
+  "Shared/SecretTextArea.razor": {
+    "CodeLines": 38,
+    "Injects": 0,
+    "Complexity": 7,
+    "MarkupLogic": 8,
+    "IsEmpty": false
+  },
+  "Shared/SetupGuideLink.razor": {
+    "CodeLines": 5,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
+  "Sources/ConfluenceAttachmentScopeRoute.razor": {
+    "CodeLines": 6,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 3,
+    "IsEmpty": false
+  },
+  "Sources/ConfluenceSpaceForm.razor": {
+    "CodeLines": 121,
+    "Injects": 3,
+    "Complexity": 34,
+    "MarkupLogic": 18,
+    "IsEmpty": false
+  },
+  "Sources/CustomSourceFields.razor": {
+    "CodeLines": 59,
+    "Injects": 3,
+    "Complexity": 15,
+    "MarkupLogic": 21,
+    "IsEmpty": false
+  },
+  "Sources/JiraProjectForm.razor": {
+    "CodeLines": 114,
+    "Injects": 3,
+    "Complexity": 31,
+    "MarkupLogic": 18,
+    "IsEmpty": false
+  }
+}
