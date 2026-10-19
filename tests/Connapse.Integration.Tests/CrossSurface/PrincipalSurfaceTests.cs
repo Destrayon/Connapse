@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using Bunit;
 using Connapse.Core.Interfaces;
@@ -91,16 +92,37 @@ public class PrincipalSurfaceTests(SharedWebAppFixture fixture)
     /// admin and the Viewer and is refused to a user with no role.
     /// </summary>
     [Theory]
-    [InlineData("admin", true)]
-    [InlineData("viewer", true)]
-    [InlineData("no-role", false)]
-    public async Task Rest_AppliesThePrincipalsRole(string name, bool allowed)
+    [InlineData("admin", HttpStatusCode.OK)]
+    [InlineData("viewer", HttpStatusCode.OK)]
+    [InlineData("no-role", HttpStatusCode.Forbidden)]
+    public async Task Rest_AppliesThePrincipalsRole(string name, HttpStatusCode expected)
     {
         using var rest = await Surfaces.RestAsync(fixture, ByName(name));
 
         var response = await rest.GetAsync("/api/containers?skip=0&take=1");
 
-        response.IsSuccessStatusCode.Should().Be(allowed, $"{name} {(allowed ? "may" : "may not")} list containers");
+        // Exactly the refusal: a 500 from a broken list must not pass as "not allowed".
+        response.StatusCode.Should().Be(expected);
+    }
+
+    /// <summary>A write the role doesn't allow is refused with 403 and leaves nothing behind.</summary>
+    [Theory]
+    [InlineData("admin", HttpStatusCode.Created)]
+    [InlineData("viewer", HttpStatusCode.Forbidden)]
+    [InlineData("no-role", HttpStatusCode.Forbidden)]
+    public async Task Rest_GuardsAWriteByThePrincipalsRole(string name, HttpStatusCode expected)
+    {
+        string container = $"principal-{Guid.NewGuid():N}"[..24];
+        using var rest = await Surfaces.RestAsync(fixture, ByName(name));
+
+        var response = await rest.PostAsJsonAsync("/api/containers", new { name = container });
+
+        response.StatusCode.Should().Be(expected);
+        using var scope = fixture.Factory.Services.CreateScope();
+        var created = await scope.ServiceProvider.GetRequiredService<IContainerStore>().GetByNameAsync(container);
+        (created is not null).Should().Be(expected == HttpStatusCode.Created);
+        if (created is not null)
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{created.Id}");
     }
 
     /// <summary>
