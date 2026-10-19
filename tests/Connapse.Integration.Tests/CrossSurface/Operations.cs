@@ -127,18 +127,15 @@ public static partial class Operations
         new("container_delete", [Case.Valid, Case.Invalid, Case.UnderScoped, Case.Preflight], Writes: true, 0, false,
             Rest: async (f, c, p, k) =>
             {
-                await ArrangeForCaseAsync(f, c, k);
                 using var rest = await Surfaces.RestAsync(f, p);
                 return await Surfaces.ResultAsync(await rest.DeleteAsync($"/api/containers/{ContainerTarget(c, k)}"));
             },
             Mcp: async (f, c, p, k) =>
             {
-                await ArrangeForCaseAsync(f, c, k);
                 return await McpAsync(f, p, "container_delete", new() { ["containerId"] = ContainerTarget(c, k) });
             },
             Ui: async (f, c, p, k) =>
             {
-                await ArrangeForCaseAsync(f, c, k);
                 using var ui = await Surfaces.UiAsync(f, p);
                 var page = ui.Context.Render<Home>();
                 page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
@@ -210,6 +207,9 @@ public static partial class Operations
         var files = new List<(string, string)>();
         for (int i = 0; i < operation.FilesToArrange; i++)
             files.Add(await UploadAsync(fixture, id, $"doc{i + 1}.txt"));
+        // Set up before the action's window, so its upload isn't counted as the delete's doing.
+        if (operation.Name == "container_delete" && @case == Case.Preflight)
+            files.Add(await UploadAsync(fixture, id, "keep.txt"));
         var context = new CaseContext(id, name, files);
         if (operation.WaitForIngestion && @case is Case.Valid or Case.UnderScoped)
             foreach (var (fileId, _) in files)
@@ -238,13 +238,6 @@ public static partial class Operations
     private static string UploadName(string @case) => @case == Case.Invalid ? "tool.exe" : "note.txt";
 
     private static string[] BulkFiles(string @case) => @case == Case.Invalid ? ["ok.txt", "tool.exe"] : ["one.txt", "two.txt"];
-
-    /// <summary>The non-empty-container preflight needs a file in the container before the delete.</summary>
-    private static async Task ArrangeForCaseAsync(SharedWebAppFixture fixture, CaseContext c, string @case)
-    {
-        if (@case == Case.Preflight)
-            await UploadAsync(fixture, c.ContainerId, "keep.txt");
-    }
 
     /// <summary>
     /// Removes the containers a case left, with their files, so tests that list containers by name
