@@ -1,7 +1,10 @@
 using System.Net.Http.Json;
 using Connapse.Core.Interfaces;
 using FluentAssertions;
+using Connapse.Identity.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Client;
 
 namespace Connapse.Integration.Tests.CrossSurface;
 
@@ -37,18 +40,23 @@ public class PrincipalSurfaceTests(SharedWebAppFixture fixture)
     [InlineData("no-role", "error:forbidden")]
     public async Task Mcp_AdmitsOnlyItsRoles(string name, string? refusal)
     {
-        string? result = null;
+        // The refusal must come from connecting: a principal admitted to /mcp but refused a later
+        // call (listing tools) is a different behaviour and fails here.
+        McpClient? mcp = null;
+        string? connect = null;
         try
         {
-            await using var mcp = await Surfaces.McpAsync(fixture, ByName(name));
-            (await mcp.ListToolsAsync()).Should().NotBeEmpty();
+            mcp = await Surfaces.McpAsync(fixture, ByName(name));
         }
         catch (Exception ex) when (Surfaces.McpRefusal(ex) is { } refused)
         {
-            result = refused;
+            connect = refused;
         }
 
-        result.Should().Be(refusal);
+        connect.Should().Be(refusal);
+        if (mcp is not null)
+            await using (mcp)
+                (await mcp.ListToolsAsync()).Should().NotBeEmpty();
     }
 
     [Theory]
@@ -68,10 +76,13 @@ public class PrincipalSurfaceTests(SharedWebAppFixture fixture)
             },
             _ => Task.FromResult(new StateProjection([], [resourceId])));
 
-        string actor = principal == Principal.Admin ? "{admin}" : (await Principals.UserIdAsync(fixture, principal)).ToString();
-        outcome.Audit.Should().ContainSingle().Which.Should().MatchRegex(principal == Principal.Admin
-            ? @"actor=\{admin\}"
-            : @"actor=\{user\d+\}", $"the row names {actor}, not the admin");
+        // The row must name this principal: {userN} alone would also accept another non-admin.
+        outcome.Audit.Should().ContainSingle();
+        Guid expected = await Principals.UserIdAsync(fixture, principal);
+        using var scope = fixture.Factory.Services.CreateScope();
+        var row = await scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>().AuditLogs.AsNoTracking()
+            .SingleAsync(a => a.ResourceId == resourceId);
+        row.UserId.Should().Be(expected, $"the row names {principal}, as a circuit signed in as them would");
     }
 
     internal static Principal ByName(string name) =>
