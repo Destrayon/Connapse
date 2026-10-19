@@ -37,6 +37,8 @@ public static partial class Operations
                 var select = page.FindAll("select.form-select").First();
                 select.Change(Target(c, k));
                 page.Find("input[placeholder='Enter your search query...']").Input(k == Case.Invalid ? "" : Query);
+                // The same mode REST and MCP are asked for; the page defaults to Hybrid.
+                page.FindAll("select.form-select").Single(sel => sel.QuerySelector("option[value='Keyword']") is not null).Change("Keyword");
                 // The button enables once the page has the scope and a query; one that stays disabled refuses the input.
                 try
                 {
