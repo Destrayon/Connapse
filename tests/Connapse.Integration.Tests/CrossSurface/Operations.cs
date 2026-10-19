@@ -185,8 +185,7 @@ public static partial class Operations
                 });
             },
             Mcp: (f, c, p, k) => McpAsync(f, p, "container_stats", new() { ["containerId"] = ContainerTarget(c, k) },
-                text => $"documents={Number(text, @"^Documents: (\d+)")} ready={Number(text, @"(\d+) ready")} processing={Number(text, @"(\d+) processing")}"
-                    + $" failed={Number(text, @"(\d+) failed")} chunks={Number(text, @"^Chunks: ([\d,]+)").Replace(",", "")}"),
+                text => McpStats(text)),
             Ui: async (f, c, p, k) =>
             {
                 // The Home card is the one place a page shows a container's file count, and it shows only that.
@@ -324,6 +323,20 @@ public static partial class Operations
     private static string Listed(bool listed) => listed ? "listed" : "not-listed";
 
     private static string Found(bool found) => found ? "found" : "not-found";
+
+    /// <summary>
+    /// container_stats' text as the same fields REST returns. MCP prints the status breakdown only
+    /// when some document isn't ready, so "Documents: 1" alone means one ready, none in flight.
+    /// </summary>
+    private static string McpStats(string text)
+    {
+        string documents = Number(text, @"^Documents: (\d+)");
+        bool breakdown = System.Text.RegularExpressions.Regex.IsMatch(text, @"^Documents: \d+ \(", System.Text.RegularExpressions.RegexOptions.Multiline);
+        string ready = breakdown ? Number(text, @"(\d+) ready") : documents;
+        string processing = breakdown ? Number(text, @"(\d+) processing") : "0";
+        string failed = breakdown ? Number(text, @"(\d+) failed") : "0";
+        return $"documents={documents} ready={ready} processing={processing} failed={failed} chunks={Number(text, @"^Chunks: ([\d,]+)").Replace(",", "")}";
+    }
 
     /// <summary>The number a pattern's first group captures, or "none".</summary>
     private static string Number(string text, string pattern) =>
