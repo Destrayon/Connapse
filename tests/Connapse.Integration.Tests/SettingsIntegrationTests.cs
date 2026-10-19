@@ -52,9 +52,6 @@ public class SettingsIntegrationTests(SharedWebAppFixture fixture)
         var updateResponse = await fixture.AdminClient.PutAsJsonAsync("/api/settings/chunking", newSettings);
         updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Give a moment for IOptionsMonitor to propagate the change
-        await Task.Delay(1000);
-
         // Assert: Verify settings were updated
         var verifyResponse = await fixture.AdminClient.GetAsync("/api/settings/chunking");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -87,8 +84,6 @@ public class SettingsIntegrationTests(SharedWebAppFixture fixture)
         var updateResponse = await fixture.AdminClient.PutAsJsonAsync("/api/settings/search", newSettings);
         updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        await Task.Delay(1000);
-
         // Assert: Verify settings were updated
         var verifyResponse = await fixture.AdminClient.GetAsync("/api/settings/search");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -120,8 +115,6 @@ public class SettingsIntegrationTests(SharedWebAppFixture fixture)
 
         await fixture.AdminClient.PutAsJsonAsync("/api/settings/embedding", newEmbedding);
         await fixture.AdminClient.PutAsJsonAsync("/api/settings/chunking", newChunking);
-
-        await Task.Delay(1000);
 
         // Assert: Both updates are reflected
         var verifyEmbedding = await (await fixture.AdminClient.GetAsync("/api/settings/embedding"))
