@@ -1,0 +1,18 @@
+﻿{
+  Reason: the Home page's delete writes no container.deleted audit row; REST and MCP do,
+  Reference: {
+    Result: ok,
+    State: [
+      no container
+    ],
+    Audit: [
+      container.deleted container {id1} actor={admin} details={"Name": "{name}"}
+    ]
+  },
+  Surface: {
+    Result: ok,
+    State: [
+      no container
+    ]
+  }
+}

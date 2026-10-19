@@ -1,0 +1,15 @@
+﻿{
+  Reason: the file browser shows a missing container as an empty folder instead of not found,
+  Reference: {
+    Result: error:not_found,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  },
+  Surface: {
+    Result: ok not-found,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  }
+}

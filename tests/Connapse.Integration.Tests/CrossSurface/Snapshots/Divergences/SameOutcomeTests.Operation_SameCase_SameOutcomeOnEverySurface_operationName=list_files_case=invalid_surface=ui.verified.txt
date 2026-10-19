@@ -1,0 +1,15 @@
+﻿{
+  Reason: the file browser shows a missing container as an empty folder instead of not found,
+  Reference: {
+    Result: error:not_found,
+    State: [
+      document doc1.txt
+    ]
+  },
+  Surface: {
+    Result: ok not-listed,
+    State: [
+      document doc1.txt
+    ]
+  }
+}

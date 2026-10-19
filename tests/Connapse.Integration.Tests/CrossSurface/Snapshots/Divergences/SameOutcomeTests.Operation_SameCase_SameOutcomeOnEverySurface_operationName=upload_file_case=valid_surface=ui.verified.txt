@@ -1,0 +1,18 @@
+﻿{
+  Reason: absent: the page uploads from browser JavaScript straight to the REST route,
+  Reference: {
+    Result: ok,
+    State: [
+      document note.txt
+    ],
+    Audit: [
+      doc.uploaded document {id1} actor={admin} details={"Via": "{via}", "FileName": "note.txt", "ContainerId": "{id2}"}
+    ],
+    Jobs: [
+      IIngestionJobs.IngestAsync("{id1}", {"DocumentId":"{id1}","FileName":"note.txt","ContentType":"text/plain","ContainerId":"{id2}","Path":"/note.txt","Metadata":{"OriginalFileName":"note.txt","UploadedAt":"{time}","IngestedVia":"{via}"},"Generation":2}, null)
+    ]
+  },
+  Surface: {
+    Result: absent: the page uploads from browser JavaScript straight to the REST route
+  }
+}

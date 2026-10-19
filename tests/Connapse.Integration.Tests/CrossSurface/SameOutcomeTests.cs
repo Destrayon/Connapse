@@ -42,8 +42,14 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
         string key = $"{operationName}/{@case}/{surface}";
         bool agrees = actual.Equals(expected);
         if (KnownDivergences.Value.TryGetValue(key, out string? reason))
+        {
             agrees.Should().BeFalse(
                 $"{key} is listed as diverging ({reason}), but it now matches {reference}. Delete its entry from known-divergences.json.\n{actual}");
+            // Pinned to the recorded divergence, not just any: a different mismatch on a listed row
+            // (the audit gap fixed but the description now saved wrong) changes this snapshot.
+            await Verify(new { Reason = reason, Reference = expected, Surface = actual })
+                .UseDirectory("Snapshots/Divergences").UseParameters(operationName, @case, surface);
+        }
         else
             agrees.Should().BeTrue(
                 $"{key} differs from {reference}. Fix the surface, or list it in known-divergences.json with the reason.\n"
@@ -84,15 +90,28 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
         {
             await Operations.CleanupAsync(fixture, context);
         }
-        // Audit rows and ingestion jobs record which surface did the work ("Via": "MCP"); that is the point of them, not a divergence.
+        // Audit rows and ingestion jobs record which surface did the work ("Via": "MCP"). The right
+        // surface's value compares equal; any other is kept as it is, so a row crediting the wrong
+        // surface stays a difference.
+        string Mask(string line) => Via().Replace(line, m => m.Groups["value"].Value == ViaOf[surface]
+            ? $"\"{m.Groups["field"].Value}\":{m.Groups["space"].Value}\"{{via}}\""
+            : m.Value);
         return outcome with
         {
-            Audit = outcome.Audit.Select(a => Via().Replace(a, "\"${field}\":${space}\"{via}\"")).ToList(),
-            Jobs = outcome.Jobs.Select(j => Via().Replace(j, "\"${field}\":${space}\"{via}\"")).ToList(),
+            Audit = outcome.Audit.Select(Mask).ToList(),
+            Jobs = outcome.Jobs.Select(Mask).ToList(),
         };
     }
 
-    [GeneratedRegex(@"""(?<field>Via|IngestedVia)"":(?<space> ?)""[^""]*""")]
+    /// <summary>What each surface records itself as.</summary>
+    private static readonly IReadOnlyDictionary<string, string> ViaOf = new Dictionary<string, string>
+    {
+        ["rest"] = "API",
+        ["mcp"] = "MCP",
+        ["ui"] = "UI",
+    };
+
+    [GeneratedRegex(@"""(?<field>Via|IngestedVia)"":(?<space> ?)""(?<value>[^""]*)""")]
     private static partial Regex Via();
 
     private static readonly Lazy<IReadOnlyDictionary<string, string>> KnownDivergences = new(() =>

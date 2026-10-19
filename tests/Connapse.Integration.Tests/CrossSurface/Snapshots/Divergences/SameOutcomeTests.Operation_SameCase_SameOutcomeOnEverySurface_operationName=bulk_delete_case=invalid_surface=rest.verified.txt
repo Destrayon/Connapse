@@ -1,0 +1,12 @@
+﻿{
+  Reason: absent: REST has no bulk delete route,
+  Reference: {
+    Result: partial:1/2 failed=[{id4}: File '{id4}' not found in this container.],
+    State: [
+      document doc2.txt
+    ]
+  },
+  Surface: {
+    Result: absent: REST has no bulk delete route
+  }
+}

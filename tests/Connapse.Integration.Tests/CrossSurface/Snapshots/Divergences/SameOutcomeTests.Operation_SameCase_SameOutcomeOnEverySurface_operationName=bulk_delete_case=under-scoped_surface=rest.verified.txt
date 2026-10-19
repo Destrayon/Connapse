@@ -1,0 +1,13 @@
+﻿{
+  Reason: absent: REST has no bulk delete route,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      document doc1.txt,
+      document doc2.txt
+    ]
+  },
+  Surface: {
+    Result: absent: REST has no bulk delete route
+  }
+}

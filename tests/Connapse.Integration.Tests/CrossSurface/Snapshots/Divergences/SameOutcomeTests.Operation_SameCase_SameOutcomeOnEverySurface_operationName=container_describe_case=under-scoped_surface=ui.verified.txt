@@ -1,0 +1,15 @@
+﻿{
+  Reason: the file browser shows a container to a user with no role; REST and MCP refuse them,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  },
+  Surface: {
+    Result: ok found,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+﻿{
+  Reason: the Home page lists containers to a user with no role; REST and MCP refuse them,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  },
+  Surface: {
+    Result: ok listed,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  }
+}

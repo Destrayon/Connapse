@@ -1,0 +1,15 @@
+﻿{
+  Reason: the Home page shows a container's file count to a user with no role; REST and MCP refuse them,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      document doc1.txt
+    ]
+  },
+  Surface: {
+    Result: ok documents=1,
+    State: [
+      document doc1.txt
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+﻿{
+  Reason: MCP search_knowledge accepts an empty query and returns no results; REST and the page refuse it,
+  Reference: {
+    Result: error:validation,
+    State: [
+      document doc1.txt
+    ]
+  },
+  Surface: {
+    Result: ok not-found,
+    State: [
+      document doc1.txt
+    ]
+  }
+}

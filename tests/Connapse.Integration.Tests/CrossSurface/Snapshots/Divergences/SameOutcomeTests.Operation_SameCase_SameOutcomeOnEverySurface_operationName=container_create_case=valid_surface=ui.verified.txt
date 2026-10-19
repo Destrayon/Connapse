@@ -1,0 +1,18 @@
+﻿{
+  Reason: the Home page's create writes no container.created audit row; REST does,
+  Reference: {
+    Result: ok,
+    State: [
+      container {name}-va description=made here
+    ],
+    Audit: [
+      container.created container {id1} actor={admin} details={"Name": "{name}-va"}
+    ]
+  },
+  Surface: {
+    Result: ok,
+    State: [
+      container {name}-va description=made here
+    ]
+  }
+}

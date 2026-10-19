@@ -1,0 +1,12 @@
+﻿{
+  Reason: MCP delete_file writes no doc.deleted audit row; REST does,
+  Reference: {
+    Result: ok,
+    Audit: [
+      doc.deleted document {id2} actor={admin} details={"FileName": "doc1.txt", "ContainerId": "{id1}"}
+    ]
+  },
+  Surface: {
+    Result: ok
+  }
+}
