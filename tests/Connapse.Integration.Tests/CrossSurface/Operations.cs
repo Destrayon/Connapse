@@ -77,8 +77,8 @@ public static partial class Operations
     private const string Body = "the cross-surface harness reads this sentence";
     private const string Query = "harness";
 
-    /// <summary>Every operation: the container ones here; the file and search ones follow.</summary>
-    public static IReadOnlyList<Operation> All => [.. ContainerOperations];
+    /// <summary>Every operation: the container ones here, and the file and search ones in Operations.Files.cs.</summary>
+    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations];
 
     private static readonly Operation[] ContainerOperations =
     [
