@@ -46,7 +46,7 @@ public static partial class Operations
                 {
                     return "error:validation";
                 }
-                await page.Find("button.btn-primary.btn-lg").ClickAsync(new());
+                await ClickAsync(() => page.Find("button.btn-primary.btn-lg"));
                 page.WaitForAssertion(() => page.FindAll(".search-results, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(15));
                 if (PageError(page) is { } error)
                     return error;
@@ -101,14 +101,13 @@ public static partial class Operations
                 var page = await FileBrowserAsync(ui, Target(c, k));
                 if (PageError(page) is { } error)
                     return error;
-                var row = page.FindAll("tr.file-row").FirstOrDefault(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.FileName));
-                if (row is null)
+                IElement? Row() => page.FindAll("tr.file-row").FirstOrDefault(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.FileName));
+                if (Row() is null)
                     return "error:not_found";
-                var delete = row.QuerySelector("button.btn-outline-danger.action-btn");
-                if (delete is null)
+                if (Row()!.QuerySelector("button.btn-outline-danger.action-btn") is null)
                     return "error:forbidden";
-                await delete.ClickAsync(new());
-                await page.Find(".modal-footer-custom button.btn-danger").ClickAsync(new());
+                await ClickAsync(() => Row()!.QuerySelector("button.btn-outline-danger.action-btn")!);
+                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-danger"));
                 return DialogResult(page);
             },
             Project: (sp, c) => DocumentsAsync(sp, c)),
@@ -150,11 +149,10 @@ public static partial class Operations
                     return "error:not_found";
                 if (rows[0].QuerySelector("td.col-check") is null)
                     return "error:forbidden";
-                foreach (var row in rows.Take(k == Case.Invalid ? 1 : rows.Count))
-                    await page.FindAll("tr.file-row").First(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == row.QuerySelector(".entry-name")!.TextContent.Trim())
-                        .QuerySelector("td.col-check")!.ClickAsync(new());
-                await page.Find(".selection-toolbar button.btn-outline-danger").ClickAsync(new());
-                await page.Find(".modal-footer-custom button.btn-danger").ClickAsync(new());
+                foreach (string name in rows.Take(k == Case.Invalid ? 1 : rows.Count).Select(r => r.QuerySelector(".entry-name")!.TextContent.Trim()).ToList())
+                    await ClickAsync(() => page.FindAll("tr.file-row").First(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == name).QuerySelector("td.col-check")!);
+                await ClickAsync(() => page.Find(".selection-toolbar button.btn-outline-danger"));
+                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-danger"));
                 return DialogResult(page);
             },
             Project: (sp, c) => DocumentsAsync(sp, c))
@@ -177,10 +175,10 @@ public static partial class Operations
                 var page = await FileBrowserAsync(ui, Target(c, k));
                 if (PageError(page) is { } error)
                     return error;
-                var row = page.FindAll("tr.file-row").FirstOrDefault(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.FileName));
-                if (row is null)
+                IElement? Row() => page.FindAll("tr.file-row").FirstOrDefault(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.FileName));
+                if (Row() is null)
                     return "error:not_found";
-                await row.ClickAsync(new());
+                await ClickAsync(() => Row()!);
                 page.WaitForAssertion(() => page.FindAll(".detail-panel").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 return "ok " + Found(page.FindAll(".detail-panel .detail-value").Any(v => v.TextContent.Trim() == c.FileName));
             },
