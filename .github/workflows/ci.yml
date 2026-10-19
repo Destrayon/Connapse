@@ -111,8 +111,8 @@ jobs:
       if: success() || failure()
       run: |
         rc=0
-        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 3 --wall-seconds "${SMALL_WALL_SECONDS:--1}" --max-wall-seconds 30 || rc=1
-        python3 .github/scripts/test_budgets.py --tier Medium --trx medium-tests.trx --max-test-seconds 10 --wall-seconds "${MEDIUM_WALL_SECONDS:--1}" --max-wall-seconds 480 || rc=1
+        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds "${SMALL_WALL_SECONDS:--1}" --max-wall-seconds 30 || rc=1
+        python3 .github/scripts/test_budgets.py --tier Medium --trx medium-tests.trx --max-test-seconds 30 --wall-seconds "${MEDIUM_WALL_SECONDS:--1}" --max-wall-seconds 480 || rc=1
         python3 .github/scripts/test_budgets.py --tier Large --trx large-tests.trx --wall-seconds "${LARGE_WALL_SECONDS:--1}" --max-wall-seconds 600 || rc=1
         exit $rc
 

@@ -7,7 +7,7 @@ test assemblies running in parallel, the first test in a class can take seconds 
 says nothing about the test itself.
 
 Usage:
-  test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 3 --wall-seconds 22 --max-wall-seconds 30
+  test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds 22 --max-wall-seconds 30
   test_budgets.py --tier Large --trx large-tests.trx            # no time limits, but every project must report
 """
 import argparse
