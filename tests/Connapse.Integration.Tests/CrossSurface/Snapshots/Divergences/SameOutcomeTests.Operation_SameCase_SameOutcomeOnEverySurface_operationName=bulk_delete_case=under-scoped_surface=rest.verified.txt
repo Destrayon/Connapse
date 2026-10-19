@@ -3,8 +3,8 @@
   Reference: {
     Result: error:forbidden,
     State: [
-      document doc1.txt,
-      document doc2.txt
+      document doc1.txt content=A155A2672E4A,
+      document doc2.txt content=A155A2672E4A
     ]
   },
   Surface: {

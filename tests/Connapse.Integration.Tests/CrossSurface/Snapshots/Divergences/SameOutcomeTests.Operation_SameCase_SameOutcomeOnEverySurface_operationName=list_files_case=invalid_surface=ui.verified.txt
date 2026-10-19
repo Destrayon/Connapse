@@ -3,13 +3,13 @@
   Reference: {
     Result: error:not_found,
     State: [
-      document doc1.txt
+      document doc1.txt content=A155A2672E4A
     ]
   },
   Surface: {
     Result: ok not-listed,
     State: [
-      document doc1.txt
+      document doc1.txt content=A155A2672E4A
     ]
   }
 }

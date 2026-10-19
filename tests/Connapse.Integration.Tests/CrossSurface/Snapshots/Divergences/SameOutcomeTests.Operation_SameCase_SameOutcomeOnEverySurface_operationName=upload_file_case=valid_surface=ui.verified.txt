@@ -3,7 +3,7 @@
   Reference: {
     Result: ok,
     State: [
-      document note.txt
+      document note.txt content=A155A2672E4A
     ],
     Audit: [
       doc.uploaded document {id1} actor={admin} details={"Via": "{via}", "FileName": "note.txt", "ContainerId": "{id2}"}

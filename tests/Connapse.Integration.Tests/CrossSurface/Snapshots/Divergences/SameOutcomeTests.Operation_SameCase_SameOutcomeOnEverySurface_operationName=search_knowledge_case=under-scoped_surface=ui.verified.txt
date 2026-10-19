@@ -3,13 +3,13 @@
   Reference: {
     Result: error:forbidden,
     State: [
-      document doc1.txt
+      document doc1.txt content=A155A2672E4A
     ]
   },
   Surface: {
     Result: ok found,
     State: [
-      document doc1.txt
+      document doc1.txt content=A155A2672E4A
     ]
   }
 }

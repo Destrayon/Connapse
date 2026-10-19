@@ -6,7 +6,7 @@
   Surface: {
     Result: partial:1/2 failed=[Unsupported file extension. Supported types: .csv, .docx, .eml, .epub, .htm, .html, .json, .log, .markdown, .md, .msg, .pdf, .pptx, .txt, .xml, .yaml, .yml],
     State: [
-      document ok.txt
+      document ok.txt content=A155A2672E4A
     ],
     Audit: [
       doc.uploaded document {id1} actor={admin} details={"Via": "{via}", "FileName": "ok.txt", "ContainerId": "{id2}"}
