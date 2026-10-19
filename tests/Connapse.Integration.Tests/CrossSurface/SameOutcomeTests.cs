@@ -70,12 +70,20 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
 
         var context = await Operations.ArrangeAsync(fixture, operation, @case);
         var principal = operation.PrincipalFor(@case);
-        var outcome = await SideEffects.CaptureAsync(fixture,
-            async () => await driver(fixture, context, principal, @case) ?? "absent",
-            sp => operation.Project(sp, context),
-            new Dictionary<string, string> { [context.ContainerName] = "{name}" },
-            knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown],
-            responseIds: [context.ContainerId, .. context.Files.Select(f => f.Id)]);
+        Outcome outcome;
+        try
+        {
+            outcome = await SideEffects.CaptureAsync(fixture,
+                async () => await driver(fixture, context, principal, @case) ?? "absent",
+                sp => operation.Project(sp, context),
+                new Dictionary<string, string> { [context.ContainerName] = "{name}" },
+                knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown],
+                responseIds: [context.ContainerId, .. context.Files.Select(f => f.Id)]);
+        }
+        finally
+        {
+            await Operations.CleanupAsync(fixture, context);
+        }
         // Audit rows and ingestion jobs record which surface did the work ("Via": "MCP"); that is the point of them, not a divergence.
         return outcome with
         {
