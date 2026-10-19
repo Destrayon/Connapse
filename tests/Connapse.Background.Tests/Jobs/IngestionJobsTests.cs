@@ -14,6 +14,7 @@ using NSubstitute.ExceptionExtensions;
 namespace Connapse.Background.Tests.Jobs;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class IngestionJobsTests
 {
     private readonly IKnowledgeIngester _ingester = Substitute.For<IKnowledgeIngester>();

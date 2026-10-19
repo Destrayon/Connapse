@@ -4,6 +4,7 @@ using FluentAssertions;
 namespace Connapse.Core.Tests.Search;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class Bm25PruningTests
 {
     [Theory]

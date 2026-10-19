@@ -7,6 +7,7 @@ using FluentAssertions;
 namespace Connapse.Ingestion.Tests.Parsers;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class DocxMarkdownTests
 {
     private static Paragraph Para(string text, string? style = null)

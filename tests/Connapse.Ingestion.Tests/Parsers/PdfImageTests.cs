@@ -7,6 +7,7 @@ namespace Connapse.Ingestion.Tests.Parsers;
 // #680: the pixels model inference sees cross a process boundary as PdfImage, so the trip has to
 // leave them exactly as rendered.
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class PdfImageTests
 {
     [Theory]

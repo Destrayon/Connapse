@@ -14,6 +14,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// the URL differs.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubConnectorTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "gh-connector-" + Guid.NewGuid().ToString("N"));

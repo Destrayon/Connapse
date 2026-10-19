@@ -10,6 +10,7 @@ using NSubstitute;
 namespace Connapse.Storage.Tests.CloudScope;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class CompositeSearchResultVerifierTests
 {
     // Drops hits whose ResourceUri-style metadata starts with the given scheme, and records the

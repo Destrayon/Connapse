@@ -5,6 +5,7 @@ using FluentAssertions;
 namespace Connapse.Core.Tests.Settings;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ContainerSettingsOverridesTests
 {
     [Fact]

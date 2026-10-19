@@ -15,6 +15,7 @@ namespace Connapse.Web.Tests.Components;
 
 /// <summary>A custom provider's row on the integrations page: live status from the middle man, Link and Unlink.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class CustomProviderLinkCardTests : IDisposable
 {
     private static readonly Guid User = Guid.NewGuid();

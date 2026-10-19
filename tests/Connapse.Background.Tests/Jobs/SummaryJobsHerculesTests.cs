@@ -13,6 +13,7 @@ namespace Connapse.Background.Tests.Jobs;
 /// (or wasn't) called.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SummaryJobsHerculesTests
 {
     [Fact]

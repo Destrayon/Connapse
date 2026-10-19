@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 namespace Connapse.CustomSource.Example.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public partial class LinkingTests
 {
     private const string Carol = "connapse-carol";

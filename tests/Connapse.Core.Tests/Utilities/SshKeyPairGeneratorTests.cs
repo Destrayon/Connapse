@@ -11,6 +11,7 @@ namespace Connapse.Core.Tests.Utilities;
 /// because a wrong encoding produces a well-formed line that simply fails to authenticate.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SshKeyPairGeneratorTests
 {
     [Fact]

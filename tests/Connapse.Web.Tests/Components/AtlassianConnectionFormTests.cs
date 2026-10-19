@@ -13,6 +13,7 @@ using NSubstitute;
 namespace Connapse.Web.Tests.Components;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AtlassianConnectionFormTests : IDisposable
 {
     private const string CloudId = "11111111-2222-3333-4444-555555555555";

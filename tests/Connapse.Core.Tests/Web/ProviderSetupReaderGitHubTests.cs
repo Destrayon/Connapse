@@ -15,6 +15,7 @@ namespace Connapse.Core.Tests.Web;
 
 /// <summary>The GitHub entry on the Providers page: whether the App is set up, installed, and still accepted.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class ProviderSetupReaderGitHubTests
 {
     private static readonly GitHubAppRegistration App =

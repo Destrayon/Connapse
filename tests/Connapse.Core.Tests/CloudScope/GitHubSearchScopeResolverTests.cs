@@ -18,6 +18,7 @@ namespace Connapse.Core.Tests.CloudScope;
 /// only an explicit read-or-higher answer for the user's linked account opens a repository.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubSearchScopeResolverTests
 {
     private static readonly Guid User = Guid.NewGuid();

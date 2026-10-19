@@ -15,6 +15,7 @@ namespace Connapse.Core.Tests.Connectors;
 
 /// <summary>The GitHub App Connapse acts as, against a stubbed GitHub.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class ConnapseGitHubAppTests : IDisposable
 {
     private readonly RSA _key = RSA.Create(2048);

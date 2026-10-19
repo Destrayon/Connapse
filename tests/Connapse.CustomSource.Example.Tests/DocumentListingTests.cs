@@ -7,6 +7,7 @@ using FluentAssertions;
 namespace Connapse.CustomSource.Example.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class DocumentListingTests
 {
     private static readonly Dictionary<string, string> Files = new()
