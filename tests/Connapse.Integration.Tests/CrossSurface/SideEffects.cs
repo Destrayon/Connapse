@@ -167,10 +167,19 @@ public static partial class SideEffects
             string type = invocation.RootElement.GetProperty("Type").GetString() ?? "?";
             string method = invocation.RootElement.GetProperty("Method").GetString() ?? "?";
             string shortType = type.Split(',')[0].Split('.')[^1];
+            if (ScheduledOnly.Contains($"{shortType}.{method}"))
+                continue;
             jobs.Add($"{shortType}.{method}({Arguments(reader.GetString(1))})");
         }
         return jobs;
     }
+
+    /// <summary>
+    /// Jobs only a recurring sweep enqueues, on its own schedule: one landing inside an action's
+    /// window is timing, not the action's doing. ScheduledOnlyJobsTests
+    /// reads the source and fails if anything else starts enqueuing one.
+    /// </summary>
+    internal static readonly HashSet<string> ScheduledOnly = ["ISummaryJobs.RollupContainerAsync"];
 
     /// <summary>Hangfire stores each argument as its own JSON string; unwrap them into one readable list.</summary>
     private static string Arguments(string json)
