@@ -16,9 +16,11 @@ namespace Connapse.Integration.Tests.CrossSurface;
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
-public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IDisposable
+public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
 {
     private readonly string _root = Directory.CreateTempSubdirectory("cs-sources-").FullName;
+    private readonly List<string> _names = [];
+    private readonly List<Guid> _connections = [];
 
     public static TheoryData<string, string> Rows() => new()
     {
@@ -38,6 +40,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IDisposable
         File.WriteAllText(Path.Combine(_root, "doc.txt"), "a file the source mirrors");
         Guid connectionId = await SeedConnectionAsync();
         string name = $"cs-src-{Guid.NewGuid():N}"[..24];
+        _names.AddRange([name, $"{name}-renamed"]);
         Guid? sourceId = action == "create" ? null : await CreateSourceAsync(connectionId, name);
         string unknown = Guid.NewGuid().ToString();
         // Viewer for an action that changes something, no role for a read: neither is enough.
@@ -107,6 +110,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IDisposable
         File.WriteAllText(Path.Combine(_root, "doc.txt"), "a file the source mirrors");
         Guid connectionId = await SeedConnectionAsync();
         string name = $"cs-src-{Guid.NewGuid():N}"[..24];
+        _names.AddRange([name, $"{name}-renamed"]);
         Guid sourceId = await CreateSourceAsync(connectionId, name);
         var principal = @case != Case.UnderScoped ? Principal.Admin : action == "list" ? Principal.NoRole : Principal.Viewer;
 
@@ -172,6 +176,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IDisposable
         var connection = await connections.CreateAsync(
             new CreateConnectionRequest($"cs-fs-{Guid.NewGuid():N}"[..20], ConnectionProvider.Filesystem, JsonSerializer.Serialize(new { allowedRoot = _root })),
             createdByUserId: null);
+        _connections.Add(connection.Id);
         return connection.Id;
     }
 
@@ -191,8 +196,20 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IDisposable
             mine.Select(s => s.Id.ToString()).ToList());
     }
 
-    public void Dispose()
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    /// <summary>Removes the sources and connections a row made, then its folder, so tests that list them don't see these.</summary>
+    public async Task DisposeAsync()
     {
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+            foreach (var source in (await sources.ListAsync(take: int.MaxValue)).Where(x => _names.Contains(x.Name)))
+                await sources.DeleteAsync(source.Id);
+            var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+            foreach (Guid id in _connections)
+                await connections.DeleteAsync(id);
+        }
         try
         {
             Directory.Delete(_root, recursive: true);
