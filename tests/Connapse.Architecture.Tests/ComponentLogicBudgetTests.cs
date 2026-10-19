@@ -11,6 +11,7 @@ namespace Connapse.Architecture.Tests;
 /// many small components would otherwise move its logic out of measurement.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ComponentLogicBudgetTests
 {
     private const string BudgetFile = "component-logic-budgets.json";
