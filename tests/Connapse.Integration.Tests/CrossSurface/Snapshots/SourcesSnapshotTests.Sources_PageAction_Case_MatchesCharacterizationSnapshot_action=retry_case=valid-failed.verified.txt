@@ -2,7 +2,8 @@
   Result: ok,
   State: [
     source {name} enabled=True connection={connection} status=Succeeded synced=True cursor=none,
-    documents owned: 1
+    documents owned: 1,
+    failed document: attempts reset=True generation advanced=True
   ],
   Audit: [
     source.retry_failed source {id1} actor={admin} details={"Name": "{name}", "enqueued": 1}

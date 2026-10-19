@@ -219,8 +219,31 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
                 + $" synced={s.LastSyncedAt is not null} cursor={(s.SyncCursor is null ? "none" : "held")}").ToList();
         Guid? owner = sourceId ?? mine.FirstOrDefault()?.Id;
         if (owner is not null)
+        {
             lines.Add($"documents owned: {await OwnedDocumentsAsync(services, owner.Value)}");
+            if (_seededGeneration is { } before)
+                lines.Add(await RetryBudgetAsync(services, owner.Value, before));
+        }
         return new StateProjection(lines, mine.Select(s => s.Id.ToString()).ToList());
+    }
+
+    /// <summary>
+    /// Whether the retry reset the failed document's attempts and moved it to a new generation.
+    /// Read as yes or no, since a worker may claim the job at once and count one new attempt.
+    /// </summary>
+    private static async Task<string> RetryBudgetAsync(IServiceProvider services, Guid sourceId, long before)
+    {
+        string connection = services.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")!;
+        await using var conn = new Npgsql.NpgsqlConnection(connection);
+        await conn.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand("SELECT attempt_count, generation FROM documents WHERE source_id = @id", conn);
+        cmd.Parameters.AddWithValue("id", sourceId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return "failed document: gone";
+        int attempts = reader.GetInt32(0);
+        long generation = reader.GetInt64(1);
+        return $"failed document: attempts reset={attempts < ExhaustedAttempts} generation advanced={generation > before}";
     }
 
     private static async Task<long> OwnedDocumentsAsync(IServiceProvider services, Guid sourceId)
@@ -256,11 +279,17 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
                 throw new TimeoutException($"The source's document never settled (status {status ?? "missing"})");
             await Task.Delay(250);
         }
+        // Out of attempts, as a document that kept failing is: a retry must give it a fresh budget.
         await using var fail = new Npgsql.NpgsqlCommand(
-            "UPDATE documents SET ingestion_status = 'FailedRetryable' WHERE source_id = @id", conn);
+            $"UPDATE documents SET ingestion_status = 'FailedRetryable', attempt_count = {ExhaustedAttempts} WHERE source_id = @id RETURNING generation", conn);
         fail.Parameters.AddWithValue("id", sourceId);
-        (await fail.ExecuteNonQueryAsync()).Should().Be(1);
+        _seededGeneration = Convert.ToInt64(await fail.ExecuteScalarAsync());
     }
+
+    private const int ExhaustedAttempts = 4;
+
+    /// <summary>The failed document's generation before the retry, when a case seeded one.</summary>
+    private long? _seededGeneration;
 
     private async Task SyncAsync(Guid sourceId) =>
         (await fixture.AdminClient.PostAsync($"/api/sources/{sourceId}/sync", null)).EnsureSuccessStatusCode();
