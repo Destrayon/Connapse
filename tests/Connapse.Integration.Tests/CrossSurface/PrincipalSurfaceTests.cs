@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using Bunit;
 using Connapse.Core.Interfaces;
 using FluentAssertions;
 using Connapse.Identity.Data;
@@ -83,6 +84,41 @@ public class PrincipalSurfaceTests(SharedWebAppFixture fixture)
         var row = await scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>().AuditLogs.AsNoTracking()
             .SingleAsync(a => a.ResourceId == resourceId);
         row.UserId.Should().Be(expected, $"the row names {principal}, as a circuit signed in as them would");
+    }
+
+    /// <summary>
+    /// The token carries the role, not just the database: a Viewer-guarded read succeeds for the
+    /// admin and the Viewer and is refused to a user with no role.
+    /// </summary>
+    [Theory]
+    [InlineData("admin", true)]
+    [InlineData("viewer", true)]
+    [InlineData("no-role", false)]
+    public async Task Rest_AppliesThePrincipalsRole(string name, bool allowed)
+    {
+        using var rest = await Surfaces.RestAsync(fixture, ByName(name));
+
+        var response = await rest.GetAsync("/api/containers?skip=0&take=1");
+
+        response.IsSuccessStatusCode.Should().Be(allowed, $"{name} {(allowed ? "may" : "may not")} list containers");
+    }
+
+    /// <summary>
+    /// The page renders with the principal's roles: Home offers New Container to anyone who isn't a
+    /// Viewer (canEdit = !IsInRole("Viewer")), so the admin and the no-role user see it and the
+    /// Viewer doesn't. The no-role case is a known gap #792's comparison lists.
+    /// </summary>
+    [Theory]
+    [InlineData("admin", true)]
+    [InlineData("viewer", false)]
+    [InlineData("no-role", true)]
+    public async Task Ui_RendersWithThePrincipalsRoles(string name, bool offersCreate)
+    {
+        using var ui = await Surfaces.UiAsync(fixture, ByName(name));
+        var page = ui.Context.Render<Connapse.Web.Components.Pages.Home>();
+        page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+
+        page.FindAll("button.btn-primary").Any(b => b.TextContent.Contains("Container", StringComparison.Ordinal)).Should().Be(offersCreate);
     }
 
     internal static Principal ByName(string name) =>
