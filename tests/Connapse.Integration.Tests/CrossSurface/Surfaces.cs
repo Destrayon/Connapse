@@ -203,6 +203,14 @@ public static partial class Surfaces
     private static partial Regex McpId();
 }
 
+/// <summary>A host scope owned by a bUnit scope, disposed with it.</summary>
+internal sealed class HostScope(IServiceScope scope) : IDisposable
+{
+    public IServiceProvider Services => scope.ServiceProvider;
+
+    public void Dispose() => scope.Dispose();
+}
+
 public sealed class UiSurface : IDisposable
 {
     private readonly IServiceScope _scope;
@@ -248,6 +256,11 @@ public sealed class UiSurface : IDisposable
         auth.SetRoles([.. roles]);
         auth.SetClaims(new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), new Claim(ClaimTypes.Email, user.Email!));
         context.Services.AddFallbackServiceProvider(scope.ServiceProvider);
+        // A page that makes its own scope (Sources, the file browser) gets it from bUnit's container,
+        // which can't be swapped for the app's and doesn't fall back to the host. The one service
+        // those scopes resolve is forwarded from a host scope that lives as long as the page's.
+        context.Services.AddScoped(_ => new HostScope(fixture.Factory.Services.CreateScope()));
+        context.Services.AddScoped(sp => sp.GetRequiredService<HostScope>().Services.GetRequiredService<Connapse.Core.Interfaces.IReindexService>());
         return new UiSurface(scope, context);
     }
 
