@@ -1,0 +1,6 @@
+﻿{
+  Result: error:validation,
+  State: [
+    source {name} enabled=True connection={connection}
+  ]
+}

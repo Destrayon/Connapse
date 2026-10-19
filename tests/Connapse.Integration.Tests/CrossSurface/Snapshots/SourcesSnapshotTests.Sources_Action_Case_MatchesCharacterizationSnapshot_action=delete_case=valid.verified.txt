@@ -1,0 +1,9 @@
+﻿{
+  Result: ok,
+  State: [
+    no source
+  ],
+  Audit: [
+    source.deleted source {id1} actor={admin} details={"Name": "{name}"}
+  ]
+}

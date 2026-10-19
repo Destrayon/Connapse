@@ -1,0 +1,9 @@
+﻿{
+  Result: ok,
+  State: [
+    source {name}-renamed enabled=True connection={connection}
+  ],
+  Audit: [
+    source.updated source {id1} actor={admin} details={"Name": "{name}-renamed"}
+  ]
+}

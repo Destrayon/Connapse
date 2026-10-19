@@ -1,0 +1,6 @@
+﻿{
+  Result: ok found,
+  State: [
+    source {name} enabled=True connection={connection}
+  ]
+}

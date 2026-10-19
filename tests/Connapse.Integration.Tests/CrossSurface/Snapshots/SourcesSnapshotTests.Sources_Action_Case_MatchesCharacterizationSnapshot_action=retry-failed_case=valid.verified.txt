@@ -1,0 +1,9 @@
+﻿{
+  Result: ok,
+  State: [
+    source {name} enabled=True connection={connection}
+  ],
+  Audit: [
+    source.retry_failed source {id1} actor={admin} details={"Name": "{name}", "enqueued": 0}
+  ]
+}
