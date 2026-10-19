@@ -12,6 +12,8 @@ namespace Connapse.Integration.Tests.CrossSurface;
 
 public static partial class Operations
 {
+    private static string Content(bool returned) => returned ? "content" : "no-content";
+
     /// <summary>Search and the file operations, each on a container made for its case.</summary>
     private static readonly Operation[] FileOperations =
     [
@@ -166,11 +168,12 @@ public static partial class Operations
             Rest: async (f, c, p, k) =>
             {
                 using var rest = await Surfaces.RestAsync(f, p);
-                var response = await rest.GetAsync($"/api/containers/{Target(c, k)}/files/{FileTarget(c, k)}");
-                return await WithPayloadAsync(response, body => Found(body.Contains(c.FileName, StringComparison.Ordinal)));
+                // Reading a document means its text: the content route, as get_document returns it.
+                var response = await rest.GetAsync($"/api/containers/{Target(c, k)}/files/{FileTarget(c, k)}/content");
+                return await WithPayloadAsync(response, body => Content(body.Contains(Body, StringComparison.Ordinal)));
             },
             Mcp: (f, c, p, k) => McpAsync(f, p, "get_document", new() { ["containerId"] = Target(c, k), ["fileId"] = FileTarget(c, k) },
-                text => Found(text.Contains(c.FileName, StringComparison.Ordinal) || text.Contains(Body, StringComparison.Ordinal))),
+                text => Content(text.Contains(Body, StringComparison.Ordinal))),
             Ui: async (f, c, p, k) =>
             {
                 using var ui = await Surfaces.UiAsync(f, p);
@@ -182,7 +185,8 @@ public static partial class Operations
                     return "error:not_found";
                 await ClickAsync(() => Row()!);
                 page.WaitForAssertion(() => page.FindAll(".detail-panel").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
-                return "ok " + Found(page.FindAll(".detail-panel .detail-value").Any(v => v.TextContent.Trim() == c.FileName));
+                // The detail panel shows the document's details, and its text only if it shows the content.
+                return "ok " + Content(page.Find(".detail-panel").TextContent.Contains(Body, StringComparison.Ordinal));
             },
             Project: (sp, c) => DocumentsAsync(sp, c)),
     ];
