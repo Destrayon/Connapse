@@ -170,18 +170,26 @@ public static partial class Operations
             },
             Project: (sp, c) => ContainerByNameAsync(sp, c.ContainerName)),
 
-        new("container_stats", [Case.Valid, Case.Invalid, Case.UnderScoped], Writes: false, 1, false,
+        // The files are ready first, so every surface reads the same breakdown rather than a moment of ingestion.
+        new("container_stats", [Case.Valid, Case.Invalid, Case.UnderScoped], Writes: false, 1, true,
             Rest: async (f, c, p, k) =>
             {
                 using var rest = await Surfaces.RestAsync(f, p);
                 var response = await rest.GetAsync($"/api/containers/{ContainerTarget(c, k)}/stats");
-                return await WithPayloadAsync(response, body => $"documents={JsonDocument.Parse(body).RootElement.GetProperty("documents").GetProperty("total").GetInt32()}");
+                return await WithPayloadAsync(response, body =>
+                {
+                    var root = JsonDocument.Parse(body).RootElement;
+                    var docs = root.GetProperty("documents");
+                    return $"documents={docs.GetProperty("total")} ready={docs.GetProperty("ready")} processing={docs.GetProperty("processing")}"
+                        + $" failed={docs.GetProperty("failed")} chunks={root.GetProperty("totalChunks")}";
+                });
             },
             Mcp: (f, c, p, k) => McpAsync(f, p, "container_stats", new() { ["containerId"] = ContainerTarget(c, k) },
-                text => $"documents={Number(text, @"^Documents: (\d+)")}"),
+                text => $"documents={Number(text, @"^Documents: (\d+)")} ready={Number(text, @"(\d+) ready")} processing={Number(text, @"(\d+) processing")}"
+                    + $" failed={Number(text, @"(\d+) failed")} chunks={Number(text, @"^Chunks: ([\d,]+)").Replace(",", "")}"),
             Ui: async (f, c, p, k) =>
             {
-                // The Home card is the one place a page shows a container's file count.
+                // The Home card is the one place a page shows a container's file count, and it shows only that.
                 using var ui = await Surfaces.UiAsync(f, p);
                 var page = ui.Context.Render<Home>();
                 page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
@@ -411,11 +419,22 @@ public static partial class Operations
         return new StateProjection(lines.Count == 0 ? ["no container"] : lines, ids);
     }
 
+    /// <summary>
+    /// The container's documents, each with a hash of the bytes stored for it, so a surface that
+    /// saves different content under the same name doesn't compare equal.
+    /// </summary>
     private static async Task<StateProjection> DocumentsAsync(IServiceProvider services, CaseContext c)
     {
         var docs = await services.GetRequiredService<IDocumentStore>().ListAsync(Guid.Parse(c.ContainerId));
-        return new StateProjection(docs.Select(d => $"document {d.FileName}").OrderBy(x => x, StringComparer.Ordinal).ToList(),
-            docs.Select(d => d.Id).ToList());
+        var storage = services.GetRequiredService<IManagedStorageProvider>().CreateConnector(c.ContainerId);
+        var lines = new List<string>();
+        foreach (var d in docs)
+        {
+            await using var stream = await storage.ReadFileAsync(d.Path);
+            byte[] hash = await System.Security.Cryptography.SHA256.HashDataAsync(stream);
+            lines.Add($"document {d.FileName} content={Convert.ToHexString(hash)[..12]}");
+        }
+        return new StateProjection(lines.OrderBy(x => x, StringComparer.Ordinal).ToList(), docs.Select(d => d.Id).ToList());
     }
 
     private sealed record IdBody(string Id);
