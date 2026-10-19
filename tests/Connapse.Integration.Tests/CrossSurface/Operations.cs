@@ -94,13 +94,13 @@ public static partial class Operations
                 using var ui = await Surfaces.UiAsync(f, p);
                 var page = ui.Context.Render<Home>();
                 page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state, .alert").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
-                var open = page.FindAll("button.btn-primary").FirstOrDefault(b => b.TextContent.Contains("Container", StringComparison.Ordinal));
-                if (open is null)
+                IElement? Open() => page.FindAll("button.btn-primary").FirstOrDefault(b => b.TextContent.Contains("Container", StringComparison.Ordinal));
+                if (Open() is null)
                     return "error:forbidden";
-                await open.ClickAsync(new());
+                await ClickAsync(() => Open()!);
                 page.Find("input[placeholder='my-project']").Input(NewName(c, k));
                 page.Find("input[placeholder='What is this container for?']").Change("made here");
-                await page.Find(".modal-footer-custom button.btn-primary").ClickAsync(new());
+                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-primary"));
                 return DialogResult(page);
             },
             Project: (sp, c) => ContainerByNameAsync(sp, NewName(c, Case.Valid), NewName(c, Case.Invalid), NewName(c, Case.UnderScoped))),
@@ -142,14 +142,13 @@ public static partial class Operations
                 using var ui = await Surfaces.UiAsync(f, p);
                 var page = ui.Context.Render<Home>();
                 page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
-                var card = page.FindAll(".container-card").FirstOrDefault(card => card.QuerySelector(".container-card-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.ContainerName));
-                if (card is null)
+                IElement? Card() => page.FindAll(".container-card").FirstOrDefault(card => card.QuerySelector(".container-card-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.ContainerName));
+                if (Card() is null)
                     return "error:not_found";
-                var delete = card.QuerySelector(".container-delete-btn");
-                if (delete is null)
+                if (Card()!.QuerySelector(".container-delete-btn") is null)
                     return "error:forbidden";
-                await delete.ClickAsync(new());
-                await page.Find(".modal-footer-custom button.btn-danger").ClickAsync(new());
+                await ClickAsync(() => Card()!.QuerySelector(".container-delete-btn")!);
+                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-danger"));
                 return DialogResult(page);
             },
             Project: (sp, c) => ContainerByNameAsync(sp, c.ContainerName)),
@@ -247,7 +246,51 @@ public static partial class Operations
             await UploadAsync(fixture, c.ContainerId, "keep.txt");
     }
 
+    /// <summary>
+    /// Removes the containers a case left, with their files, so tests that list containers by name
+    /// still find their own on the first page: a case's "0cs-" container sorts before all of them.
+    /// </summary>
+    public static async Task CleanupAsync(SharedWebAppFixture fixture, CaseContext c)
+    {
+        IReadOnlyList<Connapse.Core.Document> documents;
+        foreach (string name in new[] { c.ContainerName, NewName(c, Case.Valid), NewName(c, Case.UnderScoped) })
+        {
+            Connapse.Core.Container? container;
+            using (var scope = fixture.Factory.Services.CreateScope())
+            {
+                container = await scope.ServiceProvider.GetRequiredService<IContainerStore>().GetByNameAsync(name);
+                if (container is null)
+                    continue;
+                documents = await scope.ServiceProvider.GetRequiredService<IDocumentStore>().ListAsync(Guid.Parse(container.Id));
+            }
+            foreach (var document in documents)
+                await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/files/{document.Id}");
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+        }
+    }
+
     // ── Surface helpers ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Clicks an element found afresh on each try. A page that re-renders by itself (the file
+    /// browser refreshes ingestion status) can drop the handler of an element found a moment
+    /// before, which bUnit reports as an unknown event handler.
+    /// </summary>
+    internal static async Task ClickAsync(Func<IElement> find)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await find().ClickAsync(new());
+                return;
+            }
+            catch (Bunit.Rendering.UnknownEventHandlerIdException) when (attempt < 5)
+            {
+                // Re-rendered between finding and clicking: find it again.
+            }
+        }
+    }
 
     private static async Task<string?> McpAsync(SharedWebAppFixture fixture, Principal principal, string tool,
         Dictionary<string, object?> arguments, Func<string, string>? payload = null)
