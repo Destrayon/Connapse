@@ -5,6 +5,7 @@ namespace Connapse.Architecture.Tests;
 /// operations. Each list holds today's violations; a migration ticket starts by deleting its entries.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SurfaceRulesTests
 {
     [Fact]
