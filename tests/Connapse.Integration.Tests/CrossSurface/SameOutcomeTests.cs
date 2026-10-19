@@ -84,7 +84,7 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
                 sp => operation.Project(sp, context),
                 new Dictionary<string, string> { [context.ContainerName] = "{name}" },
                 knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown],
-                responseIds: [context.ContainerId, .. context.Files.Select(f => f.Id)]);
+                responseIds: ResponseIds(operation, context));
         }
         finally
         {
@@ -102,6 +102,16 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
             Jobs = outcome.Jobs.Select(Mask).ToList(),
         };
     }
+
+    /// <summary>
+    /// Ids a success may name. An upload answers with the document it made, which the projection
+    /// already lists, so naming its container instead is a wrong id; the other operations may name
+    /// the case's container or files.
+    /// </summary>
+    private static string[] ResponseIds(Operation operation, CaseContext context) =>
+        operation.Name is "upload_file" or "bulk_upload"
+            ? []
+            : [context.ContainerId, .. context.Files.Select(f => f.Id)];
 
     /// <summary>What each surface records itself as.</summary>
     private static readonly IReadOnlyDictionary<string, string> ViaOf = new Dictionary<string, string>
