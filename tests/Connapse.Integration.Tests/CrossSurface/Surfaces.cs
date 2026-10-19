@@ -165,7 +165,7 @@ public static partial class Surfaces
     /// <summary>Phrases MCP's and the UI's validation messages use. McpErrorKindTests keeps every MCP message covered.</summary>
     private static readonly string[] ValidationWords =
         ["must", "invalid", "required", "not supported", "unsupported", "not allowed", "no parser", "provide either", "maximum",
-            "exceeds", "empty", "too large", "not writable"];
+            "exceeds", "empty", "too large", "not writable", "please enter", "please select"];
 
     /// <summary>
     /// The kind of failure an error message describes, for MCP text and UI alerts alike. What the

@@ -68,8 +68,12 @@ public static partial class SideEffects
         const string prefix = "ok id=";
         if (!result.StartsWith(prefix, StringComparison.Ordinal))
             return result;
-        string id = result[prefix.Length..].Trim('"');
-        return valid.Contains(id, StringComparer.OrdinalIgnoreCase) ? "ok" : $"ok wrong-id={id}";
+        // A read's payload can follow the id ("ok id=X found"); it is kept after the check.
+        string rest = result[prefix.Length..];
+        int space = rest.IndexOf(' ');
+        string id = (space < 0 ? rest : rest[..space]).Trim('"');
+        string tail = space < 0 ? "" : rest[space..];
+        return (valid.Contains(id, StringComparer.OrdinalIgnoreCase) ? "ok" : $"ok wrong-id={id}") + tail;
     }
 
     /// <summary>Documents of any container among the ids, oldest first, so their tokens are stable.</summary>
