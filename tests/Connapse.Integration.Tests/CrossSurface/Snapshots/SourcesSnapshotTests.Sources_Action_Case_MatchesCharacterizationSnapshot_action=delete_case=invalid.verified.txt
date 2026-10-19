@@ -1,6 +1,7 @@
 ﻿{
   Result: error:validation,
   State: [
-    source {name} enabled=True connection={connection}
+    source {name} enabled=True connection={connection} status=Never synced=False cursor=none,
+    documents owned: 0
   ]
 }

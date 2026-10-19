@@ -1,7 +1,8 @@
 ﻿{
   Result: ok,
   State: [
-    source {name} enabled=True connection={connection}
+    source {name} enabled=True connection={connection} status=Succeeded synced=True cursor=none,
+    documents owned: 1
   ],
   Audit: [
     source.synced source {id1} actor={admin} details={"Name": "{name}", "Deleted": 0, "Upserted": 1}

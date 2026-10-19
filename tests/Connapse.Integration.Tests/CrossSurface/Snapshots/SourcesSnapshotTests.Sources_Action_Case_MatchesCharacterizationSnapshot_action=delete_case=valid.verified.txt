@@ -1,7 +1,8 @@
 ﻿{
   Result: ok,
   State: [
-    no source
+    no source,
+    documents owned: 0
   ],
   Audit: [
     source.deleted source {id1} actor={admin} details={"Name": "{name}"}

@@ -4,6 +4,7 @@ using Bunit;
 using FluentAssertions;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests.CrossSurface;
@@ -22,13 +23,16 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
     private readonly List<string> _names = [];
     private readonly List<Guid> _connections = [];
 
+    /// <summary>A valid delete of a source that has synced, so it owns an indexed document.</summary>
+    private const string Synced = "valid-synced";
+
     public static TheoryData<string, string> Rows() => new()
     {
         { "list", Case.Valid }, { "list", Case.UnderScoped },
         { "get", Case.Valid }, { "get", Case.Invalid }, { "get", Case.UnderScoped },
         { "create", Case.Valid }, { "create", Case.Invalid }, { "create", Case.UnderScoped }, { "create", Case.Preflight },
         { "update", Case.Valid }, { "update", Case.Invalid }, { "update", Case.UnderScoped }, { "update", Case.Preflight },
-        { "delete", Case.Valid }, { "delete", Case.Invalid }, { "delete", Case.UnderScoped }, { "delete", Case.Preflight },
+        { "delete", Case.Valid }, { "delete", Synced }, { "delete", Case.Invalid }, { "delete", Case.UnderScoped }, { "delete", Case.Preflight },
         { "sync", Case.Valid }, { "sync", Case.UnderScoped }, { "sync", Case.Preflight },
         { "retry-failed", Case.Valid }, { "retry-failed", Case.UnderScoped }, { "retry-failed", Case.Preflight },
     };
@@ -42,6 +46,8 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         string name = $"cs-src-{Guid.NewGuid():N}"[..24];
         _names.AddRange([name, $"{name}-renamed"]);
         Guid? sourceId = action == "create" ? null : await CreateSourceAsync(connectionId, name);
+        if (@case == Synced)
+            await SyncAsync(sourceId!.Value);
         string unknown = Guid.NewGuid().ToString();
         // Viewer for an action that changes something, no role for a read: neither is enough.
         var principal = @case != Case.UnderScoped ? Principal.Admin : action is "list" or "get" ? Principal.NoRole : Principal.Viewer;
@@ -74,7 +80,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
                     result = $"{result} {((await response.Content.ReadAsStringAsync()).Contains(name, StringComparison.Ordinal) ? "found" : "not-found")}";
                 return result;
             },
-            sp => SourcesNamedAsync(sp, name, $"{name}-renamed"),
+            sp => SourcesNamedAsync(sp, sourceId, name, $"{name}-renamed"),
             new Dictionary<string, string>
             {
                 [$"{name}-renamed"] = "{name}-renamed",
@@ -96,7 +102,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         { "list", Case.Valid }, { "list", Case.UnderScoped },
         { "sync", Case.Valid }, { "sync", Case.UnderScoped },
         { "pause", Case.Valid }, { "pause", Case.UnderScoped },
-        { "delete", Case.Valid }, { "delete", Case.Invalid }, { "delete", Case.UnderScoped },
+        { "delete", Case.Valid }, { "delete", Synced }, { "delete", Case.Invalid }, { "delete", Case.UnderScoped },
     };
 
     /// <summary>
@@ -112,6 +118,8 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         string name = $"cs-src-{Guid.NewGuid():N}"[..24];
         _names.AddRange([name, $"{name}-renamed"]);
         Guid sourceId = await CreateSourceAsync(connectionId, name);
+        if (@case == Synced)
+            await SyncAsync(sourceId);
         var principal = @case != Case.UnderScoped ? Principal.Admin : action == "list" ? Principal.NoRole : Principal.Viewer;
 
         var outcome = await SideEffects.CaptureAsync(fixture,
@@ -154,7 +162,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
                 page.WaitForAssertion(() => page.FindAll(".spinner-border-sm").Should().BeEmpty(), TimeSpan.FromSeconds(15));
                 return page.FindAll(".alert-danger").FirstOrDefault() is { } alert ? Surfaces.ErrorKind(alert.TextContent.Trim()) : "ok";
             },
-            sp => SourcesNamedAsync(sp, name),
+            sp => SourcesNamedAsync(sp, sourceId, name),
             new Dictionary<string, string>
             {
                 [name] = "{name}",
@@ -187,14 +195,37 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
     }
 
-    private static async Task<StateProjection> SourcesNamedAsync(IServiceProvider services, params string[] names)
+    /// <summary>
+    /// Each named source with what decides its next sync (status, whether it has synced, whether a
+    /// cursor is held), plus how many documents the case's source owns, counted by id so a delete
+    /// that leaves its documents behind shows up after the source row is gone.
+    /// </summary>
+    private async Task<StateProjection> SourcesNamedAsync(IServiceProvider services, Guid? sourceId, params string[] names)
     {
         var sources = await services.GetRequiredService<ISourceStore>().ListAsync(take: int.MaxValue);
         var mine = sources.Where(s => names.Contains(s.Name)).OrderBy(s => s.Name, StringComparer.Ordinal).ToList();
-        return new StateProjection(
-            mine.Count == 0 ? ["no source"] : mine.Select(s => $"source {s.Name} enabled={s.Enabled} connection={s.ConnectionId}").ToList(),
-            mine.Select(s => s.Id.ToString()).ToList());
+        var lines = mine.Count == 0
+            ? new List<string> { "no source" }
+            : mine.Select(s => $"source {s.Name} enabled={s.Enabled} connection={s.ConnectionId} status={s.LastSyncStatus}"
+                + $" synced={s.LastSyncedAt is not null} cursor={(s.SyncCursor is null ? "none" : "held")}").ToList();
+        Guid? owner = sourceId ?? mine.FirstOrDefault()?.Id;
+        if (owner is not null)
+            lines.Add($"documents owned: {await OwnedDocumentsAsync(services, owner.Value)}");
+        return new StateProjection(lines, mine.Select(s => s.Id.ToString()).ToList());
     }
+
+    private static async Task<long> OwnedDocumentsAsync(IServiceProvider services, Guid sourceId)
+    {
+        string connection = services.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")!;
+        await using var conn = new Npgsql.NpgsqlConnection(connection);
+        await conn.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand("SELECT count(*) FROM documents WHERE source_id = @id", conn);
+        cmd.Parameters.AddWithValue("id", sourceId);
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    private async Task SyncAsync(Guid sourceId) =>
+        (await fixture.AdminClient.PostAsync($"/api/sources/{sourceId}/sync", null)).EnsureSuccessStatusCode();
 
     public Task InitializeAsync() => Task.CompletedTask;
 
