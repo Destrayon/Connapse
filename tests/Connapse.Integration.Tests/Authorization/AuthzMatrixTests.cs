@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using FluentAssertions;
 using Microsoft.AspNetCore.Routing;
 
 namespace Connapse.Integration.Tests.Authorization;
@@ -28,20 +29,27 @@ public partial class AuthzMatrixTests(SharedWebAppFixture fixture)
             .ToList();
 
         var violations = new List<string>();
+        var undecided = new List<string>();
         foreach (var principal in AuthzPrincipal.All)
         {
             using var http = await AuthzPrincipals.ClientAsync(fixture, principal);
             foreach (var (key, endpoint) in probed)
             {
                 bool expected = ExpectedAllowed(principal, table[key]);
-                var (allowed, status) = await ProbeAsync(http, endpoint);
-                if (allowed != expected)
-                    violations.Add($"matrix {key} as {principal}: expects {(expected ? "allowed" : "refused")}, got {(allowed ? "allowed" : "refused")}");
-                if (status >= 500 || status == 415)
-                    throw new Xunit.Sdk.XunitException($"{key} as {principal} answered {status} before authorization could decide");
+                var methods = Methods(endpoint);
+                foreach (string method in methods)
+                {
+                    string row = methods.Count > 1 ? $"{key} via {method}" : key;
+                    var (allowed, status) = await ProbeAsync(http, endpoint, method);
+                    if (allowed is null)
+                        undecided.Add($"{row} as {principal}: {status}");
+                    else if (allowed != expected)
+                        violations.Add($"matrix {row} as {principal}: expects {(expected ? "allowed" : "refused")}, got {(allowed.Value ? "allowed" : "refused")}");
+                }
             }
         }
 
+        undecided.Should().BeEmpty("every probe must end in the probe's answer or an authorization refusal; any other status means authorization never decided");
         AuthzExpectations.ShouldMatchKnown(violations, "matrix ");
     }
 
@@ -72,15 +80,17 @@ public partial class AuthzMatrixTests(SharedWebAppFixture fixture)
         };
     }
 
-    /// <summary>
-    /// Calls the route as the client's principal with the probe header. Allowed when the probe
-    /// answered; refused on 401, 403, or a redirect to sign-in or access-denied.
-    /// </summary>
-    private static async Task<(bool Allowed, int Status)> ProbeAsync(HttpClient http, RouteEndpoint endpoint)
-    {
-        var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods;
-        string method = methods is { Count: > 0 } && !methods.Contains("GET") ? methods[0] : "GET";
+    /// <summary>Every method the route answers; a route that takes any method is probed with GET.</summary>
+    private static IReadOnlyList<string> Methods(RouteEndpoint endpoint) =>
+        endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods is { Count: > 0 } methods ? [.. methods] : ["GET"];
 
+    /// <summary>
+    /// Calls the route as the client's principal with the probe header. Allowed only when the probe
+    /// answered, refused only on 401, 403, or a redirect to sign-in or access-denied; null for any
+    /// other answer, which means something turned the request away before authorization decided.
+    /// </summary>
+    private static async Task<(bool? Allowed, int Status)> ProbeAsync(HttpClient http, RouteEndpoint endpoint, string method)
+    {
         using var request = new HttpRequestMessage(new HttpMethod(method), Fill(endpoint.RoutePattern.RawText!));
         request.Headers.Add(AuthzProbe.RequestHeader, "1");
         // Routing turns away a body of the wrong media type with 415 before authorization runs,
@@ -93,7 +103,7 @@ public partial class AuthzMatrixTests(SharedWebAppFixture fixture)
 
         using var response = await http.SendAsync(request);
         int status = (int)response.StatusCode;
-        if (response.Headers.Contains(AuthzProbe.AllowedHeader))
+        if (response.Headers.Contains(AuthzProbe.AllowedHeader) && response.StatusCode == HttpStatusCode.NoContent)
             return (true, status);
 
         bool refused = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
@@ -101,7 +111,7 @@ public partial class AuthzMatrixTests(SharedWebAppFixture fixture)
                 && response.Headers.Location?.OriginalString is { } location
                 && (location.Contains("/login", StringComparison.OrdinalIgnoreCase)
                     || location.Contains("/access-denied", StringComparison.OrdinalIgnoreCase)));
-        return (!refused, status);
+        return (refused ? false : null, status);
     }
 
     /// <summary>A concrete path for a route pattern: a fresh GUID for ids, a placeholder otherwise.</summary>
