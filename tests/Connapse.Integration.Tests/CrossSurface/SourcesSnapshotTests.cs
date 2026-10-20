@@ -294,6 +294,27 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
     private async Task SyncAsync(Guid sourceId) =>
         (await fixture.AdminClient.PostAsync($"/api/sources/{sourceId}/sync", null)).EnsureSuccessStatusCode();
 
+    /// <summary>
+    /// Deletes a source, retrying a Postgres deadlock: a retry case's re-ingestion can still be
+    /// writing the source's document. Cleanup is best effort, so a source still locked after a few
+    /// tries is left for the next run rather than failing a snapshot that already passed.
+    /// </summary>
+    private static async Task DeleteEventuallyAsync(ISourceStore sources, Guid id)
+    {
+        for (int attempt = 1; attempt <= 5; attempt++)
+        {
+            try
+            {
+                await sources.DeleteAsync(id);
+                return;
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is Microsoft.EntityFrameworkCore.DbUpdateException)
+            {
+                // A deadlock victim: the other transaction has finished or will, so try again.
+            }
+        }
+    }
+
     public Task InitializeAsync() => Task.CompletedTask;
 
     /// <summary>Removes the sources and connections a row made, then its folder, so tests that list them don't see these.</summary>
@@ -303,7 +324,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
         {
             var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
             foreach (var source in (await sources.ListAsync(take: int.MaxValue)).Where(x => _names.Contains(x.Name)))
-                await sources.DeleteAsync(source.Id);
+                await DeleteEventuallyAsync(sources, source.Id);
             var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
             foreach (Guid id in _connections)
                 await connections.DeleteAsync(id);
