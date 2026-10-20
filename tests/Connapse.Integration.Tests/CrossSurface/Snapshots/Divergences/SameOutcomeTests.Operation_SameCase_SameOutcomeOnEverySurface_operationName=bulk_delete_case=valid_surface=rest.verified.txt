@@ -1,0 +1,9 @@
+﻿{
+  Reason: absent: REST has no bulk delete route,
+  Reference: {
+    Result: ok
+  },
+  Surface: {
+    Result: absent: REST has no bulk delete route
+  }
+}

@@ -1,0 +1,15 @@
+﻿{
+  Reason: the file browser lists files to a user with no role; REST and MCP refuse them,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  },
+  Surface: {
+    Result: ok listed,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  }
+}

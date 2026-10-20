@@ -1,0 +1,15 @@
+﻿{
+  Reason: MCP container_delete throws on a non-empty container (an unknown error) instead of REST's validation error,
+  Reference: {
+    Result: error:validation,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  },
+  Surface: {
+    Result: error:unknown,
+    State: [
+      container {name} description=cross-surface case
+    ]
+  }
+}

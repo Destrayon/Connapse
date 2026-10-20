@@ -24,11 +24,25 @@ public static partial class Surfaces
     /// <summary>The REST API, signed in as the seeded admin.</summary>
     public static HttpClient Rest(SharedWebAppFixture fixture) => fixture.AdminClient;
 
-    /// <summary>The MCP server at /mcp, over the SDK's own client, in-process and signed in as the admin.</summary>
-    public static async Task<McpClient> McpAsync(SharedWebAppFixture fixture)
+    /// <summary>The REST API, signed in as the given principal. The caller disposes the client.</summary>
+    public static async Task<HttpClient> RestAsync(SharedWebAppFixture fixture, Principal principal)
     {
         var http = fixture.Factory.CreateClient();
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.AdminToken);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await Principals.TokenAsync(fixture, principal));
+        return http;
+    }
+
+    /// <summary>The MCP server at /mcp, over the SDK's own client, in-process and signed in as the admin.</summary>
+    public static Task<McpClient> McpAsync(SharedWebAppFixture fixture) => McpAsync(fixture, Principal.Admin);
+
+    /// <summary>
+    /// The MCP server as the given principal. /mcp refuses a principal outside its roles before
+    /// any tool runs, so connecting throws; <see cref="McpRefusal"/> reads that as a result.
+    /// </summary>
+    public static async Task<McpClient> McpAsync(SharedWebAppFixture fixture, Principal principal)
+    {
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await Principals.TokenAsync(fixture, principal));
         var transport = new HttpClientTransport(
             new HttpClientTransportOptions
             {
@@ -45,7 +59,22 @@ public static partial class Surfaces
     /// here reads and writes the same database as the REST and MCP surfaces, with real stores
     /// and the real audit logger rather than substitutes. Signed in as the seeded admin.
     /// </summary>
-    public static Task<UiSurface> UiAsync(SharedWebAppFixture fixture) => UiSurface.CreateAsync(fixture);
+    public static Task<UiSurface> UiAsync(SharedWebAppFixture fixture) => UiSurface.CreateAsync(fixture, Principal.Admin);
+
+    /// <summary>The same, signed in as the given principal.</summary>
+    public static Task<UiSurface> UiAsync(SharedWebAppFixture fixture, Principal principal) => UiSurface.CreateAsync(fixture, principal);
+
+    /// <summary>
+    /// The result of an MCP connection /mcp refused, as the surfaces' shared words: a 401 is
+    /// error:unauthenticated and a 403 error:forbidden. Null when the failure was something else.
+    /// </summary>
+    public static string? McpRefusal(Exception ex) => ex switch
+    {
+        HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } => "error:unauthenticated",
+        HttpRequestException { StatusCode: HttpStatusCode.Forbidden } => "error:forbidden",
+        _ when ex.InnerException is { } inner => McpRefusal(inner),
+        _ => null,
+    };
 
     /// <summary>
     /// What an action's response means, in words every surface shares: "ok" or "error:kind". REST
@@ -136,7 +165,7 @@ public static partial class Surfaces
     /// <summary>Phrases MCP's and the UI's validation messages use. McpErrorKindTests keeps every MCP message covered.</summary>
     private static readonly string[] ValidationWords =
         ["must", "invalid", "required", "not supported", "unsupported", "not allowed", "no parser", "provide either", "maximum",
-            "exceeds", "empty", "too large", "not writable"];
+            "exceeds", "empty", "too large", "not writable", "please enter", "please select"];
 
     /// <summary>
     /// The kind of failure an error message describes, for MCP text and UI alerts alike. What the
@@ -174,6 +203,14 @@ public static partial class Surfaces
     private static partial Regex McpId();
 }
 
+/// <summary>A host scope owned by a bUnit scope, disposed with it.</summary>
+internal sealed class HostScope(IServiceScope scope) : IDisposable
+{
+    public IServiceProvider Services => scope.ServiceProvider;
+
+    public void Dispose() => scope.Dispose();
+}
+
 public sealed class UiSurface : IDisposable
 {
     private readonly IServiceScope _scope;
@@ -187,37 +224,43 @@ public sealed class UiSurface : IDisposable
     public BunitContext Context { get; }
 
     /// <summary>
-    /// Both places a page reads its user from get the real admin: bUnit's own provider, for
+    /// Both places a page reads its user from get the principal: bUnit's own provider, for
     /// AuthorizeView and cascading state in the component tree, and the host scope's provider,
     /// which host-scoped services such as the audit logger read, as a Blazor Server circuit's
     /// do. A page action has no request, so the host scope has no HttpContext to fall back on.
     /// </summary>
-    internal static async Task<UiSurface> CreateAsync(SharedWebAppFixture fixture)
+    internal static async Task<UiSurface> CreateAsync(SharedWebAppFixture fixture, Principal principal)
     {
+        await Principals.TokenAsync(fixture, principal);
         var scope = fixture.Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
-        var admin = await db.Users.AsNoTracking().SingleAsync(u => u.Email == SharedWebAppFixture.AdminEmail);
-        var roles = await db.UserRoles.AsNoTracking().Where(ur => ur.UserId == admin.Id)
+        var user = await db.Users.AsNoTracking().SingleAsync(u => u.Email == principal.Email);
+        var roles = await db.UserRoles.AsNoTracking().Where(ur => ur.UserId == user.Id)
             .Join(db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!).ToListAsync();
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, admin.Id.ToString()),
-            new(ClaimTypes.Name, admin.Email!),
-            new(ClaimTypes.Email, admin.Email!),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, user.Email!),
+            new(ClaimTypes.Email, user.Email!),
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, "Identity.Application"));
+        var identity = new ClaimsPrincipal(new ClaimsIdentity(claims, "Identity.Application"));
 
         if (scope.ServiceProvider.GetService<AuthenticationStateProvider>() is IHostEnvironmentAuthenticationStateProvider host)
-            host.SetAuthenticationState(Task.FromResult(new AuthenticationState(principal)));
+            host.SetAuthenticationState(Task.FromResult(new AuthenticationState(identity)));
 
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
-        auth.SetAuthorized(admin.Email!);
+        auth.SetAuthorized(user.Email!);
         auth.SetRoles([.. roles]);
-        auth.SetClaims(new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Email, admin.Email!));
+        auth.SetClaims(new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), new Claim(ClaimTypes.Email, user.Email!));
         context.Services.AddFallbackServiceProvider(scope.ServiceProvider);
+        // A page that makes its own scope (Sources, the file browser) gets it from bUnit's container,
+        // which can't be swapped for the app's and doesn't fall back to the host. The one service
+        // those scopes resolve is forwarded from a host scope that lives as long as the page's.
+        context.Services.AddScoped(_ => new HostScope(fixture.Factory.Services.CreateScope()));
+        context.Services.AddScoped(sp => sp.GetRequiredService<HostScope>().Services.GetRequiredService<Connapse.Core.Interfaces.IReindexService>());
         return new UiSurface(scope, context);
     }
 

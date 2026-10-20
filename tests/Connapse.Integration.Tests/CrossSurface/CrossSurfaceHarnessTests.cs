@@ -376,7 +376,8 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
     private static async Task<string> CreateOnHomeAsync(UiSurface ui, string name, string description)
     {
         var page = ui.Context.Render<Home>();
-        page.WaitForAssertion(() => page.FindAll("button.btn-primary").Should().NotBeEmpty());
+        // Opened only once the list has loaded: a load finishing mid-typing re-renders the page and drops the name.
+        page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
         await page.Find("button.btn-primary").ClickAsync(new());
         page.Find("input[placeholder='my-project']").Input(name);
         page.Find("input[placeholder='What is this container for?']").Change(description);

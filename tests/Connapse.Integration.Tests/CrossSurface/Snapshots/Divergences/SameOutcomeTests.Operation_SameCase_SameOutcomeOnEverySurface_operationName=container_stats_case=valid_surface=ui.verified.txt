@@ -1,0 +1,15 @@
+﻿{
+  Reason: the Home page shows only a container's file count, not the status breakdown or chunk count REST and MCP give,
+  Reference: {
+    Result: ok documents=1 ready=1 processing=0 failed=0 chunks=1,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  },
+  Surface: {
+    Result: ok documents=1,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  }
+}

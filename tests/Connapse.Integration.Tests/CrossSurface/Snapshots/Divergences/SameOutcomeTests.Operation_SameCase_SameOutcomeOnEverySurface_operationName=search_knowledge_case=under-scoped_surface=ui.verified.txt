@@ -1,0 +1,15 @@
+﻿{
+  Reason: the Search page searches for a user with no role; REST and MCP refuse them,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  },
+  Surface: {
+    Result: ok found,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  }
+}
