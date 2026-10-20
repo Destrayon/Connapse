@@ -1,0 +1,32 @@
+# Expected failures for the official MCP conformance suite (server mode), run by the
+# mcp-conformance CI job. A listed scenario that starts passing fails the job: delete its line.
+# An unlisted scenario that fails is a regression. Part of #793.
+server:
+  # Connapse doesn't implement completions, resources or prompts.
+  - completion-complete
+  - resources-list
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - resources-subscribe
+  - resources-unsubscribe
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+  # These call the suite's own sample tools (image, audio, progress, sampling and so on),
+  # which a product server doesn't have.
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-with-logging
+  - tools-call-with-progress
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+  # A real gap: /mcp answers 200 to a request whose Host and Origin name another site, so it
+  # has no DNS-rebinding protection. The spec says servers must validate Origin.
+  - dns-rebinding-protection
