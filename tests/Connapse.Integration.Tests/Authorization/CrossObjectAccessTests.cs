@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
+using FluentAssertions;
 
 namespace Connapse.Integration.Tests.Authorization;
 
@@ -23,8 +24,16 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
         string b = await CreateContainerAsync("authz-b");
         try
         {
-            await UploadAsync(a, "a.txt");
-            string fileOfB = await UploadAsync(b, "b.txt");
+            // The same path in both containers, so a route that dropped its container check but
+            // read the file through this container's storage would find a file there, and answer.
+            string fileOfA = await UploadAsync(a, "same.txt", TextOfA);
+            string fileOfB = await UploadAsync(b, "same.txt", TextOfB);
+            await WaitUntilReadyAsync(a, fileOfA);
+            await WaitUntilReadyAsync(b, fileOfB);
+
+            // The probes below only prove something if the same calls work on the right container.
+            (await http.GetStringAsync($"/api/containers/{a}/files/{fileOfA}/content")).Should().Contain(TextOfA);
+            (await http.GetStringAsync($"/api/containers/{b}/files/{fileOfB}/content")).Should().Contain(TextOfB);
 
             var viewer = await AuthzPrincipals.ClientAsync(fixture, AuthzPrincipal.Viewer);
             var ownersPat = await PostAsync<PatCreateResponse>(http, "/api/v1/auth/pats", new PatCreateRequest($"authz-{Guid.NewGuid():N}"));
@@ -32,30 +41,54 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
             var agentB = await PostAsync<AgentDto>(http, "/api/v1/agents/", new CreateAgentRequest($"authz-b-{Guid.NewGuid():N}"));
             var keyOfB = await PostAsync<CreateAgentKeyResponse>(http, $"/api/v1/agents/{agentB.Id}/keys", new CreateAgentKeyRequest("authz"));
 
-            (HttpClient Client, HttpMethod Method, string Route, string Path)[] cases =
-            [
-                (http, HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}", $"/api/containers/{a}/files/{fileOfB}"),
-                (http, HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}/content", $"/api/containers/{a}/files/{fileOfB}/content"),
-                (http, HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}/reindex-check", $"/api/containers/{a}/files/{fileOfB}/reindex-check"),
-                (http, HttpMethod.Delete, "/api/containers/{containerId:guid}/files/{fileId}", $"/api/containers/{a}/files/{fileOfB}"),
-                (viewer, HttpMethod.Delete, "/api/v1/auth/pats/{id:guid}", $"/api/v1/auth/pats/{ownersPat.Id}"),
-                (http, HttpMethod.Delete, "/api/v1/agents/{id:guid}/keys/{keyId:guid}", $"/api/v1/agents/{agentA.Id}/keys/{keyOfB.KeyId}"),
-            ];
-
             var violations = new List<string>();
-            foreach (var (client, method, route, path) in cases)
+            async Task OtherFileSurvivesAsync(string what)
             {
-                using var response = await client.SendAsync(new HttpRequestMessage(method, path));
+                if ((await http.GetAsync($"/api/containers/{b}/files/{fileOfB}")).StatusCode != HttpStatusCode.OK)
+                    violations.Add($"cross-object {what}: removed the other container's file");
+            }
+
+            (HttpMethod Method, string Route, string Path)[] reads =
+            [
+                (HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}", $"/api/containers/{a}/files/{fileOfB}"),
+                (HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}/content", $"/api/containers/{a}/files/{fileOfB}/content"),
+                (HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}/reindex-check", $"/api/containers/{a}/files/{fileOfB}/reindex-check"),
+            ];
+            foreach (var (method, route, path) in reads)
+            {
+                using var response = await http.SendAsync(new HttpRequestMessage(method, path));
                 if (response.StatusCode != HttpStatusCode.NotFound)
                     violations.Add($"cross-object {method} {route}: expects 404, got {(int)response.StatusCode}");
             }
 
-            // Nothing the foreign ids named may have changed.
-            if ((await http.GetAsync($"/api/containers/{b}/files/{fileOfB}")).StatusCode != HttpStatusCode.OK)
-                violations.Add("cross-object DELETE /api/containers/{containerId:guid}/files/{fileId}: removed the other container's file");
+            // MCP takes the same pair of ids. A tool that answers with either file's text through
+            // the wrong container, or deletes the other container's file, leaks whatever it says.
+            await using (var mcp = await CrossSurface.Surfaces.McpAsync(fixture))
+            {
+                string read = Text(await mcp.CallToolAsync("get_document", new Dictionary<string, object?> { ["containerId"] = a, ["fileId"] = fileOfB }));
+                if (read.Contains(TextOfB, StringComparison.Ordinal) || read.Contains(TextOfA, StringComparison.Ordinal))
+                    violations.Add("cross-object mcp get_document: returned a file's text through the other container");
+                await mcp.CallToolAsync("delete_file", new Dictionary<string, object?> { ["containerId"] = a, ["fileId"] = fileOfB });
+                await OtherFileSurvivesAsync("mcp delete_file");
+                await mcp.CallToolAsync("bulk_delete", new Dictionary<string, object?> { ["containerId"] = a, ["fileIds"] = $"[\"{fileOfB}\"]" });
+                await OtherFileSurvivesAsync("mcp bulk_delete");
+            }
+
+            using (var response = await http.DeleteAsync($"/api/containers/{a}/files/{fileOfB}"))
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                    violations.Add($"cross-object DELETE /api/containers/{{containerId:guid}}/files/{{fileId}}: expects 404, got {(int)response.StatusCode}");
+            await OtherFileSurvivesAsync("DELETE /api/containers/{containerId:guid}/files/{fileId}");
+
+            using (var response = await viewer.DeleteAsync($"/api/v1/auth/pats/{ownersPat.Id}"))
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                    violations.Add($"cross-object DELETE /api/v1/auth/pats/{{id:guid}}: expects 404, got {(int)response.StatusCode}");
             var pats = await http.GetFromJsonAsync<List<PatListItem>>("/api/v1/auth/pats");
             if (pats!.Single(p => p.Id == ownersPat.Id).IsRevoked)
                 violations.Add("cross-object DELETE /api/v1/auth/pats/{id:guid}: revoked another user's token");
+
+            using (var response = await http.DeleteAsync($"/api/v1/agents/{agentA.Id}/keys/{keyOfB.KeyId}"))
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                    violations.Add($"cross-object DELETE /api/v1/agents/{{id:guid}}/keys/{{keyId:guid}}: expects 404, got {(int)response.StatusCode}");
             var keys = await http.GetFromJsonAsync<List<AgentKeyListItem>>($"/api/v1/agents/{agentB.Id}/keys");
             if (keys!.Single(k => k.Id == keyOfB.KeyId).IsRevoked)
                 violations.Add("cross-object DELETE /api/v1/agents/{id:guid}/keys/{keyId:guid}: revoked another agent's key");
@@ -77,10 +110,31 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
         return body.RootElement.GetProperty("id").GetString()!;
     }
 
-    private async Task<string> UploadAsync(string containerId, string fileName)
+    private const string TextOfA = "Container A holds the heron ledger.";
+    private const string TextOfB = "Container B holds the walrus inventory.";
+
+    private static string Text(ModelContextProtocol.Protocol.CallToolResult result) =>
+        string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+
+    private async Task WaitUntilReadyAsync(string containerId, string fileId)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        string status = "";
+        while (DateTime.UtcNow < deadline)
+        {
+            var file = await fixture.AdminClient.GetFromJsonAsync<JsonElement>($"/api/containers/{containerId}/files/{fileId}");
+            status = file.TryGetProperty("metadata", out var metadata) && metadata.TryGetProperty("Status", out var value) ? value.GetString() ?? "" : "";
+            if (status is "Ready" or "Failed")
+                break;
+            await Task.Delay(250);
+        }
+        status.Should().Be("Ready", "both files must be ingested before their content routes can answer");
+    }
+
+    private async Task<string> UploadAsync(string containerId, string fileName, string text)
     {
         using var multipart = new MultipartFormDataContent();
-        var file = new ByteArrayContent("authorization matrix probe"u8.ToArray());
+        var file = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(text));
         file.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(file, "files", fileName);
         var response = await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", multipart);
