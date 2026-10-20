@@ -1,0 +1,8 @@
+{
+  "declared * /hubs/ingestion/negotiate: expects viewer, declares user": "The ingestion hub requires only a signed-in user, so a user with no role can subscribe to ingestion progress.",
+  "declared * /hubs/ingestion: expects viewer, declares user": "The ingestion hub requires only a signed-in user, so a user with no role can subscribe to ingestion progress.",
+  "declared GET,POST /: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it.",
+  "declared GET,POST /containers/{ContainerId}: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it.",
+  "declared GET,POST /search: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it.",
+  "declared GET,POST /sources: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it."
+}
