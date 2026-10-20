@@ -1,4 +1,5 @@
 {
+  "cross-object GET /api/containers/{containerId:guid}/files/{fileId}/reindex-check: expects 404, got 200": "The handler checks only that the container exists, then reads the file by id alone, so it returns another container's file hash, chunking strategy and embedding model.",
   "declared * /hubs/ingestion/negotiate: expects viewer, declares user": "The ingestion hub requires only a signed-in user, so a user with no role can subscribe to ingestion progress.",
   "declared * /hubs/ingestion: expects viewer, declares user": "The ingestion hub requires only a signed-in user, so a user with no role can subscribe to ingestion progress.",
   "declared GET,POST /: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it.",
