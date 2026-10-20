@@ -39,7 +39,9 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
 
             // The risk a client sees: MCP treats a tool with no destructive hint as destructive.
             var hints = listed[name].ProtocolTool.Annotations;
-            string declaredRisk = hints?.ReadOnlyHint == true ? "read" : hints?.DestructiveHint == false ? "write" : "destructive";
+            string declaredRisk = hints?.ReadOnlyHint == true
+                ? (hints.DestructiveHint == true ? "read+destructive" : "read")
+                : hints?.DestructiveHint == false ? "write" : "destructive";
             if (declaredRisk != expected.Risk)
                 violations.Add($"mcp-tool {name}: expects risk {expected.Risk}, declares {declaredRisk}");
         }
@@ -124,7 +126,9 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             {
                 var result = await agent.CallToolAsync(tool, arguments);
                 string text = string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
-                if (!text.Contains("approval", StringComparison.OrdinalIgnoreCase))
+                // Until #782 defines the approval result, a successful result saying the call is
+                // pending approval is the floor: an error that merely mentions approval isn't one.
+                if (result.IsError == true || !text.Contains("pending approval", StringComparison.OrdinalIgnoreCase))
                     violations.Add($"approval {tool}: expects pending approval, ran without it");
                 if (!await unchanged())
                     violations.Add($"approval {tool}: expects its target unchanged, it was deleted");
@@ -169,7 +173,11 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
         }));
     }
 
-    /// <summary>Refused means the call failed as unauthorized or unknown; any result means the tool ran.</summary>
+    /// <summary>
+    /// Refused means the protocol error the SDK's authorization filter raises for a tool the caller
+    /// may not use ("Access forbidden: This tool requires authorization."), or the unknown-tool error
+    /// for one hidden from it. Any result, an error result included, means the tool ran.
+    /// </summary>
     private static async Task<bool> RefusedAsync(Func<Task> call)
     {
         try
@@ -177,10 +185,8 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             await call();
             return false;
         }
-        catch (Exception ex) when (ex.Message.Contains("forbidden", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("unauthori", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("unknown tool", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        catch (ModelContextProtocol.McpProtocolException ex) when (ex.Message.Contains("Access forbidden", StringComparison.Ordinal)
+            || ex.Message.Contains("Unknown tool", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
