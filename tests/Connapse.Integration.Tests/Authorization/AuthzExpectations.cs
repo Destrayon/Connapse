@@ -89,16 +89,13 @@ public static class AuthzExpectations
           .Concat(policies.Count > 0 ? ["inline-policy"] : []));
     }
 
-    private static readonly string[] StaticExtensions = [".css", ".js", ".svg", ".png", ".ico", ".map", ".woff", ".woff2"];
-
-    private static bool IsStaticFile(RouteEndpoint endpoint)
-    {
-        var pattern = endpoint.RoutePattern.RawText ?? "";
-        if (!pattern.StartsWith('/') && !pattern.StartsWith('{'))
-            return true; // lib/…, js/…, Components/…: static web assets map without a leading slash
-        var trimmed = pattern.TrimEnd('/');
-        return StaticExtensions.Any(x => trimmed.EndsWith(x, StringComparison.OrdinalIgnoreCase));
-    }
+    /// <summary>
+    /// A file MapStaticAssets serves from the build's asset manifest. Recognised by the descriptor
+    /// it attaches, not by the path's shape, so an application route that looks like a file name
+    /// still has to be in the table.
+    /// </summary>
+    private static bool IsStaticFile(RouteEndpoint endpoint) =>
+        endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.StaticAssets.StaticAssetDescriptor>() is not null;
 
     private static string PathOf(string file)
     {
