@@ -641,7 +641,7 @@
       "scope": null
     },
     "POST /api/v1/identity/register": {
-      "requires": "anonymous",
+      "requires": "admin",
       "risk": "credential",
       "scope": null
     },
