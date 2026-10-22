@@ -1,0 +1,776 @@
+{
+  "routes": {
+    "* /_blazor": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "* /_blazor/disconnect/": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "* /_blazor/initializers/": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "* /_blazor/negotiate": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "* /hubs/ingestion": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "* /hubs/ingestion/negotiate": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "DELETE /api/containers/{containerId:guid}": {
+      "requires": "editor",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
+    "DELETE /api/containers/{containerId:guid}/files/{fileId}": {
+      "requires": "editor",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
+    "DELETE /api/containers/{containerId:guid}/folders/": {
+      "requires": "editor",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
+    "DELETE /api/sources/{sourceId:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /api/v1/agents/{id:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /api/v1/agents/{id:guid}/keys/{keyId:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /api/v1/atlassian/linking-app/": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /api/v1/atlassian/sites/{connectionId:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /api/v1/auth/cloud/{provider}": {
+      "requires": "user",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /api/v1/auth/custom/{providerId:guid}/": {
+      "requires": "user",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /api/v1/auth/pats/{id:guid}": {
+      "requires": "user",
+      "risk": "destructive",
+      "scope": null
+    },
+    "DELETE /mcp/": {
+      "requires": "mcp",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
+    "GET /.well-known/oauth-authorization-server": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /.well-known/oauth-protected-resource": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /.well-known/oauth-protected-resource/{**resourcePath}": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /_framework/opaque-redirect": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/batches/{id}/status": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/by-name/{name}": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/files/": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/files/{fileId}": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/files/{fileId}/content": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/files/{fileId}/reindex-check": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/search/": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/search/models": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/settings": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/containers/{containerId:guid}/stats": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/settings/embedding-models": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/settings/reindex/status": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/settings/{category}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/sources/": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/sources/{sourceId:guid}": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/v1/agents/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/agents/{id:guid}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/agents/{id:guid}/keys": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/atlassian/linking-app/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/atlassian/sites/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/atlassian/sites/{connectionId:guid}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/atlassian/sites/{connectionId:guid}/projects": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/atlassian/sites/{connectionId:guid}/spaces": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/atlassian/callback": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/atlassian/confirm": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/atlassian/connect": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/aws/confirm": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/aws/connect": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/azure/callback": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/azure/confirm": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/azure/connect": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/github/callback": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/github/confirm": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/cloud/github/connect": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/custom/{providerId:guid}/connect": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/custom/{providerId:guid}/return": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /api/v1/auth/me": {
+      "requires": "user",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/v1/auth/pats": {
+      "requires": "user",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/auth/users": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/identity/confirmEmail": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/identity/manage/info": {
+      "requires": "user",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/info": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/providers/github/installed": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/providers/github/manifest/callback": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET /health": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /mcp/": {
+      "requires": "mcp",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
+    "GET /mcp/sse": {
+      "requires": "mcp",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
+    "GET /oauth/clients/cli.json": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,HEAD {**path:file}": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET,POST /Error": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /access-denied": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /admin/agents": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /admin/identity-providers": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /admin/providers": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /admin/providers/custom/new": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /admin/providers/custom/{Id:guid}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /admin/providers/{Key}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /admin/users": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /connections": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /containers/{ContainerId}": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET,POST /login": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /logout": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /not-found": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /oauth/authorize": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "GET,POST /profile": {
+      "requires": "user",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /profile/integrations": {
+      "requires": "user",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /register": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /search": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET,POST /settings": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /settings/tokens": {
+      "requires": "user",
+      "risk": "read",
+      "scope": null
+    },
+    "GET,POST /sources": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET,POST /sources/{Id:guid}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "PATCH /api/sources/{sourceId:guid}": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "PATCH /api/v1/atlassian/sites/{connectionId:guid}": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/containers/": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/files/": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/folders/": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/reindex": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/retry-failed": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/search/": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "POST /api/containers/{containerId:guid}/sync": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/settings/reindex": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/settings/test-connection": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/sources/": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/sources/{sourceId:guid}/retry-failed": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/sources/{sourceId:guid}/sync": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/agents/": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/agents/{id:guid}/keys": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/atlassian/linking-app/check": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/atlassian/sites/": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/atlassian/sites/resolve": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/atlassian/sites/{connectionId:guid}/pause": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/atlassian/sites/{connectionId:guid}/resume": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/atlassian/sites/{connectionId:guid}/test": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/auth/cloud/aws/acs": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/auth/pats": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/auth/token": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/auth/token/refresh": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/forgotPassword": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/login": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/manage/2fa": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/manage/info": {
+      "requires": "user",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/refresh": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/register": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/resendConfirmationEmail": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /api/v1/identity/resetPassword": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /mcp/": {
+      "requires": "mcp",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
+    "POST /mcp/message": {
+      "requires": "mcp",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
+    "POST /oauth/register": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "POST /oauth/token": {
+      "requires": "anonymous",
+      "risk": "credential",
+      "scope": null
+    },
+    "PUT /api/containers/{containerId:guid}/settings": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "PUT /api/settings/{category}": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "PUT /api/v1/agents/{id:guid}/active": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "PUT /api/v1/atlassian/linking-app/": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": null
+    },
+    "PUT /api/v1/atlassian/linking-app/sign-in": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": null
+    },
+    "PUT /api/v1/atlassian/sites/{connectionId:guid}/credentials": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": null
+    },
+    "PUT /api/v1/auth/users/{id:guid}/roles": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    }
+  },
+  "tools": {
+    "container_create": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
+    "container_list": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "container_delete": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "destructive"
+    },
+    "search_knowledge": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "list_files": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "upload_file": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
+    "delete_file": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "destructive"
+    },
+    "bulk_delete": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "destructive"
+    },
+    "bulk_upload": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
+    "get_document": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "container_stats": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "container_describe": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    }
+  }
+}

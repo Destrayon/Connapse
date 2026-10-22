@@ -198,3 +198,54 @@ jobs:
     - name: Run code analysis
       run: dotnet build --no-restore --configuration Release /p:EnforceCodeStyleInBuild=true /p:TreatWarningsAsErrors=true
       continue-on-error: true
+
+  # The official MCP conformance suite in server mode (#793), against the app run with
+  # `dotnet run` on throwaway Postgres and MinIO. The runner can't send credentials, so the
+  # server allows anonymous MCP discovery; tool calls still need a key. Known failures are in
+  # .github/mcp-conformance-baseline.yml, and a listed scenario that starts passing fails the job.
+  mcp-conformance:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Cache layout model
+      uses: actions/cache@v4
+      with:
+        path: .models
+        key: pdf-models-250dbad1-d57a942a
+
+    - name: Start Postgres and MinIO
+      run: |
+        docker run -d --name conf-pg -e POSTGRES_USER=connapse -e POSTGRES_PASSWORD=connapse -e POSTGRES_DB=connapse -p 5432:5432 pgvector/pgvector:pg17
+        docker run -d --name conf-minio -e MINIO_ROOT_USER=connapse -e MINIO_ROOT_PASSWORD=connapse_secret -p 9000:9000 cgr.dev/chainguard/minio server /data
+
+    - name: Build
+      run: dotnet build src/Connapse.Web --configuration Release
+
+    - name: Start Connapse
+      env:
+        ASPNETCORE_URLS: http://localhost:5099
+        ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=connapse;Username=connapse;Password=connapse
+        Knowledge__Storage__MinIO__Endpoint: localhost:9000
+        Knowledge__Storage__MinIO__AccessKey: connapse
+        Knowledge__Storage__MinIO__SecretKey: connapse_secret
+        Knowledge__Storage__MinIO__UseSSL: 'false'
+        Identity__Jwt__Secret: conformance-jwt-secret-that-is-long-enough-for-hs256-signing!!
+        Mcp__AllowAnonymousDiscovery: 'true'
+      run: |
+        dotnet run --project src/Connapse.Web --configuration Release --no-build --no-launch-profile > web.log 2>&1 &
+        timeout 120 bash -c 'until curl -sf http://localhost:5099/health > /dev/null; do sleep 2; done' || { tail -50 web.log; exit 1; }
+
+    - name: Run the MCP conformance suite
+      run: npx -y @modelcontextprotocol/conformance@0.1.16 server --url http://localhost:5099/mcp --expected-failures .github/mcp-conformance-baseline.yml
+
+    - name: Server log on failure
+      if: failure()
+      run: tail -100 web.log

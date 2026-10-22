@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Identity.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -126,6 +127,10 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                         .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(Atlassian));
                     services.AddHttpClient(Connapse.Storage.Connectors.Custom.CustomSourceClient.HttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(CustomSource));
+
+                    // Answers the authorization matrix's probe requests without running the
+                    // endpoint; every other request is handled exactly as in production.
+                    services.AddSingleton<IAuthorizationMiddlewareResultHandler, Authorization.AuthzProbe>();
                 });
             });
 
