@@ -43,7 +43,10 @@ public class AzureCredentialChainFactoryTests
     {
         var settings = new AzureProviderSettings
         {
-            TenantId = "t", ClientId = "c", ClientCertificatePath = "x.pem", UserAssignedManagedIdentityClientId = "mi",
+            TenantId = "t",
+            ClientId = "c",
+            ClientCertificatePath = "x.pem",
+            UserAssignedManagedIdentityClientId = "mi",
         };
         var act = () => AzureCredentialChainFactory.Create(settings, _ => SelfSigned());
         act.Should().Throw<InvalidOperationException>().WithMessage("*both*");

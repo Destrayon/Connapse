@@ -142,7 +142,7 @@ public class CompositeSearchResultVerifierTests
 
         result.Select(h => h.ChunkId).Should().Equal("2", "4");
         first.SeenTopK.Should().Be(6, "no inner verifier may cap");
-        second.SeenTopK.Should().Be(5,"the second sees the first's survivors, still uncapped");
+        second.SeenTopK.Should().Be(5, "the second sees the first's survivors, still uncapped");
     }
 
     [Fact]

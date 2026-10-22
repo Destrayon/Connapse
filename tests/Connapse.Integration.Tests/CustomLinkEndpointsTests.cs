@@ -78,8 +78,11 @@ public sealed class CustomLinkEndpointsTests(SharedWebAppFixture fixture) : IAsy
             {
                 ConnapseUser user = new()
                 {
-                    UserName = OtherEmail, Email = OtherEmail, EmailConfirmed = true,
-                    DisplayName = OtherEmail, CreatedAt = DateTime.UtcNow,
+                    UserName = OtherEmail,
+                    Email = OtherEmail,
+                    EmailConfirmed = true,
+                    DisplayName = OtherEmail,
+                    CreatedAt = DateTime.UtcNow,
                 };
                 (await users.CreateAsync(user, OtherPassword)).Succeeded.Should().BeTrue();
                 await users.AddToRoleAsync(user, "Viewer");

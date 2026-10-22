@@ -483,7 +483,10 @@ public class SemanticChunkerTests
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
         await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1, SemanticBufferSize = 0
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
+            SemanticBufferSize = 0
         });
 
         var bufferZeroTexts = capturedZero!.ToArray();
@@ -500,7 +503,10 @@ public class SemanticChunkerTests
 
         await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1, SemanticBufferSize = 1
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
+            SemanticBufferSize = 1
         });
 
         var bufferOneTexts = capturedOne!.ToArray();
@@ -531,7 +537,9 @@ public class SemanticChunkerTests
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
         var settings = new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
             SemanticBreakpointMethod = "StandardDeviation",
             SemanticBreakpointAmount = 1.0
         };
@@ -559,7 +567,9 @@ public class SemanticChunkerTests
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
         var settings = new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
             SemanticBreakpointMethod = "InterQuartile",
             SemanticBreakpointAmount = 1.5
         };
@@ -587,7 +597,9 @@ public class SemanticChunkerTests
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
         var settings = new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
             SemanticBreakpointMethod = "Gradient",
             SemanticBreakpointAmount = 95
         };
@@ -643,7 +655,9 @@ public class SemanticChunkerTests
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
         var settings = new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
             // Default buffer 1 is fine — the chunker uses our explicit embeddings
             // verbatim regardless of the buffered texts it would otherwise generate.
             SemanticBreakpointMethod = "Gradient",
@@ -683,15 +697,21 @@ public class SemanticChunkerTests
         SetupExplicitEmbeddings(embeddings);
         var lowResult = await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
-            SemanticBreakpointMethod = "Percentile", SemanticBreakpointAmount = 50
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
+            SemanticBreakpointMethod = "Percentile",
+            SemanticBreakpointAmount = 50
         });
 
         SetupExplicitEmbeddings(embeddings);
         var highResult = await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
         {
-            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
-            SemanticBreakpointMethod = "Percentile", SemanticBreakpointAmount = 95
+            MaxChunkSize = 500,
+            Overlap = 0,
+            MinChunkSize = 1,
+            SemanticBreakpointMethod = "Percentile",
+            SemanticBreakpointAmount = 95
         });
 
         // Higher percentile = stricter threshold = fewer (or equal) splits.

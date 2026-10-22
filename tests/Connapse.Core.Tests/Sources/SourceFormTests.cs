@@ -170,7 +170,10 @@ public class SourceFormTests
     {
         var form = new SourceForm
         {
-            Name = "n", ConnectionId = Guid.NewGuid(), Container = "b", SyncIntervalSeconds = 30
+            Name = "n",
+            ConnectionId = Guid.NewGuid(),
+            Container = "b",
+            SyncIntervalSeconds = 30
         };
 
         form.Validate(ConnectionProvider.S3).Should().Contain("60");

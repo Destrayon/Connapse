@@ -28,7 +28,10 @@ public class GitHubAppManifestTests
             .ToDictionary(p => p.Name, p => p.Value.GetString());
         permissions.Should().BeEquivalentTo(new Dictionary<string, string?>
         {
-            ["metadata"] = "read", ["contents"] = "read", ["issues"] = "read", ["pull_requests"] = "read",
+            ["metadata"] = "read",
+            ["contents"] = "read",
+            ["issues"] = "read",
+            ["pull_requests"] = "read",
         });
     }
 

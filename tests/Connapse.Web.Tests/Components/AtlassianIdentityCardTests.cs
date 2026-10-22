@@ -43,7 +43,9 @@ public class AtlassianIdentityCardTests : IDisposable
         bool disconnected = false;
         var link = new UserAtlassianIdentityLinkEntity
         {
-            Id = Guid.NewGuid(), UserId = Guid.NewGuid(), AccountId = "acc-1",
+            Id = Guid.NewGuid(),
+            UserId = Guid.NewGuid(),
+            AccountId = "acc-1",
             ConnectedAt = new DateTime(2026, 10, 11, 0, 0, 0, DateTimeKind.Utc),
         };
 
@@ -70,7 +72,10 @@ public class AtlassianIdentityCardTests : IDisposable
 
     private static UserAtlassianIdentityLinkEntity Linked() => new()
     {
-        Id = Guid.NewGuid(), UserId = Guid.NewGuid(), AccountId = "acc-1", ConnectedAt = DateTime.UtcNow,
+        Id = Guid.NewGuid(),
+        UserId = Guid.NewGuid(),
+        AccountId = "acc-1",
+        ConnectedAt = DateTime.UtcNow,
     };
 
     [Fact]

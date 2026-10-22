@@ -291,8 +291,12 @@ public sealed class ConnapseGitHubAppTests : IDisposable
                 ("POST", "/app/installations/7/access_tokens") => Token(),
                 ("POST", "/app-manifests/temp-code/conversions") => new
                 {
-                    id = 99, slug = "connapse-new", client_id = "Iv1.new", client_secret = "s3cret",
-                    pem = "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----", owner = new { login = "octo-org" },
+                    id = 99,
+                    slug = "connapse-new",
+                    client_id = "Iv1.new",
+                    client_secret = "s3cret",
+                    pem = "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----",
+                    owner = new { login = "octo-org" },
                     html_url = "https://github.com/apps/connapse-new",
                 },
                 _ => throw new InvalidOperationException("unexpected " + request.RequestUri),

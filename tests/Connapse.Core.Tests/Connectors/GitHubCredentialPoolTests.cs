@@ -60,7 +60,8 @@ public sealed class GitHubCredentialPoolTests : IDisposable
 
         var app = new ConnapseGitHubApp(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
-            NullLogger<ConnapseGitHubApp>.Instance, _clock) { ApiBaseUrl = "https://api.github.test" };
+            NullLogger<ConnapseGitHubApp>.Instance, _clock)
+        { ApiBaseUrl = "https://api.github.test" };
 
         return new GitHubCredentialPool(
             app, services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), _clock);
@@ -437,8 +438,10 @@ public sealed class GitHubCredentialPoolTests : IDisposable
             object body = path == "/app/installations"
                 ? installations.Select(id => new
                 {
-                    id, account = new { login = "org-" + id, type = "Organization" },
-                    repository_selection = "all", html_url = "https://github.com/x",
+                    id,
+                    account = new { login = "org-" + id, type = "Organization" },
+                    repository_selection = "all",
+                    html_url = "https://github.com/x",
                 }).ToArray()
                 : new { token = "tok-" + path.Split('/')[3], expires_at = DateTimeOffset.UtcNow.AddYears(1) };
 

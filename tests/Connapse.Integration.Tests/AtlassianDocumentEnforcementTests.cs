@@ -75,15 +75,25 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             var document = new DocumentEntity
             {
-                Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
-                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
-                CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             };
             db.Documents.Add(document);
             db.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = container.Id,
-                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
             });
         }
 
@@ -215,7 +225,11 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var users = sp.GetRequiredService<UserManager<Connapse.Identity.Data.Entities.ConnapseUser>>();
         var user = new Connapse.Identity.Data.Entities.ConnapseUser
         {
-            UserName = email, Email = email, EmailConfirmed = true, DisplayName = email, CreatedAt = DateTime.UtcNow,
+            UserName = email,
+            Email = email,
+            EmailConfirmed = true,
+            DisplayName = email,
+            CreatedAt = DateTime.UtcNow,
         };
         (await users.CreateAsync(user, Password)).Succeeded.Should().BeTrue();
         await users.AddToRoleAsync(user, "Viewer");
@@ -318,15 +332,25 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             var document = new DocumentEntity
             {
-                Id = Guid.NewGuid(), SourceId = source.Id, FileName = name, Path = "/" + name,
-                ResourceUri = AtlassianUri.ForPage(_cloudId, pageId), ContentHash = Guid.NewGuid().ToString("N"),
-                IngestionStatus = DocumentStatus.Ready, CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = Guid.NewGuid(),
+                SourceId = source.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = AtlassianUri.ForPage(_cloudId, pageId),
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             };
             db.Documents.Add(document);
             db.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = source.Id,
-                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = source.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
             });
         }
 
@@ -471,15 +495,25 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             var document = new DocumentEntity
             {
-                Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
-                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
-                CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             };
             db.Documents.Add(document);
             db.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = container.Id,
-                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
             });
         }
 

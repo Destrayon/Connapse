@@ -44,15 +44,15 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         var store = Substitute.For<IConnectionStore>();
         var connections = new List<Connection>();
         foreach (string cloudId in cloudIds)
-        foreach (AtlassianProduct product in products)
-        {
-            var id = Guid.NewGuid();
-            string productJson = product == AtlassianProduct.Jira ? ",\"product\":\"jira\"" : "";
-            connections.Add(new Connection(id, $"site-{cloudId}-{product}", ConnectionProvider.Atlassian,
-                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-{{cloudId}}"{{productJson}}}""",
-                null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true));
-            store.GetSecretAsync(id, Arg.Any<CancellationToken>()).Returns("secret");
-        }
+            foreach (AtlassianProduct product in products)
+            {
+                var id = Guid.NewGuid();
+                string productJson = product == AtlassianProduct.Jira ? ",\"product\":\"jira\"" : "";
+                connections.Add(new Connection(id, $"site-{cloudId}-{product}", ConnectionProvider.Atlassian,
+                    $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-{{cloudId}}"{{productJson}}}""",
+                    null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true));
+                store.GetSecretAsync(id, Arg.Any<CancellationToken>()).Returns("secret");
+            }
         store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(connections);
         return store;
     }

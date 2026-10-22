@@ -409,7 +409,8 @@ public class EvalRunnerTests : IDisposable
         {
             Searched.Add(query.Id);
             return Task.FromResult(new SearchOutcome([new RankedDoc("d" + query.Id[1..], 1.0)],
-                new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null) { Passages = Passages });
+                new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null)
+            { Passages = Passages });
         }
 
         public Task UseSearchConfigAsync(SystemConfig config, CancellationToken ct)

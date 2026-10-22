@@ -317,7 +317,8 @@ internal static class SourceScan
             switch (ancestor)
             {
                 case LocalFunctionStatementSyntax f: return MappedRoutes(f, f.Identifier.ValueText).FirstOrDefault() ?? f.Identifier.ValueText;
-                case MethodDeclarationSyntax m: return MappedRoutes(m, m.Identifier.ValueText).FirstOrDefault()
+                case MethodDeclarationSyntax m:
+                    return MappedRoutes(m, m.Identifier.ValueText).FirstOrDefault()
                     ?? (routes is not null && routes.TryGetValue(QualifiedName(m), out var mapped) ? mapped[0] : m.Identifier.ValueText);
                 case ConstructorDeclarationSyntax c: return c.Identifier.ValueText;
                 case PropertyDeclarationSyntax p: return p.Identifier.ValueText;
