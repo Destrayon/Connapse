@@ -10,35 +10,48 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  # Tests run in three size tiers (epic #783, #788), split into parallel jobs (#789). Small is
+  # Category=Unit with no Size trait: no Docker, no models, no child processes. Medium is the slower
+  # unit tests and the integration tests on the shared PostgreSQL + MinIO pair (SharedWebAppFixture)
+  # with Ollama on the host; Integration.Tests, the long pole, runs as three class shards. Large runs
+  # nightly (nightly.yml). Each job uploads its TRX files and its wall time; build-and-test, at the
+  # end, checks the budgets and the whole pipeline's wall time.
+  small:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    # GitHub runners have Docker pre-installed - Testcontainers will use it automatically
-    # Ollama is installed directly on the runner for embedding generation
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+    - uses: ./.github/actions/build
+
+    - name: Run Small tests
+      run: |
+        mkdir -p walls
+        start=$(date +%s)
+        set +e
+        dotnet test --no-build --configuration Release --filter "Category=Unit&Size!=Medium&Size!=Large" --verbosity normal --logger "trx;LogFileName=small-tests.trx"
+        status=$?
+        echo $(( $(date +%s) - start )) > walls/small.txt
+        exit $status
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
       with:
-        dotnet-version: '10.0.x'
+        name: test-results-small
+        path: |
+          **/TestResults/*.trx
+          walls/
 
-    # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
-    # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
-    - name: Cache layout model
-      uses: actions/cache@v4
-      with:
-        path: .models
-        key: pdf-models-250dbad1-d57a942a
+  # Medium for every project but Integration.Tests, which the integration shards run. Integration.Tests
+  # still writes an empty medium-tests.trx here, so the budget check sees every project report.
+  medium:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Restore dependencies
-      run: dotnet restore
-
-    - name: Build
-      run: dotnet build --no-restore --configuration Release
+    - uses: ./.github/actions/build
 
     # The unit tests lint every generated CloudShell script with bash -n and ShellCheck. The runner
     # image ships both, so this is normally a version print; installing it here rather than relying
@@ -47,81 +60,26 @@ jobs:
     - name: Ensure ShellCheck is available
       run: shellcheck --version || sudo apt-get install -y shellcheck
 
-    # Cache must be restored BEFORE Ollama is set up so the pulled model is available immediately
-    - name: Cache Ollama models
-      uses: actions/cache@v4
-      with:
-        path: ~/.ollama
-        key: ${{ runner.os }}-ollama-nomic-embed-text-v1
-        restore-keys: |
-          ${{ runner.os }}-ollama-nomic-embed-text-
-          ${{ runner.os }}-ollama-
+    - uses: ./.github/actions/ollama
 
-    - name: Setup Ollama
-      uses: ai-action/setup-ollama@v2
-
-    - name: Start Ollama service
-      run: |
-        ollama serve &
-        sleep 5
-
-    - name: Pull embedding model
-      run: |
-        ollama pull nomic-embed-text
-        ollama list
-
-    # Tests run in three size tiers (epic #783, #788). Small is Category=Unit with no Size trait: no
-    # Docker, no models, no child processes. Each tier writes its own TRX because TRX doesn't record
-    # traits, and the budget step below reads them. The Small step's wall time is the fast gate's budget.
-    # Each step records its wall time even when tests fail, so the budget check below still reports.
-    - name: Run Small tests
-      run: |
-        start=$(date +%s)
-        set +e
-        dotnet test --no-build --configuration Release --filter "Category=Unit&Size!=Medium&Size!=Large" --verbosity normal --logger "trx;LogFileName=small-tests.trx"
-        status=$?
-        echo "SMALL_WALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
-        exit $status
-
-    # Medium: slower unit tests, and integration tests on the shared PostgreSQL + MinIO pair
-    # (SharedWebAppFixture) with Ollama on the host. Coverage is collected here, as before.
     - name: Run Medium tests
-      if: success() || failure()
       run: |
+        mkdir -p walls
         start=$(date +%s)
         set +e
-        dotnet test --no-build --configuration Release --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)" --verbosity normal --logger "trx;LogFileName=medium-tests.trx" --collect:"XPlat Code Coverage"
+        dotnet test --no-build --configuration Release --filter "((Category=Unit&Size=Medium)|(Category=Integration&Size!=Large))&FullyQualifiedName!~Connapse.Integration.Tests." --verbosity normal --logger "trx;LogFileName=medium-tests.trx" --collect:"XPlat Code Coverage"
         status=$?
-        echo "MEDIUM_WALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+        echo $(( $(date +%s) - start )) > walls/medium.txt
         exit $status
-
-    # Large: PDF and OCR models, inference and parser child processes, and the eval runners.
-    - name: Run Large tests
-      if: success() || failure()
-      run: |
-        start=$(date +%s)
-        set +e
-        dotnet test --no-build --configuration Release --filter "Size=Large" --verbosity normal --logger "trx;LogFileName=large-tests.trx" --collect:"XPlat Code Coverage"
-        status=$?
-        echo "LARGE_WALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
-        exit $status
-
-    # Every tier is checked even if another fails, and every test project must have reported.
-    - name: Check test-speed budgets
-      if: success() || failure()
-      run: |
-        rc=0
-        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds "${SMALL_WALL_SECONDS:--1}" --max-wall-seconds 30 || rc=1
-        python3 .github/scripts/test_budgets.py --tier Medium --trx medium-tests.trx --max-test-seconds 30 --wall-seconds "${MEDIUM_WALL_SECONDS:--1}" --max-wall-seconds 480 || rc=1
-        python3 .github/scripts/test_budgets.py --tier Large --trx large-tests.trx --wall-seconds "${LARGE_WALL_SECONDS:--1}" --max-wall-seconds 600 || rc=1
-        exit $rc
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: test-results
-        path: '**/*.trx'
+        name: test-results-medium
+        path: |
+          **/TestResults/*.trx
+          walls/
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v4
@@ -131,6 +89,94 @@ jobs:
         fail_ci_if_error: false
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Integration.Tests' Medium tier in three shards by test class. Each shard starts its own host and
+  # containers; the last shard runs every class the others don't name (shard_tests.py).
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: ./.github/actions/build
+
+    - uses: ./.github/actions/ollama
+
+    - name: Run Integration.Tests shard ${{ matrix.shard }} of 3
+      run: |
+        mkdir -p walls
+        filter=$(python3 .github/scripts/shard_tests.py --project tests/Connapse.Integration.Tests --shards 3 --index ${{ matrix.shard }} \
+          --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)")
+        start=$(date +%s)
+        set +e
+        dotnet test tests/Connapse.Integration.Tests --no-build --configuration Release --filter "$filter" --verbosity normal --logger "trx;LogFileName=medium-tests-shard-${{ matrix.shard }}.trx" --collect:"XPlat Code Coverage"
+        status=$?
+        echo $(( $(date +%s) - start )) > walls/integration-${{ matrix.shard }}.txt
+        exit $status
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-integration-${{ matrix.shard }}
+        path: |
+          tests/Connapse.Integration.Tests/TestResults/*.trx
+          walls/
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v4
+      if: success()
+      with:
+        files: '**/coverage.cobertura.xml'
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Keeps the check name the repository already reports, and fails unless every test job passed.
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: [small, medium, integration, code-quality, mcp-conformance]
+    if: always()
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download test results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: test-results-*
+        merge-multiple: true
+
+    - name: Test jobs passed
+      run: |
+        echo "small=${{ needs.small.result }} medium=${{ needs.medium.result }} integration=${{ needs.integration.result }}"
+        [ "${{ needs.small.result }}" = success ] && [ "${{ needs.medium.result }}" = success ] && [ "${{ needs.integration.result }}" = success ]
+
+    # Every tier is checked even if another fails, and every test project must have reported. The
+    # Medium tier's wall time is its slowest job's, since the jobs run side by side.
+    - name: Check test-speed budgets
+      if: success() || failure()
+      run: |
+        rc=0
+        small=$(cat walls/small.txt 2>/dev/null || echo -1)
+        medium=$(cat walls/medium.txt walls/integration-*.txt 2>/dev/null | sort -n | tail -1)
+        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds "$small" --max-wall-seconds 30 || rc=1
+        python3 .github/scripts/test_budgets.py --tier Medium --trx "medium-tests*.trx" --max-test-seconds 30 --wall-seconds "${medium:--1}" --max-wall-seconds 480 || rc=1
+        exit $rc
+
+    - name: PrPipeline_WallTimeUnder6Min
+      if: success() || failure()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 .github/scripts/pipeline_wall.py --max-seconds 360 --exclude build-and-test
 
     - name: Generate test badge
       if: always() && github.ref == 'refs/heads/main'

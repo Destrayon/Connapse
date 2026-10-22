@@ -1,0 +1,29 @@
+name: Ollama
+description: Install Ollama on the runner, start it, and pull the embedding model the integration tests use.
+runs:
+  using: composite
+  steps:
+  # Cache must be restored BEFORE Ollama is set up so the pulled model is available immediately
+  - name: Cache Ollama models
+    uses: actions/cache@v4
+    with:
+      path: ~/.ollama
+      key: ${{ runner.os }}-ollama-nomic-embed-text-v1
+      restore-keys: |
+        ${{ runner.os }}-ollama-nomic-embed-text-
+        ${{ runner.os }}-ollama-
+
+  - name: Setup Ollama
+    uses: ai-action/setup-ollama@v2
+
+  - name: Start Ollama service
+    shell: bash
+    run: |
+      ollama serve &
+      timeout 30 bash -c 'until ollama list > /dev/null 2>&1; do sleep 1; done'
+
+  - name: Pull embedding model
+    shell: bash
+    run: |
+      ollama pull nomic-embed-text
+      ollama list

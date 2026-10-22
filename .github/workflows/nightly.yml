@@ -1,0 +1,49 @@
+name: Nightly
+
+# The Large test tier (epic #783, #789): PDF and OCR models, inference and parser child processes,
+# and the eval runners. Too slow for every PR, so it runs once a night on main, on demand, and on any
+# PR that changes this workflow, so a change to it is proven before it merges.
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, 'epic/**' ]
+    paths:
+      - '.github/workflows/nightly.yml'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
+
+jobs:
+  large:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: ./.github/actions/build
+
+    - uses: ./.github/actions/ollama
+
+    - name: Run Large tests
+      run: |
+        start=$(date +%s)
+        set +e
+        dotnet test --no-build --configuration Release --filter "Size=Large" --verbosity normal --logger "trx;LogFileName=large-tests.trx" --collect:"XPlat Code Coverage"
+        status=$?
+        echo "LARGE_WALL_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+        exit $status
+
+    # Every test project must have reported, even if the tests failed.
+    - name: Check test-speed budgets
+      if: success() || failure()
+      run: python3 .github/scripts/test_budgets.py --tier Large --trx large-tests.trx --wall-seconds "${LARGE_WALL_SECONDS:--1}" --max-wall-seconds 600
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-large
+        path: '**/*.trx'
