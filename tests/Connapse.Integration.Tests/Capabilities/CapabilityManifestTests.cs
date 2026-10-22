@@ -23,15 +23,17 @@ public class CapabilityManifestTests(SharedWebAppFixture fixture)
     public async Task CapabilityManifest_EveryCapability_HasOperationRouteAndTool()
     {
         var manifest = Manifest.Value;
-        var routes = AuthzExpectations.Endpoints(fixture).Keys.ToHashSet(StringComparer.Ordinal);
+        var endpoints = AuthzExpectations.Endpoints(fixture);
+        var routes = endpoints.Keys.ToHashSet(StringComparer.Ordinal);
         await using var mcp = await Surfaces.McpAsync(fixture);
         var tools = (await mcp.ListToolsAsync()).Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
         var operations = OperationIds();
 
         // What exists must be claimed: a new route or tool needs a manifest row, or it slips past this test.
         var claimedRoutes = manifest.Capabilities.SelectMany(c => c.Routes).Concat(manifest.Plumbing.Keys).ToHashSet(StringComparer.Ordinal);
-        routes.Where(r => r.Contains(" /api", StringComparison.Ordinal)).Except(claimedRoutes)
-            .Should().BeEmpty("every /api route needs a row in capabilities.json, or an entry under plumbing saying why it isn't a capability");
+        // Pages are the UI surface the manifest compares against, so only they are left out.
+        endpoints.Where(e => !IsPage(e.Value)).Select(e => e.Key).Except(claimedRoutes)
+            .Should().BeEmpty("every route that isn't a page needs a row in capabilities.json, or an entry under plumbing saying why it isn't a capability");
         tools.Except(manifest.Capabilities.Select(c => c.Mcp).OfType<string>()).Except(GenericTools)
             .Should().BeEmpty("every MCP tool needs a row in capabilities.json");
         manifest.Capabilities.Where(c => (c.Mcp is null) == (c.McpOff is null))
@@ -42,12 +44,17 @@ public class CapabilityManifestTests(SharedWebAppFixture fixture)
         var gaps = new List<string>();
         foreach (var c in manifest.Capabilities)
         {
-            if (!operations.Contains(c.Id))
+            if (!operations.TryGetValue(c.Id, out bool onMcp))
                 gaps.Add($"operation {c.Id}: missing");
             foreach (string route in c.Routes.Where(r => !routes.Contains(r)))
                 gaps.Add($"route {c.Id}: missing {route}");
-            foreach (string tool in ToolsFor(c).Where(t => !tools.Contains(t)))
+            var neededTools = ToolsFor(c).ToList();
+            foreach (string tool in neededTools.Where(t => !tools.Contains(t)))
                 gaps.Add($"mcp {c.Id}: missing {tool}");
+            // The generic tools reach only operations marked for MCP, so their existence alone
+            // proves nothing about this row.
+            if (c.Mcp == "generic" && neededTools.All(tools.Contains) && !onMcp)
+                gaps.Add($"mcp {c.Id}: operation not marked for MCP");
         }
 
         ShouldMatchKnown(gaps);
@@ -62,19 +69,26 @@ public class CapabilityManifestTests(SharedWebAppFixture fixture)
     };
 
     /// <summary>
-    /// Ids carried by an [Operation] attribute anywhere in Connapse's assemblies. Phase 2 adds the
-    /// attribute; it's matched by name and its Id property so this test needs no reference to it.
+    /// Ids carried by an [Operation] attribute anywhere in Connapse's assemblies, each with whether
+    /// it is marked for MCP. Phase 2 adds the attribute; it's matched by name and read through its
+    /// Id and Mcp properties, so this test needs no reference to it. A missing or false Mcp, or an
+    /// Mcp value named Off or None, reads as not marked.
     /// </summary>
-    private static HashSet<string> OperationIds() =>
+    private static Dictionary<string, bool> OperationIds() =>
         AppDomain.CurrentDomain.GetAssemblies()
             .Where(a => a.GetName().Name?.StartsWith("Connapse.", StringComparison.Ordinal) == true)
             .SelectMany(a => { try { return a.GetTypes(); } catch (ReflectionTypeLoadException e) { return e.Types.OfType<Type>(); } })
             .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly).Cast<MemberInfo>().Prepend(t))
             .SelectMany(m => m.GetCustomAttributes(inherit: false))
             .Where(a => a.GetType().Name == "OperationAttribute")
-            .Select(a => a.GetType().GetProperty("Id")?.GetValue(a) as string)
-            .OfType<string>()
-            .ToHashSet(StringComparer.Ordinal);
+            .Select(a => (Id: a.GetType().GetProperty("Id")?.GetValue(a) as string, Mcp: a.GetType().GetProperty("Mcp")?.GetValue(a)))
+            .Where(o => o.Id is not null)
+            .GroupBy(o => o.Id!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Any(o => o.Mcp is true || (o.Mcp is not null and not bool && o.Mcp.ToString() is not ("Off" or "None" or "False"))), StringComparer.Ordinal);
+
+    /// <summary>A Razor component page: the UI surface itself, recognised by its component metadata.</summary>
+    private static bool IsPage(Microsoft.AspNetCore.Routing.RouteEndpoint endpoint) =>
+        endpoint.Metadata.Any(m => m.GetType().Name == "ComponentTypeMetadata");
 
     private static void ShouldMatchKnown(IEnumerable<string> found)
     {

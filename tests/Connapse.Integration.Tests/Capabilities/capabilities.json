@@ -67,6 +67,14 @@
       "mcp": "generic"
     },
     {
+      "id": "containers.settings.reset",
+      "capability": "Clear a container's settings overrides",
+      "routes": [
+        "DELETE /api/containers/{containerId:guid}/settings"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "containers.reindex",
       "capability": "Reindex a container",
       "routes": [
@@ -507,10 +515,26 @@
       "mcp": "generic"
     },
     {
+      "id": "providers.aws.access.reset",
+      "capability": "Reset AWS access",
+      "routes": [
+        "DELETE /api/v1/providers/aws/access"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "providers.aws.identityCenter",
       "capability": "Set the AWS IAM Identity Center instance",
       "routes": [
         "PUT /api/v1/providers/aws/identity-center"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.aws.identityCenter.reset",
+      "capability": "Reset the AWS IAM Identity Center settings",
+      "routes": [
+        "DELETE /api/v1/providers/aws/identity-center"
       ],
       "mcp": "generic"
     },
@@ -524,10 +548,27 @@
       "note": "Turning enforcement on can't be undone."
     },
     {
+      "id": "providers.aws.permissions.reset",
+      "capability": "Reset the AWS SAML application",
+      "routes": [
+        "DELETE /api/v1/providers/aws/permissions"
+      ],
+      "mcp": "generic",
+      "note": "Clears stored sign-in settings; AWS search access can stop."
+    },
+    {
       "id": "providers.azure.access",
       "capability": "Set up Azure access",
       "routes": [
         "PUT /api/v1/providers/azure/access"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.azure.access.reset",
+      "capability": "Reset Azure access",
+      "routes": [
+        "DELETE /api/v1/providers/azure/access"
       ],
       "mcp": "generic"
     },
@@ -541,8 +582,27 @@
       "note": "Admin consent itself needs a browser."
     },
     {
+      "id": "providers.azure.permissions.reset",
+      "capability": "Reset the Azure sign-in application",
+      "routes": [
+        "DELETE /api/v1/providers/azure/permissions"
+      ],
+      "mcp": "generic",
+      "note": "Clears stored sign-in settings; Azure search access can stop."
+    },
+    {
       "id": "providers.github.createApp",
-      "capability": "Create the GitHub App through the manifest flow",
+      "capability": "Start creating the GitHub App through the manifest flow",
+      "routes": [
+        "POST /api/v1/providers/github/manifest"
+      ],
+      "mcp": null,
+      "mcpOff": "A person signs in to the other system in a browser; the most an agent can do is hand them the link.",
+      "note": "The flow starts with a form post from the page; the route would return the manifest and GitHub URL."
+    },
+    {
+      "id": "providers.github.createApp.callback",
+      "capability": "Finish creating the GitHub App when GitHub redirects back",
       "routes": [
         "GET /api/v1/providers/github/manifest/callback"
       ],
@@ -639,6 +699,14 @@
       "mcp": "generic"
     },
     {
+      "id": "providers.custom.linkSecret",
+      "capability": "Replace a custom provider's link secret",
+      "routes": [
+        "PUT /api/v1/providers/custom/{providerId:guid}/link-secret"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "providers.custom.delete",
       "capability": "Delete a custom provider",
       "routes": [
@@ -660,6 +728,14 @@
       "capability": "Change a settings category",
       "routes": [
         "PUT /api/settings/{category}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "settings.reset",
+      "capability": "Reset a settings category to its defaults",
+      "routes": [
+        "DELETE /api/v1/settings/{category}"
       ],
       "mcp": "generic"
     },
@@ -938,6 +1014,26 @@
     "POST /api/v1/identity/refresh": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
     "POST /api/v1/identity/register": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
     "POST /api/v1/identity/resendConfirmationEmail": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
-    "POST /api/v1/identity/resetPassword": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability."
+    "POST /api/v1/identity/resetPassword": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "* /_blazor": "Blazor Server's circuit.",
+    "* /_blazor/disconnect/": "Blazor Server's circuit.",
+    "* /_blazor/initializers/": "Blazor Server's circuit.",
+    "* /_blazor/negotiate": "Blazor Server's circuit.",
+    "GET /_framework/opaque-redirect": "Blazor's redirect helper.",
+    "* /hubs/ingestion": "The UI's live ingestion feed; batches.status is the capability.",
+    "* /hubs/ingestion/negotiate": "The UI's live ingestion feed; batches.status is the capability.",
+    "POST /mcp/": "The MCP transport itself; its tools are rows.",
+    "GET /mcp/": "The MCP transport itself; its tools are rows.",
+    "DELETE /mcp/": "The MCP transport itself; its tools are rows.",
+    "GET /mcp/sse": "The MCP transport itself; its tools are rows.",
+    "POST /mcp/message": "The MCP transport itself; its tools are rows.",
+    "GET /.well-known/oauth-authorization-server": "OAuth discovery metadata.",
+    "GET /.well-known/oauth-protected-resource": "OAuth discovery metadata.",
+    "GET /.well-known/oauth-protected-resource/{**resourcePath}": "OAuth discovery metadata.",
+    "POST /oauth/register": "OAuth dynamic client registration (RFC 7591): how an MCP client signs itself up. Listing and revoking clients are rows.",
+    "POST /oauth/token": "The OAuth token endpoint.",
+    "GET /oauth/clients/cli.json": "The CLI's published OAuth client metadata.",
+    "GET /health": "Liveness probe.",
+    "GET,HEAD {**path:file}": "Static file fallback."
   }
 }
