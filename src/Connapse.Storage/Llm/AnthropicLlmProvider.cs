@@ -99,14 +99,14 @@ public class AnthropicLlmProvider : ILlmProvider
     internal MessageCreateParams BuildParams(
         string systemPrompt, string userPrompt, LlmCompletionOptions? options)
     {
-        var temperature = options?.Temperature ?? (float)_settings.Temperature;
         var model = options?.Model ?? _settings.Model;
 
         var parameters = new MessageCreateParams
         {
             Model = model,
             MaxTokens = options?.MaxTokens ?? _settings.MaxTokens,
-            Temperature = temperature,
+            // No Temperature: Anthropic's models after Claude Opus 4.6 reject any value but 1.0 with a
+            // 400, so sending the configured one would break every call to a current model.
             Messages =
             [
                 new() { Role = Role.User, Content = userPrompt }

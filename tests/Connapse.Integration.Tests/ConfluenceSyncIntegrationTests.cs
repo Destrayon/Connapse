@@ -1097,7 +1097,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
 
         result.Notice.Should().StartWith("2 attachments were skipped: larger than 25 MB, or a file type Connapse can't read.");
-        queue.Jobs.Should().NotContain(j => j.Options.Path.StartsWith("/attachments/", StringComparison.Ordinal));
+        queue.Jobs.Should().NotContain(j => j.Options.Path != null && j.Options.Path.StartsWith("/attachments/", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1182,7 +1182,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
 
         string? secret = await connections.GetSecretAsync(connection.Id);
         var connector = factory.Create(source, connection, secret);
-        await using (var content = await connector.ReadFileAsync(job.Options.Path))
+        await using (var content = await connector.ReadFileAsync(job.Options.Path!))
             await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(content, job.Options, CancellationToken.None);
 
         await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();

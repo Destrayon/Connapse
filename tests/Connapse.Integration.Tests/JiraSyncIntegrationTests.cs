@@ -100,7 +100,7 @@ public sealed class JiraSyncIntegrationTests(SharedWebAppFixture fixture)
         var job = queue.Jobs.Single(j => j.Options.Path == "/issues/30001.md");
 
         var connector = factory.Create(source, connection, await connections.GetSecretAsync(connectionId));
-        await using (var content = await connector.ReadFileAsync(job.Options.Path))
+        await using (var content = await connector.ReadFileAsync(job.Options.Path!))
             await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(content, job.Options, CancellationToken.None);
 
         async Task<List<SearchHit>> SearchAsUserAsync(string account) =>

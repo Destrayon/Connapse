@@ -114,4 +114,25 @@ public class AnthropicLlmProviderTests
 
         parameters.Model.Raw().Should().Be("claude-sonnet-4-6");
     }
+
+    [Fact]
+    public void BuildParams_ConfiguredOrRequestedTemperature_IsNotSent()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "Anthropic",
+            Model = "claude-opus-5-5",
+            AnthropicApiKey = "sk-ant-test-key",
+            Temperature = 0.2,
+        });
+        var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
+        var provider = new AnthropicLlmProvider(settings, logger);
+
+        var parameters = provider.BuildParams("sys", "usr", options: new LlmCompletionOptions(Temperature: 0f));
+
+        // The property is obsolete because newer models reject it; reading it here is the point.
+#pragma warning disable CS0618
+        parameters.Temperature.Should().BeNull();
+#pragma warning restore CS0618
+    }
 }
