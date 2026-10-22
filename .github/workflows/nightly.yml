@@ -1,12 +1,16 @@
 name: Nightly
 
 # The Large test tier (epic #783, #789): PDF and OCR models, inference and parser child processes,
-# and the eval runners. Too slow for every PR, so it runs once a night on main, on demand, and on any
-# PR that changes this workflow, so a change to it is proven before it merges.
+# and the eval runners. Too slow for every PR, so it runs once a night on main, on demand, after every
+# merge into an epic branch (GitHub runs schedules only from the default branch, so an epic branch
+# would otherwise never run it), and on any PR that changes this workflow, so a change to it is
+# proven before it merges.
 on:
   schedule:
     - cron: '0 7 * * *'
   workflow_dispatch:
+  push:
+    branches: [ 'epic/**' ]
   pull_request:
     branches: [ main, 'epic/**' ]
     paths:

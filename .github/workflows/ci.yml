@@ -157,10 +157,16 @@ jobs:
         pattern: test-results-*
         merge-multiple: true
 
-    - name: Test jobs passed
+    # Every job this one waits on must have succeeded: a failed, skipped or cancelled one fails here.
+    - name: Every job passed
+      env:
+        RESULTS: ${{ toJSON(needs) }}
       run: |
-        echo "small=${{ needs.small.result }} medium=${{ needs.medium.result }} integration=${{ needs.integration.result }}"
-        [ "${{ needs.small.result }}" = success ] && [ "${{ needs.medium.result }}" = success ] && [ "${{ needs.integration.result }}" = success ]
+        echo "$RESULTS" | python3 -c '
+        import json, sys
+        bad = {k: v["result"] for k, v in json.load(sys.stdin).items() if v["result"] != "success"}
+        print("all jobs succeeded" if not bad else f"::error::jobs that did not succeed: {bad}")
+        sys.exit(1 if bad else 0)'
 
     # Every tier is checked even if another fails, and every test project must have reported. The
     # Medium tier's wall time is its slowest job's, since the jobs run side by side.
@@ -173,12 +179,6 @@ jobs:
         python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds "$small" --max-wall-seconds 30 || rc=1
         python3 .github/scripts/test_budgets.py --tier Medium --trx "medium-tests*.trx" --max-test-seconds 30 --wall-seconds "${medium:--1}" --max-wall-seconds 480 || rc=1
         exit $rc
-
-    - name: PrPipeline_WallTimeUnder6Min
-      if: success() || failure()
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: python3 .github/scripts/pipeline_wall.py --max-seconds 360 --exclude build-and-test
 
     - name: Generate test badge
       if: always() && github.ref == 'refs/heads/main'
@@ -215,6 +215,13 @@ jobs:
         git add tests.json
         git commit -m "Update test badge"
         git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
+
+    # Last, so the measurement includes this job's own steps.
+    - name: PrPipeline_WallTimeUnder6Min
+      if: success() || failure()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 .github/scripts/pipeline_wall.py --max-seconds 360 --current build-and-test
 
   code-quality:
     runs-on: ubuntu-latest

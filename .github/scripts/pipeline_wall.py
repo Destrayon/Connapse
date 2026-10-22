@@ -3,10 +3,10 @@
 Wall time of this workflow run attempt, from the first job's start to the last job's finish, read
 from the GitHub API. Queue time before the first job starts doesn't count; time a job waits for a
 runner after that does, because the person waiting on the PR waits for it too. The job running this
-script is left out, since it hasn't finished.
+script hasn't finished, so it counts from its start to now: run this as the job's last step.
 
 Usage (in a workflow step, with GH_TOKEN set):
-  pipeline_wall.py --max-seconds 360 --exclude build-and-test
+  pipeline_wall.py --max-seconds 360 --current build-and-test
 """
 import argparse
 import json
@@ -14,7 +14,7 @@ import os
 import sys
 import time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def jobs() -> list[dict]:
@@ -35,14 +35,15 @@ def at(s: str) -> datetime:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--max-seconds", type=float, required=True)
-    p.add_argument("--exclude", action="append", default=[], help="job names to leave out (this job)")
+    p.add_argument("--current", required=True, help="the name of the job running this script")
     a = p.parse_args()
 
     # A job that has just finished can still read as running for a few seconds after the jobs
     # waiting on it start, so re-read until every job has its finish time or a minute has passed.
     deadline = time.monotonic() + 60
     while True:
-        done = [j for j in jobs() if j["name"] not in a.exclude]
+        everything = jobs()
+        done = [j for j in everything if j["name"] != a.current]
         unfinished = [j["name"] for j in done if not j.get("started_at") or not j.get("completed_at")]
         if not unfinished or time.monotonic() > deadline:
             break
@@ -54,6 +55,11 @@ def main() -> int:
         print("::error::no jobs to measure; a check that measures nothing proves nothing")
         return 1
 
+    current = next((j for j in everything if j["name"] == a.current), None)
+    if current is None or not current.get("started_at"):
+        print(f"::error::no job named {a.current} with a start time in this run attempt")
+        return 1
+    done.append({**current, "completed_at": datetime.now(timezone.utc).isoformat(), "conclusion": "running"})
     start = min(at(j["started_at"]) for j in done)
     end = max(at(j["completed_at"]) for j in done)
     for j in sorted(done, key=lambda j: j["started_at"]):
