@@ -103,6 +103,8 @@ jobs:
       uses: actions/checkout@v4
 
     - uses: ./.github/actions/build
+      with:
+        project: tests/Connapse.Integration.Tests
 
     - uses: ./.github/actions/ollama
 

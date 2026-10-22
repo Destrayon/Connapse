@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.request
 from datetime import datetime
 
@@ -37,8 +38,15 @@ def main() -> int:
     p.add_argument("--exclude", action="append", default=[], help="job names to leave out (this job)")
     a = p.parse_args()
 
-    done = [j for j in jobs() if j["name"] not in a.exclude]
-    unfinished = [j["name"] for j in done if not j.get("started_at") or not j.get("completed_at")]
+    # A job that has just finished can still read as running for a few seconds after the jobs
+    # waiting on it start, so re-read until every job has its finish time or a minute has passed.
+    deadline = time.monotonic() + 60
+    while True:
+        done = [j for j in jobs() if j["name"] not in a.exclude]
+        unfinished = [j["name"] for j in done if not j.get("started_at") or not j.get("completed_at")]
+        if not unfinished or time.monotonic() > deadline:
+            break
+        time.sleep(5)
     if unfinished:
         print(f"::error::jobs without a start and finish time: {', '.join(unfinished)}; the wall time can't be measured")
         return 1
