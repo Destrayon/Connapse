@@ -220,15 +220,15 @@ public static class AtlassianLinkAppEndpoints
 
     private static async Task<object> ViewAsync(
         AtlassianLinkAppService linkApp, AtlassianLinkAppRegistration stored, CancellationToken ct) => new
-    {
-        clientId = stored.ClientId,
-        permission = "read:me",
-        signInEnabled = stored.SignInEnabled,
-        lastCheckedAt = stored.CheckedAt,
-        lastCheckAccepted = stored.CheckAccepted,
-        lastUsedForSignInAt = stored.VerifiedAt,
-        peopleLinked = await linkApp.CountLinkedPeopleAsync(ct),
-    };
+        {
+            clientId = stored.ClientId,
+            permission = "read:me",
+            signInEnabled = stored.SignInEnabled,
+            lastCheckedAt = stored.CheckedAt,
+            lastCheckAccepted = stored.CheckAccepted,
+            lastUsedForSignInAt = stored.VerifiedAt,
+            peopleLinked = await linkApp.CountLinkedPeopleAsync(ct),
+        };
 
     private static Guid? UserIdOf(HttpContext http) =>
         Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
@@ -294,8 +294,13 @@ public static class AtlassianEndpoints
                 _ => Results.Created($"/api/v1/atlassian/sites/{added.Connection!.Id}",
                     new
                     {
-                        id = added.Connection.Id, name = added.Connection.Name, siteUrl = added.SiteUrl, cloudId = added.CloudId,
-                        clientId = added.ClientId, product = AtlassianSite.ProductValue(product.Value), test = Report(added.Test!),
+                        id = added.Connection.Id,
+                        name = added.Connection.Name,
+                        siteUrl = added.SiteUrl,
+                        cloudId = added.CloudId,
+                        clientId = added.ClientId,
+                        product = AtlassianSite.ProductValue(product.Value),
+                        test = Report(added.Test!),
                     }),
             };
         }).RequireAuthorization("RequireAdmin");
@@ -350,11 +355,13 @@ public static class AtlassianEndpoints
             {
                 ConnectionRenameOutcome.InvalidName => Results.BadRequest(new
                 {
-                    error = $"name must be 1 to {ConnectionAdminService.MaxNameLength} characters.", field = "name",
+                    error = $"name must be 1 to {ConnectionAdminService.MaxNameLength} characters.",
+                    field = "name",
                 }),
                 ConnectionRenameOutcome.NameTaken => Results.Conflict(new
                 {
-                    error = ConnectionAdminService.NameTakenMessage(request.Name!), field = "name",
+                    error = ConnectionAdminService.NameTakenMessage(request.Name!),
+                    field = "name",
                 }),
                 ConnectionRenameOutcome.NotFound => Results.NotFound(new { error = "No such Atlassian site." }),
                 _ => Results.Ok(SiteView(renamed.Connection!, await admin.IsPausedAsync(connectionId, ct))),
@@ -400,7 +407,8 @@ public static class AtlassianEndpoints
                 if (only.Count == 0 || !only.IsSubsetOf(onSite))
                     return Results.BadRequest(new
                     {
-                        error = "sourceIds must name at least one source, each of them on this site.", field = "sourceIds",
+                        error = "sourceIds must name at least one source, each of them on this site.",
+                        field = "sourceIds",
                     });
             }
 
@@ -426,7 +434,8 @@ public static class AtlassianEndpoints
             {
                 ConnectionDeleteOutcome.ConfirmMismatch => Results.BadRequest(new
                 {
-                    error = $"confirmName must be the site's name, '{deleted.Connection!.Name}'.", field = "confirmName",
+                    error = $"confirmName must be the site's name, '{deleted.Connection!.Name}'.",
+                    field = "confirmName",
                 }),
                 ConnectionDeleteOutcome.HasSources => Results.Conflict(new
                 {
@@ -477,7 +486,8 @@ public static class AtlassianEndpoints
                 }),
                 _ => Results.Ok(new
                 {
-                    id = replaced.Connection!.Id, name = replaced.Connection.Name,
+                    id = replaced.Connection!.Id,
+                    name = replaced.Connection.Name,
                     clientId = AtlassianSite.FromConfigJson(replaced.Connection.ConfigJson)?.ClientId,
                     test = Report(replaced.Test!),
                 }),
@@ -550,10 +560,16 @@ public static class AtlassianEndpoints
             connection.Health is { } h
                 ? new
                 {
-                    checkedAt = h.CheckedAt, succeeded = h.Succeeded, warning = h.Warning, step = h.Step,
+                    checkedAt = h.CheckedAt,
+                    succeeded = h.Succeeded,
+                    warning = h.Warning,
+                    step = h.Step,
                     stepLabel = h.Step is null ? null : AtlassianConnectionTester.StepLabel(h.Step),
-                    message = h.Message, origin = h.Origin, credentialRejected = h.CredentialRejected,
-                    lastSucceededAt = h.LastSucceededAt, confirmedScopes = h.ConfirmedScopes,
+                    message = h.Message,
+                    origin = h.Origin,
+                    credentialRejected = h.CredentialRejected,
+                    lastSucceededAt = h.LastSucceededAt,
+                    confirmedScopes = h.ConfirmedScopes,
                 }
                 : null);
     }
