@@ -23,6 +23,8 @@ public sealed class InferenceHostTests : IDisposable
 
     private static PdfImage Render(byte[] pdf, RenderOptions options)
     {
+        if (!Connapse.Ingestion.Parsers.Pdfium.IsSupported)
+            throw new PlatformNotSupportedException(Connapse.Ingestion.Parsers.Pdfium.Unsupported);
         using SKBitmap bitmap = Conversion.ToImage(pdf, 0, options: options);
         return PdfImage.From(bitmap);
     }
