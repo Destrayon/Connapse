@@ -95,11 +95,7 @@
         <div class="col-md-6">
             <label class="form-label">Temperature</label>
             <InputNumber @bind-Value="localSettings.Temperature" class="form-control" step="0.1" min="0" max="2" />
-            <small class="form-text text-muted">Randomness (0.0-2.0)</small>
-            @if (IsAnthropic)
-            {
-                <small class="form-text text-muted d-block">Anthropic models released after Claude Opus 4.6 accept no temperature, so Connapse doesn't send it to them.</small>
-            }
+            <small class="form-text text-muted">Randomness (0.0-2.0). Anthropic models released after Claude Opus 4.6 accept none, so Connapse doesn't send it to them.</small>
         </div>
 
         <div class="col-md-6">
