@@ -1,0 +1,29 @@
+name: Build
+description: Set up .NET, restore the PDF model cache, and build the solution (or one project) in Release.
+inputs:
+  project:
+    description: A project to build instead of the whole solution.
+    default: ''
+runs:
+  using: composite
+  steps:
+  - name: Setup .NET
+    uses: actions/setup-dotnet@v4
+    with:
+      dotnet-version: '10.0.x'
+
+  # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
+  # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
+  - name: Cache layout model
+    uses: actions/cache@v4
+    with:
+      path: .models
+      key: pdf-models-250dbad1-d57a942a
+
+  - name: Restore dependencies
+    shell: bash
+    run: dotnet restore ${{ inputs.project }}
+
+  - name: Build
+    shell: bash
+    run: dotnet build ${{ inputs.project }} --no-restore --configuration Release
