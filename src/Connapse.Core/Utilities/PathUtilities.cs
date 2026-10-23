@@ -10,7 +10,7 @@ public static partial class PathUtilities
     /// Validates a container name. Must be 2-128 characters, lowercase alphanumeric and hyphens,
     /// cannot start or end with a hyphen.
     /// </summary>
-    public static bool IsValidContainerName(string name)
+   public static bool IsValidContainerName(string name)
         => !string.IsNullOrWhiteSpace(name)
            && name.Length >= 2
            && name.Length <= 128
