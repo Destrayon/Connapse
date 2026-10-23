@@ -68,3 +68,6 @@ eval/datasets/**/*.jsonl text eol=lf
 # compare the same bytes.
 *.verified.txt text eol=lf working-tree-encoding=UTF-8
 *.verified.json text eol=lf working-tree-encoding=UTF-8
+
+# SquiggleCop writes its baselines with LF and compares them byte for byte (#786).
+SquiggleCop.Baseline.yaml text eol=lf

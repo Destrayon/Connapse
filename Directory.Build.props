@@ -39,5 +39,15 @@
   <PropertyGroup>
     <AnalysisLevel>10.0-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Each project's SquiggleCop.Baseline.yaml records every rule's effective severity, and
+         TreatWarningsAsErrors changes those, so the check runs only in that build: CI's code-quality
+         job. A mismatch is SQ2000; rebuild with SquiggleCop_AutoBaseline=true and review the diff. -->
+    <SquiggleCop_Enabled Condition="'$(TreatWarningsAsErrors)' != 'true'">false</SquiggleCop_Enabled>
+    <!-- SQ2000 comes from an MSBuild task, which TreatWarningsAsErrors doesn't cover. -->
+    <MSBuildWarningsAsErrors>$(MSBuildWarningsAsErrors);SQ2000</MSBuildWarningsAsErrors>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SquiggleCop.Tasks" Version="1.0.26" PrivateAssets="all" />
+  </ItemGroup>
 </Project>
