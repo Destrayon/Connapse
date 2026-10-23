@@ -55,8 +55,14 @@ public partial class AuthzMatrixTests(SharedWebAppFixture fixture)
 
     private static readonly Dictionary<string, int> Rank = new(StringComparer.Ordinal)
     {
-        ["Viewer"] = 1, ["Editor"] = 2, ["Admin"] = 3, ["Owner"] = 4,
-        ["viewer"] = 1, ["editor"] = 2, ["admin"] = 3, ["owner"] = 4,
+        ["Viewer"] = 1,
+        ["Editor"] = 2,
+        ["Admin"] = 3,
+        ["Owner"] = 4,
+        ["viewer"] = 1,
+        ["editor"] = 2,
+        ["admin"] = 3,
+        ["owner"] = 4,
     };
 
     /// <summary>The expectation table's rule, applied to one principal.</summary>

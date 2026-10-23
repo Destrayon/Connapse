@@ -37,7 +37,8 @@ public sealed class ProviderSetupReaderGitHubTests
 
         var gitHubApp = new ConnapseGitHubApp(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
-            NullLogger<ConnapseGitHubApp>.Instance) { ApiBaseUrl = "https://api.github.test" };
+            NullLogger<ConnapseGitHubApp>.Instance)
+        { ApiBaseUrl = "https://api.github.test" };
 
         var connections = Substitute.For<IConnectionStore>();
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
@@ -139,8 +140,10 @@ public sealed class ProviderSetupReaderGitHubTests
 
             var items = Enumerable.Range(1, installations).Select(i => new
             {
-                id = i, account = new { login = "octo-org", type = "Organization" },
-                repository_selection = "all", html_url = "https://github.com/x",
+                id = i,
+                account = new { login = "octo-org", type = "Organization" },
+                repository_selection = "all",
+                html_url = "https://github.com/x",
             });
 
             return Task.FromResult(new HttpResponseMessage(status)

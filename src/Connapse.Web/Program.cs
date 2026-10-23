@@ -319,7 +319,7 @@ app.Use(async (ctx, next) =>
         if (feature is not null)
             feature.Enabled = false;
     }
-        await next(ctx);
+    await next(ctx);
 });
 
 app.UseForwardedHeaders();

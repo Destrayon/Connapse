@@ -108,8 +108,13 @@ public sealed class GitHubConnectorTests : IDisposable
         Commit(new Dictionary<string, string> { ["docs/a b.md"] = "12345" });
         var connector = new GitHubConnector(new GitHubConnectorConfig
         {
-            Owner = "octocat", Repo = "docs", RepoId = 99, IsPrivate = true, RequirePublic = false,
-            MirrorPath = _mirror, RemoteUrl = _upstream,
+            Owner = "octocat",
+            Repo = "docs",
+            RepoId = 99,
+            IsPrivate = true,
+            RequirePublic = false,
+            MirrorPath = _mirror,
+            RemoteUrl = _upstream,
         });
 
         var delta = await connector.GetChangesAsync(cursor: null);

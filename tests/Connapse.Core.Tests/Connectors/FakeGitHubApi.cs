@@ -130,8 +130,13 @@ public sealed class FakeGitHubApi : HttpMessageHandler
         long id = _nextCommentId++;
         _comments[id] = new Comment
         {
-            Id = id, Number = number, Login = login, Body = body, ReviewPath = reviewPath,
-            CreatedAt = Now, UpdatedAt = Now,
+            Id = id,
+            Number = number,
+            Login = login,
+            Body = body,
+            ReviewPath = reviewPath,
+            CreatedAt = Now,
+            UpdatedAt = Now,
         };
         Bump(number);
         return id;
@@ -210,7 +215,9 @@ public sealed class FakeGitHubApi : HttpMessageHandler
             string visibility = VisibilityAnswers.TryDequeue(out string? next) ? next : Visibility;
             return Respond(request, JsonSerializer.Serialize(new
             {
-                id = RepositoryIdAnswers.TryDequeue(out long nextId) ? nextId : 1296269, @private = visibility != "public", visibility,
+                id = RepositoryIdAnswers.TryDequeue(out long nextId) ? nextId : 1296269,
+                @private = visibility != "public",
+                visibility,
             }));
         }
 

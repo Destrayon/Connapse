@@ -176,7 +176,10 @@ public sealed class AtlassianSiteService(
 
         string configJson = JsonSerializer.Serialize(new
         {
-            siteUrl = normalizedSite, cloudId, clientId = trimmedClientId, product = AtlassianSite.ProductValue(product),
+            siteUrl = normalizedSite,
+            cloudId,
+            clientId = trimmedClientId,
+            product = AtlassianSite.ProductValue(product),
         });
 
         // Cancelled while the check ran: stop before anything is saved.
@@ -201,8 +204,12 @@ public sealed class AtlassianSiteService(
         await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),
             new
             {
-                Provider = "Atlassian", Product = AtlassianSite.ProductValue(product), SiteUrl = normalizedSite, CloudId = cloudId,
-                ClientId = trimmedClientId, SavedWithWarning = !result.Success,
+                Provider = "Atlassian",
+                Product = AtlassianSite.ProductValue(product),
+                SiteUrl = normalizedSite,
+                CloudId = cloudId,
+                ClientId = trimmedClientId,
+                SavedWithWarning = !result.Success,
             }, ct);
 
         if (await connections.RecordHealthAsync(connection.Id, HealthOf(result), ct) is { } health)

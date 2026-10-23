@@ -25,20 +25,6 @@ internal static partial class TestSources
     /// <summary>Every C# file under tests/, minus build output and folders the solution doesn't build. Parsed once.</summary>
     public static IReadOnlyList<(string RelativePath, SyntaxNode Root)> Files() => Parsed.Value;
 
-    private static readonly Lazy<IReadOnlyList<(string RelativePath, SyntaxNode Root)>> ParsedTests = new(() =>
-        Load().Where(f => f.Text.Contains("Fact", StringComparison.Ordinal) || f.Text.Contains("Theory", StringComparison.Ordinal)
-                || TestAttributeNames.Value.Any(n => f.Text.Contains(n, StringComparison.Ordinal)))
-            .AsParallel().AsOrdered()
-            .Select(f => (f.RelativePath, CSharpSyntaxTree.ParseText(f.Text, path: f.Path).GetRoot())).ToList());
-
-    /// <summary>
-    /// Files that may declare tests, found by a text search for "Fact" or "Theory" before parsing so
-    /// this suite stays fast. Every test attribute's name contains one of the two, whether written
-    /// [Fact], [Xunit.Fact], [SkippableFact] or a subclass named after them; a subclass named
-    /// otherwise is found by <see cref="TestAttributeNames"/> and its file is parsed too.
-    /// </summary>
-    public static IReadOnlyList<(string RelativePath, SyntaxNode Root)> TestFiles() => ParsedTests.Value;
-
     private static IEnumerable<(string RelativePath, string Path, string Text)> Load()
     {
         string tests = Path.Combine(Root, "tests");
@@ -118,6 +104,20 @@ internal static partial class TestSources
         }
         return names;
     });
+
+    private static readonly Lazy<IReadOnlyList<(string RelativePath, SyntaxNode Root)>> ParsedTests = new(() =>
+        Load().Where(f => f.Text.Contains("Fact", StringComparison.Ordinal) || f.Text.Contains("Theory", StringComparison.Ordinal)
+                || TestAttributeNames.Value.Any(n => f.Text.Contains(n, StringComparison.Ordinal)))
+            .AsParallel().AsOrdered()
+            .Select(f => (f.RelativePath, CSharpSyntaxTree.ParseText(f.Text, path: f.Path).GetRoot())).ToList());
+
+    /// <summary>
+    /// Files that may declare tests, found by a text search for "Fact" or "Theory" before parsing so
+    /// this suite stays fast. Every test attribute's name contains one of the two, whether written
+    /// [Fact], [Xunit.Fact], [SkippableFact] or a subclass named after them; a subclass named
+    /// otherwise is found by <see cref="TestAttributeNames"/> and its file is parsed too.
+    /// </summary>
+    public static IReadOnlyList<(string RelativePath, SyntaxNode Root)> TestFiles() => ParsedTests.Value;
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\bclass\s+(?<name>\w+)\s*:\s*(?<bases>[\w.<>,\s]+?)\s*(?:\{|where\b)")]
     private static partial System.Text.RegularExpressions.Regex ClassWithBase();

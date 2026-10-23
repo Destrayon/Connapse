@@ -420,8 +420,10 @@ public class PgVectorStore : IVectorStore
             return await query();
 
         await using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        await _context.Database.ExecuteSqlRawAsync(
-            $"SET LOCAL hnsw.ef_search = {Math.Clamp(efSearch, 1, 1000)}; SET LOCAL hnsw.iterative_scan = relaxed_order;", ct);
+        // set_config(..., true) is SET LOCAL in a form whose value can be a parameter.
+        string candidates = Math.Clamp(efSearch, 1, 1000).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await _context.Database.ExecuteSqlAsync(
+            $"SELECT set_config('hnsw.ef_search', {candidates}, true), set_config('hnsw.iterative_scan', 'relaxed_order', true)", ct);
         T result = await query();
         await transaction.CommitAsync(ct);
         return result;

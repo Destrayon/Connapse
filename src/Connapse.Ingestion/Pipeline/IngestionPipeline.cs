@@ -97,11 +97,18 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <summary>The parser that owned each extension when parser identities started being recorded (#596).</summary>
     private static readonly Dictionary<string, string> LegacyParserByExtension = new(StringComparer.OrdinalIgnoreCase)
     {
-        [".txt"] = "TextParser", [".md"] = "TextParser", [".markdown"] = "TextParser", [".csv"] = "TextParser",
-        [".log"] = "TextParser", [".json"] = "TextParser", [".xml"] = "TextParser", [".yaml"] = "TextParser",
+        [".txt"] = "TextParser",
+        [".md"] = "TextParser",
+        [".markdown"] = "TextParser",
+        [".csv"] = "TextParser",
+        [".log"] = "TextParser",
+        [".json"] = "TextParser",
+        [".xml"] = "TextParser",
+        [".yaml"] = "TextParser",
         [".yml"] = "TextParser",
         [".pdf"] = "PdfParser",
-        [".docx"] = "OfficeParser", [".pptx"] = "OfficeParser",
+        [".docx"] = "OfficeParser",
+        [".pptx"] = "OfficeParser",
     };
 
     /// <summary>

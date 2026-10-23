@@ -114,4 +114,49 @@ public class AnthropicLlmProviderTests
 
         parameters.Model.Raw().Should().Be("claude-sonnet-4-6");
     }
+
+    [Theory]
+    [InlineData("claude-sonnet-4-20250514", 0.2f, null, 0.2f)]
+    [InlineData("claude-haiku-4-5", 0.2f, 0f, 0f)]
+    [InlineData("claude-3-5-sonnet-20241022", 0.7f, null, 0.7f)]
+    [InlineData("claude-opus-4-6", 0.2f, 0.5f, 0.5f)]
+    public void BuildParams_ModelThatAcceptsTemperature_SendsTheRequestedOrConfiguredOne(
+        string model, float configured, float? requested, float expected)
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "Anthropic",
+            Model = model,
+            AnthropicApiKey = "sk-ant-test-key",
+            Temperature = configured,
+        });
+        var provider = new AnthropicLlmProvider(settings, Substitute.For<ILogger<AnthropicLlmProvider>>());
+
+        var parameters = provider.BuildParams("sys", "usr", options: new LlmCompletionOptions(Temperature: requested));
+
+#pragma warning disable CS0618
+        parameters.Temperature.Should().BeApproximately(expected, 1e-6);
+#pragma warning restore CS0618
+    }
+
+    [Fact]
+    public void BuildParams_ModelNewerThanOpus46_IsSentNoTemperature()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "Anthropic",
+            Model = "claude-opus-5-5",
+            AnthropicApiKey = "sk-ant-test-key",
+            Temperature = 0.2,
+        });
+        var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
+        var provider = new AnthropicLlmProvider(settings, logger);
+
+        var parameters = provider.BuildParams("sys", "usr", options: new LlmCompletionOptions(Temperature: 0f));
+
+        // The property is obsolete because newer models reject it; reading it here is the point.
+#pragma warning disable CS0618
+        parameters.Temperature.Should().BeNull();
+#pragma warning restore CS0618
+    }
 }

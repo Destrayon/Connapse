@@ -703,8 +703,11 @@ public class ConnectionFormTests
     {
         ConnectionForm form = new()
         {
-            Name = "acme", Provider = ConnectionProvider.Custom, CustomContentOnly = true,
-            CustomBaseUrl = " https://bridge.example.com ", CustomToken = " tok "
+            Name = "acme",
+            Provider = ConnectionProvider.Custom,
+            CustomContentOnly = true,
+            CustomBaseUrl = " https://bridge.example.com ",
+            CustomToken = " tok "
         };
 
         form.Validate().Should().BeNull();
@@ -745,7 +748,10 @@ public class ConnectionFormTests
     {
         ConnectionForm form = new()
         {
-            Name = "acme", Provider = ConnectionProvider.Custom, CustomProviderId = Guid.NewGuid(), CustomToken = "tok"
+            Name = "acme",
+            Provider = ConnectionProvider.Custom,
+            CustomProviderId = Guid.NewGuid(),
+            CustomToken = "tok"
         };
 
         form.ToSecretJson().Should().BeNull("a connection that names a provider reads with the provider's token");

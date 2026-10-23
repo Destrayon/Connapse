@@ -77,7 +77,9 @@ public class PassageJudgeTests
         ranked.Select(r => r.DocId).Should().Equal("other.pdf#c1", "report.pdf#c2", "report.pdf#c3", "report.pdf#c4");
         judgments.Should().BeEquivalentTo(new Dictionary<string, int>
         {
-            ["report.pdf#c2"] = 0, ["report.pdf#c3"] = 1, ["report.pdf#c4"] = 0,
+            ["report.pdf#c2"] = 0,
+            ["report.pdf#c3"] = 1,
+            ["report.pdf#c4"] = 0,
         });
         scores[MetricNames.Mrr10].Should().BeApproximately(1.0 / 3, 1e-9);
         scores[MetricNames.Recall5].Should().Be(1);

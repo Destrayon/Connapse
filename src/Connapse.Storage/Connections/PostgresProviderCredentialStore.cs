@@ -104,7 +104,11 @@ public class PostgresProviderCredentialStore(
             .Where(c => c.Provider == provider)
             .Select(c => new
             {
-                c.CertificatePem, c.TrustAnchorArn, c.ProfileArn, c.RoleArn, c.Region,
+                c.CertificatePem,
+                c.TrustAnchorArn,
+                c.ProfileArn,
+                c.RoleArn,
+                c.Region,
                 c.PrivateKeyProtected,
             })
             .FirstOrDefaultAsync(ct);

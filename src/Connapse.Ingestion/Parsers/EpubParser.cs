@@ -63,7 +63,8 @@ public class EpubParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocum
 
             // VersOne.Epub closes the stream it is given when the book is disposed, and the
             // pipeline still needs its own afterwards: the book gets a view of the same bytes.
-            using var book = EpubReader.OpenBook(await ViewOfAsync(stream, cancellationToken), options);
+            using var book = EpubReader.OpenBook(await ViewOfAsync(stream, cancellationToken), options)
+                ?? throw new PermanentIngestionException("the EPUB could not be opened [unreadable]");
             string title = Normalize(book.Title);
             string author = Normalize(string.Join(", ", book.AuthorList ?? []));
             if (title.Length > 0)

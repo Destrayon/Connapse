@@ -178,22 +178,22 @@ public static partial class Surfaces
     private static partial Regex QuotedInput();
 
     private static string Classify(string text) => text switch
-        {
-            _ when text.Contains("already exists", StringComparison.OrdinalIgnoreCase) => "error:conflict",
-            _ when text.Contains("not found", StringComparison.OrdinalIgnoreCase) => "error:not_found",
-            // REST answers a delete of a non-empty container with 400, a validation failure.
-            _ when text.Contains("not empty", StringComparison.OrdinalIgnoreCase) => "error:validation",
-            _ when text.Contains("permission", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("forbidden", StringComparison.OrdinalIgnoreCase) => "error:forbidden",
-            // A document still ingesting, or whose ingestion failed, is in the wrong state: 409 over REST.
-            _ when text.Contains("being ingested", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("failed ingestion", StringComparison.OrdinalIgnoreCase) => "error:conflict",
-            _ when text.Contains("could not be", StringComparison.OrdinalIgnoreCase)
-                || text.Contains("upload failed", StringComparison.OrdinalIgnoreCase) => "error:server",
-            _ when ValidationWords.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase)) => "error:validation",
-            // An exception the tool didn't handle: the SDK answers with this and nothing more.
-            _ => "error:unknown",
-        };
+    {
+        _ when text.Contains("already exists", StringComparison.OrdinalIgnoreCase) => "error:conflict",
+        _ when text.Contains("not found", StringComparison.OrdinalIgnoreCase) => "error:not_found",
+        // REST answers a delete of a non-empty container with 400, a validation failure.
+        _ when text.Contains("not empty", StringComparison.OrdinalIgnoreCase) => "error:validation",
+        _ when text.Contains("permission", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("forbidden", StringComparison.OrdinalIgnoreCase) => "error:forbidden",
+        // A document still ingesting, or whose ingestion failed, is in the wrong state: 409 over REST.
+        _ when text.Contains("being ingested", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("failed ingestion", StringComparison.OrdinalIgnoreCase) => "error:conflict",
+        _ when text.Contains("could not be", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("upload failed", StringComparison.OrdinalIgnoreCase) => "error:server",
+        _ when ValidationWords.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase)) => "error:validation",
+        // An exception the tool didn't handle: the SDK answers with this and nothing more.
+        _ => "error:unknown",
+    };
 
     /// <summary>
     /// The id line a create answers with: "ID: ..." or "Document ID: ..." alone on its line, so a

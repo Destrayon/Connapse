@@ -27,12 +27,20 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
         await using var ctx = await dbFactory.CreateDbContextAsync();
         ctx.Containers.Add(new ContainerEntity
         {
-            Id = containerId, Name = $"lc-{containerId:N}", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            Id = containerId,
+            Name = $"lc-{containerId:N}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         });
         ctx.Documents.Add(new DocumentEntity
         {
-            Id = documentId, ContainerId = containerId, FileName = "doc.md", Path = "/doc.md",
-            ContentHash = "", CreatedAt = DateTime.UtcNow, Metadata = [],
+            Id = documentId,
+            ContainerId = containerId,
+            FileName = "doc.md",
+            Path = "/doc.md",
+            ContentHash = "",
+            CreatedAt = DateTime.UtcNow,
+            Metadata = [],
         });
         await ctx.SaveChangesAsync();
         return (containerId, documentId);
@@ -159,13 +167,27 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
             // "alpha beta " [0,11) and "beta gamma delta" [6,22): "beta " is shared.
             ctx.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = documentId, OwnerId = containerId, ChunkIndex = 0,
-                Content = text[..11], StartOffset = 0, EndOffset = 11, TokenCount = 2, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = documentId,
+                OwnerId = containerId,
+                ChunkIndex = 0,
+                Content = text[..11],
+                StartOffset = 0,
+                EndOffset = 11,
+                TokenCount = 2,
+                Metadata = [],
             });
             ctx.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = documentId, OwnerId = containerId, ChunkIndex = 1,
-                Content = text[6..], StartOffset = 6, EndOffset = 22, TokenCount = 3, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = documentId,
+                OwnerId = containerId,
+                ChunkIndex = 1,
+                Content = text[6..],
+                StartOffset = 6,
+                EndOffset = 22,
+                TokenCount = 3,
+                Metadata = [],
             });
             await ctx.SaveChangesAsync();
         }

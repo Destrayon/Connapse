@@ -55,8 +55,11 @@ public sealed class AtlassianLinkAppEndpointTests(SharedWebAppFixture fixture) :
             {
                 var user = new ConnapseUser
                 {
-                    UserName = EditorEmail, Email = EditorEmail, EmailConfirmed = true,
-                    DisplayName = EditorEmail, CreatedAt = DateTime.UtcNow,
+                    UserName = EditorEmail,
+                    Email = EditorEmail,
+                    EmailConfirmed = true,
+                    DisplayName = EditorEmail,
+                    CreatedAt = DateTime.UtcNow,
                 };
                 (await users.CreateAsync(user, EditorPassword)).Succeeded.Should().BeTrue();
                 await users.AddToRoleAsync(user, "Editor");

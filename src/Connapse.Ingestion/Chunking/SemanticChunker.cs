@@ -368,48 +368,48 @@ public class SemanticChunker(
         switch (method?.Trim() ?? "Percentile")
         {
             case "StandardDeviation":
-            {
-                double mean = 0;
-                foreach (float d in distances) mean += d;
-                mean /= distances.Count;
-                double sumSq = 0;
-                foreach (float d in distances) sumSq += (d - mean) * (d - mean);
-                double std = Math.Sqrt(sumSq / distances.Count);
-                return (mean + amount * std, distances);
-            }
+                {
+                    double mean = 0;
+                    foreach (float d in distances) mean += d;
+                    mean /= distances.Count;
+                    double sumSq = 0;
+                    foreach (float d in distances) sumSq += (d - mean) * (d - mean);
+                    double std = Math.Sqrt(sumSq / distances.Count);
+                    return (mean + amount * std, distances);
+                }
             case "InterQuartile":
-            {
-                float[] sorted = distances.OrderBy(d => d).ToArray();
-                double mean = 0;
-                foreach (float d in sorted) mean += d;
-                mean /= sorted.Length;
-                double q1 = Percentile(sorted, 25);
-                double q3 = Percentile(sorted, 75);
-                double iqr = q3 - q1;
-                return (mean + amount * iqr, distances);
-            }
+                {
+                    float[] sorted = distances.OrderBy(d => d).ToArray();
+                    double mean = 0;
+                    foreach (float d in sorted) mean += d;
+                    mean /= sorted.Length;
+                    double q1 = Percentile(sorted, 25);
+                    double q3 = Percentile(sorted, 75);
+                    double iqr = q3 - q1;
+                    return (mean + amount * iqr, distances);
+                }
             case "Gradient":
-            {
-                // Forward-difference gradient over the distance series, then take
-                // the Nth percentile of the gradient — splits where distance is
-                // changing fastest, not where it's highest. The splits loop iterates
-                // the gradient series (returned here) rather than distances, since
-                // the threshold is in gradient units.
-                if (distances.Count < 2) return (0, distances);
-                float[] grad = new float[distances.Count];
-                grad[0] = distances[1] - distances[0];
-                grad[distances.Count - 1] = distances[distances.Count - 1] - distances[distances.Count - 2];
-                for (int i = 1; i < distances.Count - 1; i++)
-                    grad[i] = (distances[i + 1] - distances[i - 1]) / 2f;
-                double threshold = Percentile(grad.OrderBy(g => g).ToArray(), amount);
-                return (threshold, grad);
-            }
+                {
+                    // Forward-difference gradient over the distance series, then take
+                    // the Nth percentile of the gradient — splits where distance is
+                    // changing fastest, not where it's highest. The splits loop iterates
+                    // the gradient series (returned here) rather than distances, since
+                    // the threshold is in gradient units.
+                    if (distances.Count < 2) return (0, distances);
+                    float[] grad = new float[distances.Count];
+                    grad[0] = distances[1] - distances[0];
+                    grad[distances.Count - 1] = distances[distances.Count - 1] - distances[distances.Count - 2];
+                    for (int i = 1; i < distances.Count - 1; i++)
+                        grad[i] = (distances[i + 1] - distances[i - 1]) / 2f;
+                    double threshold = Percentile(grad.OrderBy(g => g).ToArray(), amount);
+                    return (threshold, grad);
+                }
             case "Percentile":
             default:
-            {
-                float[] sorted = distances.OrderBy(d => d).ToArray();
-                return (Percentile(sorted, amount), distances);
-            }
+                {
+                    float[] sorted = distances.OrderBy(d => d).ToArray();
+                    return (Percentile(sorted, amount), distances);
+                }
         }
     }
 
