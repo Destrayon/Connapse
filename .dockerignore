@@ -33,5 +33,3 @@ eval/
 .superpowers/
 .playwright-mcp/
 
-# The SDK pin is for CI's analyzer baselines (#786); the image builds with its own SDK.
-global.json
