@@ -21,7 +21,7 @@ public interface IDocumentAccess
 /// <list type="bullet">
 /// <item>a node is visible only when one of its names comes from a readable document; a link only when one
 /// of its evidence documents is readable and both its ends are visible;</item>
-/// <item>everything shown (names, summaries, evidence, sources) comes from readable documents, and the
+/// <item>everything shown (kinds, names, summaries, evidence, sources) comes from readable documents, and the
 /// sources listed are exactly the readable ones;</item>
 /// <item>a walk moves only through visible nodes and links, so it never reaches a node by way of a
 /// document the reader cannot see;</item>

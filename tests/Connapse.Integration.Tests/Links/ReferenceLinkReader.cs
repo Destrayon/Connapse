@@ -11,6 +11,8 @@ public enum PlantedLeak
     AllEvidence,
     /// <summary>Names a merged node by its first name, readable or not.</summary>
     FirstName,
+    /// <summary>Shows every kind a merged node was given, readable or not.</summary>
+    AllKinds,
     /// <summary>Walks through hidden nodes and only drops them from the answer.</summary>
     WalkThroughHidden,
     /// <summary>Shows a link when both its ends are visible, whatever its evidence.</summary>
@@ -94,9 +96,10 @@ public sealed class ReferenceLinkReader(LinkWorld world, IDocumentAccess access,
     private VisibleNode Show(LinkNode node, IReadOnlySet<string> readable)
     {
         SourcedText name = leak == PlantedLeak.FirstName ? node.Names[0] : node.Names.First(n => readable.Contains(n.DocumentId));
+        List<SourcedText> kinds = leak == PlantedLeak.AllKinds ? [.. node.Kinds] : [.. node.Kinds.Where(k => readable.Contains(k.DocumentId))];
         List<SourcedText> summaries = [.. node.Summaries.Where(s => readable.Contains(s.DocumentId))];
-        List<string> sources = [.. node.Names.Concat(node.Summaries).Select(t => t.DocumentId).Where(readable.Contains).Distinct()];
-        return new VisibleNode(node.Id, node.Kind, name.Text, summaries, sources);
+        List<string> sources = [.. node.Kinds.Concat(node.Names).Concat(node.Summaries).Select(t => t.DocumentId).Where(readable.Contains).Distinct()];
+        return new VisibleNode(node.Id, kinds, name.Text, summaries, sources);
     }
 
     private VisibleEdge Show(LinkEdge edge, IReadOnlySet<string> readable)

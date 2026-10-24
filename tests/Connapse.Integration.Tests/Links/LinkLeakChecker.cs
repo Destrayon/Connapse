@@ -77,9 +77,10 @@ public static partial class LinkLeakChecker
                 v.Add($"node {shown.Id} is not reachable through visible nodes and links within {request.MaxHops} hops");
             if (!node.Names.Any(n => readable.Contains(n.DocumentId) && n.Text == shown.Name))
                 v.Add($"node {shown.Id} name '{shown.Name}' is not a readable name");
+            SameSet(v, $"node {shown.Id} kinds", shown.Kinds, node.Kinds.Where(k => readable.Contains(k.DocumentId)));
             SameSet(v, $"node {shown.Id} summaries", shown.Summaries, node.Summaries.Where(s => readable.Contains(s.DocumentId)));
             SameSet(v, $"node {shown.Id} sources", shown.Sources,
-                node.Names.Concat(node.Summaries).Select(t => t.DocumentId).Where(readable.Contains));
+                node.Kinds.Concat(node.Names).Concat(node.Summaries).Select(t => t.DocumentId).Where(readable.Contains));
         }
 
         if (answer.Nodes.Count > request.MaxNodes)

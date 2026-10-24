@@ -15,11 +15,11 @@ public sealed record LinkWorld(
     IReadOnlyList<Guid?> Users)
 {
     public IEnumerable<SourcedText> AllTexts =>
-        Nodes.SelectMany(n => n.Names.Concat(n.Summaries)).Concat(Edges.SelectMany(e => e.Evidence));
+        Nodes.SelectMany(n => n.Kinds.Concat(n.Names).Concat(n.Summaries)).Concat(Edges.SelectMany(e => e.Evidence));
 
     /// <summary>
-    /// Seeded random worlds: document nodes (a record names and summarises itself), entity nodes merged from
-    /// several documents, and links whose evidence comes from one to three documents. Users read random
+    /// Seeded random worlds: document nodes (a record names and summarises itself), entity nodes whose kinds,
+    /// names and summaries are merged from several documents, and links whose evidence comes from one to three documents. Users read random
     /// subsets, one of them nothing at all.
     /// </summary>
     public static (LinkWorld World, DocumentAccessStub Access) Generate(int seed)
@@ -32,13 +32,14 @@ public sealed record LinkWorld(
         List<string> docs = [.. Enumerable.Range(0, rng.Next(6, 16)).Select(i => $"doc-{seed}-{i}")];
         string AnyDoc() => docs[rng.Next(docs.Count)];
 
-        List<LinkNode> nodes = [.. docs.Select(d => new LinkNode($"n:{d}", "record", [From(d)], [From(d, 4)]))];
+        List<LinkNode> nodes = [.. docs.Select(d => new LinkNode($"n:{d}", [new SourcedText("record", d)], [From(d)], [From(d, 4)]))];
         int entities = rng.Next(2, 8);
         for (int i = 0; i < entities; i++)
         {
             List<SourcedText> names = [.. Enumerable.Range(0, rng.Next(1, 4)).Select(_ => From(AnyDoc()))];
             List<SourcedText> summaries = [.. Enumerable.Range(0, rng.Next(0, 4)).Select(_ => From(AnyDoc(), 3))];
-            nodes.Add(new LinkNode($"e:{seed}-{i}", "entity", names, summaries));
+            List<SourcedText> kinds = [.. Enumerable.Range(0, rng.Next(0, 3)).Select(_ => From(AnyDoc(), 1))];
+            nodes.Add(new LinkNode($"e:{seed}-{i}", kinds, names, summaries));
         }
 
         string[] types = ["closes", "blocks", "mentions", "parent"];
@@ -57,8 +58,8 @@ public sealed record LinkWorld(
             {
                 string doc = rng.Next(3) switch
                 {
-                    0 when from.Kind == "record" => from.Names[0].DocumentId,
-                    1 when to.Kind == "record" => to.Names[0].DocumentId,
+                    0 when from.Id.StartsWith("n:", StringComparison.Ordinal) => from.Names[0].DocumentId,
+                    1 when to.Id.StartsWith("n:", StringComparison.Ordinal) => to.Names[0].DocumentId,
                     _ => AnyDoc(),
                 };
                 evidence.Add(new SourcedText(rng.Next(2) == 0 ? "" : Text(3), doc));

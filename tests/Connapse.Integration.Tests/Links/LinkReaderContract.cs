@@ -119,7 +119,7 @@ public static class LinkContractCases
     private static SourcedText T(string text, string doc) => new(text, doc);
 
     // t201x is titled t201x and summarised t2011x: tokens stay unique within a world.
-    private static LinkNode Record(string doc, string title) => new($"n:{doc}", "record", [T(title, doc)], [T(title.Replace("x", "1x"), doc)]);
+    private static LinkNode Record(string doc, string title) => new($"n:{doc}", [T("record", doc)], [T(title, doc)], [T(title.Replace("x", "1x"), doc)]);
 
     private static IEnumerable<(string, LinkWorld, DocumentAccessStub, LinkExpandRequest, Func<LinkExpansion, string?>)> NamedCases()
     {
@@ -131,7 +131,7 @@ public static class LinkContractCases
         }
 
         // A person merged from a public page and a private one: the private spelling and summary stay out.
-        LinkNode person = new("e:alex", "person",
+        LinkNode person = new("e:alex", [T("t108x", "public")],
             [T("t101x t102x", "secret"), T("t103x", "public")],
             [T("t104x t105x", "secret"), T("t106x", "public")]);
         yield return ("merged entity",
@@ -162,6 +162,14 @@ public static class LinkContractCases
                 [new LinkEdge("l:1", "n:a", "n:b", "uses", [T("t403x", "memo")])], ["a", "b", "memo"], [Reader]),
             Access("a", "b"), new LinkExpandRequest(Reader, ["n:a"], 1),
             a => a.Edges.Count == 0 && a.Nodes.Count == 1 ? null : "expected only node a");
+
+        // What kind of thing a node is can be private too: a public name does not reveal a private kind.
+        LinkNode target = new("e:acme", [T("t801x", "deal-memo"), T("t802x", "press")], [T("t803x", "press")], []);
+        yield return ("kind from a private document",
+            new LinkWorld([target, Record("press", "t804x")], [new LinkEdge("l:1", "n:press", "e:acme", "mentions", [T("", "press")])],
+                ["press", "deal-memo"], [Reader]),
+            Access("press"), new LinkExpandRequest(Reader, ["n:press"], 1),
+            a => a.Nodes.SingleOrDefault(n => n.Id == "e:acme") is { Kinds: [{ Text: "t802x" }] } ? null : "expected Acme with only the public kind");
 
         // Starting from something the reader cannot see finds nothing.
         yield return ("unreadable seed",

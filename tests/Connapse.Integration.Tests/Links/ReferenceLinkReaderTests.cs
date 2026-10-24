@@ -22,6 +22,7 @@ public class LinkReaderContractCanaryTests
     [Theory]
     [InlineData(PlantedLeak.AllEvidence)]
     [InlineData(PlantedLeak.FirstName)]
+    [InlineData(PlantedLeak.AllKinds)]
     [InlineData(PlantedLeak.WalkThroughHidden)]
     [InlineData(PlantedLeak.LinkWithoutEvidence)]
     [InlineData(PlantedLeak.CachedAccess)]

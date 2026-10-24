@@ -4,10 +4,11 @@ namespace Connapse.Core;
 public sealed record SourcedText(string Text, string DocumentId);
 
 /// <summary>
-/// Something links connect: a record, a code symbol, an entity an agent named. Each name and summary
-/// keeps its own document, because one node can merge what several documents said about it.
+/// Something links connect: a record, a code symbol, an entity an agent named. Each kind, name and summary
+/// keeps its own document, because one node can merge what several documents said about it, and what kind
+/// of thing it is (a person, an acquisition target) can itself be private.
 /// </summary>
-public sealed record LinkNode(string Id, string Kind, IReadOnlyList<SourcedText> Names, IReadOnlyList<SourcedText> Summaries);
+public sealed record LinkNode(string Id, IReadOnlyList<SourcedText> Kinds, IReadOnlyList<SourcedText> Names, IReadOnlyList<SourcedText> Summaries);
 
 /// <summary>
 /// A typed link between two nodes. <paramref name="Evidence"/> is each document that supports it, with the
@@ -15,7 +16,11 @@ public sealed record LinkNode(string Id, string Kind, IReadOnlyList<SourcedText>
 /// </summary>
 public sealed record LinkEdge(string Id, string FromId, string ToId, string Type, IReadOnlyList<SourcedText> Evidence);
 
-/// <summary>A walk outward from <paramref name="SeedIds"/>, at most <paramref name="MaxHops"/> links, in either direction.</summary>
+/// <summary>
+/// A walk outward from <paramref name="SeedIds"/>, at most <paramref name="MaxHops"/> links, in either direction.
+/// <paramref name="UserId"/> is the authenticated caller, set by the server as <c>SearchOptions.UserId</c> is,
+/// never taken from a request body.
+/// </summary>
 public sealed record LinkExpandRequest(
     Guid? UserId,
     IReadOnlyList<string> SeedIds,
@@ -23,8 +28,8 @@ public sealed record LinkExpandRequest(
     int MaxNodes = 100,
     IReadOnlyCollection<string>? EdgeTypes = null);
 
-/// <summary>A node as one reader may see it: a name and summaries from readable documents only, and those documents.</summary>
-public sealed record VisibleNode(string Id, string Kind, string Name, IReadOnlyList<SourcedText> Summaries, IReadOnlyList<string> Sources);
+/// <summary>A node as one reader may see it: kinds, a name and summaries from readable documents only, and those documents.</summary>
+public sealed record VisibleNode(string Id, IReadOnlyList<SourcedText> Kinds, string Name, IReadOnlyList<SourcedText> Summaries, IReadOnlyList<string> Sources);
 
 /// <summary>A link as one reader may see it: only the readable evidence, and those documents.</summary>
 public sealed record VisibleEdge(string Id, string FromId, string ToId, string Type, IReadOnlyList<SourcedText> Evidence, IReadOnlyList<string> Sources);
