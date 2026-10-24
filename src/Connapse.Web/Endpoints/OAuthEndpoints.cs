@@ -271,13 +271,11 @@ public static class OAuthEndpoints
         var oldTokenHash = ComputeSha256Hex(refreshToken);
         var oldRefreshEntity = await dbContext.RefreshTokens
             .FirstOrDefaultAsync(r => r.TokenHash == oldTokenHash, ct);
-        if (oldRefreshEntity?.ClientId is not null &&
-            !string.Equals(oldRefreshEntity.ClientId, clientId, StringComparison.Ordinal))
+        if (oldRefreshEntity?.ClientId is { } boundClient &&
+            (!string.Equals(boundClient, clientId, StringComparison.Ordinal) || !await ClientMayHoldGrantsAsync(dbContext, boundClient, ct)))
         {
             return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
         }
-        if (oldRefreshEntity?.ClientId is { } boundClient && !await ClientMayHoldGrantsAsync(dbContext, boundClient, ct))
-            return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
 
         // RFC 8707: an incoming `resource` at refresh time must match what the
         // original token was bound to. Clients may omit it to request the same
