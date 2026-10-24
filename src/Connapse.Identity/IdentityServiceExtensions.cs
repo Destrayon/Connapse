@@ -331,10 +331,13 @@ public static class IdentityServiceExtensions
             // something the token waiting on it can do (#782).
             .AddPolicy("RequirePerson", policy =>
                 policy.RequireAuthenticatedUser().RequireAssertion(context => !McpApprovalClaims.IsToken(context.User)))
-            // A person acting on their own account, by sign-in or by their own token: their linked
-            // accounts are theirs to read. An agent key acts as no person, so it has none (#865).
+            // A person reading their own account, by sign-in or by their own token: their linked accounts
+            // are theirs to read. An agent key acts as no person, so it has none, and a token is limited to
+            // its scopes, so it needs knowledge:read. A sign-in needs no role (#865).
             .AddPolicy("RequireAccount", policy =>
-                policy.RequireAuthenticatedUser().RequireAssertion(context => !context.User.IsInRole("Agent")))
+                policy.RequireAuthenticatedUser().RequireAssertion(context =>
+                    !context.User.IsInRole("Agent")
+                    && (!context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "knowledge:read"))))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

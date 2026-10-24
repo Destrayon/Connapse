@@ -101,7 +101,10 @@ public sealed class ListAccountLinks(
             customLinks));
     }
 
-    /// <summary>One provider's link, or unknown when its source server can't say: one slow server doesn't fail the list.</summary>
+    /// <summary>
+    /// One provider's link, or unknown when it can't be read: its source server is slow or down, or its
+    /// stored token can't be decrypted. One broken provider never fails the whole list.
+    /// </summary>
     private async Task<CustomAccountLink> CustomLinkAsync(CustomProvider provider, Guid userId, CancellationToken ct)
     {
         try
@@ -109,7 +112,7 @@ public sealed class ListAccountLinks(
             CustomLinkStatus status = await custom.StatusAsync(provider.Id, userId, ct);
             return new CustomAccountLink(provider, status.Linked, status.DisplayName);
         }
-        catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             return new CustomAccountLink(provider, null, null);
         }

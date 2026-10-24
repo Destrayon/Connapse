@@ -2,6 +2,8 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Connapse.Core;
+using Connapse.Identity.Authentication;
 using Connapse.Identity.Services;
 using Connapse.Integration.Tests.Authorization;
 using FluentAssertions;
@@ -57,6 +59,22 @@ public class AccountLinksEndpointTests(SharedWebAppFixture fixture)
             await using var scope = fixture.Factory.Services.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<GitHubIdentityLinkStore>().DeleteAsync(admin);
         }
+    }
+
+    [Fact]
+    public async Task ListLinks_TokenWithoutKnowledgeRead_IsRefused()
+    {
+        // A token is limited to its scopes: an Owner's knowledge:write-only token doesn't read links.
+        using var created = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
+            new PatCreateRequest($"links-{Guid.NewGuid():N}", ["knowledge:write"]));
+        created.EnsureSuccessStatusCode();
+        var pat = (await created.Content.ReadFromJsonAsync<PatCreateResponse>())!;
+        using var client = fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, pat.Token);
+
+        using var response = await client.GetAsync("/api/v1/auth/links");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     private static async Task<JsonElement> GetLinksAsync(HttpClient client)
