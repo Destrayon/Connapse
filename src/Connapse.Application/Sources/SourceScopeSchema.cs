@@ -56,8 +56,8 @@ public sealed class GetScopeSchema(IOperationAuthorizer authorizer)
         if (!await authorizer.AllowsAsync(context.User, Policies.Viewer))
             return Attempt<ScopeSchema, ScopeSchemaStatus>.Fail(ScopeSchemaStatus.Forbidden, "You don't have permission to view sources.");
 
-        // Names only: a number would parse as any value of the enum.
-        if (provider.Any(char.IsDigit) || !Enum.TryParse(provider, ignoreCase: true, out ConnectionProvider named) || !Enum.IsDefined(named))
+        // Names only: a number would parse as the enum's value with that number.
+        if (int.TryParse(provider, out _) || !Enum.TryParse(provider, ignoreCase: true, out ConnectionProvider named) || !Enum.IsDefined(named))
             return Attempt<ScopeSchema, ScopeSchemaStatus>.Fail(ScopeSchemaStatus.UnknownProvider,
                 $"No provider '{provider}'. Providers are {string.Join(", ", Enum.GetNames<ConnectionProvider>())}.");
 

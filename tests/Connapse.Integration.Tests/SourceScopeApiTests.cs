@@ -33,7 +33,7 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
-        StoredScope(await SourceOf(response)).Should().BeEquivalentTo(JsonNode.Parse("""{"bucketName":"b","prefix":"team/"}"""));
+        StoredScopeShouldBe(await SourceOf(response), """{"bucketName":"b","prefix":"team/"}""");
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
         var patched = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { scope = new { type = "s3", bucketName = "b", prefix = "other/" } });
 
         patched.StatusCode.Should().Be(HttpStatusCode.OK, await patched.Content.ReadAsStringAsync());
-        StoredScope(sourceId).Should().BeEquivalentTo(JsonNode.Parse("""{"bucketName":"b","prefix":"other/","note":"kept"}"""));
+        StoredScopeShouldBe(sourceId, """{"bucketName":"b","prefix":"other/","note":"kept"}""");
     }
 
     public static TheoryData<string, string[]> Providers => new()
@@ -144,10 +144,11 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
     private static async Task<Guid> SourceOf(HttpResponseMessage created) =>
         (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
-    private JsonNode? StoredScope(Guid sourceId)
+    /// <summary>The source's stored scope is the given JSON, member order aside.</summary>
+    private void StoredScopeShouldBe(Guid sourceId, string expected)
     {
         using var scope = fixture.Factory.Services.CreateScope();
         var source = scope.ServiceProvider.GetRequiredService<ISourceStore>().GetAsync(sourceId).GetAwaiter().GetResult();
-        return JsonNode.Parse(source!.ScopeJson);
+        JsonNode.DeepEquals(JsonNode.Parse(source!.ScopeJson), JsonNode.Parse(expected)).Should().BeTrue($"the stored scope is {source.ScopeJson}");
     }
 }
