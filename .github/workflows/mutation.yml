@@ -1,0 +1,51 @@
+name: Mutation
+
+# How many deliberate bugs the operations' tests catch (epic #783 Phase 2.5, CON-55). Stryker.NET plants
+# small bugs (mutants) in Connapse.Application, runs Core.Tests' Small unit tests against each one, and
+# fails when the share it catches, the mutation score, is under the break threshold in
+# tests/Connapse.Core.Tests/stryker-config.json. A workflow of its own, so its time doesn't count against
+# ci.yml's six-minute pipeline budget. It runs on every PR into main or an epic branch, after every merge
+# into an epic branch, every night on main (GitHub runs schedules only from the default branch), and on
+# demand.
+on:
+  pull_request:
+    branches: [ main, 'epic/**' ]
+  push:
+    branches: [ 'epic/**' ]
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: ./.github/actions/build
+      with:
+        project: tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj
+
+    - name: Restore tools
+      run: dotnet tool restore
+
+    - name: Mutation test Connapse.Application
+      working-directory: tests/Connapse.Core.Tests
+      run: dotnet tool run dotnet-stryker --output "$GITHUB_WORKSPACE/StrykerOutput"
+
+    - name: Mutation report summary
+      if: success() || failure()
+      run: cat StrykerOutput/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || echo "::warning::no mutation report was written"
+
+    - name: Upload mutation report
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: mutation-report
+        path: StrykerOutput/reports/
+        if-no-files-found: ignore

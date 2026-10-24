@@ -79,3 +79,4 @@ __pycache__/
 .models/
 # Verify: an unaccepted snapshot is never committed (#790)
 *.received.*
+StrykerOutput/
