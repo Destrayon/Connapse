@@ -94,6 +94,18 @@ public class ScopeAuthorizationHandlerTests
         granted.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task HandleRequirement_ScopedTokenOfOwner_DeniesScopeTheTokenLacks()
+    {
+        // A PAT's principal carries its owner's roles; the token's own scopes still bound it (#782).
+        var granted = await IsGrantedAsync("knowledge:write",
+        [
+            new Claim(ClaimTypes.Role, "Owner"),
+            new Claim("scope", "knowledge:read"),
+        ]);
+        granted.Should().BeFalse();
+    }
+
     // ── No claims ────────────────────────────────────────────────────────
 
     [Fact]
