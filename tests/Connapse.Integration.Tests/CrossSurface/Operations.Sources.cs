@@ -394,7 +394,6 @@ public static partial class Operations
             catch (InvalidOperationException ex) when (ex.InnerException is Microsoft.EntityFrameworkCore.DbUpdateException)
             {
                 // A deadlock victim: the other transaction has finished or will, so try again.
-                await Task.Delay(200 * attempt);
             }
         }
     }
