@@ -6,13 +6,7 @@
 @using Connapse.Web.Components.Layout
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.Extensions.Options
-@inject IAwsIdentityLinkService AwsIdentityLinkService
-@inject IAzureIdentityLinkService AzureIdentityLinkService
-@inject GitHubIdentityLinkStore GitHubIdentityLinks
-@inject GitHubLinkFlow GitHubLinkFlow
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
-@inject AtlassianIdentityLinkStore AtlassianIdentityLinks
-@inject AtlassianLinkFlow AtlassianLinkFlow
 @inject Connapse.Application.Links.AccountLinkOperations AccountLinks
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
@@ -21,7 +15,6 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @inject ILogger<ProfileIntegrations> Logger
-@inject Connapse.Core.Interfaces.IAuditLogger AuditLogger
 @rendermode InteractiveServer
 
 <PageTitle>Integrations - Connapse</PageTitle>
@@ -548,25 +541,27 @@
     private void ConnectAtlassian() =>
         Navigation.NavigateTo("/api/v1/auth/cloud/atlassian/connect", forceLoad: true);
 
-    private async Task DisconnectAtlassianAsync()
+    private Task DisconnectAtlassianAsync() =>
+        UnlinkAsync("Atlassian", "Atlassian account disconnected. Confluence content that needs your account no longer appears in your search results.");
+
+    /// <summary>
+    /// Unlinks through links.unlink, as DELETE /api/v1/auth/cloud/{provider} does, then shows what is linked
+    /// now: after a refusal too, since a reconnect may have raced the disconnect.
+    /// </summary>
+    private async Task UnlinkAsync(string provider, string unlinked)
     {
         isProcessing = true;
         statusMessage = null;
         try
         {
-            // Refused first, so a sign-in racing the delete cannot put the link back.
-            AtlassianLinkFlow.RevokeFor(currentUserId);
-            bool deleted = await AtlassianIdentityLinks.DeleteAsync(currentUserId);
-            if (deleted)
-                await AuditLogger.LogAsync("identity.atlassian.unlinked", "user", currentUserId.ToString());
-            (statusMessage, statusSuccess) = deleted
-                ? ("Atlassian account disconnected. Confluence content that needs your account no longer appears in your search results.", true)
-                : ("No Atlassian account link found.", false);
+            var attempt = await AccountLinks.Unlink.RunAsync(
+                await AuthenticationStateProvider.OperationContextAsync(), new Connapse.Application.Links.UnlinkAccountRequest(provider));
+            (statusMessage, statusSuccess) = attempt.Succeeded ? (unlinked, true) : (attempt.Detail, false);
             await LoadIdentitiesAsync();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to disconnect Atlassian identity link for user {UserId}", currentUserId);
+            Logger.LogError(ex, "Failed to disconnect the {Provider} identity link for user {UserId}", provider, currentUserId);
             (statusMessage, statusSuccess) = ("Failed to disconnect. Please try again.", false);
         }
         finally
@@ -627,32 +622,10 @@
     private void ConnectGitHub() =>
         Navigation.NavigateTo("/api/v1/auth/cloud/github/connect", forceLoad: true);
 
-    private async Task DisconnectGitHubAsync()
+    private Task DisconnectGitHubAsync()
     {
-        isProcessing = true;
-        statusMessage = null;
         confirmDisconnectGitHub = false;
-        try
-        {
-            // Refused first, so a sign-in racing the delete cannot put the link back.
-            GitHubLinkFlow.RevokeFor(currentUserId);
-            bool deleted = await GitHubIdentityLinks.DeleteAsync(currentUserId);
-            if (deleted)
-                await AuditLogger.LogAsync("identity.github.unlinked", "user", currentUserId.ToString());
-            (statusMessage, statusSuccess) = deleted
-                ? ("GitHub account disconnected. Private repository content no longer appears in your search results.", true)
-                : ("No GitHub account link found.", false);
-            await LoadIdentitiesAsync();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to disconnect GitHub identity link for user {UserId}", currentUserId);
-            (statusMessage, statusSuccess) = ("Failed to disconnect. Please try again.", false);
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        return UnlinkAsync("GitHub", "GitHub account disconnected. Private repository content no longer appears in your search results.");
     }
 
     // The assertion consumer redirects here with ?error=aws_<reason> when a sign-in failed. A
@@ -732,79 +705,17 @@
         Navigation.NavigateTo("/api/v1/auth/cloud/azure/connect", forceLoad: true);
     }
 
-    private async Task DisconnectAzureAsync()
+    private Task DisconnectAzureAsync()
     {
-        isProcessing = true;
-        statusMessage = null;
         confirmDisconnectAzure = false;
-        try
-        {
-            bool deleted = await AzureIdentityLinkService.DisconnectAsync(currentUserId);
-            if (deleted)
-            {
-                statusMessage = "Entra identity disconnected.";
-                statusSuccess = true;
-                await LoadIdentitiesAsync();
-            }
-            else
-            {
-                statusMessage = "No Entra identity link found.";
-                statusSuccess = false;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to disconnect Azure identity link for user {UserId}", currentUserId);
-            statusMessage = "Failed to disconnect. Please try again.";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        return UnlinkAsync("Azure", "Entra identity disconnected.");
     }
 
-    private async Task DisconnectAwsAsync()
+    private Task DisconnectAwsAsync()
     {
-        isProcessing = true;
-        statusMessage = null;
         confirmDisconnectAws = false;
-        try
-        {
-            var result = await AwsIdentityLinkService.DisconnectAsync(currentUserId);
-            if (result.LinkChangedDuringDisconnect)
-            {
-                // A reconnect raced this disconnect: the row was left in place because it had
-                // already been replaced by the time the delete ran.
-                // Reload so the card reflects whatever is actually connected now.
-                statusMessage = "Your AWS identity changed while disconnecting. Please try again.";
-                statusSuccess = false;
-                await LoadIdentitiesAsync();
-            }
-            else if (result.Deleted)
-            {
-                // Nothing to qualify. The link held an attested identity rather than a credential,
-                // so removing the row is the whole of disconnecting — there is nothing left live
-                // at AWS to warn about.
-                statusMessage = "AWS identity disconnected.";
-                statusSuccess = true;
-                await LoadIdentitiesAsync();
-            }
-            else
-            {
-                statusMessage = "No AWS identity link found.";
-                statusSuccess = false;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to disconnect AWS identity link for user {UserId}", currentUserId);
-            statusMessage = "Failed to disconnect. Please try again.";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        // The link held an attested identity rather than a credential, so removing it is the whole of
+        // disconnecting: there is nothing left live at AWS to warn about.
+        return UnlinkAsync("AWS", "AWS identity disconnected.");
     }
 }

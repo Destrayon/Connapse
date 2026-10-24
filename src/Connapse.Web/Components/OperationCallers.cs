@@ -28,6 +28,11 @@ public static class OperationCallers
         await operations.List.RunAsync(await authentication.OperationContextAsync(),
             new Connapse.Application.Links.ListAccountLinksQuery(CustomStatus: false));
 
+    /// <summary>Unlinks one of the signed-in person's accounts through links.unlink, from a component given the authentication state.</summary>
+    public static async Task<Attempt<Connapse.Application.Links.UnlinkAccountRequest, Connapse.Application.Links.AccountUnlinkStatus>> RunAsync(
+        this Connapse.Application.Links.UnlinkAccount unlink, AuthenticationState authentication, Connapse.Application.Links.UnlinkAccountRequest request) =>
+        await unlink.RunAsync(new OperationContext(authentication.User, OperationSurface.Ui), request);
+
     /// <summary>
     /// The sources already on a connection, read through sources.list, so a dialog can leave out what
     /// is already added; none when the caller may not list sources, who can't add one either.

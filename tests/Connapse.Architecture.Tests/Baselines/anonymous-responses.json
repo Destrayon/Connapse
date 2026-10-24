@@ -23,7 +23,6 @@
   "Endpoints/AuthEndpoints.cs: POST /api/v1/auth/token/refresh: 2",
   "Endpoints/AuthEndpoints.cs: PUT /api/v1/auth/users/{id:guid}/roles: 3",
   "Endpoints/BatchesEndpoints.cs: GET /api/batches/{id}/status: 2",
-  "Endpoints/CloudIdentityEndpoints.cs: DELETE /api/v1/auth/cloud/{provider}: 2",
   "Endpoints/ContainersEndpoints.cs: DELETE /api/containers/{containerId:guid}: 3",
   "Endpoints/ContainersEndpoints.cs: GET /api/containers/by-name/{name}: 1",
   "Endpoints/ContainersEndpoints.cs: GET /api/containers/{containerId:guid}/settings: 1",

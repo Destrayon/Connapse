@@ -12,7 +12,27 @@ declared slug has an entry here.
 ## forbidden
 
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
-changing needs Administrator.
+changing needs Administrator. Account links: reading needs a person or their own token with
+`knowledge:read`; unlinking needs the person signed in themselves, never a token.
+
+## invalid-link-provider
+
+Unlinking named a provider Connapse doesn't link accounts with. Built-in providers are `AWS`, `Azure`,
+`GitHub` and `Atlassian`; a custom provider is unlinked at `/api/v1/auth/custom/{providerId}`.
+
+## link-not-found
+
+The caller has no link to that provider, so there was nothing to unlink.
+
+## link-changed
+
+The AWS link was replaced by a new sign-in while it was being removed, so the new one was left in
+place. Look at what is linked now and try again.
+
+## link-provider-unavailable
+
+The custom provider's source server didn't remove the link, so the caller is still linked there. Nothing
+changed in Connapse; try again later.
 
 ## source-not-found
 

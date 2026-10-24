@@ -11,8 +11,6 @@
   "Pages.FileBrowser -> IDocumentStore",
   "Pages.FileBrowser -> IFolderStore",
   "Pages.Home -> IContainerStore",
-  "Pages.ProfileIntegrations -> AtlassianIdentityLinkStore",
-  "Pages.ProfileIntegrations -> GitHubIdentityLinkStore",
   "Pages.Providers -> ICustomProviderStore",
   "Pages.Providers -> IProviderCredentialStore",
   "Pages.Providers -> ISettingsStore",

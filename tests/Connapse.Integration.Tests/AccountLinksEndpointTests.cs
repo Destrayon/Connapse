@@ -61,6 +61,30 @@ public class AccountLinksEndpointTests(SharedWebAppFixture fixture)
         }
     }
 
+    // #866: unlinking runs through links.unlink; reading the links back shows it took.
+    [Fact]
+    public async Task UnlinkGitHub_RemovesTheLink_AndASecondUnlinkIsLinkNotFound()
+    {
+        Guid admin = AdminUserId();
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            await scope.ServiceProvider.GetRequiredService<GitHubIdentityLinkStore>().SaveAsync(admin, Random.Shared.NextInt64(1, long.MaxValue), "octo-unlink");
+        try
+        {
+            using (var unlinked = await fixture.AdminClient.DeleteAsync("/api/v1/auth/cloud/github"))
+                unlinked.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            Provider(await GetLinksAsync(fixture.AdminClient), "github").GetProperty("linked").GetBoolean().Should().BeFalse();
+
+            using var again = await fixture.AdminClient.DeleteAsync("/api/v1/auth/cloud/github");
+            again.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await again.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("type").GetString().Should().EndWith("#link-not-found");
+        }
+        finally
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<GitHubIdentityLinkStore>().DeleteAsync(admin);
+        }
+    }
+
     [Fact]
     public async Task ListLinks_TokenWithoutKnowledgeRead_IsRefused()
     {

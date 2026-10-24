@@ -14,4 +14,7 @@ public interface ICustomAccountLinks
 
     /// <summary>The user's link, read live from the provider's source server. Throws when it can't say.</summary>
     Task<CustomLinkStatus> StatusAsync(Guid providerId, Guid userId, CancellationToken ct);
+
+    /// <summary>Asks the provider's source server to remove the user's link. Throws when it doesn't.</summary>
+    Task UnlinkAsync(Guid providerId, Guid userId, CancellationToken ct);
 }

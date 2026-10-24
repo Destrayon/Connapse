@@ -1,12 +1,17 @@
 using System.Net;
+using System.Security.Claims;
 using Bunit;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Tests.Connectors;
+using Connapse.Identity.Data;
+using Connapse.Identity.Services;
 using Connapse.Web.Components.Shared;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Services;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -38,11 +43,28 @@ public class CustomProviderLinkCardTests : IDisposable
         var settings = Substitute.For<IOptionsMonitor<CustomSourceSettings>>();
         settings.CurrentValue.Returns(new CustomSourceSettings());
 
-        ctx.Services.AddSingleton(new CustomLinkService(store, http, settings, TimeProvider.System));
+        var links = new CustomLinkService(store, http, settings, TimeProvider.System);
+        ctx.Services.AddSingleton(links);
         ctx.Services.AddSingleton(audit);
+        AddUnlink(links);
+        ctx.AddAuthorization().SetAuthorized("user").SetClaims(new Claim(ClaimTypes.NameIdentifier, User.ToString()));
     }
 
     public void Dispose() => ctx.Dispose();
+
+    /// <summary>The real links.unlink, over this test's middle man; the built-in providers it never reaches are stand-ins.</summary>
+    private void AddUnlink(CustomLinkService links)
+    {
+        var authorizer = Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>();
+        authorizer.AllowsAsync(default!, default!).ReturnsForAnyArgs(true);
+        var identityDb = Substitute.For<IDbContextFactory<ConnapseIdentityDbContext>>();
+        ctx.Services.AddSingleton(new Connapse.Application.Links.UnlinkAccount(
+            Substitute.For<IAwsIdentityLinkService>(), Substitute.For<IAzureIdentityLinkService>(),
+            new GitHubIdentityLinkStore(identityDb, TimeProvider.System), new GitHubLinkFlow(new MemoryCache(new MemoryCacheOptions())),
+            new AtlassianIdentityLinkStore(identityDb, TimeProvider.System), new AtlassianLinkFlow(new MemoryCache(new MemoryCacheOptions())),
+            links, Substitute.For<IConnectorScopeCache>(), Substitute.For<ISourceStore>(), Substitute.For<IConnectionStore>(),
+            audit, authorizer));
+    }
 
     private IRenderedComponent<CustomProviderLinkCard> Render() =>
         ctx.Render<CustomProviderLinkCard>(p => p.Add(x => x.Provider, provider).Add(x => x.UserId, User));
