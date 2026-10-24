@@ -18,4 +18,13 @@ public static class OperationCallers
         failed(attempt.Detail ?? "That didn't work.");
         return fallback;
     }
+
+    /// <summary>
+    /// The sources already on a connection, read through sources.list, so a dialog can leave out what
+    /// is already added; none when the caller may not list sources, who can't add one either.
+    /// </summary>
+    public static async Task<IReadOnlyList<Connapse.Core.Source>> OnConnectionAsync(
+        this Connapse.Application.Sources.SourceOperations operations, AuthenticationStateProvider authentication, Guid connectionId) =>
+        (await operations.List.RunAsync(await authentication.OperationContextAsync(),
+            new Connapse.Application.Sources.ListSourcesQuery(ConnectionId: connectionId))).Result?.Items ?? [];
 }

@@ -127,4 +127,93 @@ public class SourceOperationTests
     }
 
     private UpdateSource Update() => new(_sources, _scopes, _audit, _authorizer);
+
+    private readonly IConnectionStore _connections = Substitute.For<IConnectionStore>();
+    private readonly ISourceCreateRules _createRules = Substitute.For<ISourceCreateRules>();
+
+    private CreateSource Create() => new(_sources, _connections, _createRules, _audit, _authorizer);
+
+    private Connection OnConnection()
+    {
+        var connection = new Connection(Guid.NewGuid(), "fs", ConnectionProvider.Filesystem, "{}", null, DateTime.UtcNow, DateTime.UtcNow);
+        _connections.GetAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(connection);
+        return connection;
+    }
+
+    [Fact]
+    public async Task Create_Secret_IsRefusedBeforeTheConnectionIsRead()
+    {
+        var created = await Create().RunAsync(Caller, new NewSource("docs", Guid.NewGuid(), Secret: "token"));
+
+        created.Status.Should().Be(SourceWriteStatus.Invalid);
+        created.Field.Should().Be("secret");
+        await _connections.DidNotReceiveWithAnyArgs().GetAsync(default);
+    }
+
+    [Fact]
+    public async Task Create_MissingConnection_IsInvalid()
+    {
+        var created = await Create().RunAsync(Caller, new NewSource("docs", Guid.NewGuid()));
+
+        created.Status.Should().Be(SourceWriteStatus.Invalid);
+        created.Detail.Should().StartWith("Connection ").And.EndWith(" not found");
+    }
+
+    [Theory]
+    [InlineData(ScopeRefusal.Invalid, SourceWriteStatus.Invalid)]
+    [InlineData(ScopeRefusal.Duplicate, SourceWriteStatus.Conflict)]
+    [InlineData(ScopeRefusal.Unavailable, SourceWriteStatus.Unavailable)]
+    public async Task Create_ProviderRefusal_MapsToItsStatusAndSavesNothing(ScopeRefusal refusal, SourceWriteStatus status)
+    {
+        var connection = OnConnection();
+        _createRules.CheckCreateAsync(connection, "{}", Arg.Any<CancellationToken>()).Returns(ScopeCheck.Refuse("no", "scopeId", refusal));
+
+        var created = await Create().RunAsync(Caller, new NewSource("docs", connection.Id, "{}"));
+
+        created.Status.Should().Be(status);
+        created.Field.Should().Be("scopeId");
+        await _sources.DidNotReceiveWithAnyArgs().CreateAsync(default!);
+    }
+
+    [Fact]
+    public async Task Create_NoNameOnAnAtlassianScope_TakesTheProvidersNameAndPassesItsWarningOn()
+    {
+        var connection = OnConnection();
+        _createRules.CheckCreateAsync(connection, "{}", Arg.Any<CancellationToken>())
+            .Returns(new ScopeCheck("{\"spaceId\":\"1\"}") { DefaultName = "acme ENG", Warning = "heads up" });
+        _sources.CreateAsync(Arg.Any<CreateSourceRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => Named(call.Arg<CreateSourceRequest>().Name));
+
+        var created = await Create().RunAsync(Caller, new NewSource(null, connection.Id, "{}"));
+
+        created.Result!.Source.Name.Should().Be("acme ENG");
+        created.Result.Warning.Should().Be("heads up");
+        await _sources.Received(1).CreateAsync(Arg.Is<CreateSourceRequest>(r => r.ScopeJson == "{\"spaceId\":\"1\"}"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Create_NameTaken_IsAConflict()
+    {
+        var connection = OnConnection();
+        _createRules.CheckCreateAsync(connection, "{}", Arg.Any<CancellationToken>()).Returns(new ScopeCheck("{}"));
+        _sources.GetByNameAsync("docs", Arg.Any<CancellationToken>()).Returns(Named("docs"));
+
+        var created = await Create().RunAsync(Caller, new NewSource("docs", connection.Id, "{}"));
+
+        created.Status.Should().Be(SourceWriteStatus.Conflict);
+        created.Detail.Should().Be("Source 'docs' already exists");
+    }
+
+    [Fact]
+    public async Task Delete_WrongNameTyped_IsInvalidAndDeletesNothing()
+    {
+        var source = Named("docs");
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+
+        var deleted = await new DeleteSource(_sources, _audit, _authorizer).RunAsync(Caller, source.Id, "doc");
+
+        deleted.Status.Should().Be(SourceWriteStatus.Invalid);
+        deleted.Field.Should().Be("confirmName");
+        await _sources.DidNotReceiveWithAnyArgs().DeleteAsync(default);
+    }
 }

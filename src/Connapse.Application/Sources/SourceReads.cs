@@ -21,9 +21,10 @@ public enum SourceReadStatus
 
 /// <summary>
 /// One page of sources. <see cref="Take"/> null means every source, which only the Sources page asks
-/// for; REST always names a page.
+/// for; REST always names a page. <see cref="ConnectionId"/> narrows the list to one connection's
+/// sources, all of them, as the New source dialog asks to know which scopes are already added.
 /// </summary>
-public sealed record ListSourcesQuery(int Skip = 0, int? Take = null);
+public sealed record ListSourcesQuery(int Skip = 0, int? Take = null, Guid? ConnectionId = null);
 
 /// <summary>
 /// Sources the caller may see, and whether they may see each one's diagnostics: a provider's failure
@@ -55,7 +56,9 @@ public sealed class ListSources(ISourceStore sources, ISourceVisibility visibili
             return Attempt<SourceList, SourceReadStatus>.Fail(SourceReadStatus.InvalidPage, $"take must be <= {MaxTake}");
 
         // One more than the page, to know whether another follows.
-        var listed = await sources.ListAsync(query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ct);
+        var listed = query.ConnectionId is Guid connectionId
+            ? await sources.ListByConnectionAsync(connectionId, ct)
+            : await sources.ListAsync(query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ct);
         bool hasMore = query.Take is int pageSize && listed.Count > pageSize;
         var page = hasMore ? listed.Take(query.Take!.Value) : listed;
 
