@@ -455,6 +455,11 @@
       "risk": "read",
       "scope": null
     },
+    "GET,POST /approvals": {
+      "requires": "user",
+      "risk": "write",
+      "scope": null
+    },
     "GET,POST /settings/tokens": {
       "requires": "user",
       "risk": "read",

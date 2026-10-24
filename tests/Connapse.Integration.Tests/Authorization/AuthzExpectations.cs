@@ -79,6 +79,7 @@ public static class AuthzExpectations
 
         return string.Join("+", named.Select(p => p switch
         {
+            "RequirePerson" => "user",
             "RequireViewer" => "viewer",
             "RequireEditor" => "editor",
             "RequireAdmin" => "admin",

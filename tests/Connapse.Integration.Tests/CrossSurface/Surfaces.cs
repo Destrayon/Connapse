@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol.Protocol;
@@ -35,14 +36,33 @@ public static partial class Surfaces
     /// <summary>The MCP server at /mcp, over the SDK's own client, in-process and signed in as the admin.</summary>
     public static Task<McpClient> McpAsync(SharedWebAppFixture fixture) => McpAsync(fixture, Principal.Admin);
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<SharedWebAppFixture, Lazy<Task<string>>> AdminPats = new();
+
+    private static async Task<string> NoApprovalAdminPatAsync(SharedWebAppFixture fixture)
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
+            new Connapse.Core.PatCreateRequest($"cross-surface-{Guid.NewGuid():N}", RequiresApproval: false));
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<Connapse.Core.PatCreateResponse>())!.Token;
+    }
+
     /// <summary>
     /// The MCP server as the given principal. /mcp refuses a principal outside its roles before
     /// any tool runs, so connecting throws; <see cref="McpRefusal"/> reads that as a result.
     /// </summary>
+    /// <remarks>
+    /// The admin connects over a PAT with approval off: these tests compare what each surface does with the
+    /// same call, and a session token holds every destructive call for a person to approve (#782).
+    /// McpApprovalTests and McpAuthorizationTests prove the hold itself.
+    /// </remarks>
     public static async Task<McpClient> McpAsync(SharedWebAppFixture fixture, Principal principal)
     {
         var http = fixture.Factory.CreateClient();
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await Principals.TokenAsync(fixture, principal));
+        if (principal == Principal.Admin)
+            http.DefaultRequestHeaders.Add(Connapse.Identity.Authentication.ApiKeyAuthenticationOptions.HeaderName,
+                await AdminPats.GetOrAdd(fixture, f => new Lazy<Task<string>>(() => NoApprovalAdminPatAsync(f))).Value);
+        else
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await Principals.TokenAsync(fixture, principal));
         var transport = new HttpClientTransport(
             new HttpClientTransportOptions
             {

@@ -1,0 +1,126 @@
+@page "/approvals"
+@attribute [Authorize(Policy = "RequirePerson")]
+@using Connapse.Application
+@using Connapse.Application.Approvals
+@inject ListMcpApprovals ListApprovals
+@inject DecideMcpApproval DecideApproval
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@rendermode InteractiveServer
+
+<PageTitle>Approvals - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="mb-4">
+        <h1 class="mb-1">
+            <span class="bi-shield-check me-2"></span>
+            Approvals
+        </h1>
+        <p class="text-muted mb-0">
+            Calls from your tokens that delete data wait here until you approve them.
+            Once approved, the agent repeats the same call within 15 minutes and it runs once.
+            @if (isAdmin)
+            {
+                <span class="ms-1">As an administrator you see everyone's requests.</span>
+            }
+        </p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show">
+            @statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        </div>
+    }
+
+    @if (pending.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body text-center py-5 text-muted">
+                <span class="bi-shield-check fs-2 d-block mb-2"></span>
+                Nothing is waiting for approval.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Tool</th>
+                            <th>Arguments</th>
+                            <th>Token</th>
+                            <th>Requested</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var request in pending)
+                        {
+                            <tr>
+                                <td class="align-middle fw-medium font-monospace">@request.ToolName</td>
+                                <td class="align-middle font-monospace small text-break">@request.ArgumentsSummary</td>
+                                <td class="align-middle text-muted small">@request.TokenKey</td>
+                                <td class="align-middle text-muted small">@request.CreatedAt.ToString("MMM dd, HH:mm") UTC</td>
+                                <td class="align-middle text-end text-nowrap">
+                                    <button class="btn btn-sm btn-danger me-1" disabled="@isProcessing"
+                                            @onclick="() => DecideAsync(request.Id, approve: true)">
+                                        Approve
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@isProcessing"
+                                            @onclick="() => DecideAsync(request.Id, approve: false)">
+                                        Deny
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<McpApprovalItem> pending = [];
+    private OperationContext caller = null!;
+    private bool isAdmin;
+    private bool isProcessing;
+    private string? statusMessage;
+    private bool statusSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        caller = new OperationContext(user, OperationSurface.Ui);
+        isAdmin = user.IsInRole("Owner") || user.IsInRole("Admin");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() =>
+        pending = (await ListApprovals.ExecuteAsync(caller)).Result ?? [];
+
+    private async Task DecideAsync(Guid id, bool approve)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            var outcome = await DecideApproval.ExecuteAsync(caller, id, approve);
+            (statusSuccess, statusMessage) = outcome.Status switch
+            {
+                McpApprovalOutcome.Success when approve => (true, "Approved. The agent can now repeat the call once, within 15 minutes."),
+                McpApprovalOutcome.Success => (true, "Denied. The call will not run."),
+                McpApprovalOutcome.NotPending => (false, "That request was already decided or has expired."),
+                _ => (false, "That request was not found."),
+            };
+            await LoadAsync();
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+}

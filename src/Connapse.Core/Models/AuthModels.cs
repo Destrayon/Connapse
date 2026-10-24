@@ -16,7 +16,8 @@ public record TokenResponse(
 public record RefreshTokenRequest(string RefreshToken);
 
 [ValidatableType]
-public record PatCreateRequest([Required, MaxLength(256)] string Name, string[]? Scopes = null, DateTime? ExpiresAt = null);
+/// <param name="RequiresApproval">Whether a high-impact MCP call from the token waits for a person to approve it. On unless turned off.</param>
+public record PatCreateRequest([Required, MaxLength(256)] string Name, string[]? Scopes = null, DateTime? ExpiresAt = null, bool RequiresApproval = true);
 
 public record PatCreateResponse(
     Guid Id,
@@ -34,7 +35,8 @@ public record PatListItem(
     DateTime CreatedAt,
     DateTime? ExpiresAt,
     DateTime? LastUsedAt,
-    bool IsRevoked);
+    bool IsRevoked,
+    bool RequiresApproval = true);
 
 public record UserListItem(
     Guid Id,
@@ -55,7 +57,8 @@ public record AssignRolesRequest(IReadOnlyList<string> Roles);
 
 public record CreateAgentRequest(string Name, string? Description = null);
 
-public record CreateAgentKeyRequest(string Name, string[]? Scopes = null, DateTime? ExpiresAt = null);
+/// <param name="RequiresApproval">Whether a high-impact MCP call from the key waits for a person to approve it. On unless turned off.</param>
+public record CreateAgentKeyRequest(string Name, string[]? Scopes = null, DateTime? ExpiresAt = null, bool RequiresApproval = true);
 
 public record SetAgentActiveRequest(bool IsActive);
 
@@ -67,7 +70,8 @@ public record AgentKeyListItem(
     DateTime CreatedAt,
     DateTime? ExpiresAt,
     DateTime? LastUsedAt,
-    bool IsRevoked);
+    bool IsRevoked,
+    bool RequiresApproval = true);
 
 public record AgentDto(
     Guid Id,
