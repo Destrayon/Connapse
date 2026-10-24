@@ -27,6 +27,11 @@ public class ScopeAuthorizationHandler : AuthorizationHandler<ScopeRequirement>
             return Task.CompletedTask;
         }
 
+        // A token issued with scopes is limited to them. Its principal also carries its owner's roles,
+        // and letting those imply scopes would give an Owner's knowledge:read token every scope (#782).
+        if (scopeClaims.Count > 0)
+            return Task.CompletedTask;
+
         // Check role-derived scopes (for cookie/JWT users)
         var roles = context.User.FindAll(ClaimTypes.Role).Select(c => c.Value);
         foreach (var role in roles)

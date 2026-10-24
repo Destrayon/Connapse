@@ -85,11 +85,6 @@
       "risk": "destructive",
       "scope": null
     },
-    "DELETE /mcp/": {
-      "requires": "mcp",
-      "risk": "write",
-      "scope": "knowledge:read"
-    },
     "GET /.well-known/oauth-authorization-server": {
       "requires": "anonymous",
       "risk": "read",
@@ -345,16 +340,6 @@
       "risk": "read",
       "scope": null
     },
-    "GET /mcp/": {
-      "requires": "mcp",
-      "risk": "write",
-      "scope": "knowledge:read"
-    },
-    "GET /mcp/sse": {
-      "requires": "mcp",
-      "risk": "write",
-      "scope": "knowledge:read"
-    },
     "GET /oauth/clients/cli.json": {
       "requires": "anonymous",
       "risk": "read",
@@ -468,6 +453,11 @@
     "GET,POST /settings": {
       "requires": "admin",
       "risk": "read",
+      "scope": null
+    },
+    "GET,POST /approvals": {
+      "requires": "user",
+      "risk": "write",
       "scope": null
     },
     "GET,POST /settings/tokens": {
@@ -656,11 +646,6 @@
       "scope": null
     },
     "POST /mcp/": {
-      "requires": "mcp",
-      "risk": "write",
-      "scope": "knowledge:read"
-    },
-    "POST /mcp/message": {
       "requires": "mcp",
       "risk": "write",
       "scope": "knowledge:read"

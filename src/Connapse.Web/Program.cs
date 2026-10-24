@@ -19,6 +19,7 @@ using Connapse.Storage.Vectors;
 using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
+using Connapse.Web.Mcp;
 using Connapse.Web.Problems;
 using Connapse.Core.Interfaces;
 using Connapse.Web;
@@ -124,10 +125,14 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
 })
 .WithHttpTransport()
 .WithToolsFromAssembly()
-.AddAuthorizationFilters();
+.AddAuthorizationFilters()
+.WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
+    context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)));
+builder.Services.AddScoped<Connapse.Web.Mcp.McpApprovalGate>();
 
 if (allowAnonDiscovery)
 {
+    builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, Connapse.Web.Mcp.AnonymousMcpDiscoveryHandler>();
     mcpBuilder.WithRequestFilters(filters =>
     {
         filters.AddCallToolFilter(next => async (context, ct) =>
@@ -356,6 +361,8 @@ app.Use(async (ctx, next) =>
 
 app.UseHttpsRedirection();
 app.UseCors();
+// Before authentication, so a rebinding page learns nothing about credentials (#846).
+app.UseMcpOriginValidation(app.Configuration);
 
 app.UseAuthentication();
 app.UseRateLimiter();

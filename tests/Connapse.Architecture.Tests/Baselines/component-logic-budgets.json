@@ -51,7 +51,7 @@
   "Pages/Admin/AgentManagement.razor": {
     "CodeLines": 206,
     "Injects": 3,
-    "Complexity": 28,
+    "Complexity": 27,
     "MarkupLogic": 31,
     "IsEmpty": false
   },
@@ -60,6 +60,13 @@
     "Injects": 6,
     "Complexity": 37,
     "MarkupLogic": 26,
+    "IsEmpty": false
+  },
+  "Pages/Approvals.razor": {
+    "CodeLines": 39,
+    "Injects": 3,
+    "Complexity": 9,
+    "MarkupLogic": 8,
     "IsEmpty": false
   },
   "Pages/Auth/Login.razor": {
@@ -128,7 +135,7 @@
   "Pages/PersonalTokens.razor": {
     "CodeLines": 111,
     "Injects": 3,
-    "Complexity": 24,
+    "Complexity": 23,
     "MarkupLogic": 29,
     "IsEmpty": false
   },

@@ -86,6 +86,12 @@
                         <input type="date" class="form-control" @bind="newTokenExpiry" />
                     </div>
                     <div class="col-md-auto">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="new-pat-approval" @bind="newTokenRequiresApproval" />
+                            <label class="form-check-label" for="new-pat-approval">Ask me before it deletes anything over MCP</label>
+                        </div>
+                    </div>
+                    <div class="col-md-auto">
                         <button class="btn btn-primary" @onclick="CreateTokenAsync"
                                 disabled="@isProcessing">
                             @if (isProcessing)
@@ -202,6 +208,7 @@
 @code {
     private string newTokenName = "";
     private DateTime? newTokenExpiry;
+    private bool newTokenRequiresApproval = true;
     private bool isProcessing;
     private bool showCreateForm;
     private bool showRevoked;
@@ -231,9 +238,7 @@
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (userIdStr is not null)
-            Guid.TryParse(userIdStr, out currentUserId);
+        Guid.TryParse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out currentUserId);
 
         await LoadTokensAsync();
     }
@@ -258,14 +263,15 @@
         {
             var request = new PatCreateRequest(
                 newTokenName.Trim(),
-                Scopes: null,
                 ExpiresAt: newTokenExpiry.HasValue
                     ? DateTime.SpecifyKind(newTokenExpiry.Value, DateTimeKind.Utc)
-                    : null);
+                    : null,
+                RequiresApproval: newTokenRequiresApproval);
 
             newTokenResponse = await PatService.CreateAsync(currentUserId, request);
             newTokenName = "";
             newTokenExpiry = null;
+            newTokenRequiresApproval = true;
             showCreateForm = false;
             await LoadTokensAsync();
         }
