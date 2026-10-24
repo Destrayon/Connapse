@@ -65,10 +65,23 @@ jobs:
           path: connapse-docker-${{ github.ref_name }}.zip
           retention-days: 1
 
-      # The REST API's shape at this tag. CommittedSpec_MatchesGenerated keeps the committed file
-      # equal to what the code generates, so the tagged copy is the release's API (#857).
-      - name: Stage the OpenAPI spec
-        run: cp docs/api/openapi.json connapse-openapi-${{ github.ref_name }}.json
+      # The REST API's shape at this tag (#857). A tag can point at a commit CI never checked, so the
+      # spec is generated from the tagged code and must match the committed copy before it ships.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Generate the OpenAPI spec
+        run: dotnet build src/Connapse.Web -c Release
+
+      - name: Check and stage the OpenAPI spec
+        run: |
+          if ! diff <(tr -d '\r' < docs/api/openapi.json) <(tr -d '\r' < src/Connapse.Web/obj/openapi/Connapse.Web.json) > /dev/null; then
+            echo "::error::docs/api/openapi.json differs from the spec the tagged code generates. Run 'dotnet build src/Connapse.Web -p:UpdateOpenApiSpec=true' and commit it."
+            exit 1
+          fi
+          cp src/Connapse.Web/obj/openapi/Connapse.Web.json connapse-openapi-${{ github.ref_name }}.json
 
       - name: Upload OpenAPI spec artifact
         uses: actions/upload-artifact@v4

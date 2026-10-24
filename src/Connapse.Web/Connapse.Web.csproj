@@ -60,6 +60,18 @@
     <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/obj/openapi</OpenApiDocumentsDirectory>
   </PropertyGroup>
 
+  <!--
+    GenerateOpenApiDocuments reruns only when Connapse.Web.dll changes. Endpoints' shapes also come from
+    referenced assemblies, so drop its cache when any of them is newer, and always when updating.
+  -->
+  <Target Name="RefreshOpenApiDocuments" BeforeTargets="GenerateOpenApiDocuments" Inputs="@(ReferencePath)" Outputs="$(_OpenApiDocumentsCache)">
+    <Delete Files="$(_OpenApiDocumentsCache)" />
+  </Target>
+
+  <Target Name="ForceOpenApiDocuments" BeforeTargets="GenerateOpenApiDocuments" Condition="'$(UpdateOpenApiSpec)' == 'true'">
+    <Delete Files="$(_OpenApiDocumentsCache)" />
+  </Target>
+
   <Target Name="UpdateOpenApiSpec" AfterTargets="GenerateOpenApiDocuments" Condition="'$(UpdateOpenApiSpec)' == 'true'">
     <Copy SourceFiles="$(OpenApiDocumentsDirectory)/Connapse.Web.json" DestinationFiles="$(MSBuildProjectDirectory)/../../docs/api/openapi.json" />
   </Target>

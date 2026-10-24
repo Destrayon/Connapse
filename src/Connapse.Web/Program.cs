@@ -36,6 +36,11 @@ Connapse.Core.Utilities.RegexTimeout.ApplyProcessDefault();
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The build runs this entry point to write the OpenAPI document (#857). It needs only the mapped
+// endpoints, so it must not touch the database, start background services or schedule jobs: a
+// build has no database.
+bool generatingOpenApiDocument = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
+
 // Serialize enums as strings in all Minimal API JSON responses and request bodies.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -63,7 +68,11 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Database connection string not found.");
 
-var dbSettingsProvider = builder.Configuration.AddDatabaseSettings(connectionString);
+// Loading this source reads the settings table, so OpenAPI generation keeps the provider in DI
+// (endpoints take it as a service) without adding it to configuration.
+var dbSettingsProvider = generatingOpenApiDocument
+    ? new DatabaseSettingsProvider(_ => { })
+    : builder.Configuration.AddDatabaseSettings(connectionString);
 
 // Register DatabaseSettingsProvider for settings reload
 builder.Services.AddSingleton(dbSettingsProvider);
@@ -284,10 +293,7 @@ builder.Services.AddCors(options =>
 // Remove default "Server: Kestrel" header from all responses
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
-// The build runs this entry point to write the OpenAPI document (#857). It needs only the mapped
-// endpoints, so it must not touch the database, start background services or schedule jobs: a
-// build has no database. The host still starts, which would construct every hosted service.
-bool generatingOpenApiDocument = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
+// Generating the OpenAPI document still starts the host, which would construct every hosted service.
 if (generatingOpenApiDocument)
     builder.Services.RemoveAll<IHostedService>();
 
