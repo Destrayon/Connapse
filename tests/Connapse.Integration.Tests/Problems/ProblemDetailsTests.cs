@@ -48,16 +48,24 @@ public class ProblemDetailsTests(SharedWebAppFixture fixture)
     public async Task Every4xx5xx_IsProblemJson()
     {
         var routes = ApiRoutes(fixture);
+        var table = AuthzExpectations.Table.Value.Routes;
+        var known = AuthzExpectations.KnownViolations.Value;
         var violations = new List<string>();
         int failures = 0;
 
-        async Task CheckAsync(HttpClient http, HttpRequestMessage request, string row)
+        // mustFail rows are failures by construction; one that answers below 400 means that row's
+        // failure path was never checked, so it is reported rather than skipped.
+        async Task CheckAsync(HttpClient http, HttpRequestMessage request, string row, bool mustFail)
         {
             using (request)
             using (var response = await http.SendAsync(request))
             {
                 if ((int)response.StatusCode < 400)
+                {
+                    if (mustFail)
+                        violations.Add($"{row}: expected a failure, got {(int)response.StatusCode}");
                     return;
+                }
                 failures++;
                 if (await NotAProblemAsync(response) is { } why)
                     violations.Add($"{row}: {(int)response.StatusCode} {why}");
@@ -69,13 +77,20 @@ public class ProblemDetailsTests(SharedWebAppFixture fixture)
             using var http = await AuthzPrincipals.ClientAsync(fixture, principal);
             foreach (var (key, endpoint) in routes)
             {
-                foreach (string method in Methods(endpoint))
+                var methods = Methods(endpoint);
+                foreach (string method in methods)
                 {
+                    // Refused unless the table lets this principal in, or the matrix already lists
+                    // the route as wrongly letting it in.
+                    string matrixRow = $"matrix {(methods.Count > 1 ? $"{key} via {method}" : key)} as {principal}";
+                    bool refused = table.TryGetValue(key, out var expectation)
+                        && !AuthzMatrixTests.ExpectedAllowed(principal, expectation)
+                        && !known.ContainsKey($"{matrixRow}: expects refused, got allowed");
                     var request = new HttpRequestMessage(new HttpMethod(method), AuthzMatrixTests.Fill(endpoint.RoutePattern.RawText!));
                     request.Headers.Add(AuthzProbe.RequestHeader, "1");
                     if (method is "POST" or "PUT" or "PATCH")
                         request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
-                    await CheckAsync(http, request, $"{key} via {method} as {principal}");
+                    await CheckAsync(http, request, $"{key} via {method} as {principal}", mustFail: refused);
                 }
             }
         }
@@ -92,16 +107,16 @@ public class ProblemDetailsTests(SharedWebAppFixture fixture)
                     {
                         Content = new StringContent("{ not json", Encoding.UTF8, "application/json"),
                     };
-                    await CheckAsync(owner, malformed, $"{key} via {method} with a malformed body");
+                    await CheckAsync(owner, malformed, $"{key} via {method} with a malformed body", mustFail: true);
                 }
                 else if (method == "GET" || (method == "DELETE" && OnlyIdParameters(endpoint)))
                 {
-                    await CheckAsync(owner, new HttpRequestMessage(new HttpMethod(method), path), $"{key} via {method} with unknown ids");
+                    await CheckAsync(owner, new HttpRequestMessage(new HttpMethod(method), path), $"{key} via {method} with unknown ids", mustFail: false);
                 }
             }
         }
 
-        await CheckAsync(owner, new HttpRequestMessage(HttpMethod.Get, "/api/v1/no-such-route"), "an unknown /api route");
+        await CheckAsync(owner, new HttpRequestMessage(HttpMethod.Get, "/api/v1/no-such-route"), "an unknown /api route", mustFail: true);
 
         failures.Should().BeGreaterThan(routes.Count, "the probes must actually fail requests, or the check proves nothing");
         violations.Should().BeEmpty();

@@ -150,8 +150,10 @@ public static class SettingsEndpoints
             }
             catch (Exception ex)
             {
+                // The exception's text can carry a connection string or an internal id; it stays in the log.
+                serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("SettingsEndpoints")
+                    .LogError(ex, "Updating settings failed");
                 return Results.Problem(
-                    detail: ex.Message,
                     statusCode: 500,
                     title: "Failed to update settings");
             }
@@ -174,6 +176,7 @@ public static class SettingsEndpoints
             [FromServices] AzureAIFoundryConnectionTester azureAIFoundryTester,
             [FromServices] VoyageConnectionTester voyageTester,
             [FromServices] MinioConnectionTester minioTester,
+            [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Category))
@@ -208,8 +211,9 @@ public static class SettingsEndpoints
             }
             catch (Exception ex)
             {
+                // The exception's text can carry a credential or an internal id; it stays in the log.
+                loggerFactory.CreateLogger("SettingsEndpoints").LogError(ex, "Connection test failed");
                 return Results.Problem(
-                    detail: ex.Message,
                     statusCode: 500,
                     title: "Connection test failed");
             }

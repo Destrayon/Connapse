@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Connapse.Core.Utilities;
+using Connapse.Web.Problems;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace Connapse.Web;
@@ -21,6 +22,28 @@ public static class RateLimitingExtensions
     public const string AuthPolicy = "auth";
     public const string ApiPolicy = "api";
     public const string McpPolicy = "mcp";
+
+    /// <summary>
+    /// The 429 body: a problem under /api, and the JSON error the OAuth and MCP endpoints have
+    /// always returned anywhere else, since those keep their protocols' error shapes.
+    /// </summary>
+    public static async Task WriteRejectionAsync(HttpContext http, CancellationToken cancellationToken)
+    {
+        const string detail = "Rate limit exceeded. Try again later.";
+        http.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        if (http.IsApiRequest())
+        {
+            await http.RequestServices.GetRequiredService<IProblemDetailsService>().WriteAsync(new ProblemDetailsContext
+            {
+                HttpContext = http,
+                ProblemDetails = { Status = StatusCodes.Status429TooManyRequests, Detail = detail },
+            });
+            return;
+        }
+
+        http.Response.ContentType = "application/json";
+        await http.Response.WriteAsJsonAsync(new { error = detail }, cancellationToken);
+    }
 
     public static IServiceCollection AddConnapseRateLimiting(
         this IServiceCollection services, IConfiguration configuration)
@@ -51,12 +74,7 @@ public static class RateLimitingExtensions
                     context.HttpContext.Connection.RemoteIpAddress,
                     LogSanitizer.Sanitize(context.HttpContext.Request.Path.Value));
 
-                var problems = context.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
-                await problems.WriteAsync(new ProblemDetailsContext
-                {
-                    HttpContext = context.HttpContext,
-                    ProblemDetails = { Status = StatusCodes.Status429TooManyRequests, Detail = "Rate limit exceeded. Try again later." },
-                });
+                await WriteRejectionAsync(context.HttpContext, cancellationToken);
             };
 
             // Auth policy: strict per-IP limit for anonymous auth endpoints (login, register, token)
