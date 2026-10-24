@@ -41,6 +41,10 @@ public class SourceScopeTests
             """{"kind":"confluence-space","spaceId":"98306","spaceKey":"DOCS","spaceName":"Docs","includeAttachments":false,"maxAttachmentMb":10}""",
             new ConfluenceSpaceScope("98306", "DOCS", "Docs", false, 10) },
         { ConnectionProvider.Custom, """{"baseUrl":"https://cs.example.com","scopeId":"team-a"}""", new CustomSourceScope("https://cs.example.com", "team-a") },
+        { ConnectionProvider.Custom, """{"BaseUrl":"https://cs.example.com","ScopeId":"team-a"}""", new CustomSourceScope("https://cs.example.com", "team-a") },
+        { ConnectionProvider.GitHub, """{"owner":"acme","repo":"handbook","host":"GitHub.com"}""", new GitHubRepositoryScope("acme", "handbook", GitHubContentKind.Docs) },
+        // The factory reads a host that isn't a string as github.com.
+        { ConnectionProvider.GitHub, """{"owner":"acme","repo":"handbook","host":7}""", new GitHubRepositoryScope("acme", "handbook", GitHubContentKind.Docs) },
         { ConnectionProvider.S3, """{"bucketName":"docs","legacyFlag":true,"notes":{"by":"admin"}}""", new S3BucketScope("docs") },
     };
 
@@ -64,6 +68,10 @@ public class SourceScopeTests
     [InlineData(ConnectionProvider.GitHub, """{"owner":"acme","repo":"r","kind":"Wiki"}""")]
     [InlineData(ConnectionProvider.Atlassian, """{"kind":"jira-project"}""")]
     [InlineData(ConnectionProvider.Atlassian, """{"kind":"trello-board","boardId":"1"}""")]
+    // The connector factory refuses each of these, so none of them names a scope.
+    [InlineData(ConnectionProvider.GitHub, """{"owner":"acme","repo":"r","host":"ghe.example.com"}""")]
+    [InlineData(ConnectionProvider.Atlassian, """{"spaceId":"98306","spaceKey":"DOCS"}""")]
+    [InlineData(ConnectionProvider.Atlassian, """{"kind":"Confluence-Space","spaceId":"98306"}""")]
     [InlineData(ConnectionProvider.Custom, """{"baseUrl":"https://cs.example.com"}""")]
     public void Read_RowNotNamingAScope_IsNullRatherThanThrowing(ConnectionProvider provider, string stored)
     {

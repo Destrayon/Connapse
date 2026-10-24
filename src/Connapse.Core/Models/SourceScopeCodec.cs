@@ -12,6 +12,7 @@ public static class SourceScopeCodec
 {
     private const string JiraKind = "jira-project";
     private const string ConfluenceKind = "confluence-space";
+    private const string GitHubHost = "github.com";
 
     private static readonly JsonSerializerOptions Api = new(JsonSerializerDefaults.Web);
 
@@ -32,7 +33,11 @@ public static class SourceScopeCodec
     /// The typed scope a stored row holds, or null when the JSON doesn't name a scope of the provider's
     /// kind; such a row is left to the connector, which says what is wrong with it.
     /// </summary>
-    /// <remarks>Each member is read the way the connector factory reads it, so a row means here what it means to the sync.</remarks>
+    /// <remarks>
+    /// Each member is read the way the connector factory reads it, so a row means here what it means to the
+    /// sync. Where other readers are looser (an Atlassian <c>kind</c> in another case, a kindless Confluence
+    /// row), the factory refuses the row, so this does too.
+    /// </remarks>
     public static SourceScope? Read(ConnectionProvider provider, string? storedJson)
     {
         if (Parse(storedJson) is not { } o)
@@ -57,9 +62,8 @@ public static class SourceScopeCodec
                     : null,
                 _ => null,
             },
-            ConnectionProvider.Custom => NonBlank(o, "baseUrl") is { } baseUrl && NonBlank(o, "scopeId") is { } scopeId
-                ? new CustomSourceScope(baseUrl, scopeId)
-                : null,
+            // The connector reads a custom scope with CustomSourceScope.TryParse, whose member names ignore case.
+            ConnectionProvider.Custom => CustomSourceScope.TryParse(storedJson),
             _ => null,
         };
     }
@@ -88,6 +92,11 @@ public static class SourceScopeCodec
     private static GitHubRepositoryScope? ReadGitHub(JsonObject o)
     {
         if (NonBlank(o, "owner") is not { } owner || NonBlank(o, "repo") is not { } repo)
+            return null;
+
+        // The connector reads only github.com, and refuses a row naming any other host. The host isn't
+        // modeled, since there is only one, so a stored one is kept as it is.
+        if (!string.Equals(Str(o, "host") ?? GitHubHost, GitHubHost, StringComparison.OrdinalIgnoreCase))
             return null;
 
         // A scope from before content kinds were stored is the repository's docs.
