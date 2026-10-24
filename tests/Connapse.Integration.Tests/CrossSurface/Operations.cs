@@ -25,6 +25,9 @@ public static class Case
 /// </summary>
 public sealed record CaseContext(string ContainerId, string ContainerName, IReadOnlyList<(string Id, string Name)> Files)
 {
+    /// <summary>The case's own source, named after its container, for the Sources operations.</summary>
+    public SourceCase? Source { get; init; }
+
     public string FileId => Files[0].Id;
     public string FileName => Files[0].Name;
 
@@ -53,6 +56,9 @@ public sealed record Operation(
 {
     public IReadOnlyDictionary<string, string> AbsentReasons { get; init; } = new Dictionary<string, string>();
 
+    /// <summary>Whether the case needs its own source (on its own filesystem connection) as well as its container.</summary>
+    public bool ArrangesSource { get; init; }
+
     /// <summary>Who runs a case: a Viewer for an under-scoped write, a user with no role for an under-scoped read, the admin otherwise.</summary>
     public Principal PrincipalFor(string @case) =>
         @case != Case.UnderScoped ? Principal.Admin : Writes ? Principal.Viewer : Principal.NoRole;
@@ -78,7 +84,7 @@ public static partial class Operations
     private const string Query = "harness";
 
     /// <summary>Every operation: the container ones here, and the file and search ones in Operations.Files.cs.</summary>
-    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations];
+    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations, .. SourceOperations];
 
     private static readonly Operation[] ContainerOperations =
     [
@@ -218,6 +224,8 @@ public static partial class Operations
         if (operation.Name == "container_delete" && @case == Case.Preflight)
             files.Add(await UploadAsync(fixture, id, "keep.txt"));
         var context = new CaseContext(id, name, files);
+        if (operation.ArrangesSource)
+            context = context with { Source = await ArrangeSourceAsync(fixture, name) };
         if (operation.WaitForIngestion && @case is Case.Valid or Case.UnderScoped)
             foreach (var (fileId, _) in files)
                 await WaitForReadyAsync(fixture, id, fileId);
@@ -252,6 +260,8 @@ public static partial class Operations
     /// </summary>
     public static async Task CleanupAsync(SharedWebAppFixture fixture, CaseContext c)
     {
+        if (c.Source is { } source)
+            await CleanupSourceAsync(fixture, source);
         IReadOnlyList<Connapse.Core.Document> documents;
         foreach (string name in new[] { c.ContainerName, NewName(c, Case.Valid), NewName(c, Case.UnderScoped) })
         {

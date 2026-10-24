@@ -83,7 +83,8 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
                 async () => await driver(fixture, context, principal, @case) ?? "absent",
                 sp => operation.Project(sp, context),
                 new Dictionary<string, string> { [context.ContainerName] = "{name}" },
-                knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown],
+                knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown,
+                    .. context.Source is { } source ? [source.Id.ToString(), source.ConnectionId.ToString()] : Array.Empty<string>()],
                 responseIds: ResponseIds(operation, context));
         }
         finally
