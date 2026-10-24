@@ -44,7 +44,7 @@ public sealed record SftpFolderScope(
 public sealed record GitHubRepositoryScope(
     string Owner,
     string Repo,
-    GitHubContentKind Kind,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<GitHubContentKind>))] GitHubContentKind Kind,
     long? RepoId = null,
     bool Private = false,
     IReadOnlyList<string>? IncludePatterns = null,
