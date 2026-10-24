@@ -119,7 +119,7 @@ jobs:
         mkdir -p walls
         filter=$(python3 .github/scripts/shard_tests.py --project tests/Connapse.Integration.Tests --shards 3 --index ${{ matrix.shard }} \
           --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)" \
-          --timings .github/test-timings/integration-tests.json --strategy timed \
+          --timings .github/test-timings/integration-tests.json --strategy name \
           --summary "$GITHUB_STEP_SUMMARY" --predicted-out walls/integration-${{ matrix.shard }}.predicted)
         start=$(date +%s)
         set +e
