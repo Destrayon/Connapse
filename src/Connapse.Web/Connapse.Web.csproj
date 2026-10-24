@@ -5,6 +5,7 @@
     <ProjectReference Include="..\Connapse.Ingestion\Connapse.Ingestion.csproj" />
     <ProjectReference Include="..\Connapse.Search\Connapse.Search.csproj" />
     <ProjectReference Include="..\Connapse.Agents\Connapse.Agents.csproj" />
+    <ProjectReference Include="..\Connapse.Application\Connapse.Application.csproj" />
     <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
     <ProjectReference Include="..\Connapse.Identity\Connapse.Identity.csproj" />
     <ProjectReference Include="..\Connapse.Background\Connapse.Background.csproj" />
