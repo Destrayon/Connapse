@@ -119,13 +119,25 @@ public class SourceOperationTests
     {
         var source = Named("custom");
         _sources.UpdateAsync(source.Id, Arg.Any<UpdateSourceRequest>(), Arg.Any<CancellationToken>())
-            .Returns<Source?>(_ => throw new InvalidOperationException("A source with the name 'taken' already exists."));
+            .Returns<Source?>(_ => throw new DuplicateSourceNameException("A source with the name 'taken' already exists."));
 
         var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Name: "taken"));
 
         updated.Status.Should().Be(SourceWriteStatus.Conflict);
         updated.Field.Should().Be("name");
         await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task Update_StoreFailsForAnotherReason_IsNotTurnedIntoAConflict()
+    {
+        var source = Named("custom");
+        _sources.UpdateAsync(source.Id, Arg.Any<UpdateSourceRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Source?>(_ => throw new InvalidOperationException("Npgsql: connection to 10.0.0.5:5432 refused"));
+
+        Func<Task> update = () => Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Name: "renamed"));
+
+        await update.Should().ThrowAsync<InvalidOperationException>();
     }
 
     [Fact]

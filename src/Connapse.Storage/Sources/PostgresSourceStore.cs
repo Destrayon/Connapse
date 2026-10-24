@@ -255,7 +255,7 @@ public class PostgresSourceStore(
             string name = request.Name.Trim();
             // Refused here rather than by the unique index, which would surface as a server error.
             if (name != entity.Name && await context.Sources.AnyAsync(s => s.Id != id && s.Name == name, ct))
-                throw new InvalidOperationException($"A source with the name '{name}' already exists.");
+                throw new DuplicateSourceNameException($"A source with the name '{name}' already exists.");
             entity.Name = name;
         }
 

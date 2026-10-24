@@ -78,9 +78,9 @@ public sealed class UpdateSource(ISourceStore sources, ISourceScopeRules scopes,
         {
             updated = await sources.UpdateAsync(sourceId, request, ct);
         }
-        catch (InvalidOperationException ex)
+        catch (DuplicateSourceNameException ex)
         {
-            // The store's duplicate-name refusal, as on create.
+            // Only the store's duplicate-name refusal: any other failure is not the caller's and its text stays out of the answer.
             return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Conflict, ex.Message, "name");
         }
         if (updated is null)
