@@ -10,7 +10,8 @@ RUN dotnet restore src/Connapse.Web/Connapse.Web.csproj
 
 # Copy remaining files and publish
 COPY . .
-RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore
+# The OpenAPI document is committed at docs/api/openapi.json (#857); the image doesn't need it.
+RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore -p:OpenApiGenerateDocuments=false
 
 # The publish is portable, so it carries native libraries for every platform its packages ship
 # (ONNX Runtime, SkiaSharp, PDFium, libgit2): Windows, macOS, Android and iOS among them, ~700 MB.

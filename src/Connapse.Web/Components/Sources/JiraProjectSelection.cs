@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Connapse.Core;
 using Connapse.Web.Services;
 
@@ -99,16 +98,13 @@ public sealed class JiraProjectSelection : AtlassianSourceSelection<JiraProjectI
     }
 
     public static string ScopeJson(JiraProjectInfo project, bool includeAttachments, int maxAttachmentMb) =>
-        JsonSerializer.Serialize(new
-        {
-            kind = Kind,
-            projectId = project.Id,
-            projectKey = project.Key,
+        SourceScopeCodec.Write(new JiraProjectScope(
+            project.Id,
+            project.Key,
             // Shown on the source's edit page; the connector reads the project's current name itself.
-            projectName = project.Name,
+            project.Name,
             includeAttachments,
-            maxAttachmentMb = StorableMaxAttachmentMb(maxAttachmentMb),
-        });
+            StorableMaxAttachmentMb(maxAttachmentMb)));
 
     /// <summary>The project ids that already have a source, from the scopes of a connection's sources.</summary>
     public static HashSet<string> ProjectIdsOf(IEnumerable<Source> sources) => IdsOf(sources, "projectId");

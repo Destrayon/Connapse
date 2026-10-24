@@ -20,6 +20,13 @@
     </PackageReference>
     <PackageReference Include="ModelContextProtocol" Version="2.1.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.1.0" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
+    <!-- Microsoft.AspNetCore.OpenApi brings 2.0.0, which has GHSA-v5pm-xwqc-g5wc; 2.7.5 is the first fixed 2.x. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.7">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <PropertyGroup>
@@ -42,6 +49,31 @@
   -->
   <Target Name="PublishParserHostDeps" AfterTargets="Publish">
     <Copy SourceFiles="$(OutDir)Connapse.ParserHost.deps.json" DestinationFolder="$(PublishDir)" />
+  </Target>
+
+  <!--
+    The build writes the REST API's OpenAPI document here (#857); CommittedSpec_MatchesGenerated
+    compares it with docs/api/openapi.json. After an intended API change, update the committed copy:
+      dotnet build src/Connapse.Web -p:UpdateOpenApiSpec=true
+  -->
+  <PropertyGroup>
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/obj/openapi</OpenApiDocumentsDirectory>
+  </PropertyGroup>
+
+  <!--
+    GenerateOpenApiDocuments reruns only when Connapse.Web.dll changes. Endpoints' shapes also come from
+    referenced assemblies, so drop its cache when any of them is newer, and always when updating.
+  -->
+  <Target Name="RefreshOpenApiDocuments" BeforeTargets="GenerateOpenApiDocuments" Inputs="@(ReferencePath)" Outputs="$(_OpenApiDocumentsCache)">
+    <Delete Files="$(_OpenApiDocumentsCache)" />
+  </Target>
+
+  <Target Name="ForceOpenApiDocuments" BeforeTargets="GenerateOpenApiDocuments" Condition="'$(UpdateOpenApiSpec)' == 'true'">
+    <Delete Files="$(_OpenApiDocumentsCache)" />
+  </Target>
+
+  <Target Name="UpdateOpenApiSpec" AfterTargets="GenerateOpenApiDocuments" Condition="'$(UpdateOpenApiSpec)' == 'true'">
+    <Copy SourceFiles="$(OpenApiDocumentsDirectory)/Connapse.Web.json" DestinationFiles="$(MSBuildProjectDirectory)/../../docs/api/openapi.json" />
   </Target>
 
 </Project>

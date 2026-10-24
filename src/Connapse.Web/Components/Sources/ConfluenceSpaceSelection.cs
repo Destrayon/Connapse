@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Connapse.Core;
 using Connapse.Web.Services;
 
@@ -104,16 +103,13 @@ public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection<Confluen
     protected override void CopyOptionsTo(ConfluenceSpaceSelection copy) => copy.IncludePersonal = IncludePersonal;
 
     public static string ScopeJson(ConfluenceSpaceInfo space, bool includeAttachments, int maxAttachmentMb) =>
-        JsonSerializer.Serialize(new
-        {
-            kind = "confluence-space",
-            spaceId = space.Id,
-            spaceKey = space.Key,
+        SourceScopeCodec.Write(new ConfluenceSpaceScope(
+            space.Id,
+            space.Key,
             // Shown on the source's edit page; the connector reads the space's current name itself.
-            spaceName = space.Name,
+            space.Name,
             includeAttachments,
-            maxAttachmentMb = StorableMaxAttachmentMb(maxAttachmentMb),
-        });
+            StorableMaxAttachmentMb(maxAttachmentMb)));
 
     /// <summary>The space ids that already have a source, from the scopes of a connection's sources.</summary>
     public static HashSet<string> SpaceIdsOf(IEnumerable<Source> sources) => IdsOf(sources, "spaceId");
