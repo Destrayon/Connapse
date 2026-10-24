@@ -1,5 +1,8 @@
+import contextlib
+import io
 import json
 import os
+import sys
 import tempfile
 import unittest
 
@@ -46,6 +49,30 @@ class CompareTests(unittest.TestCase):
 
     def test_a_listed_violation_not_exercised_is_only_reported(self):
         self.assertEqual(spec_conformance.compare(set(), {}, {self.K: "why"}), ([], [], [self.K]))
+
+
+class MainTests(unittest.TestCase):
+    def run_main(self, directory: str, expect: int) -> int:
+        known = write(directory, "known.json", {})
+        argv = sys.argv
+        sys.argv = ["spec_conformance.py", "--reports", os.path.join(directory, "spec-conformance-*.json"),
+                    "--known", known, "--expect-reports", str(expect)]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return spec_conformance.main()
+        finally:
+            sys.argv = argv
+
+    def test_a_shard_that_did_not_report_fails_the_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "spec-conformance-a.json", {"seen": [], "violations": {}})
+            self.assertEqual(self.run_main(d, expect=3), 1)
+
+    def test_every_shard_reporting_and_nothing_new_passes(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name in "abc":
+                write(d, f"spec-conformance-{name}.json", {"seen": ["GET /api/x 200"], "violations": {}})
+            self.assertEqual(self.run_main(d, expect=3), 0)
 
 
 if __name__ == "__main__":

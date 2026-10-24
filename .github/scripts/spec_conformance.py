@@ -47,11 +47,14 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--reports", required=True, help="glob of the shards' spec-conformance-*.json files")
     p.add_argument("--known", required=True, help="the exact-match list of today's violations")
+    p.add_argument("--expect-reports", type=int, required=True, help="how many shards must have reported")
     a = p.parse_args()
 
     paths = sorted(glob.glob(a.reports, recursive=True))
-    if not paths:
-        print("::error::no integration shard reported its responses; a check that measures nothing proves nothing")
+    # Every shard must report: a missing one would leave its violations unchecked and its entries
+    # reading as merely unexercised.
+    if len(paths) != a.expect_reports:
+        print(f"::error::{len(paths)} shard report(s), expected {a.expect_reports}; a shard that didn't report wasn't checked")
         return 1
 
     seen, violations = merge(paths)

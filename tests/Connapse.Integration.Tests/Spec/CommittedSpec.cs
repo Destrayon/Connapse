@@ -47,14 +47,19 @@ internal sealed partial class CommittedSpec
             is not JsonObject response)
             return "status not in the spec";
 
-        string? mediaType = contentType?.Split(';')[0].Trim().ToLowerInvariant();
-        if (body.Length == 0 || mediaType is null || !(mediaType == "application/json" || mediaType.EndsWith("+json", StringComparison.Ordinal)))
+        // No body has nothing to check: a response's content is never required.
+        if (body.Length == 0)
             return null;
-
         if (response["content"] is not JsonObject content || content.Count == 0)
             return "body not described";
-        if ((content[mediaType] ?? content["application/json"]) is not JsonObject media || media["schema"] is not JsonNode schemaNode)
+
+        // A body must come as one of the media types the spec lists for the response, exactly.
+        string? mediaType = contentType?.Split(';')[0].Trim().ToLowerInvariant();
+        if (mediaType is null || content[mediaType] is not JsonObject media)
             return "media type not in the spec";
+        bool json = mediaType == "application/json" || mediaType.EndsWith("+json", StringComparison.Ordinal);
+        if (!json || media["schema"] is not JsonNode schemaNode)
+            return null;
 
         var schema = _schemas.GetOrAdd($"{operationKey} {status} {mediaType}", _ =>
         {

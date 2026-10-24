@@ -208,7 +208,7 @@ jobs:
     # docs/api/openapi.json, compared exactly with the list of today's violations.
     - name: Check responses against the committed spec
       if: success() || failure()
-      run: python3 .github/scripts/spec_conformance.py --reports "**/spec-conformance-*.json" --known tests/Connapse.Integration.Tests/Spec/known-spec-violations.json
+      run: python3 .github/scripts/spec_conformance.py --reports "**/spec-conformance-*.json" --known tests/Connapse.Integration.Tests/Spec/known-spec-violations.json --expect-reports 3
 
     # Every tier is checked even if another fails, and every test project must have reported. The
     # Medium tier's wall time is its slowest job's, since the jobs run side by side.

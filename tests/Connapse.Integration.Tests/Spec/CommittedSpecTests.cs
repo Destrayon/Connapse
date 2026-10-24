@@ -76,6 +76,19 @@ public sealed class CommittedSpecTests : IDisposable
         Check("POST", "/api/shapes/", 204, "application/json", "{}").Should().Be("body not described");
 
     [Fact]
+    public void Check_BodyInAMediaTypeTheResponseDoesNotList_IsReported()
+    {
+        Check("GET", "/api/things/{id}", 200, "text/plain", "a").Should().Be("media type not in the spec");
+        Check("GET", "/api/things/{id}", 200, null, "a").Should().Be("media type not in the spec");
+        Check("GET", "/api/things/{id}", 404, "application/json", """{"title":"x"}""").Should().Be("media type not in the spec",
+            "a problem documented as application/problem+json isn't application/json");
+    }
+
+    [Fact]
+    public void Check_EmptyBody_HasNothingToCheck() =>
+        Check("GET", "/api/things/{id}", 200, null, "").Should().BeNull();
+
+    [Fact]
     public void Check_DiscriminatedSchema_ValidatesTheChosenShape()
     {
         Check("POST", "/api/shapes", 201, "application/json", """{"type":"square","side":2}""").Should().BeNull();
