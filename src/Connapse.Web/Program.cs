@@ -98,6 +98,7 @@ builder.Services.AddSingleton<IIngestionStateBroadcaster, IngestionProgressBroad
 // that nothing called into it at runtime; the sync-now route is that caller.
 builder.Services.AddSingleton<SourceSyncService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SourceSyncService>());
+builder.Services.AddSingleton<Connapse.Application.Ports.ISourceSync>(sp => sp.GetRequiredService<SourceSyncService>());
 
 // Carries an existing deployment's per-user permissions across the upgrade that separated
 // "enforcing" from "configured". Without it, an installation that already had filtering working
@@ -169,6 +170,10 @@ builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
 builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
 builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
+builder.Services.AddScoped<Connapse.Application.Ports.ISourceVisibility>(sp => sp.GetRequiredService<Connapse.Web.Services.PrivateSourceVisibility>());
+builder.Services.AddScoped<Connapse.Application.Ports.IOperationAuthorizer, Connapse.Web.Services.OperationAuthorizer>();
+builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
+builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
 builder.Services.AddScoped<Connapse.Web.Services.GitHubAppUsage>();
 

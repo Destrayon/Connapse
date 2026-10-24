@@ -20,10 +20,21 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
     private static readonly string[] SurfaceOrder = ["rest", "mcp", "ui"];
     private static readonly ConcurrentDictionary<string, Task<Outcome>> References = new(StringComparer.Ordinal);
 
-    public static TheoryData<string, string, string> Rows()
+    /// <summary>The container, file and search rows; the Sources rows run from <see cref="SourcesSameOutcomeTests"/>.</summary>
+    public static TheoryData<string, string, string> Rows() => RowsOf(o => !IsSources(o));
+
+    /// <summary>
+    /// The Sources rows (#835), in a class of their own so CI's class shards can put them beside the
+    /// rest rather than lengthen this class's shard.
+    /// </summary>
+    public static TheoryData<string, string, string> SourceRows() => RowsOf(IsSources);
+
+    private static bool IsSources(Operation operation) => operation.Name.StartsWith("sources_", StringComparison.Ordinal);
+
+    private static TheoryData<string, string, string> RowsOf(Func<Operation, bool> which)
     {
         var rows = new TheoryData<string, string, string>();
-        foreach (var operation in Operations.All)
+        foreach (var operation in Operations.All.Where(which))
             foreach (string @case in operation.Cases)
                 foreach (string surface in SurfaceOrder.Where(s => s != ReferenceSurface(operation)))
                     rows.Add(operation.Name, @case, surface);
@@ -32,12 +43,16 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
 
     [Theory]
     [MemberData(nameof(Rows))]
-    public async Task Operation_SameCase_SameOutcomeOnEverySurface(string operationName, string @case, string surface)
+    public Task Operation_SameCase_SameOutcomeOnEverySurface(string operationName, string @case, string surface) =>
+        CheckAsync(fixture, operationName, @case, surface);
+
+    /// <summary>One row: the surface's outcome against the reference surface's, or against its listed divergence.</summary>
+    internal static async Task CheckAsync(SharedWebAppFixture fixture, string operationName, string @case, string surface)
     {
         var operation = Operations.All.Single(o => o.Name == operationName);
         string reference = ReferenceSurface(operation);
-        var expected = await References.GetOrAdd($"{operationName}/{@case}", _ => RunAsync(operation, @case, reference));
-        var actual = await RunAsync(operation, @case, surface);
+        var expected = await References.GetOrAdd($"{operationName}/{@case}", _ => RunAsync(fixture, operation, @case, reference));
+        var actual = await RunAsync(fixture, operation, @case, surface);
 
         string key = $"{operationName}/{@case}/{surface}";
         bool agrees = actual.Equals(expected);
@@ -47,8 +62,11 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
                 $"{key} is listed as diverging ({reason}), but it now matches {reference}. Delete its entry from known-divergences.json.\n{actual}");
             // Pinned to the recorded divergence, not just any: a different mismatch on a listed row
             // (the audit gap fixed but the description now saved wrong) changes this snapshot.
+            // Named for this class and test wherever the row runs, so a row moving class keeps its snapshot.
             await Verify(new { Reason = reason, Reference = expected, Surface = actual })
-                .UseDirectory("Snapshots/Divergences").UseParameters(operationName, @case, surface);
+                .UseDirectory("Snapshots/Divergences")
+                .UseTypeName(nameof(SameOutcomeTests)).UseMethodName(nameof(Operation_SameCase_SameOutcomeOnEverySurface))
+                .UseParameters(operationName, @case, surface);
         }
         else
             agrees.Should().BeTrue(
@@ -59,7 +77,7 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
     [Fact]
     public void KnownDivergences_NameOnlyRowsThatExist()
     {
-        var rows = Rows().Select(r => $"{r[0]}/{r[1]}/{r[2]}").ToHashSet(StringComparer.Ordinal);
+        var rows = RowsOf(_ => true).Select(r => $"{r[0]}/{r[1]}/{r[2]}").ToHashSet(StringComparer.Ordinal);
 
         KnownDivergences.Value.Keys.Where(k => !rows.Contains(k)).Should().BeEmpty("every entry must name a row the theory runs");
         KnownDivergences.Value.Values.Should().OnlyContain(r => r.Length > 0, "every entry says why");
@@ -68,7 +86,7 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
     /// <summary>REST is the reference; an operation REST lacks is compared against MCP, and REST's absence is a row of its own.</summary>
     private static string ReferenceSurface(Operation operation) => SurfaceOrder.First(s => operation.DriverFor(s) is not null);
 
-    private async Task<Outcome> RunAsync(Operation operation, string @case, string surface)
+    private static async Task<Outcome> RunAsync(SharedWebAppFixture fixture, Operation operation, string @case, string surface)
     {
         var driver = operation.DriverFor(surface);
         if (driver is null)
@@ -82,8 +100,9 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
             outcome = await SideEffects.CaptureAsync(fixture,
                 async () => await driver(fixture, context, principal, @case) ?? "absent",
                 sp => operation.Project(sp, context),
-                new Dictionary<string, string> { [context.ContainerName] = "{name}" },
-                knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown],
+                Placeholders(context),
+                knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown,
+                    .. context.Source is { } source ? [source.Id.ToString(), source.ConnectionId.ToString()] : Array.Empty<string>()],
                 responseIds: ResponseIds(operation, context));
         }
         finally
@@ -99,8 +118,24 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
         return outcome with
         {
             Audit = outcome.Audit.Select(Mask).ToList(),
-            Jobs = outcome.Jobs.Select(Mask).ToList(),
+            // A synced file's path uses the OS separator ({root}\doc.txt on Windows, {root}/doc.txt on Linux CI).
+            Jobs = outcome.Jobs.Select(Mask).Select(j => j.Replace("{root}\\\\", "{root}/", StringComparison.Ordinal)).ToList(),
         };
+    }
+
+    /// <summary>
+    /// Per-case values written into results, audit rows and jobs: the case's name, and for a source case
+    /// its folder, as written plainly and inside a job's JSON arguments.
+    /// </summary>
+    private static Dictionary<string, string> Placeholders(CaseContext context)
+    {
+        var placeholders = new Dictionary<string, string> { [context.ContainerName] = "{name}" };
+        if (context.Source is { } source)
+        {
+            placeholders[source.Root] = "{root}";
+            placeholders[JsonSerializer.Serialize(source.Root)[1..^1]] = "{root}";
+        }
+        return placeholders;
     }
 
     /// <summary>

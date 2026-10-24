@@ -37,6 +37,16 @@ public static class OperationProblems
     public static IResult Result<TStatus>(TStatus status, string? detail = null)
         where TStatus : struct, Enum => Results.Problem(For(status, detail));
 
+    /// <summary>A failed attempt's problem, with the operation's own detail and the field at fault.</summary>
+    public static IResult Result<TResult, TStatus>(Attempt<TResult, TStatus> failed)
+        where TStatus : struct, Enum
+    {
+        var problem = For(failed.Status, failed.Detail);
+        if (failed.Field is { } field)
+            problem.Extensions["field"] = field;
+        return Results.Problem(problem);
+    }
+
     /// <summary>The <see cref="FailureAttribute"/> on one enum value, or null when it has none.</summary>
     public static FailureAttribute? Failure(Enum status) =>
         status.GetType().GetField(status.ToString(), BindingFlags.Public | BindingFlags.Static)
