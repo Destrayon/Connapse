@@ -62,6 +62,7 @@ public static class SettingsEndpoints
             [FromBody] JsonElement settingsJson,
             [FromServices] ISettingsStore settingsStore,
             [FromServices] IServiceProvider serviceProvider,
+            [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             var categoryLower = category.ToLowerInvariant();
@@ -104,7 +105,6 @@ public static class SettingsEndpoints
                 if (embeddingSettings != null)
                 {
                     var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
-                    var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
                     var indexLogger = loggerFactory.CreateLogger("SettingsEndpoints.IndexReconciliation");
                     _ = Task.Run(async () =>
                     {
@@ -150,8 +150,9 @@ public static class SettingsEndpoints
             }
             catch (Exception ex)
             {
+                // The exception's text can carry a connection string or an internal id; it stays in the log.
+                loggerFactory.CreateLogger("SettingsEndpoints").LogError(ex, "Updating settings failed");
                 return Results.Problem(
-                    detail: ex.Message,
                     statusCode: 500,
                     title: "Failed to update settings");
             }
@@ -174,6 +175,7 @@ public static class SettingsEndpoints
             [FromServices] AzureAIFoundryConnectionTester azureAIFoundryTester,
             [FromServices] VoyageConnectionTester voyageTester,
             [FromServices] MinioConnectionTester minioTester,
+            [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Category))
@@ -208,8 +210,9 @@ public static class SettingsEndpoints
             }
             catch (Exception ex)
             {
+                // The exception's text can carry a credential or an internal id; it stays in the log.
+                loggerFactory.CreateLogger("SettingsEndpoints").LogError(ex, "Connection test failed");
                 return Results.Problem(
-                    detail: ex.Message,
                     statusCode: 500,
                     title: "Connection test failed");
             }

@@ -1,4 +1,5 @@
-﻿using Connapse.Background.Jobs;
+﻿using System.ComponentModel.DataAnnotations;
+using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -425,7 +426,7 @@ public static class ContainersEndpoints
 
 // Request DTOs for container endpoints
 public record CreateContainerApiRequest(
-    string Name,
+    [Required(ErrorMessage = "Container name is required")] string Name,
     string? Description = null);
 
 public record ContainerReindexRequest(

@@ -36,6 +36,29 @@ public class ApplicationRulesTests
         ApplicationRules.OperationsMissingMetadata(types, Application).Should().BeEmpty();
     }
 
+    private static ISet<string> DocumentedSlugs => ApplicationRules.DocumentedSlugs(
+        File.ReadAllText(Path.Combine(RepoPaths.Root, "docs", "problems.md")));
+
+    [Fact]
+    public void EveryOperationFailure_MapsToADocumentedProblem()
+    {
+        ApplicationRules.FailuresWithoutProblem(Application.GetTypes(), DocumentedSlugs).Should().BeEmpty(
+            "REST answers each failure with its ProblemDetails type, which must resolve to an entry in docs/problems.md");
+    }
+
+    [Fact]
+    public void ArchRule_DetectsFailuresWithoutAProblem()
+    {
+        var planted = typeof(PlantedOperationWithFailures).Assembly;
+        ApplicationRules.FailuresWithoutProblem(planted.GetTypes(), new HashSet<string> { "planted-not-found", "planted-ok" }).Should().BeEquivalentTo(
+        [
+            "Connapse.Architecture.Tests.Canaries.PlantedStatus.Unmapped: no [Failure]",
+            "Connapse.Architecture.Tests.Canaries.PlantedStatus.NotAFailure: HTTP 200 is not a failure status",
+            "Connapse.Architecture.Tests.Canaries.PlantedStatus.Undocumented: slug planted-undocumented has no entry in docs/problems.md",
+            "Connapse.Architecture.Tests.Canaries.PlantedStatus.Conflicting: slug planted-not-found already means HTTP 404 \"Planted not found\" on Connapse.Architecture.Tests.Canaries.PlantedStatus.NotFound",
+        ]);
+    }
+
     [Fact]
     public void ArchRule_DetectsAspNetCoreReachingTheApplication()
     {

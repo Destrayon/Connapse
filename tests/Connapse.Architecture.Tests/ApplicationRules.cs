@@ -103,5 +103,65 @@ internal static class ApplicationRules
             yield return $"{shared.Key}: on {string.Join(", ", shared.Select(o => o.Type.FullName).Order(StringComparer.Ordinal))}";
     }
 
+    /// <summary>
+    /// Failure values of the status enums operations return that REST could not map: no
+    /// [Failure], a status outside 4xx/5xx, a slug with no entry in docs/problems.md, or one slug
+    /// given two different statuses or titles.
+    /// </summary>
+    public static IEnumerable<string> FailuresWithoutProblem(IEnumerable<Type> types, ISet<string> documentedSlugs)
+    {
+        var statusEnums = types
+            .Where(t => t.IsDefined(typeof(OperationAttribute), inherit: false))
+            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Select(m => StatusOf(m.ReturnType))
+            .OfType<Type>()
+            .Distinct()
+            .OrderBy(t => t.FullName, StringComparer.Ordinal);
+
+        var seen = new Dictionary<string, (int Status, string Title, string Where)>(StringComparer.Ordinal);
+        foreach (var status in statusEnums)
+        {
+            foreach (var field in status.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (Convert.ToInt64(field.GetRawConstantValue(), System.Globalization.CultureInfo.InvariantCulture) == 0)
+                    continue;
+                string name = $"{status.FullName}.{field.Name}";
+                var failure = field.GetCustomAttribute<FailureAttribute>();
+                if (failure is null)
+                {
+                    yield return $"{name}: no [Failure]";
+                    continue;
+                }
+                if (failure.HttpStatus is < 400 or > 599)
+                    yield return $"{name}: HTTP {failure.HttpStatus} is not a failure status";
+                if (!documentedSlugs.Contains(failure.Slug))
+                    yield return $"{name}: slug {failure.Slug} has no entry in docs/problems.md";
+                if (seen.TryGetValue(failure.Slug, out var first) && (first.Status != failure.HttpStatus || first.Title != failure.Title))
+                    yield return $"{name}: slug {failure.Slug} already means HTTP {first.Status} \"{first.Title}\" on {first.Where}";
+                else
+                    seen.TryAdd(failure.Slug, (failure.HttpStatus, failure.Title, name));
+            }
+        }
+    }
+
+    /// <summary>The status enum of an Attempt, or of a Task or ValueTask of one.</summary>
+    private static Type? StatusOf(Type returnType)
+    {
+        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() is var open
+            && (open == typeof(Task<>) || open == typeof(ValueTask<>)))
+            returnType = returnType.GetGenericArguments()[0];
+        return returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Attempt<,>)
+            ? returnType.GetGenericArguments()[1]
+            : null;
+    }
+
+    /// <summary>The slugs docs/problems.md documents: each is a second-level heading.</summary>
+    public static ISet<string> DocumentedSlugs(string problemsMarkdown) =>
+        problemsMarkdown.Split('\n')
+            .Select(l => l.TrimEnd('\r'))
+            .Where(l => l.StartsWith("## ", StringComparison.Ordinal))
+            .Select(l => l[3..].Trim())
+            .ToHashSet(StringComparer.Ordinal);
+
     private static bool IsAspNetCore(string name) => name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal);
 }

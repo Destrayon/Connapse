@@ -1,3 +1,4 @@
+- {Id: ASP0029, Title: Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed., Category: Compiler, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Warning], IsEverSuppressed: true}
 - {Id: CA1000, Title: Do not declare static members on generic types, Category: Design, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
 - {Id: CA1001, Title: Types that own disposable fields should be disposable, Category: Design, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
 - {Id: CA1002, Title: Do not expose generic lists, Category: Design, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}

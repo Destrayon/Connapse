@@ -1,4 +1,5 @@
-﻿using Connapse.Core;
+﻿using System.ComponentModel.DataAnnotations;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Microsoft.AspNetCore.Mvc;
@@ -101,4 +102,4 @@ public static class FoldersEndpoints
     }
 }
 
-public record CreateFolderRequest(string Path);
+public record CreateFolderRequest([Required(ErrorMessage = "Folder path is required")] string Path);
