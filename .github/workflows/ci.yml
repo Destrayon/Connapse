@@ -233,7 +233,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.x'
+        global-json-file: global.json
 
     # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
     # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
@@ -246,13 +246,14 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
+    # Both checks block (epic #783, #786). Analysis runs even when formatting fails, so one run
+    # reports both. The analysis build also checks each project's SquiggleCop.Baseline.yaml.
     - name: Check formatting
       run: dotnet format --verify-no-changes --no-restore
-      continue-on-error: true
 
     - name: Run code analysis
-      run: dotnet build --no-restore --configuration Release /p:EnforceCodeStyleInBuild=true /p:TreatWarningsAsErrors=true
-      continue-on-error: true
+      if: success() || failure()
+      run: dotnet build --no-restore --configuration Release -p:EnforceCodeStyleInBuild=true -p:TreatWarningsAsErrors=true -p:SquiggleCop_AutoBaseline=false
 
   # The official MCP conformance suite in server mode (#793), against the app run with
   # `dotnet run` on throwaway Postgres and MinIO. The runner can't send credentials, so the
@@ -268,7 +269,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.x'
+        global-json-file: global.json
 
     - name: Cache layout model
       uses: actions/cache@v4

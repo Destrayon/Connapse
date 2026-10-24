@@ -32,3 +32,4 @@ docker-compose.yml
 eval/
 .superpowers/
 .playwright-mcp/
+

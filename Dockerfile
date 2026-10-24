@@ -1,8 +1,10 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# The same SDK global.json pins for CI's analysis (#786), so the shipped build is the one CI checked.
+FROM mcr.microsoft.com/dotnet/sdk:10.0.401 AS build
 WORKDIR /src
 
-# Copy solution and src for restore caching (picks up new projects automatically)
-COPY Connapse.slnx .
+# Copy solution and src for restore caching (picks up new projects automatically). The SDK pin and
+# Directory.Build.props come first: the props add package references every project restores.
+COPY global.json Directory.Build.props Connapse.slnx ./
 COPY src/ src/
 RUN dotnet restore src/Connapse.Web/Connapse.Web.csproj
 
