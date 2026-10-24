@@ -10,7 +10,7 @@
     <PackageReference Include="Anthropic" Version="12.58.0" />
     <PackageReference Include="AWSSDK.IdentityStore" Version="4.0.101.5" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.104.4" />
-    <PackageReference Include="AWSSDK.S3Control" Version="4.0.101.5" />
+    <PackageReference Include="AWSSDK.S3Control" Version="4.0.101.8" />
     <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.101.1" />
     <PackageReference Include="AWSSDK.SSO" Version="4.0.2.14" />
     <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.3.15" />
