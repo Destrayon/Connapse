@@ -95,6 +95,20 @@ downloaded (needs Python with `pyarrow`, `requests`, `numpy` and PyStemmer; abou
 - `enterprise-full` is the whole 512,000-document corpus; use it to check that an `enterprise-v1` result
   holds at scale.
 
+## Link questions
+
+`links-v1` asks for a record linked to the one a question describes: the pull request that fixed an issue, a
+ticket's parent, its duplicates, the other sub-tasks of its parent. It is the yardstick for graph retrieval;
+the bars it must clear are in `eval/pass-bars.md`. Records are snapshots of Connapse's own GitHub issues and
+pull requests and of Apache Flink's public Jira, rendered with the connectors' own renderers; the answers come
+from the GitHub and Jira APIs. Built locally (needs `gh` signed in; about 15 minutes):
+
+    python eval/tools/build_link_suite.py links-connapse-github
+    python eval/tools/build_link_suite.py links-flink-jira
+    dotnet run --project tests/Connapse.Eval -- run --suite links-v1 --config hybrid
+
+- Scores break down by `kind:` and by `hops:1` / `hops:2`. Questions and how they were made: `eval/datasets/links-*/card.md`.
+
 ## Files and reports
 
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.

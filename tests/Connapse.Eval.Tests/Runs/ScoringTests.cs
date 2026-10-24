@@ -71,6 +71,30 @@ public class ScoringTests : IDisposable
     }
 
     [Fact]
+    public void Score_TaggedQueries_BreakDownByKindAndHopsButNotOtherTags()
+    {
+        RunFolder run = RunFolder.Create(_root, "links-v1", "connapse", "hybrid", "abcdef1234", DateTimeOffset.UnixEpoch);
+        Qrels qrels = new();
+        qrels.Add("q1", "d1", 1);
+        qrels.Add("q2", "d2", 1);
+        run.WriteDataset("links", qrels, new Dictionary<string, string>(),
+        [
+            Result("links", "q1", Split.Test, null, "d1") with { Tags = ["kind:gh-closed-by", "hops:1", "other:x"] },
+            Result("links", "q2", Split.Test, null, "zz") with { Tags = ["kind:gh-siblings", "hops:2"] },
+        ]);
+        run.MarkComplete("links");
+        run.WriteManifest(new RunManifest("abcdef1234", false, "links-v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
+            new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, [Info("links", "domain:general")], null, []));
+
+        IReadOnlyList<KindScores> kinds = Scoring.Score(run).Datasets.Single().Kinds;
+
+        kinds.Select(k => k.Kind).Should().Equal("hops:1", "hops:2", "kind:gh-closed-by", "kind:gh-siblings");
+        kinds.Single(k => k.Kind == "hops:1").Means[MetricNames.Mrr10].Should().Be(1);
+        kinds.Single(k => k.Kind == "hops:2").Means[MetricNames.Mrr10].Should().Be(0);
+    }
+
+    [Fact]
     public void Score_Run_RollsUpDomainsAndPortfolioOverValidDatasetsOnly()
     {
         RunScores scores = Scoring.Score(WriteRun());

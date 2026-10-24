@@ -12,7 +12,17 @@ public sealed record EvalDocument(
     string? Text,
     string? ImagePath,
     IReadOnlyDictionary<string, string> Metadata,
-    string? FilePath = null);
+    string? FilePath = null)
+{
+    /// <summary>
+    /// A text document uploaded under this name instead of its title, as a connector's record is
+    /// (<c>12.md</c>); its extension chooses the parser, and the title is not prepended.
+    /// </summary>
+    public string? FileName { get; init; }
+
+    /// <summary>The chunking strategy a connector would pick for this document; it outranks the config's.</summary>
+    public string? Strategy { get; init; }
+}
 
 public sealed record EvalQuery(string Id, string Text, Split Split, IReadOnlyList<string> Tags);
 
