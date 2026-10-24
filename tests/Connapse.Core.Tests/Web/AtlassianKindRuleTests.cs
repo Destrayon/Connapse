@@ -28,6 +28,8 @@ public class AtlassianKindRuleTests
         { "Confluence kind in another case", """{"kind":"CONFLUENCE-SPACE","spaceId":"98306","spaceKey":"DOCS"}""", Kind.None },
         { "kindless space", """{"spaceId":"98306","spaceKey":"DOCS"}""", Kind.None },
         { "kindless project", """{"projectId":"10000","projectKey":"ENG"}""", Kind.None },
+        { "Jira carrying a custom source's keys",
+            """{"kind":"jira-project","projectId":"10000","projectKey":"ENG","scopeId":"team","baseUrl":"https://cs.example.com"}""", Kind.Jira },
         { "unknown kind", """{"kind":"trello-board","spaceId":"98306","spaceKey":"DOCS"}""", Kind.None },
     };
 
