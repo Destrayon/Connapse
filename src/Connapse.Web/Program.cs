@@ -483,6 +483,7 @@ api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapSourcesEndpoints();
+api.MapAuditEndpoints();
 api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();
 api.MapSearchEndpoints();

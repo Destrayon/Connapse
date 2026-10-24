@@ -1628,6 +1628,34 @@ Removes the linked identity and evicts cached scope entries.
 
 ---
 
+## Audit Log
+
+### List Audit Entries
+
+**Endpoint**: `GET /api/v1/audit/`
+
+**Authorization**: Owner or Admin. A personal access token needs the `admin:audit` scope.
+
+Every sensitive action writes an audit entry: who did it, to which resource, from which IP address, and when. Entries come newest first.
+
+**Query Parameters**: `action`, `userId`, `resourceType`, `resourceId` (exact matches); `since` (inclusive) and `until` (exclusive), UTC, where a time given without a zone is read as UTC; `skip` (default 0) and `take` (default 50, up to 200).
+
+**Response** (200 OK):
+```json
+{
+  "items": [
+    { "id": "…", "createdAt": "2026-10-24T21:40:00Z", "action": "source.updated", "userId": "…", "userEmail": "admin@example.com",
+      "resourceType": "source", "resourceId": "…", "details": { "Name": "docs" }, "ipAddress": "10.0.0.4" }
+  ],
+  "totalCount": 1,
+  "hasMore": false
+}
+```
+
+**Errors**: 400 `invalid-page` (skip or take out of range), 400 `invalid-audit-filter` (`since` not before `until`), 403 `forbidden`.
+
+---
+
 ## Versioning
 
 **Current Version**: `v0.3.2`

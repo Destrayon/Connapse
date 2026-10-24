@@ -235,6 +235,11 @@
       "risk": "read",
       "scope": null
     },
+    "GET /api/v1/audit/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:audit"
+    },
     "GET /api/v1/auth/cloud/atlassian/callback": {
       "requires": "anonymous",
       "risk": "credential",

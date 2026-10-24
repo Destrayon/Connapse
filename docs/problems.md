@@ -12,8 +12,9 @@ declared slug has an entry here.
 ## forbidden
 
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
-changing needs Administrator. Account links: reading needs a person or their own token with
-`knowledge:read`; unlinking needs the person signed in themselves, never a personal access token or agent key.
+changing needs Administrator. The audit log: reading needs Administrator, and a token needs
+`admin:audit`. Account links: reading needs a person or their own token with `knowledge:read`;
+unlinking needs the person signed in themselves, never a personal access token or agent key.
 
 ## invalid-link-provider
 
@@ -66,6 +67,11 @@ nothing was started; the running cycle picks up the changes.
 
 The provider named in the path isn't one Connapse has. Providers are named as the API writes them, such as
 `S3`, `AzureBlob`, `Filesystem`, `Sftp`, `GitHub`, `Atlassian` and `Custom`, in any case.
+
+## invalid-audit-filter
+
+An audit log filter can't match anything: `since` must be before `until`. Both are UTC; a time given
+without a zone is read as UTC.
 
 ## invalid-page
 
