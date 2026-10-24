@@ -20,5 +20,8 @@
 /tests/Connapse.Integration.Tests/Capabilities/ @Destrayon
 /tests/Connapse.Integration.Tests/CrossSurface/ @Destrayon
 
+# Expected results ported from SciPy, statsmodels and trec_eval, that the eval metrics must reproduce
+/tests/Connapse.Eval.Tests/Fixtures/ @Destrayon
+
 # Verify snapshots anywhere
 *.verified.* @Destrayon
