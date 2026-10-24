@@ -78,17 +78,22 @@ public class OperationRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(ListSources))]
     public Task List_AnyQuery_PagesWithinBoundsAndShowsOnlyVisibleSources() =>
-        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Int[-3, 3], Gen.Int[-2, 205].Nullable(), Gen.Bool, AnySource.Array[0, 6], Gen.Bool.Array[6])
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Int[-3, 3], Gen.Int[-2, 205].Nullable(), Gen.Guid.Nullable(), AnySource.Array[0, 6], Gen.Bool.Array[6])
             .SampleAsync(async t =>
             {
-                var (caller, viewer, admin, skip, take, byConnection, stored, visibleMask) = t;
+                var (caller, viewer, admin, skip, take, connectionId, stored, visibleMask) = t;
+                bool byConnection = connectionId is not null;
                 var world = new World(viewer, admin);
                 var visible = stored.Where((_, i) => visibleMask[i]).ToHashSet();
                 world.Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => s => visible.Contains(s));
                 world.Sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                     .Returns(c => (IReadOnlyList<Source>)stored.Take(c.ArgAt<int>(1)).ToList());
-                world.Sources.ListByConnectionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(stored);
-                var query = new ListSourcesQuery(skip, take, byConnection ? Guid.NewGuid() : null);
+                // Another connection's sources, so listing the wrong connection shows up as the wrong items.
+                world.Sources.ListByConnectionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                    .Returns([new Source(Guid.NewGuid(), "elsewhere", null, null, "{}", Epoch, Epoch)]);
+                if (connectionId is Guid requested)
+                    world.Sources.ListByConnectionAsync(requested, Arg.Any<CancellationToken>()).Returns(stored);
+                var query = new ListSourcesQuery(skip, take, connectionId);
 
                 var listed = await new ListSources(world.Sources, world.Visibility, world.Authorizer).RunAsync(caller, query);
 
@@ -107,8 +112,16 @@ public class OperationRandomInputTests
                 }
 
                 // Asks for one more than the page, unless every source was asked for.
-                if (!byConnection)
+                if (connectionId is Guid listedConnection)
+                {
+                    await world.Sources.Received(1).ListByConnectionAsync(listedConnection, Arg.Any<CancellationToken>());
+                    await world.Sources.DidNotReceiveWithAnyArgs().ListAsync();
+                }
+                else
+                {
                     await world.Sources.Received(1).ListAsync(skip, take is int n ? n + 1 : int.MaxValue, Arg.Any<CancellationToken>());
+                    await world.Sources.DidNotReceiveWithAnyArgs().ListByConnectionAsync(default);
+                }
                 var returned = byConnection ? stored : stored.Take(take is int m ? m + 1 : int.MaxValue).ToArray();
                 bool hasMore = take is int size && returned.Length > size;
                 var page = hasMore ? returned.Take(take!.Value) : returned;
@@ -190,57 +203,105 @@ public class OperationRandomInputTests
 
                 var creates = world.Sources.ReceivedCalls().Where(c => c.GetMethodInfo().Name == "CreateAsync")
                     .Select(c => (CreateSourceRequest)c.GetArguments()[0]!).ToList();
+                var expected = ExpectCreate(admin, request, connectionExists, check, nameTaken, storeOutcome);
+
+                created.Status.Should().Be(expected.Status);
+                if (expected.Field is not null)
+                    created.Field.Should().Be(expected.Field);
                 if (!admin)
-                {
-                    created.Status.Should().Be(SourceWriteStatus.Forbidden);
                     world.Sources.ReceivedCalls().Should().BeEmpty();
+                // A secret or a custom provider is refused before any store is read; a missing connection before its scope is checked.
+                if (admin && (request.Secret is not null || request.Provider is ConnectionProvider.Custom))
                     world.Connections.ReceivedCalls().Should().BeEmpty();
-                }
-                if (request.Secret is not null || request.Provider is ConnectionProvider.Custom)
-                {
-                    // Refused before any store is read.
-                    created.Succeeded.Should().BeFalse();
-                    world.Connections.ReceivedCalls().Should().BeEmpty();
-                    creates.Should().BeEmpty();
-                }
-                if (request.ConnectionId is not null && request.Provider is not null)
-                    created.Succeeded.Should().BeFalse();
                 if (request.ConnectionId is not null && !connectionExists)
-                {
-                    created.Succeeded.Should().BeFalse();
                     world.CreateRules.ReceivedCalls().Should().BeEmpty();
-                }
-                if (admin && request.Secret is null && request.Provider is null && request.ConnectionId is not null && connectionExists && !check.Ok)
-                {
-                    created.Status.Should().Be(check.Refusal switch
-                    {
-                        ScopeRefusal.Duplicate => SourceWriteStatus.Conflict,
-                        ScopeRefusal.Unavailable => SourceWriteStatus.Unavailable,
-                        _ => SourceWriteStatus.Invalid,
-                    });
-                    created.Field.Should().Be(check.Field);
-                }
 
-                // At most one create reaches the store, with a trimmed, non-empty, untaken name and no secret.
-                creates.Should().HaveCountLessThanOrEqualTo(1);
-                foreach (var saved in creates)
-                {
-                    saved.Name.Should().NotBeEmpty().And.Be(saved.Name.Trim());
-                    saved.Secret.Should().BeNull();
-                    nameTaken.Should().BeFalse();
-                    if (request.ConnectionId is not null)
-                        saved.ScopeJson.Should().Be(check.ScopeJson);
-                }
+                // Exactly one create reaches the store for a valid request, with the trimmed name and the checked scope.
+                if (expected.Saved is null)
+                    creates.Should().BeEmpty();
+                else
+                    creates.Should().ContainSingle().Which.Should().Be(expected.Saved);
 
-                // Success exactly when the store saved it, and only a success is audited.
-                created.Succeeded.Should().Be(creates.Count == 1 && storeOutcome == 0);
                 world.AuditCalls.Should().Be(created.Succeeded ? 1 : 0);
                 if (created.Succeeded)
                 {
-                    created.Result!.Source.Name.Should().Be(creates[0].Name);
+                    created.Result!.Source.Name.Should().Be(expected.Saved!.Name);
                     created.Result.Warning.Should().Be(request.ConnectionId is null ? null : check.Warning);
                 }
             }, iter: 2000);
+
+    /// <summary>
+    /// What creating <paramref name="r"/> should do, worked out from the request and the fakes' answers
+    /// alone: the status, the field at fault, and the request the store should receive, if any.
+    /// </summary>
+    private static (SourceWriteStatus Status, string? Field, CreateSourceRequest? Saved) ExpectCreate(
+        bool admin, NewSource r, bool connectionExists, ScopeCheck check, bool nameTaken, int storeOutcome)
+    {
+        if (!admin)
+            return (SourceWriteStatus.Forbidden, null, null);
+        if (r.Secret is not null)
+            return (SourceWriteStatus.Invalid, "secret", null);
+        if (r.Provider is ConnectionProvider.Custom)
+            return (SourceWriteStatus.Invalid, "connectionId", null);
+
+        string name = r.Name?.Trim() ?? "";
+        string? scope = r.ScopeJson;
+        if (name.Length == 0 && r.ConnectionId is null)
+            return (SourceWriteStatus.Invalid, "name", null);
+        if (r.ConnectionId is not null && r.Provider is not null)
+            return (SourceWriteStatus.Invalid, null, null);
+        if (r.ConnectionId is not null)
+        {
+            if (!connectionExists)
+                return (SourceWriteStatus.Invalid, null, null);
+            if (!check.Ok)
+            {
+                var refused = check.Refusal switch
+                {
+                    ScopeRefusal.Duplicate => SourceWriteStatus.Conflict,
+                    ScopeRefusal.Unavailable => SourceWriteStatus.Unavailable,
+                    _ => SourceWriteStatus.Invalid,
+                };
+                return (refused, check.Field, null);
+            }
+            scope = check.ScopeJson;
+            if (name.Length == 0)
+                name = check.DefaultName?.Trim() ?? "";
+            if (name.Length == 0)
+                return (SourceWriteStatus.Invalid, "name", null);
+        }
+        else if (r.Provider is null or ConnectionProvider.GitHub)
+        {
+            return (SourceWriteStatus.Invalid, null, null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(scope) && !IsJson(scope))
+            return (SourceWriteStatus.Invalid, null, null);
+        if (nameTaken)
+            return (SourceWriteStatus.Conflict, null, null);
+
+        var saved = new CreateSourceRequest(name, r.ConnectionId, scope ?? "{}", r.Description, r.SyncIntervalSeconds, r.Provider);
+        return storeOutcome switch
+        {
+            0 => (SourceWriteStatus.Success, null, saved),
+            1 => (SourceWriteStatus.Invalid, null, saved),
+            2 => (SourceWriteStatus.Conflict, "scopeId", saved),
+            _ => (SourceWriteStatus.Conflict, "name", saved),
+        };
+    }
+
+    private static bool IsJson(string text)
+    {
+        try
+        {
+            using var _ = System.Text.Json.JsonDocument.Parse(text);
+            return true;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
 
     // ── sources.update ──────────────────────────────────────────────────────────────────────────
 
@@ -506,15 +567,67 @@ public class OperationRandomInputTests
         var operations = typeof(OperationAttribute).Assembly.GetTypes()
             .Where(t => t.IsDefined(typeof(OperationAttribute), inherit: false))
             .ToHashSet();
-        var tested = typeof(OperationRandomInputTests).Assembly.GetTypes()
-            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
-            .Where(m => m.IsDefined(typeof(FactAttribute), inherit: true))
-            .SelectMany(m => m.GetCustomAttributes<RandomInputTestOfAttribute>())
-            .Select(a => a.Operation)
-            .ToHashSet();
+        var marked = typeof(OperationRandomInputTests).Assembly.GetTypes()
+            .SelectMany(t => t.GetMethods(AllDeclared))
+            .SelectMany(m => m.GetCustomAttributes<RandomInputTestOfAttribute>().Select(a => (Method: m, a.Operation)))
+            .ToList();
 
+        // A marker counts only on a test that runs, samples generated inputs with CsCheck, and builds the
+        // operation it names, so an empty, skipped or fixed-input test can't stand in for one.
+        marked.Select(x => Problem(x.Method, x.Operation) is { } problem ? $"{x.Method.Name} ({x.Operation.Name}): {problem}" : null)
+            .OfType<string>().Should().BeEmpty();
+
+        var tested = marked.Select(x => x.Operation).ToHashSet();
         operations.Should().NotBeEmpty();
         operations.Except(tested).Select(t => t.Name).Should().BeEmpty("every operation needs a [RandomInputTestOf] test of its rules");
         tested.Except(operations).Select(t => t.Name).Should().BeEmpty("[RandomInputTestOf] must name an [Operation] class");
+    }
+
+    private const BindingFlags AllDeclared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+    private static string? Problem(MethodInfo test, Type operation)
+    {
+        if (test.GetCustomAttribute<FactAttribute>(inherit: true) is not { } fact)
+            return "not a [Fact]";
+        if (fact.Skip is not null)
+            return "skipped";
+        if (!Called(test).Any(c => c.DeclaringType == typeof(Check) && c.Name.StartsWith("Sample", StringComparison.Ordinal)))
+            return "doesn't call CsCheck's Sample or SampleAsync";
+
+        // The sampled body is a lambda, and an async lambda's code is in its state machine; the compiler
+        // names both after the test.
+        string tag = $"<{test.Name}>";
+        var bodies = Nested(test.DeclaringType!).SelectMany(t => t.GetMethods(AllDeclared)
+            .Where(m => t.Name.Contains(tag, StringComparison.Ordinal) || m.Name.Contains(tag, StringComparison.Ordinal)));
+        return bodies.SelectMany(Called).Any(c => c is ConstructorInfo && c.DeclaringType == operation)
+            ? null
+            : $"its sampled body never constructs {operation.Name}";
+    }
+
+    private static IEnumerable<Type> Nested(Type type) =>
+        type.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic).SelectMany(n => Nested(n).Prepend(n));
+
+    /// <summary>The methods and constructors a method's IL calls; a token that doesn't resolve is skipped.</summary>
+    private static IEnumerable<MethodBase> Called(MethodInfo method)
+    {
+        byte[] il = method.GetMethodBody()?.GetILAsByteArray() ?? [];
+        for (int i = 0; i + 4 < il.Length; i++)
+        {
+            // call, callvirt and newobj, each followed by a four-byte method token.
+            if (il[i] is not (0x28 or 0x6F or 0x73))
+                continue;
+            MethodBase? target = null;
+            try
+            {
+                target = method.Module.ResolveMethod(BitConverter.ToInt32(il, i + 1),
+                    method.DeclaringType is { IsGenericType: true } owner ? owner.GetGenericArguments() : null,
+                    method.IsGenericMethod ? method.GetGenericArguments() : null);
+            }
+            catch (ArgumentException)
+            {
+            }
+            if (target is not null)
+                yield return target;
+        }
     }
 }
