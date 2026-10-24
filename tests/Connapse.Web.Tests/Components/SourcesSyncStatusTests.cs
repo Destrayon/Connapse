@@ -39,6 +39,7 @@ public class SourcesSyncStatusTests : IDisposable
         auth.SetAuthorized("admin");
         auth.SetRoles("Admin");
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
 
         var http = Substitute.For<IHttpClientFactory>();
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())

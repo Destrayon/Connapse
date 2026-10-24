@@ -175,7 +175,7 @@
     "IsEmpty": false
   },
   "Pages/Sources.razor": {
-    "CodeLines": 990,
+    "CodeLines": 989,
     "Injects": 16,
     "Complexity": 217,
     "MarkupLogic": 101,

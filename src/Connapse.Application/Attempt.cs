@@ -21,10 +21,12 @@ public sealed record Attempt<TResult, TStatus>
             throw new InvalidOperationException($"{typeof(TStatus).Name} must name its zero value Success, because a status of zero is what Attempt reads as success.");
     }
 
-    private Attempt(TStatus status, TResult? result)
+    private Attempt(TStatus status, TResult? result, string? detail, string? field)
     {
         Status = status;
         Result = result;
+        Detail = detail;
+        Field = field;
     }
 
     public TStatus Status { get; }
@@ -32,15 +34,21 @@ public sealed record Attempt<TResult, TStatus>
     /// <summary>The operation's result; set only when <see cref="Succeeded"/>.</summary>
     public TResult? Result { get; }
 
+    /// <summary>What went wrong this time, in words a person can act on; set only on a failure, and never exception text.</summary>
+    public string? Detail { get; }
+
+    /// <summary>The input at fault, when one is ("name", "scopeId"), so a form can show the error beside it.</summary>
+    public string? Field { get; }
+
     public bool Succeeded => EqualityComparer<TStatus>.Default.Equals(Status, default);
 
-    public static Attempt<TResult, TStatus> Succeed(TResult result) => new(default, result);
+    public static Attempt<TResult, TStatus> Succeed(TResult result) => new(default, result, null, null);
 
     /// <summary>A failed attempt; <paramref name="status"/> must not be the success value.</summary>
-    public static Attempt<TResult, TStatus> Fail(TStatus status)
+    public static Attempt<TResult, TStatus> Fail(TStatus status, string? detail = null, string? field = null)
     {
         if (EqualityComparer<TStatus>.Default.Equals(status, default))
             throw new ArgumentException($"{status} is {typeof(TStatus).Name}'s success value, so it can't describe a failure.", nameof(status));
-        return new(status, default);
+        return new(status, default, detail, field);
     }
 }
