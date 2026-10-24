@@ -35,7 +35,6 @@ public static class RateLimitingExtensions
             options.OnRejected = async (context, cancellationToken) =>
             {
                 context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                context.HttpContext.Response.ContentType = "application/json";
 
                 if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
                 {
@@ -52,9 +51,12 @@ public static class RateLimitingExtensions
                     context.HttpContext.Connection.RemoteIpAddress,
                     LogSanitizer.Sanitize(context.HttpContext.Request.Path.Value));
 
-                await context.HttpContext.Response.WriteAsJsonAsync(
-                    new { error = "Rate limit exceeded. Try again later." },
-                    cancellationToken);
+                var problems = context.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+                await problems.WriteAsync(new ProblemDetailsContext
+                {
+                    HttpContext = context.HttpContext,
+                    ProblemDetails = { Status = StatusCodes.Status429TooManyRequests, Detail = "Rate limit exceeded. Try again later." },
+                });
             };
 
             // Auth policy: strict per-IP limit for anonymous auth endpoints (login, register, token)

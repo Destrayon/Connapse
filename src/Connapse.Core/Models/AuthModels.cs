@@ -1,4 +1,7 @@
-﻿namespace Connapse.Core;
+﻿using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Validation.Embedded;
+
+namespace Connapse.Core;
 
 public record LoginRequest(string Email, string Password);
 
@@ -12,7 +15,8 @@ public record TokenResponse(
 
 public record RefreshTokenRequest(string RefreshToken);
 
-public record PatCreateRequest(string Name, string[]? Scopes = null, DateTime? ExpiresAt = null);
+[ValidatableType]
+public record PatCreateRequest([Required, MaxLength(256)] string Name, string[]? Scopes = null, DateTime? ExpiresAt = null);
 
 public record PatCreateResponse(
     Guid Id,

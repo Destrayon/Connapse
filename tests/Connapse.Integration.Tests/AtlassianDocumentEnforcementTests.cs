@@ -211,6 +211,14 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         }
     }
 
+    /// <summary>A problem body without its traceId, which differs on every request whatever the outcome.</summary>
+    private static async Task<string> BodyAsync(HttpResponseMessage response)
+    {
+        var body = System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
+        body.Remove("traceId");
+        return body.ToJsonString();
+    }
+
     private static async Task<string> DocumentIdAsync(IServiceProvider sp, Guid containerId, string fileName)
     {
         await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
@@ -291,8 +299,8 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var deniedResponse = await client.GetAsync(Files(denied));
         var missingResponse = await client.GetAsync(Files(Guid.Empty.ToString()));
         deniedResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await deniedResponse.Content.ReadAsStringAsync()).Should()
-            .Be((await missingResponse.Content.ReadAsStringAsync()).Replace(Guid.Empty.ToString(), denied));
+        (await BodyAsync(deniedResponse)).Should()
+            .Be((await BodyAsync(missingResponse)).Replace(Guid.Empty.ToString(), denied));
         (await client.GetAsync(Files(denied) + "/content")).StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         (await client.GetAsync(Files(allowed))).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -688,8 +696,8 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var deniedResponse = await client.GetAsync(Files(comment));
         var missingResponse = await client.GetAsync(Files(Guid.Empty.ToString()));
         deniedResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await deniedResponse.Content.ReadAsStringAsync()).Should()
-            .Be((await missingResponse.Content.ReadAsStringAsync()).Replace(Guid.Empty.ToString(), comment));
+        (await BodyAsync(deniedResponse)).Should()
+            .Be((await BodyAsync(missingResponse)).Replace(Guid.Empty.ToString(), comment));
         (await client.GetAsync(Files(comment) + "/content")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await client.GetAsync(Files(note))).StatusCode.Should().Be(HttpStatusCode.NotFound);
 

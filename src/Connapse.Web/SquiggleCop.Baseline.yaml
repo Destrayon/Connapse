@@ -26,6 +26,7 @@
 - {Id: ASP0026, Title: '[Authorize] overridden by [AllowAnonymous] from farther away', Category: Security, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: ASP0027, Title: Unnecessary public Program class declaration, Category: Usage, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: ASP0028, Title: Consider using ListenAnyIP() instead of Listen(IPAddress.Any), Category: Usage, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
+- {Id: ASP0029, Title: Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed., Category: Compiler, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Warning], IsEverSuppressed: true}
 - {Id: AWSSDK2000, Title: AWS SDK collection property is null, Category: AWSSDK.Nullability, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: BL0001, Title: Component parameter should have public setters., Category: Encapsulation, DefaultSeverity: Error, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: BL0002, Title: Component has multiple CaptureUnmatchedValues parameters, Category: Usage, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}

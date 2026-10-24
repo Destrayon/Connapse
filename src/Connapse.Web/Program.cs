@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Connapse.Application.Extensions;
 using Connapse.Background;
 using Connapse.Core;
+using Connapse.Core.Extensions;
 using Connapse.Identity;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
@@ -18,6 +19,7 @@ using Connapse.Storage.Vectors;
 using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
+using Connapse.Web.Problems;
 using Connapse.Core.Interfaces;
 using Connapse.Web;
 using Connapse.Web.Services;
@@ -197,6 +199,10 @@ builder.Services.AddKnowledgeSearch();
 
 // Add the operations every surface calls (epic #783)
 builder.Services.AddApplication();
+builder.Services.AddConnapseProblemDetails();
+// Validation runs on request records before handlers; Core declares records too, so it registers its own.
+builder.Services.AddCoreValidation();
+builder.Services.AddValidation();
 
 // Add Identity, authentication, and authorization
 builder.Services.AddConnapseIdentity(builder.Configuration);
@@ -325,6 +331,7 @@ app.Use(async (ctx, next) =>
     }
     await next(ctx);
 });
+app.UseApiProblemDetails();
 
 app.UseForwardedHeaders();
 
@@ -427,7 +434,8 @@ app.MapGet("/api/v1/info", () => Results.Json(new
 // Map API endpoints — antiforgery is disabled for all API routes because they
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
 var api = app.MapGroup("").DisableAntiforgery()
-    .RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
+    .RequireRateLimiting(RateLimitingExtensions.ApiPolicy)
+    .WithProblemResults();
 api.MapAuthEndpoints();
 api.MapCloudIdentityEndpoints();
 api.MapCustomLinkEndpoints();

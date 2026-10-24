@@ -60,3 +60,25 @@ internal sealed class PlantedSharedIdA;
 
 [Connapse.Application.Operation("planted.shared", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
 internal sealed class PlantedSharedIdB;
+
+// An operation whose status enum REST can't fully map (#833). NotFound is the correct one.
+public enum PlantedStatus
+{
+    Success,
+    [Connapse.Application.Failure(404, "planted-not-found", "Planted not found")]
+    NotFound,
+    Unmapped,
+    [Connapse.Application.Failure(200, "planted-ok", "Planted ok")]
+    NotAFailure,
+    [Connapse.Application.Failure(400, "planted-undocumented", "Planted undocumented")]
+    Undocumented,
+    [Connapse.Application.Failure(409, "planted-not-found", "Planted conflict")]
+    Conflicting,
+}
+
+[Connapse.Application.Operation("planted.failures", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal sealed class PlantedOperationWithFailures
+{
+    public Task<Connapse.Application.Attempt<string, PlantedStatus>> RunAsync() =>
+        Task.FromResult(Connapse.Application.Attempt<string, PlantedStatus>.Fail(PlantedStatus.NotFound));
+}
