@@ -75,170 +75,19 @@ public static class SourcesEndpoints
         // POST /api/sources
         group.MapPost("/", async (
             [FromBody] CreateSourceApiRequest request,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IConnectionStore connectionStore,
-            [FromServices] IAuditLogger auditLogger,
-            [FromServices] Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup gitHubRepositories,
-            [FromServices] AtlassianSiteService atlassianSites,
-            [FromServices] CustomSourceSetup customSources,
+            [FromServices] CreateSource create,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            string? scopeJson = request.ScopeJson;
+            var created = await create.RunAsync(Rest(http), new NewSource(
+                request.Name, request.ConnectionId, request.ScopeJson, request.Description,
+                request.SyncIntervalSeconds, request.Provider, request.Secret), ct);
+            if (!created.Succeeded)
+                return OperationProblems.Result(created);
 
-            // Every source authenticates through its connection, a custom one included, so a secret here
-            // would be silently dropped.
-            if (request.Secret is not null)
-                return Results.BadRequest(new
-                {
-                    error = "A source takes no secret: its connection holds the credential. A custom source reads with its custom connection's token.",
-                    field = "secret",
-                });
-            if (request.Provider is ConnectionProvider.Custom)
-                return Results.BadRequest(new
-                {
-                    error = "A custom source needs a custom connection: pass its connectionId. An administrator adds one on the Connections page.",
-                    field = "connectionId",
-                });
-            string name = request.Name?.Trim() ?? "";
-
-            // The same checks the New source dialog makes: the connection's middle man answers with its token,
-            // speaks protocol version 1, and offers the scope. The scope names only the scopeId; a baseUrl, if
-            // given, must be the connection's, and the one stored is the connection's normalised address.
-            async Task<IResult?> CheckCustomSourceAsync(Connection connection)
-            {
-                (string? scopeId, string? baseUrl) = CustomScopeRequest(scopeJson);
-                if (scopeId is null)
-                    return Results.BadRequest(new { error = "The scope must name the source server's scopeId.", field = "scopeId" });
-
-                CustomSourceProbe probe = await customSources.ProbeConnectionAsync(connection, ct);
-                if (probe.Error is not null)
-                {
-                    return probe.Unreachable
-                        ? Results.Json(new { error = probe.Error, field = probe.Field }, statusCode: StatusCodes.Status502BadGateway)
-                        : Results.BadRequest(new { error = probe.Error, field = probe.Field });
-                }
-
-                if (baseUrl is not null && !string.Equals(baseUrl.TrimEnd('/'), probe.BaseUrl, StringComparison.OrdinalIgnoreCase))
-                    return Results.BadRequest(new
-                    {
-                        error = $"A custom source reads its connection's source server ({probe.BaseUrl}). Leave baseUrl out, or pass that one.",
-                        field = "baseUrl",
-                    });
-
-                if (!probe.Scopes.Any(s => s.Id == scopeId))
-                    return Results.BadRequest(new { error = $"The source server offers no scope '{scopeId}'.", field = "scopeId" });
-
-                scopeJson = new CustomSourceScope(probe.BaseUrl!, scopeId).ToJson();
-                return null;
-            }
-
-            // Only a Confluence source may leave its name out: like the dialog, it is then named after the site and space.
-            if (name.Length == 0 && request.ConnectionId is null)
-                return Results.BadRequest(new { error = "Source name is required", field = "name" });
-
-            if (request.ConnectionId is not null && request.Provider is not null)
-            {
-                return Results.BadRequest(new { error = "a source must have exactly one of a connectionId or a provider" });
-            }
-
-            if (request.ConnectionId is Guid cid)
-            {
-                // Checked before anything else touches the database: a source whose connection
-                // does not exist is skipped silently by SourceSyncService, so it would look
-                // created and never sync.
-                var connection = await connectionStore.GetAsync(cid, ct);
-                if (connection is null)
-                    return Results.BadRequest(new { error = $"Connection {cid} not found" });
-
-                if (connection.Provider == ConnectionProvider.Custom
-                    && await CheckCustomSourceAsync(connection) is { } refusal)
-                    return refusal;
-
-                // The same lookup the New source dialog makes: GitHub, as this installation, says
-                // which repository the name is and whether it is private. Its answer replaces
-                // whatever the request claimed, so an API-created source matches a UI-created one.
-                if (connection.Provider == ConnectionProvider.GitHub)
-                {
-                    var resolved = await GitHubSourceScope.ResolveAsync(scopeJson, connection, gitHubRepositories, ct);
-                    if (resolved.Error is not null)
-                        return Results.BadRequest(new { error = resolved.Error });
-                    scopeJson = resolved.ScopeJson;
-                }
-
-                // The checks the New source dialog runs for a Confluence space or a Jira project
-                // (by the scope's kind; none means Confluence), against the site as its service
-                // account; the scope stored is rebuilt from Atlassian's answer.
-                if (connection.Provider == ConnectionProvider.Atlassian)
-                {
-                    var atlassian = AtlassianSourceScope.IsJira(scopeJson)
-                        ? await JiraSourceScope.ResolveAsync(scopeJson, connection, atlassianSites, sourceStore, ct)
-                        : await ConfluenceSourceScope.ResolveAsync(scopeJson, connection, atlassianSites, sourceStore, ct);
-                    switch (atlassian.Outcome)
-                    {
-                        case AtlassianSourceScope.Outcome.Invalid:
-                            return Results.BadRequest(new { error = atlassian.Error, field = atlassian.Field });
-                        case AtlassianSourceScope.Outcome.Duplicate:
-                            return Results.Conflict(new { error = atlassian.Error, field = atlassian.Field });
-                        case AtlassianSourceScope.Outcome.Unavailable:
-                            return Results.Json(new { error = atlassian.Error, field = atlassian.Field },
-                                statusCode: StatusCodes.Status502BadGateway);
-                    }
-
-                    scopeJson = atlassian.ScopeJson;
-                    if (name.Length == 0)
-                        name = atlassian.DefaultName!;
-                }
-
-                if (name.Length == 0)
-                    return Results.BadRequest(new { error = "Source name is required", field = "name" });
-            }
-            else if (request.Provider is null)
-            {
-                return Results.BadRequest(new { error = "a source needs a connectionId or a provider" });
-            }
-            else if (request.Provider is ConnectionProvider.GitHub)
-            {
-                // Refused rather than stored: the connector no longer reads GitHub anonymously, so
-                // such a source would be created only to fail every sync.
-                return Results.BadRequest(new
-                {
-                    error = "GitHub sources need a GitHub App connection: pass the connectionId of a GitHub installation instead of a provider",
-                });
-            }
-
-            if (!string.IsNullOrWhiteSpace(scopeJson))
-            {
-                // Disposed: JsonDocument rents pooled buffers, and this runs per request.
-                try { using var _ = JsonDocument.Parse(scopeJson); }
-                catch (JsonException ex)
-                { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
-            }
-
-            var existing = await sourceStore.GetByNameAsync(name, ct);
-            if (existing is not null)
-                return Results.Conflict(new { error = $"Source '{name}' already exists" });
-
-            Source created;
-            try
-            {
-                created = await sourceStore.CreateAsync(
-                    new CreateSourceRequest(
-                        name, request.ConnectionId, scopeJson ?? "{}",
-                        request.Description, request.SyncIntervalSeconds, request.Provider), ct);
-            }
-            catch (ArgumentException ex)
-            {
-                return Results.BadRequest(new { error = ex.Message });
-            }
-            catch (DuplicateSourceScopeException ex)
-            {
-                return Results.Conflict(new { error = ex.Message, field = "scopeId" });
-            }
-
-            await auditLogger.LogAsync("source.created", "source", created.Id.ToString(),
-                new { created.Name, created.ConnectionId }, ct);
-
-            return Results.Created($"/api/sources/{created.Id}", SourceResponse.From(created, includeDiagnostics: true));
+            var source = created.Result!.Source;
+            return Results.Created($"/api/sources/{source.Id}",
+                SourceResponse.From(source, includeDiagnostics: true) with { Warning = created.Result.Warning });
         })
         .WithName("CreateSource")
         .WithDescription("Create a source inside an existing connection. Administrator only — a source chooses what external data is indexed.")
@@ -279,26 +128,12 @@ public static class SourcesEndpoints
         group.MapDelete("/{sourceId:guid}", async (
             Guid sourceId,
             [FromQuery] string? confirmName,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] DeleteSource delete,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var source = await sourceStore.GetAsync(sourceId, ct);
-            if (source is null)
-                return Results.NotFound(new { error = $"Source {sourceId} not found" });
-
-            // The name the Sources page asks to be typed, since this removes every indexed document.
-            if (!SourceDeletion.Confirmed(source, confirmName))
-                return Results.BadRequest(new { error = SourceDeletion.ConfirmMismatch(source), field = "confirmName" });
-
-            bool deleted = await sourceStore.DeleteAsync(sourceId, ct);
-            if (!deleted)
-                return Results.NotFound(new { error = $"Source {sourceId} not found" });
-
-            await auditLogger.LogAsync("source.deleted", "source", sourceId.ToString(),
-                new { source.Name }, ct);
-
-            return Results.NoContent();
+            var deleted = await delete.RunAsync(Rest(http), sourceId, confirmName, ct);
+            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
         })
         .WithName("DeleteSource")
         .WithDescription("Delete a source and its indexed documents. confirmName must be the source's name. The external data itself is untouched.")

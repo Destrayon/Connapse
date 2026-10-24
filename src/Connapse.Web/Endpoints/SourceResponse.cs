@@ -72,7 +72,13 @@ public record SourceResponse(
     /// A Jira source's project and attachment settings, for administrators only, as
     /// <see cref="Confluence"/> is for a space; null for every other source.
     /// </summary>
-    JiraSourceSettings? Jira = null)
+    JiraSourceSettings? Jira = null,
+    /// <summary>
+    /// Only on a create's answer, and only when there is something to say: what the connection's
+    /// scope check warns about (a connection that declares no allowed locations). Left out otherwise.
+    /// </summary>
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? Warning = null)
 {
     public static SourceResponse From(Source source, bool includeDiagnostics) => new(
         Id: source.Id,

@@ -62,9 +62,7 @@
   "Endpoints/SettingsEndpoints.cs: POST /api/settings/reindex: 1",
   "Endpoints/SettingsEndpoints.cs: POST /api/settings/test-connection: 3",
   "Endpoints/SettingsEndpoints.cs: PUT /api/settings/{category}: 5",
-  "Endpoints/SourcesEndpoints.cs: DELETE /api/sources/{sourceId:guid}: 3",
   "Endpoints/SourcesEndpoints.cs: PATCH /api/sources/{sourceId:guid}: 2",
-  "Endpoints/SourcesEndpoints.cs: POST /api/sources/: 21",
   "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/retry-failed: 2",
   "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/sync: 6",
   "Program.cs: GET /api/v1/info: 1"

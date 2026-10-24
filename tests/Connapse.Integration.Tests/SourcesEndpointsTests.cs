@@ -341,11 +341,13 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         string name = ShortName("dup");
         await CreateSourceAsync(connectionId, name);
 
+        // A scope the connection allows, so the only thing wrong is the name: an empty S3 scope names
+        // no bucket and is refused by the scope check before the name is compared.
         var response = await Admin.PostAsJsonAsync("/api/sources", new
         {
             name,
             connectionId,
-            scopeJson = "{}",
+            scopeJson = """{"bucketName":"b","prefix":"team/"}""",
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);

@@ -172,6 +172,7 @@ builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceVisibility>(sp => sp.GetRequiredService<Connapse.Web.Services.PrivateSourceVisibility>());
 builder.Services.AddScoped<Connapse.Application.Ports.IOperationAuthorizer, Connapse.Web.Services.OperationAuthorizer>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
+builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
 builder.Services.AddScoped<Connapse.Web.Services.GitHubAppUsage>();
 
