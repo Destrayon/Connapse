@@ -99,17 +99,16 @@ public class AnthropicLlmProvider : ILlmProvider
     internal MessageCreateParams BuildParams(
         string systemPrompt, string userPrompt, LlmCompletionOptions? options)
     {
-        var temperature = options?.Temperature ?? (float)_settings.Temperature;
+        // No temperature: API version 2026-10-21 rejects temperature, top_p and top_k on every model.
         var model = options?.Model ?? _settings.Model;
 
         var parameters = new MessageCreateParams
         {
             Model = model,
             MaxTokens = options?.MaxTokens ?? _settings.MaxTokens,
-            Temperature = temperature,
             Messages =
             [
-                new() { Role = Role.User, Content = userPrompt }
+                new UserMessageParam { Content = userPrompt }
             ]
         };
 

@@ -113,4 +113,32 @@ public class AnthropicLlmProviderTests
 
         parameters.Model.Raw().Should().Be("claude-sonnet-4-6");
     }
+
+    [Fact]
+    public void BuildParams_TemperatureOverride_SendsNoSamplingParametersAndOneUserMessage()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "Anthropic",
+            Model = "claude-haiku-4-5",
+            AnthropicApiKey = "sk-ant-test-key",
+            Temperature = 0.2,
+            MaxTokens = 321
+        });
+        var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
+        var provider = new AnthropicLlmProvider(settings, logger);
+
+        var parameters = provider.BuildParams(
+            "sys",
+            "usr",
+            options: new LlmCompletionOptions(Temperature: 0.1f));
+
+        parameters.RawBodyData.Keys.Should().NotContain(["temperature", "top_p", "top_k"]);
+        parameters.MaxTokens.Should().Be(321);
+        parameters.System.Should().NotBeNull();
+        parameters.Messages.Should().ContainSingle();
+        parameters.Messages[0].TryPickUser(out var user).Should().BeTrue();
+        user!.Content.TryPickString(out var text).Should().BeTrue();
+        text.Should().Be("usr");
+    }
 }

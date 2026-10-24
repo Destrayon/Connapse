@@ -57,10 +57,9 @@ public class AnthropicConnectionTester : IConnectionTester
             {
                 Model = llmSettings.Model,
                 MaxTokens = 5,
-                Temperature = 0f,
                 Messages =
                 [
-                    new() { Role = Role.User, Content = "Say OK" }
+                    new UserMessageParam { Content = "Say OK" }
                 ]
             };
 
