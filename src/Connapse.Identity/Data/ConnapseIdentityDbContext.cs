@@ -24,6 +24,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<UserGitHubIdentityLinkEntity> UserGitHubIdentityLinks => Set<UserGitHubIdentityLinkEntity>();
     public DbSet<UserAtlassianIdentityLinkEntity> UserAtlassianIdentityLinks => Set<UserAtlassianIdentityLinkEntity>();
     public DbSet<UserAtlassianLinkRevocationEntity> UserAtlassianLinkRevocations => Set<UserAtlassianLinkRevocationEntity>();
+    public DbSet<McpApprovalEntity> McpApprovals => Set<McpApprovalEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -189,6 +190,10 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.Property(e => e.RevokedAt)
                 .HasColumnName("revoked_at");
+
+            entity.Property(e => e.RequiresApproval)
+                .HasColumnName("requires_approval")
+                .HasDefaultValue(true);
 
             entity.HasIndex(e => e.TokenHash)
                 .HasDatabaseName("ix_personal_access_tokens_token_hash")
@@ -466,6 +471,10 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.Property(e => e.RevokedAt)
                 .HasColumnName("revoked_at");
+
+            entity.Property(e => e.RequiresApproval)
+                .HasColumnName("requires_approval")
+                .HasDefaultValue(true);
 
             entity.HasIndex(e => e.TokenHash)
                 .HasDatabaseName("ix_agent_api_keys_token_hash")
@@ -768,6 +777,29 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<McpApprovalEntity>(entity =>
+        {
+            entity.ToTable("mcp_approvals");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TokenKey).HasColumnName("token_key").HasMaxLength(64);
+            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
+            entity.Property(e => e.ToolName).HasColumnName("tool_name").HasMaxLength(128);
+            entity.Property(e => e.ArgumentsHash).HasColumnName("arguments_hash").HasMaxLength(64);
+            entity.Property(e => e.ArgumentsSummary).HasColumnName("arguments_summary").HasMaxLength(2048);
+            entity.Property(e => e.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(16);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expires_at");
+            entity.Property(e => e.DecidedAt).HasColumnName("decided_at");
+            entity.Property(e => e.DecidedByUserId).HasColumnName("decided_by_user_id");
+            entity.Property(e => e.UsedAt).HasColumnName("used_at");
+
+            // The retried call looks itself up by token, tool and arguments.
+            entity.HasIndex(e => new { e.TokenKey, e.ToolName, e.ArgumentsHash });
+            entity.HasIndex(e => new { e.OwnerUserId, e.Status });
         });
     }
 }

@@ -126,10 +126,14 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
 })
 .WithHttpTransport()
 .WithToolsFromAssembly()
-.AddAuthorizationFilters();
+.AddAuthorizationFilters()
+.WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
+    context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)));
+builder.Services.AddScoped<Connapse.Web.Mcp.McpApprovalGate>();
 
 if (allowAnonDiscovery)
 {
+    builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, Connapse.Web.Mcp.AnonymousMcpDiscoveryHandler>();
     mcpBuilder.WithRequestFilters(filters =>
     {
         filters.AddCallToolFilter(next => async (context, ct) =>

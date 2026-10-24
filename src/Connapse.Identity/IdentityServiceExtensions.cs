@@ -66,6 +66,8 @@ public static class IdentityServiceExtensions
         services.AddScoped<InviteService>();
         services.TryAddScoped<IInviteAuthorizationPolicy, DefaultInviteAuthorizationPolicy>();
         services.AddScoped<IAgentService, AgentService>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<IMcpApprovalStore, McpApprovalStore>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<OAuthAuthCodeService>();
         services.AddHttpClient<OAuthClientService>();
@@ -325,6 +327,10 @@ public static class IdentityServiceExtensions
                 policy.RequireRole("Owner"))
             .AddPolicy("RequireAdmin", policy =>
                 policy.RequireRole("Owner", "Admin"))
+            // A signed-in person, never a PAT or agent key: approving a held MCP call must not be
+            // something the token waiting on it can do (#782).
+            .AddPolicy("RequirePerson", policy =>
+                policy.RequireAuthenticatedUser().RequireAssertion(context => !McpApprovalClaims.IsToken(context.User)))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

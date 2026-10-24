@@ -35,6 +35,7 @@ public class PatService(
             Scopes = request.Scopes is { Length: > 0 } s ? string.Join(",", s) : "",
             ExpiresAt = request.ExpiresAt,
             CreatedAt = DateTime.UtcNow,
+            RequiresApproval = request.RequiresApproval,
         };
 
         dbContext.PersonalAccessTokens.Add(entity);
@@ -70,7 +71,8 @@ public class PatService(
             p.CreatedAt,
             p.ExpiresAt,
             p.LastUsedAt,
-            p.RevokedAt != null))
+            p.RevokedAt != null,
+            p.RequiresApproval))
             .ToList();
     }
 

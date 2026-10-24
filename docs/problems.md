@@ -45,3 +45,23 @@ nothing was started; the running cycle picks up the changes.
 ## invalid-page
 
 The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200.
+
+## approval-not-signed-in
+
+Reviewing MCP approval requests needs a signed-in person. Sign in to Connapse and open the
+Approvals page.
+
+## approval-ui-only
+
+An MCP approval request can only be listed or decided in the Connapse UI, on the Approvals page.
+A token must never approve the call it is waiting on, so REST and MCP callers are refused.
+
+## approval-not-found
+
+No waiting approval request has this id, or it belongs to someone else. Only the person a token
+acts for, or an administrator, can see and decide its requests.
+
+## approval-not-pending
+
+The approval request was already approved or denied, or it expired. A request waits a day; an
+approval can be used once, within 15 minutes.

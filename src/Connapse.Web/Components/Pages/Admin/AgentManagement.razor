@@ -213,6 +213,10 @@
                                        style="width: 220px;"
                                        @bind="newKeyName" placeholder="e.g. production" />
                             </div>
+                            <div class="form-check mb-1">
+                                <input class="form-check-input" type="checkbox" id="new-key-approval-@agent.Id" @bind="newKeyRequiresApproval" />
+                                <label class="form-check-label small" for="new-key-approval-@agent.Id">Ask before it deletes anything over MCP</label>
+                            </div>
                             <button class="btn btn-sm btn-primary"
                                     @onclick="() => CreateKeyAsync(agent.Id)"
                                     disabled="@isProcessing">
@@ -230,6 +234,7 @@
     private string newAgentName = "";
     private string newAgentDescription = "";
     private string newKeyName = "";
+    private bool newKeyRequiresApproval = true;
     private bool isProcessing;
     private string processingAction = "";
     private Guid? selectedAgentId;
@@ -245,9 +250,7 @@
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (userIdStr is not null)
-            Guid.TryParse(userIdStr, out currentUserId);
+        Guid.TryParse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out currentUserId);
 
         await LoadAgentsAsync();
     }
@@ -267,6 +270,7 @@
         {
             selectedAgentId = agentId;
             newKeyName = "";
+            newKeyRequiresApproval = true;
             newKeyResponse = null;
             newKeyAgentId = null;
         }
@@ -379,7 +383,7 @@
         statusMessage = null;
         try
         {
-            var key = await AgentService.CreateKeyAsync(agentId, new CreateAgentKeyRequest(newKeyName.Trim()));
+            var key = await AgentService.CreateKeyAsync(agentId, new CreateAgentKeyRequest(newKeyName.Trim(), RequiresApproval: newKeyRequiresApproval));
             newKeyResponse = key;
             newKeyAgentId = agentId;
             newKeyName = "";
