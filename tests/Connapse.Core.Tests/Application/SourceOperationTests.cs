@@ -322,6 +322,30 @@ public class SourceOperationTests
         await _sources.Received(1).CreateAsync(Arg.Is<CreateSourceRequest>(r => r.ScopeJson == "{\"spaceId\":\"1\"}"), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(" Docs ", "Docs")]
+    [InlineData("   ", null)]
+    public async Task Create_DefaultNameWithSpaces_IsTrimmedAndABlankOneRefused(string defaultName, string? saved)
+    {
+        var connection = OnConnection();
+        _createRules.CheckCreateAsync(connection, "{}", Arg.Any<CancellationToken>()).Returns(new ScopeCheck("{}") { DefaultName = defaultName });
+        _sources.CreateAsync(Arg.Any<CreateSourceRequest>(), Arg.Any<CancellationToken>()).Returns(c => Named(c.Arg<CreateSourceRequest>().Name));
+
+        var created = await Create().RunAsync(Caller, new NewSource(null, connection.Id, "{}"));
+
+        if (saved is null)
+        {
+            created.Status.Should().Be(SourceWriteStatus.Invalid);
+            created.Field.Should().Be("name");
+            await _sources.DidNotReceiveWithAnyArgs().CreateAsync(default!);
+        }
+        else
+        {
+            created.Result!.Source.Name.Should().Be(saved);
+            await _sources.Received(1).CreateAsync(Arg.Is<CreateSourceRequest>(r => r.Name == saved), Arg.Any<CancellationToken>());
+        }
+    }
+
     [Fact]
     public async Task Create_NameTaken_IsAConflict()
     {
