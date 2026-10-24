@@ -5,6 +5,9 @@ using System.Text.Json.Serialization;
 
 namespace Connapse.Core;
 
+/// <summary>Which Atlassian product a stored scope reads, if any.</summary>
+public enum AtlassianScopeKind { None, JiraProject, ConfluenceSpace }
+
 /// <summary>
 /// Reads and writes a source's stored scope JSON as a <see cref="SourceScope"/>, by the source's
 /// provider (#859). The stored keys stay what the connectors read, so no row needs migrating.
@@ -78,12 +81,12 @@ public static class SourceScopeCodec
             ConnectionProvider.Filesystem => new FilesystemFolderScope(Str(o, "subPath"), Arr(o, "includePatterns"), Arr(o, "excludePatterns")),
             ConnectionProvider.Sftp => new SftpFolderScope(Str(o, "subPath"), Arr(o, "includePatterns"), Arr(o, "excludePatterns")),
             ConnectionProvider.GitHub => ReadGitHub(o),
-            ConnectionProvider.Atlassian => Str(o, "kind") switch
+            ConnectionProvider.Atlassian => AtlassianKindOf(o) switch
             {
-                JiraKind => Id(o, "projectId") is { } projectId
+                AtlassianScopeKind.JiraProject => Id(o, "projectId") is { } projectId
                     ? new JiraProjectScope(projectId, Str(o, "projectKey"), Str(o, "projectName"), Bool(o, "includeAttachments"), Int(o, "maxAttachmentMb"))
                     : null,
-                ConfluenceKind => Id(o, "spaceId") is { } spaceId
+                AtlassianScopeKind.ConfluenceSpace => Id(o, "spaceId") is { } spaceId
                     ? new ConfluenceSpaceScope(spaceId, Str(o, "spaceKey"), Str(o, "spaceName"), Bool(o, "includeAttachments"), Int(o, "maxAttachmentMb"))
                     : null,
                 _ => null,
@@ -114,6 +117,22 @@ public static class SourceScopeCodec
         }
         return written.ToJsonString();
     }
+
+    /// <summary>
+    /// The Atlassian kind a stored scope names: its exact <c>kind</c>, <c>jira-project</c> or <c>confluence-space</c>,
+    /// as the connector syncs it. Anything else, a missing kind or one in another case, names none. Connapse always
+    /// stores the exact value, so only a row edited outside it reads as none. Every reader of a stored row's kind
+    /// asks here; a request's own looser kind is normalized before it is stored.
+    /// </summary>
+    public static AtlassianScopeKind AtlassianKindOf(string? storedJson) =>
+        Parse(storedJson) is { } o ? AtlassianKindOf(o) : AtlassianScopeKind.None;
+
+    private static AtlassianScopeKind AtlassianKindOf(JsonObject o) => Str(o, "kind") switch
+    {
+        JiraKind => AtlassianScopeKind.JiraProject,
+        ConfluenceKind => AtlassianScopeKind.ConfluenceSpace,
+        _ => AtlassianScopeKind.None,
+    };
 
     private static GitHubRepositoryScope? ReadGitHub(JsonObject o)
     {
