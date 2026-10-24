@@ -161,7 +161,6 @@
   "operation invites.list: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation invites.revoke: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation links.connect: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation links.unlink: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation oauthClients.list: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation oauthClients.revoke: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation pats.create: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
