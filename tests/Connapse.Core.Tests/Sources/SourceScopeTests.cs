@@ -101,10 +101,11 @@ public class SourceScopeTests
     {
         // Guards the property test above against covering only some kinds.
         var kinds = typeof(SourceScope).Assembly.GetTypes().Where(t => t.IsSubclassOf(typeof(SourceScope))).ToHashSet();
-        var generated = new HashSet<Type>();
-        AnyScope.Sample(scope => { generated.Add(scope.GetType()); }, iter: 2000);
+        // Sample runs on several threads, so the kinds seen are collected in a concurrent set.
+        var generated = new System.Collections.Concurrent.ConcurrentDictionary<Type, bool>();
+        AnyScope.Sample(scope => { generated.TryAdd(scope.GetType(), true); }, iter: 2000);
 
-        generated.Should().BeEquivalentTo(kinds);
+        generated.Keys.Should().BeEquivalentTo(kinds);
     }
 
     private static readonly Gen<string> Text = Gen.String[Gen.Char.AlphaNumeric, 1, 12];
