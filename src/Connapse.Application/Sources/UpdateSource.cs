@@ -42,6 +42,10 @@ public sealed class UpdateSource(ISourceStore sources, ISourceScopeRules scopes,
         if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
             return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Forbidden, "You don't have permission to change sources.");
 
+        // Null leaves the name as it is; a present name must have something in it, as on create.
+        if (request.Name is not null && string.IsNullOrWhiteSpace(request.Name))
+            return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, "Source name is required", "name");
+
         if (!string.IsNullOrWhiteSpace(request.ScopeJson))
         {
             // Disposed: JsonDocument rents pooled buffers, and this runs per request.
