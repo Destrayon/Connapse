@@ -1,5 +1,6 @@
 ﻿using System.Reflection;
 using System.Text.Json.Serialization;
+using Connapse.Application.Extensions;
 using Connapse.Background;
 using Connapse.Core;
 using Connapse.Identity;
@@ -193,6 +194,9 @@ builder.Services.AddConnapseHangfire(builder.Configuration);
 
 // Add knowledge search (hybrid vector + keyword search)
 builder.Services.AddKnowledgeSearch();
+
+// Add the operations every surface calls (epic #783)
+builder.Services.AddApplication();
 
 // Add Identity, authentication, and authorization
 builder.Services.AddConnapseIdentity(builder.Configuration);
