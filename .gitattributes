@@ -64,3 +64,5 @@
 
 # Committed eval data is checksummed in eval/MANIFEST.json; keep its bytes identical on every OS.
 eval/datasets/**/*.jsonl text eol=lf
+# Eval shell scripts also run in Git Bash on Windows, where a CRLF checkout breaks them.
+eval/tools/**/*.sh text eol=lf
