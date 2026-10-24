@@ -1,0 +1,47 @@
+# Expected failures for the official MCP conformance suite 0.2.0-alpha.12, run with
+# --requirements 2026-07-28 (the scenarios that spec revision requires), by the mcp-conformance CI job.
+# A listed scenario that starts passing fails the job: delete its line. An unlisted scenario that fails
+# is a regression. Part of #846; the 2025 revisions' list is mcp-conformance-baseline.yml.
+#
+# As in that list, the runner sends no credentials, so the job allows anonymous discovery and every
+# tools/call is refused for authentication.
+server:
+  # Connapse doesn't implement completions, resources or prompts. caching also checks the hints on
+  # prompts/list and the resources methods; tools/list's hints pass (ttlMs 0, cacheScope private).
+  - completion-complete
+  - resources-list
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+  - caching
+  # These call the suite's own sample or diagnostic tools (image, audio, progress, JSON Schema 2020-12,
+  # x-mcp-header parameters, test_missing_capability), which a product server doesn't have.
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-with-progress
+  - json-schema-2020-12
+  - http-custom-header-server-validation
+  - server-stateless
+  # Multi round-trip requests (InputRequiredResult) ask the client for elicitation, sampling or roots
+  # through the suite's sample tools and prompts; no Connapse tool asks the client for input.
+  - input-required-result-basic-elicitation
+  - input-required-result-basic-sampling
+  - input-required-result-basic-list-roots
+  - input-required-result-request-state
+  - input-required-result-multiple-input-requests
+  - input-required-result-multi-round
+  - input-required-result-non-tool-request
+  - input-required-result-result-type
+  - input-required-result-tampered-state
+  - input-required-result-capability-check
+  # These two only warn: with no credentials the tool call is refused (a complete, isError result), so
+  # there is no input request to answer or validate.
+  - input-required-result-missing-input-response
+  - input-required-result-validate-input

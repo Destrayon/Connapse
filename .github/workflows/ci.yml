@@ -293,7 +293,7 @@ jobs:
   # The official MCP conformance suite in server mode (#793), against the app run with
   # `dotnet run` on throwaway Postgres and MinIO. The runner can't send credentials, so the
   # server allows anonymous MCP discovery; tool calls still need a key. Known failures are in
-  # .github/mcp-conformance-baseline.yml, and a listed scenario that starts passing fails the job.
+  # .github/mcp-conformance-baseline*.yml, and a listed scenario that starts passing fails the job.
   mcp-conformance:
     runs-on: ubuntu-latest
 
@@ -334,8 +334,14 @@ jobs:
         dotnet run --project src/Connapse.Web --configuration Release --no-build --no-launch-profile > web.log 2>&1 &
         timeout 120 bash -c 'until curl -sf http://localhost:5099/health > /dev/null; do sleep 2; done' || { tail -50 web.log; exit 1; }
 
-    - name: Run the MCP conformance suite
+    # The 2025 revisions down-level clients still speak (the SDK's initialize handshake), and the
+    # 2026-07-28 revision Connapse serves (#846), each with its own expected failures.
+    - name: Run the MCP conformance suite (2025 revisions)
       run: npx -y @modelcontextprotocol/conformance@0.1.16 server --url http://localhost:5099/mcp --expected-failures .github/mcp-conformance-baseline.yml
+
+    - name: Run the MCP conformance suite (2026-07-28)
+      if: success() || failure()
+      run: npx -y @modelcontextprotocol/conformance@0.2.0-alpha.12 server --url http://localhost:5099/mcp --requirements 2026-07-28 --expected-failures .github/mcp-conformance-baseline-2026-07-28.yml
 
     - name: Server log on failure
       if: failure()

@@ -19,6 +19,7 @@ using Connapse.Storage.Vectors;
 using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
+using Connapse.Web.Mcp;
 using Connapse.Web.Problems;
 using Connapse.Core.Interfaces;
 using Connapse.Web;
@@ -361,6 +362,8 @@ app.Use(async (ctx, next) =>
 
 app.UseHttpsRedirection();
 app.UseCors();
+// Before authentication, so a rebinding page learns nothing about credentials (#846).
+app.UseMcpOriginValidation(app.Configuration);
 
 app.UseAuthentication();
 app.UseRateLimiter();

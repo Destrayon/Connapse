@@ -1,5 +1,6 @@
-# Expected failures for the official MCP conformance suite (server mode), run by the
-# mcp-conformance CI job. A listed scenario that starts passing fails the job: delete its line.
+# Expected failures for the official MCP conformance suite 0.1.16 (server mode, the 2025 spec
+# revisions down-level clients use), run by the mcp-conformance CI job. The 2026-07-28 revision has its
+# own list, mcp-conformance-baseline-2026-07-28.yml. A listed scenario that starts passing fails the job: delete its line.
 # An unlisted scenario that fails is a regression. Part of #793.
 #
 # The runner can't send credentials, so the job allows anonymous discovery and every tools/call
@@ -32,6 +33,6 @@ server:
   - tools-call-elicitation
   - elicitation-sep1034-defaults
   - elicitation-sep1330-enums
-  # Security: /mcp answers 200 to a request whose Host and Origin name another site, so it
-  # has no DNS-rebinding protection. The spec says servers must validate Origin.
-  - dns-rebinding-protection
+  # Stateless (#846): a 2026-07-28 server issues no session ID, so this 2025 scenario, which checks
+  # several SSE streams on one session, can only warn.
+  - server-sse-multiple-streams
