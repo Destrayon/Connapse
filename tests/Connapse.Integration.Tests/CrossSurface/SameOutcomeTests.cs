@@ -118,7 +118,8 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
         return outcome with
         {
             Audit = outcome.Audit.Select(Mask).ToList(),
-            Jobs = outcome.Jobs.Select(Mask).ToList(),
+            // A synced file's path uses the OS separator ({root}\doc.txt on Windows, {root}/doc.txt on Linux CI).
+            Jobs = outcome.Jobs.Select(Mask).Select(j => j.Replace("{root}\\\\", "{root}/", StringComparison.Ordinal)).ToList(),
         };
     }
 
