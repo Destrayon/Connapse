@@ -34,8 +34,9 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
             Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
             var pending = await PendingForAsync("container_delete", target);
 
-            // A refused request isn't approved by deciding it from another surface.
+            // A request isn't approved from another surface, or by a bearer token that reached the page.
             (await DecideAsync(pending.Id, OperationSurface.Rest)).Status.Should().Be(McpApprovalOutcome.NotFromUi);
+            (await DecideAsync(pending.Id, OperationSurface.Ui, "AuthenticationTypes.Federation")).Status.Should().Be(McpApprovalOutcome.NotSignedIn);
             (await DecideAsync(pending.Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
 
             // The approval is bound to its arguments: another container stays put.
@@ -77,10 +78,10 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         }
     }
 
-    /// <summary>An administrator signed in to the UI, who may decide anyone's request.</summary>
-    private static OperationContext Admin(OperationSurface surface) => new(
+    /// <summary>An administrator signed in to the UI in a browser, who may decide anyone's request.</summary>
+    private static OperationContext Admin(OperationSurface surface, string authenticationType = "Identity.Application") => new(
         new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin")], "test")),
+            [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin")], authenticationType)),
         surface);
 
     private async Task<McpApprovalItem> PendingForAsync(string tool, string containerId)
@@ -90,10 +91,35 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         return listed.Result!.Should().ContainSingle(a => a.ToolName == tool && a.ArgumentsSummary.Contains(containerId)).Subject;
     }
 
-    private async Task<Attempt<bool, McpApprovalOutcome>> DecideAsync(Guid id, OperationSurface surface)
+    private async Task<Attempt<bool, McpApprovalOutcome>> DecideAsync(Guid id, OperationSurface surface, string authenticationType = "Identity.Application")
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>().ExecuteAsync(Admin(surface), id, approve: true);
+        return await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>().ExecuteAsync(Admin(surface, authenticationType), id, approve: true);
+    }
+
+    [Fact]
+    public async Task Decide_ApproveAndDenyRacing_OnlyOneLands()
+    {
+        await using var agent = await AgentAsync(requiresApproval: true);
+        string target = await CreateContainerAsync(fixture.AdminClient, "approval-race");
+        try
+        {
+            await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = target });
+            var pending = await PendingForAsync("container_delete", target);
+
+            var decisions = await Task.WhenAll(Enumerable.Range(0, 8).Select(async i =>
+            {
+                await using var scope = fixture.Factory.Services.CreateAsyncScope();
+                return await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>()
+                    .ExecuteAsync(Admin(OperationSurface.Ui), pending.Id, approve: i % 2 == 0);
+            }));
+
+            decisions.Count(d => d.Succeeded).Should().Be(1, "a request is decided once");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{target}");
+        }
     }
 
     private async Task<McpClient> AgentAsync(bool requiresApproval)

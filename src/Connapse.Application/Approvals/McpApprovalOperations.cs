@@ -31,7 +31,7 @@ internal static class Approver
     /// a token must never approve the call it is waiting on, so REST and MCP callers are refused.
     /// </summary>
     public static (Guid UserId, bool IsAdmin)? From(OperationContext context) =>
-        !McpApprovalClaims.IsToken(context.User) && Guid.TryParse(context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
+        McpApprovalClaims.IsBrowserSession(context.User) && !McpApprovalClaims.IsToken(context.User) && Guid.TryParse(context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)
             ? (id, context.User.IsInRole("Owner") || context.User.IsInRole("Admin"))
             : null;
 }
