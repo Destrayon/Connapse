@@ -7,20 +7,19 @@
 @using System.Text.Json
 
 @using Connapse.Web.Services
+@using Connapse.Application.Sources
 @using Connapse.Web.Components.Sources
 @using Connapse.Storage.Connectors.Atlassian
 @using Connapse.Storage.ConnectionTesters
 @using Connapse.Web.Components.Connections
-@inject ISourceStore SourceStore
 @inject Connapse.Web.Services.AtlassianSiteService AtlassianSites
 @inject Connapse.Web.Services.CustomSourceSetup CustomSources
-@inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
+@inject Connapse.Application.Sources.SourceOperations Operations
 @inject IConnectionStore ConnectionStore
 @inject SourceSyncService SyncService
 @inject IAuditLogger AuditLogger
 @inject ILogger<Sources> Logger
 @inject AuthenticationStateProvider AuthStateProvider
-@inject SourceScopePreflight Preflight
 @inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
 @inject Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup GitHubRepositories
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
@@ -943,9 +942,8 @@
 
         try
         {
-            // A private GitHub source names a private repository: listed only to those who may read it.
-            var visible = await PrivateSources.ForAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
-            sources = (await SourceStore.ListAsync(take: int.MaxValue)).Where(visible).ToList();
+            var listed = await Operations.List.RunAsync(await AuthStateProvider.OperationContextAsync(), new Connapse.Application.Sources.ListSourcesQuery());
+            sources = [.. listed.ResultOr(Fail, new Connapse.Application.Sources.SourceList([], false, false)).Items];
             connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
             connectionNames = connections.ToDictionary(c => c.Id, c => c.Name);
         }
@@ -1142,17 +1140,14 @@
 
         try
         {
-            var updated = await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(Enabled: !source.Enabled));
-            if (updated is null)
+            var toggled = await Operations.Update.RunAsync(await AuthStateProvider.OperationContextAsync(), source.Id, new UpdateSourceRequest(Enabled: !source.Enabled));
+            if (!toggled.Succeeded)
             {
-                Fail($"'{source.Name}' no longer exists — it was deleted elsewhere.");
+                Fail(toggled.Detail!);
             }
             else
             {
-                await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(),
-                    new { source.Name, updated.Enabled });
-
-                Succeed(updated.Enabled
+                Succeed(toggled.Result!.Enabled
                     ? $"Syncing resumed for '{source.Name}'."
                     : $"Syncing paused for '{source.Name}'. Nothing is deleted, and its documents stay searchable.");
             }
@@ -1176,7 +1171,7 @@
         if (connection is not { Provider: ConnectionProvider.Custom }) return null;
 
         Connapse.Web.Services.CustomMiddleMan middleMan = await CustomSources.DescribeAsync(connection, CancellationToken.None);
-        HashSet<string> existing = (await SourceStore.ListByConnectionAsync(connection.Id))
+        HashSet<string> existing = (await Operations.OnConnectionAsync(AuthStateProvider, connection.Id))
             .Select(s => CustomSourceScope.TryParse(s.ScopeJson)?.ScopeId)
             .OfType<string>()
             .ToHashSet();
@@ -1256,7 +1251,7 @@
             await RecordSetupAsync(() => AtlassianSourceSetupEvents.StartedAsync(AuditLogger, opened, connection.Id));
         try
         {
-            var onConnection = await SourceStore.ListByConnectionAsync(connection.Id);
+            var onConnection = await Operations.OnConnectionAsync(AuthStateProvider, connection.Id);
             confluenceExisting = ConfluenceSpaceSelection.SpaceIdsOf(onConnection);
             jiraExisting = JiraProjectSelection.ProjectIdsOf(onConnection);
         }
@@ -1342,7 +1337,7 @@
         try
         {
             // Read again rather than trusting what the dialog loaded: another admin may have added one since.
-            var existing = selection.ExistingIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
+            var existing = selection.ExistingIdsOf(await Operations.OnConnectionAsync(AuthStateProvider, connection.Id));
             // The dialog's list may be for another site or out of date: only items this connection has now are created.
             var onSite = await selection.ListOnSiteAsync(AtlassianSites, connection.Id, CancellationToken.None);
             if (onSite.Outcome != AtlassianSpacesOutcome.Listed)
@@ -1409,21 +1404,11 @@
     {
         foreach (var request in requests)
         {
-            try
-            {
-                var source = await SourceStore.CreateAsync(request);
-                created.Add(source.Name);
-                await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
-                    new { source.Name, source.ConnectionId });
-            }
-            catch (InvalidOperationException ex)
-            {
-                // A duplicate name: this space or project already has a source of that name.
-                Logger.LogInformation(ex, "Could not add Atlassian source {Name}", LogSanitizer.Sanitize(request.Name));
-                failed.Add(ex is DuplicateSourceScopeException
-                    ? $"{request.Name}: this connection already has a source for that scope"
-                    : $"{request.Name}: a source with this name already exists");
-            }
+            var attempt = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(), NewSource.From(request));
+            if (attempt.Succeeded)
+                created.Add(attempt.Result!.Source.Name);
+            else
+                failed.Add($"{request.Name}: {attempt.Detail}");
         }
     }
 
@@ -1456,6 +1441,7 @@
         creating = true;
         var created = new List<string>();
         var skipped = new List<string>();
+        var failed = new List<string>();
 
         try
         {
@@ -1473,30 +1459,26 @@
 
             foreach (var request in githubForm.ToRequests(connection.Id, found.Id, isPrivate))
             {
-                try
-                {
-                    var source = await SourceStore.CreateAsync(request);
-                    created.Add(source.Name);
-                    await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
-                        new { source.Name, source.ConnectionId });
-                }
-                catch (InvalidOperationException ex)
-                {
-                    // A duplicate name: this repository's source of that kind already exists.
-                    skipped.Add(ex.Message);
-                }
+                // A conflict is a duplicate name: this repository's source of that kind already exists. Any other
+                // refusal is GitHub's answer for this one, which is not the same as having it already.
+                var attempt = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(), NewSource.From(request));
+                if (attempt.Succeeded)
+                    created.Add(attempt.Result!.Source.Name);
+                else
+                    (attempt.Status == SourceWriteStatus.Conflict ? skipped : failed).Add(attempt.Detail!);
             }
 
             if (created.Count == 0)
             {
-                createError = "Nothing added. " + string.Join(" ", skipped);
+                createError = "Nothing added. " + string.Join(" ", skipped.Concat(failed));
                 return;
             }
 
             form = null;
             githubForm = null;
             Succeed($"Added {string.Join(" and ", created)}. They sync on the next cycle, or press Sync."
-                + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : ""));
+                + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : "")
+                + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
             privateNote = isPrivate
                 ? $"{found.FullName} is {found.Visibility}. Its content appears only for people who link their GitHub account under Profile → Integrations and can read the repository on GitHub."
                 : null;
@@ -1553,7 +1535,7 @@
             }
 
             // Read again rather than trusting what the dialog loaded: another admin may have added one since.
-            HashSet<string> existing = (await SourceStore.ListByConnectionAsync(draft.Connection.Id))
+            HashSet<string> existing = (await Operations.OnConnectionAsync(AuthStateProvider, draft.Connection.Id))
                 .Select(s => CustomSourceScope.TryParse(s.ScopeJson)?.ScopeId)
                 .OfType<string>()
                 .ToHashSet();
@@ -1654,60 +1636,34 @@
             // here, picking a connection of that kind kills the page instead of saying so.
             string scopeJson = form.ToScopeJson(connection.Provider);
 
-            // Checked before creating rather than at the first sync. ConnectorFactory re-checks
-            // on every cycle and remains the enforcement point — this exists so a refusal is
-            // legible now instead of surfacing as a failed sync five minutes later.
-            var preflight = Preflight.Check(connection, scopeJson);
-            if (preflight.IsRefused)
-            {
-                createError = preflight.Error;
-                return;
-            }
-
-            var created = await SourceStore.CreateAsync(new CreateSourceRequest(
+            // The operation checks the scope against the connection's allowed locations before saving,
+            // so a refusal is legible here instead of surfacing as a failed sync five minutes later.
+            var attempt = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(), new NewSource(
                 form.Name.Trim(),
                 form.ConnectionId,
                 scopeJson,
                 string.IsNullOrWhiteSpace(form.Description) ? null : form.Description.Trim(),
                 form.SyncIntervalSeconds));
+            if (!attempt.Succeeded)
+            {
+                createError = attempt.Detail;
+                return;
+            }
 
             // The source exists from here on, so the outcome is settled before anything else
             // is attempted. Reporting success first is what stops a later failure describing a
             // created source as a failed one.
+            var created = attempt.Result!.Source;
             form = null;
             Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync.");
 
-            if (preflight.Warning is not null)
+            if (attempt.Result.Warning is not null)
             {
                 // Survives the modal closing: the operator should still see it.
-                message += " " + preflight.Warning;
+                message += " " + attempt.Result.Warning;
             }
 
-            // Ordered after the outcome, not wrapped in a handler. AuditLogger.LogAsync catches
-            // its own failures and logs them, so it cannot throw and a catch here would be dead
-            // code claiming to handle something that never happens.
-            //
-            // The ordering still earns its place: it does not depend on that contract. If the
-            // audit logger were ever made to propagate, a created source would still be reported
-            // as created rather than as a failure.
-            //
-            // An audit write that fails is invisible to the operator. That is a real gap and
-            // #397 covers it — it needs IAuditLogger to report failure, which is every call
-            // site, not this one.
-            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
-                new { created.Name, created.ConnectionId });
-
             await LoadAsync();
-        }
-        catch (ArgumentException ex)
-        {
-            // The store validates the name shape and the connection's existence.
-            createError = ex.Message;
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Duplicate name is the expected case here.
-            createError = ex.Message;
         }
         catch (Exception ex)
         {
@@ -1735,24 +1691,18 @@
         if (pendingDelete is null || !SourceDeletion.Confirmed(pendingDelete, deleteConfirmText)) return;
 
         var source = pendingDelete;
+        string? confirmed = deleteConfirmText;
         pendingDelete = null;
         deleteConfirmText = null;
         message = null;
 
         try
         {
-            bool deleted = await SourceStore.DeleteAsync(source.Id);
-            if (deleted)
-            {
-                await AuditLogger.LogAsync("source.deleted", "source", source.Id.ToString(),
-                    new { source.Name });
-
+            var deleted = await Operations.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(), source.Id, confirmed);
+            if (deleted.Succeeded)
                 Succeed($"'{source.Name}' deleted. The external data is untouched.");
-            }
             else
-            {
-                Fail($"'{source.Name}' no longer exists — it was deleted elsewhere.");
-            }
+                Fail(deleted.Detail!);
 
             await LoadAsync();
         }

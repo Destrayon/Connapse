@@ -24,6 +24,7 @@ public class SourceEditCustomTokenTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<IConnectorFactory>());
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
     }
 
     public void Dispose() => ctx.Dispose();

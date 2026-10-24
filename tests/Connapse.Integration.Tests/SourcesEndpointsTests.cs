@@ -287,6 +287,10 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Worded as it always was, ahead of the storage scope check, which can't read it either.
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().StartWith("Invalid scope JSON:");
+        body.TryGetProperty("field", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -341,11 +345,13 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         string name = ShortName("dup");
         await CreateSourceAsync(connectionId, name);
 
+        // A scope the connection allows, so the only thing wrong is the name: an empty S3 scope names
+        // no bucket and is refused by the scope check before the name is compared.
         var response = await Admin.PostAsJsonAsync("/api/sources", new
         {
             name,
             connectionId,
-            scopeJson = "{}",
+            scopeJson = """{"bucketName":"b","prefix":"team/"}""",
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);

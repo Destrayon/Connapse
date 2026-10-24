@@ -1,5 +1,5 @@
 ﻿{
-  Result: ok found,
+  Result: ok not-found,
   State: [
     source {name} enabled=True connection={connection} status=Never synced=False cursor=none,
     documents owned: 0

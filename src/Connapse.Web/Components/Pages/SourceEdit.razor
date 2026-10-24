@@ -10,10 +10,10 @@
 @using Connapse.Web.Components.Shared
 @using Connapse.Web.Components.Sources
 @using Connapse.Web.Services
-@inject ISourceStore SourceStore
+@inject Connapse.Application.Sources.SourceOperations Operations
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IConnectionStore ConnectionStore
 @inject IConnectorFactory ConnectorFactory
-@inject IAuditLogger AuditLogger
 @inject ILogger<SourceEdit> Logger
 
 @*
@@ -281,12 +281,13 @@
     {
         try
         {
-            source = await SourceStore.GetAsync(Id);
-            if (source is null)
+            var read = await Operations.Get.RunAsync(await AuthStateProvider.OperationContextAsync(), Id);
+            if (!read.Succeeded)
             {
-                loadError = "That source no longer exists.";
+                loadError = read.Detail;
                 return;
             }
+            source = read.Result!.Source;
 
             connection = source.ConnectionId is Guid connectionId ? await ConnectionStore.GetAsync(connectionId) : null;
             form = SourceEditForm.From(source, connection?.Provider);
@@ -349,16 +350,15 @@
         try
         {
             bool rereads = request.ScopeJson is not null;
-            var updated = await SourceStore.UpdateAsync(source.Id, request);
-            if (updated is null)
+            var saved = await Operations.Update.RunAsync(await AuthStateProvider.OperationContextAsync(), source.Id, request);
+            if (!saved.Succeeded)
             {
-                (message, success) = ("That source no longer exists.", false);
+                (message, success) = (saved.Detail, false);
                 return;
             }
 
-            await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(), new { updated.Name });
-            source = updated;
-            form = SourceEditForm.From(updated, connection?.Provider);
+            source = saved.Result!;
+            form = SourceEditForm.From(source, connection?.Provider);
             (message, success) = (rereads
                 ? "Saved. The next sync re-reads everything with the new settings — or sync it now from Sources."
                 : "Saved.", true);

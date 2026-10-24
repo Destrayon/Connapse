@@ -39,6 +39,7 @@ public class SourcesSyncStatusTests : IDisposable
         auth.SetAuthorized("admin");
         auth.SetRoles("Admin");
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
 
         var http = Substitute.For<IHttpClientFactory>();
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -115,6 +116,8 @@ public class SourcesSyncStatusTests : IDisposable
     {
         var source = Confluence(SyncStatus.Succeeded, null) with { DocumentCount = 42 };
         sources.DeleteAsync(source.Id, Arg.Any<CancellationToken>()).Returns(true);
+        // The delete operation reads the source to check the typed name against it, as REST does.
+        sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
         var cut = Render(source);
 
         cut.FindAll("tbody button").Single(b => b.TextContent.Trim() == "Delete").Click();
