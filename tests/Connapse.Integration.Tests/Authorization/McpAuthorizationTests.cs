@@ -94,6 +94,20 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
     }
 
     /// <summary>
+    /// An Owner's knowledge:read PAT carries its owner's roles, but its scopes bound it: it must not
+    /// see or run a knowledge:write tool (#782).
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_OwnerReadOnlyPat_WriteScopeToolRefused()
+    {
+        await using var pat = await ConnectAsync(AuthzPrincipal.OwnerReadToken);
+
+        (await pat.ListToolsAsync()).Select(t => t.Name).Should().NotContain("container_create");
+        (await RefusedAsync(async () => await pat.CallToolAsync("container_create", new Dictionary<string, object?> { ["name"] = "NOT A VALID NAME" })))
+            .Should().BeTrue("a knowledge:read token is refused a knowledge:write tool, whatever its owner's role");
+    }
+
+    /// <summary>
     /// A destructive tool called by a key that holds its scope must come back pending approval,
     /// with its target untouched, until a person approves it (#782).
     /// </summary>
