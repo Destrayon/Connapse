@@ -35,17 +35,27 @@ jobs:
       run: dotnet tool restore
 
     - name: Mutation test Connapse.Application
+      id: stryker
       working-directory: tests/Connapse.Core.Tests
-      run: dotnet tool run dotnet-stryker --output "$GITHUB_WORKSPACE/StrykerOutput"
+      run: dotnet tool run dotnet-stryker
 
+    # Stryker writes its reports under StrykerOutput/<date-time>/reports. A run that got as far as
+    # scoring always writes them, so a missing report fails this step rather than hiding the score.
     - name: Mutation report summary
-      if: success() || failure()
-      run: cat StrykerOutput/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || echo "::warning::no mutation report was written"
+      if: steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure'
+      run: |
+        reports=$(ls -d tests/Connapse.Core.Tests/StrykerOutput/*/reports 2>/dev/null | tail -1)
+        if [ -z "$reports" ] || [ ! -f "$reports/mutation-report.md" ]; then
+          echo "::error::Stryker wrote no mutation report"
+          exit 1
+        fi
+        cat "$reports/mutation-report.md" >> "$GITHUB_STEP_SUMMARY"
+        mkdir -p mutation-report && cp "$reports"/mutation-report.* mutation-report/
 
     - name: Upload mutation report
       uses: actions/upload-artifact@v4
-      if: success() || failure()
+      if: steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure'
       with:
         name: mutation-report
-        path: StrykerOutput/reports/
-        if-no-files-found: ignore
+        path: mutation-report/
+        if-no-files-found: error
