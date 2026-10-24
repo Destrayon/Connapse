@@ -87,6 +87,23 @@ public class SourceOperationTests
         await _sources.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\n")]
+    public async Task Update_BlankName_IsInvalidBeforeAnythingIsSaved(string name)
+    {
+        var source = Named("custom");
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+
+        var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Name: name));
+
+        updated.Status.Should().Be(SourceWriteStatus.Invalid);
+        updated.Field.Should().Be("name");
+        await _sources.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!);
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default, default);
+    }
+
     [Fact]
     public async Task Update_ScopeTheProviderRefuses_IsInvalidWithItsField()
     {
