@@ -105,6 +105,30 @@ public class SourceOperationTests
     }
 
     [Fact]
+    public async Task Update_NameOver128Characters_IsInvalidBeforeAnythingIsSaved()
+    {
+        var updated = await Update().RunAsync(Caller, Guid.NewGuid(), new UpdateSourceRequest(Name: new string('n', 129)));
+
+        updated.Status.Should().Be(SourceWriteStatus.Invalid);
+        updated.Field.Should().Be("name");
+        await _sources.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!);
+    }
+
+    [Fact]
+    public async Task Update_NameAnotherSourceHas_IsAConflictAndIsNotAudited()
+    {
+        var source = Named("custom");
+        _sources.UpdateAsync(source.Id, Arg.Any<UpdateSourceRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Source?>(_ => throw new InvalidOperationException("A source with the name 'taken' already exists."));
+
+        var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Name: "taken"));
+
+        updated.Status.Should().Be(SourceWriteStatus.Conflict);
+        updated.Field.Should().Be("name");
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default, default);
+    }
+
+    [Fact]
     public async Task Update_ScopeTheProviderRefuses_IsInvalidWithItsField()
     {
         var source = Named("custom");

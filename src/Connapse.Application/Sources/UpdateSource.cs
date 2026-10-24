@@ -42,9 +42,15 @@ public sealed class UpdateSource(ISourceStore sources, ISourceScopeRules scopes,
         if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
             return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Forbidden, "You don't have permission to change sources.");
 
-        // Null leaves the name as it is; a present name must have something in it, as on create.
-        if (request.Name is not null && string.IsNullOrWhiteSpace(request.Name))
-            return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, "Source name is required", "name");
+        // Null leaves the name as it is; a present name follows create's rules: not blank, 1-128 characters once trimmed.
+        if (request.Name is not null)
+        {
+            string name = request.Name.Trim();
+            if (name.Length == 0)
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, "Source name is required", "name");
+            if (name.Length > 128)
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, "Source name must be 1-128 characters.", "name");
+        }
 
         if (!string.IsNullOrWhiteSpace(request.ScopeJson))
         {
@@ -67,7 +73,16 @@ public sealed class UpdateSource(ISourceStore sources, ISourceScopeRules scopes,
             return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid,
                 "A source takes no secret. Replace a custom source's token on its connection, or on its custom provider.", "secret");
 
-        var updated = await sources.UpdateAsync(sourceId, request, ct);
+        Source? updated;
+        try
+        {
+            updated = await sources.UpdateAsync(sourceId, request, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The store's duplicate-name refusal, as on create.
+            return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Conflict, ex.Message, "name");
+        }
         if (updated is null)
             return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.NotFound, $"Source {sourceId} not found");
 

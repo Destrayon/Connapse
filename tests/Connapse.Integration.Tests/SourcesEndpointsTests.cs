@@ -370,6 +370,46 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         updated.GetProperty("enabled").GetBoolean().Should().BeFalse();
     }
 
+    // #862: a rename follows create's name rules, refused before the database would throw.
+    [Fact]
+    public async Task UpdateSource_RenameToAnotherSourcesName_IsConflictAndKeepsTheName()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+        string taken = ShortName("taken");
+        await CreateSourceAsync(connectionId, taken);
+        string own = ShortName("own");
+        Guid sourceId = await CreateSourceAsync(connectionId, own);
+
+        var response = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { name = $"  {taken}  " });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var source = await (await Admin.GetAsync($"/api/sources/{sourceId}")).Content.ReadFromJsonAsync<JsonElement>();
+        source.GetProperty("name").GetString().Should().Be(own);
+    }
+
+    [Fact]
+    public async Task UpdateSource_RenameToItsOwnName_IsAllowed()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+        string own = ShortName("same");
+        Guid sourceId = await CreateSourceAsync(connectionId, own);
+
+        var response = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { name = own });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task UpdateSource_NameOver128Characters_IsAValidationError()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+        Guid sourceId = await CreateSourceAsync(connectionId);
+
+        var response = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { name = new string('n', 129) });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     [Fact]
     public async Task DeleteSource_ThenGet_IsNotFound()
     {
