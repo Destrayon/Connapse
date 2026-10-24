@@ -36,7 +36,8 @@ public sealed record UnlinkAccountRequest(string Provider, Guid? CustomProviderI
 
 /// <summary>
 /// Removes one of the caller's own account links, so search stops showing what only that account may
-/// read. A signed-in person only: a token, which an agent holds, may read links but not remove them.
+/// read. A person signing in only: a personal access token or agent key, which an agent holds, may read
+/// links but not remove them. A person's own bearer token (CLI or OAuth sign-in) may, as before.
 /// </summary>
 [Operation("links.unlink", Scope = "knowledge:write", Risk = RiskTier.Destructive, Mcp = McpExposure.Generic)]
 public sealed class UnlinkAccount(
@@ -62,7 +63,7 @@ public sealed class UnlinkAccount(
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Person)
             || !Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid userId))
-            return Fail(AccountUnlinkStatus.Forbidden, "Only you can unlink your accounts, signed in yourself; a token can't.");
+            return Fail(AccountUnlinkStatus.Forbidden, "Only you can unlink your accounts, signed in yourself; a personal access token or agent key can't.");
 
         if (string.Equals(request.Provider, "custom", StringComparison.OrdinalIgnoreCase) && request.CustomProviderId is Guid providerId)
             return await UnlinkCustomAsync(request, providerId, userId, ct);

@@ -13,7 +13,7 @@ declared slug has an entry here.
 
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
 changing needs Administrator. Account links: reading needs a person or their own token with
-`knowledge:read`; unlinking needs the person signed in themselves, never a token.
+`knowledge:read`; unlinking needs the person signed in themselves, never a personal access token or agent key.
 
 ## invalid-link-provider
 
