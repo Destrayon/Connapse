@@ -117,14 +117,20 @@ def shard_filter(assigned: list[list[str]], index: int, tier: str) -> str:
 
 
 def attributed_seconds(results: list[tuple[datetime.datetime, datetime.datetime, str]]) -> dict[str, float]:
-    """Wall-clock seconds per class in one run: each test from its start to the next test's start (or its
-    own end, if later). Unlike TRX durations, this keeps what happens between tests (constructors,
-    clean-up, fixtures), so a run's classes add up to its span."""
+    """Wall-clock seconds per class in one run. Unlike TRX durations, this keeps what happens between
+    tests, so a run's classes add up to its span. Each test counts from its start to its end. A gap
+    before the next test of the same class is that class's; a gap where the class changes is the next
+    class's, since that is when it builds its fixture and starts its containers. Only the host's
+    start-up, before the first test, belongs to no class: every shard pays it."""
     ordered = sorted(results)
     seconds: dict[str, float] = {}
     for i, (start, end, cls) in enumerate(ordered):
-        following = ordered[i + 1][0] if i + 1 < len(ordered) else end
-        seconds[cls] = seconds.get(cls, 0.0) + max((following - start).total_seconds(), (end - start).total_seconds(), 0.0)
+        seconds[cls] = seconds.get(cls, 0.0) + max((end - start).total_seconds(), 0.0)
+        if i + 1 < len(ordered):
+            following, _, next_cls = ordered[i + 1]
+            # Overlapping tests (a parallel collection) leave no gap.
+            gap = max((following - end).total_seconds(), 0.0)
+            seconds[next_cls] = seconds.get(next_cls, 0.0) + gap
     return seconds
 
 

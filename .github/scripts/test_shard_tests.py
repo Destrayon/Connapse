@@ -69,9 +69,14 @@ class Filter(unittest.TestCase):
 
 
 class Timings(unittest.TestCase):
-    def test_time_between_tests_belongs_to_the_test_before_the_gap(self):
-        results = [(at(0), at(1), "A"), (at(5), at(6), "B"), (at(6), at(10), "A")]
-        self.assertEqual(s.attributed_seconds(results), {"A": 9.0, "B": 1.0})
+    def test_a_gap_where_the_class_changes_is_the_next_classs_set_up(self):
+        # B spends 30 s starting its containers before its first test: B pays for them, not A.
+        results = [(at(0), at(1), "A"), (at(31), at(32), "B"), (at(32), at(36), "A")]
+        self.assertEqual(s.attributed_seconds(results), {"A": 5.0, "B": 31.0})
+
+    def test_a_gap_between_two_tests_of_one_class_is_that_classs(self):
+        results = [(at(0), at(1), "A"), (at(4), at(5), "A"), (at(5), at(6), "B")]
+        self.assertEqual(s.attributed_seconds(results), {"A": 5.0, "B": 1.0})
 
     def test_a_runs_classes_add_up_to_its_span(self):
         results = [(at(0), at(2), "A"), (at(3), at(4), "B"), (at(10), at(12), "C"), (at(12.5), at(20), "A")]
@@ -91,7 +96,8 @@ class Timings(unittest.TestCase):
 </TestRun>"""
         with tempfile.TemporaryDirectory() as d:
             pathlib.Path(d, "shard-1.trx").write_text(trx, encoding="utf-8")
-            self.assertEqual(s.make_timings(f"{d}/*.trx"), {"N.A": 3.0, "N.B": 1.5})
+            # The second's set-up gap (2 s to 3 s) is its own.
+            self.assertEqual(s.make_timings(f"{d}/*.trx"), {"N.A": 2.0, "N.B": 2.5})
 
 
 class Listing(unittest.TestCase):
