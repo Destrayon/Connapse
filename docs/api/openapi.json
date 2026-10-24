@@ -3124,6 +3124,10 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "requiresApproval": {
+            "type": "boolean",
+            "default": true
           }
         }
       },
@@ -3529,6 +3533,10 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "requiresApproval": {
+            "type": "boolean",
+            "default": true
           }
         }
       },
