@@ -5,6 +5,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Components.Pages;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests.CrossSurface;
@@ -186,7 +187,122 @@ public static partial class Operations
             AbsentReasons = NoSourceTools,
             ArrangesSource = true,
         },
+
+        // One sync cycle now: REST's POST .../sync and the row's Sync button. Preflight names a paused source, which neither syncs.
+        new("sources_sync", [Case.Valid, Case.UnderScoped, Case.Preflight], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                return await Surfaces.ResultAsync(await rest.PostAsync($"/api/sources/{c.Source!.Id}/sync", null));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = await SourcesPageAsync(ui);
+                if (SourcesPageError(page) is { } error)
+                    return error;
+                if (RowButton(page, c, "Sync") is null)
+                    return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
+                await ClickAsync(() => RowButton(page, c, "Sync")!);
+                page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(30));
+                return SourcesPageError(page) ?? "ok";
+            },
+            Project: (sp, c) => SourceStateWithDocumentsAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+            Prepare = async (f, c, k) =>
+            {
+                if (k == Case.Preflight)
+                    (await f.AdminClient.PatchAsJsonAsync($"/api/sources/{c.Source!.Id}", new { enabled = false })).EnsureSuccessStatusCode();
+            },
+        },
+
+        // Retrying the documents whose ingestion failed: REST's POST .../retry-failed and the row's Retry failed.
+        new("sources_retry", [Case.Valid, Case.UnderScoped], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                return await Surfaces.ResultAsync(await rest.PostAsync($"/api/sources/{c.Source!.Id}/retry-failed", null));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = await SourcesPageAsync(ui);
+                if (SourcesPageError(page) is { } error)
+                    return error;
+                if (RowButton(page, c, "Retry failed") is null)
+                    return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
+                await ClickAsync(() => RowButton(page, c, "Retry failed")!);
+                page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+                return SourcesPageError(page) ?? "ok";
+            },
+            Project: (sp, c) => SourceStateWithDocumentsAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+            Prepare = (f, c, k) => SeedFailedDocumentAsync(f, c.Source!),
+        },
     ];
+
+    /// <summary>Out of attempts, as a document that kept failing is: a retry must give it a fresh budget.</summary>
+    private const int ExhaustedAttempts = 4;
+
+    /// <summary>
+    /// Syncs the source, waits for its document to settle, then marks it failed and out of attempts:
+    /// a real failure needs a broken parser or model, and this is the state one leaves.
+    /// </summary>
+    private static async Task SeedFailedDocumentAsync(SharedWebAppFixture fixture, SourceCase source)
+    {
+        (await fixture.AdminClient.PostAsync($"/api/sources/{source.Id}/sync", null)).EnsureSuccessStatusCode();
+        await using var conn = await OpenAsync(fixture.Factory.Services);
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (true)
+        {
+            await using var read = new Npgsql.NpgsqlCommand("SELECT ingestion_status FROM documents WHERE source_id = @id", conn);
+            read.Parameters.AddWithValue("id", source.Id);
+            string? status = (string?)await read.ExecuteScalarAsync();
+            if (status is "Ready" or "FailedRetryable" or "FailedPermanent")
+                break;
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"The source's document never settled (status {status ?? "missing"})");
+            await Task.Delay(250);
+        }
+        await using var fail = new Npgsql.NpgsqlCommand(
+            $"UPDATE documents SET ingestion_status = 'FailedRetryable', attempt_count = {ExhaustedAttempts} WHERE source_id = @id", conn);
+        fail.Parameters.AddWithValue("id", source.Id);
+        await fail.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<Npgsql.NpgsqlConnection> OpenAsync(IServiceProvider services)
+    {
+        string connection = services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>().GetConnectionString("DefaultConnection")!;
+        var conn = new Npgsql.NpgsqlConnection(connection);
+        await conn.OpenAsync();
+        return conn;
+    }
+
+    /// <summary>
+    /// The source's state, plus its documents: how many it owns, and whether a failed one was given a
+    /// fresh attempt budget. Read as yes or no, since a worker may claim the retried job at once.
+    /// </summary>
+    private static async Task<StateProjection> SourceStateWithDocumentsAsync(IServiceProvider services, CaseContext c)
+    {
+        var projection = await SourceStateAsync(services, c);
+        await using var conn = await OpenAsync(services);
+        await using var cmd = new Npgsql.NpgsqlCommand("SELECT id, attempt_count FROM documents WHERE source_id = @id", conn);
+        cmd.Parameters.AddWithValue("id", c.Source!.Id);
+        var documents = new List<(string Id, int Attempts)>();
+        await using (var reader = await cmd.ExecuteReaderAsync())
+            while (await reader.ReadAsync())
+                documents.Add((reader.GetGuid(0).ToString(), reader.GetInt32(1)));
+        // The documents' ids are resources too, so a job naming one compares by token, not by id.
+        return new StateProjection(
+            [.. projection.State, $"documents owned={documents.Count} out of attempts={documents.Count(d => d.Attempts >= ExhaustedAttempts)}"],
+            [.. projection.ResourceIds, .. documents.Select(d => d.Id)]);
+    }
 
     /// <summary>A create's name: empty for the invalid case, the existing source's for the duplicate preflight, a new one otherwise.</summary>
     private static string NewSourceName(CaseContext c, string @case) => @case switch
@@ -249,7 +365,7 @@ public static partial class Operations
         {
             var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
             foreach (var s in (await sources.ListAsync(take: int.MaxValue)).Where(s => s.Name.StartsWith(source.Name, StringComparison.Ordinal)))
-                await sources.DeleteAsync(s.Id);
+                await DeleteEventuallyAsync(sources, s.Id);
             await scope.ServiceProvider.GetRequiredService<IConnectionStore>().DeleteAsync(source.ConnectionId);
         }
         try
@@ -259,6 +375,27 @@ public static partial class Operations
         catch (IOException)
         {
             // A sync can still be reading it; the OS temp cleanup takes it later.
+        }
+    }
+
+    /// <summary>
+    /// Deletes a source, retrying a Postgres deadlock: a retried document can still be re-ingesting.
+    /// Best effort, as the snapshot tests' cleanup is: a source still locked is left for the next run.
+    /// </summary>
+    private static async Task DeleteEventuallyAsync(ISourceStore sources, Guid id)
+    {
+        for (int attempt = 1; attempt <= 5; attempt++)
+        {
+            try
+            {
+                await sources.DeleteAsync(id);
+                return;
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is Microsoft.EntityFrameworkCore.DbUpdateException)
+            {
+                // A deadlock victim: the other transaction has finished or will, so try again.
+                await Task.Delay(200 * attempt);
+            }
         }
     }
 

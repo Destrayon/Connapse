@@ -78,8 +78,5 @@
   "SearchEndpoints POST /api/containers/{containerId:guid}/search/ -> IContainerStore",
   "SettingsEndpoints GET /api/settings/{category} -> ISettingsStore",
   "SettingsEndpoints POST /api/settings/reindex -> ISettingsStore",
-  "SettingsEndpoints PUT /api/settings/{category} -> ISettingsStore",
-  "SourcesEndpoints POST /api/sources/{sourceId:guid}/retry-failed -> ISourceStore",
-  "SourcesEndpoints POST /api/sources/{sourceId:guid}/sync -> IConnectionStore",
-  "SourcesEndpoints POST /api/sources/{sourceId:guid}/sync -> ISourceStore"
+  "SettingsEndpoints PUT /api/settings/{category} -> ISettingsStore"
 ]

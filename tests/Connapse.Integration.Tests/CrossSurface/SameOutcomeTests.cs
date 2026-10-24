@@ -100,7 +100,7 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
             outcome = await SideEffects.CaptureAsync(fixture,
                 async () => await driver(fixture, context, principal, @case) ?? "absent",
                 sp => operation.Project(sp, context),
-                new Dictionary<string, string> { [context.ContainerName] = "{name}" },
+                Placeholders(context),
                 knownIds: [context.ContainerId, .. context.Files.Select(f => f.Id), context.Unknown,
                     .. context.Source is { } source ? [source.Id.ToString(), source.ConnectionId.ToString()] : Array.Empty<string>()],
                 responseIds: ResponseIds(operation, context));
@@ -120,6 +120,21 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
             Audit = outcome.Audit.Select(Mask).ToList(),
             Jobs = outcome.Jobs.Select(Mask).ToList(),
         };
+    }
+
+    /// <summary>
+    /// Per-case values written into results, audit rows and jobs: the case's name, and for a source case
+    /// its folder, as written plainly and inside a job's JSON arguments.
+    /// </summary>
+    private static Dictionary<string, string> Placeholders(CaseContext context)
+    {
+        var placeholders = new Dictionary<string, string> { [context.ContainerName] = "{name}" };
+        if (context.Source is { } source)
+        {
+            placeholders[source.Root] = "{root}";
+            placeholders[JsonSerializer.Serialize(source.Root)[1..^1]] = "{root}";
+        }
+        return placeholders;
     }
 
     /// <summary>
