@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope;
@@ -14,7 +15,7 @@ namespace Connapse.Web.Services;
 /// search gives for its documents. Every other source is visible as before.
 /// </summary>
 public sealed class PrivateSourceVisibility(
-    ISearchScopeResolver resolver, IAuthorizationService authorization, IConnectionStore connections)
+    ISearchScopeResolver resolver, IAuthorizationService authorization, IConnectionStore connections) : ISourceVisibility
 {
     /// <summary>A filter for <paramref name="caller"/>, resolved once and reused across a listing.</summary>
     public async Task<Func<Source, bool>> ForAsync(ClaimsPrincipal? caller, CancellationToken ct = default)

@@ -79,7 +79,8 @@ public class AttemptTests
     public void AddApplication_RegistersEveryOperationInTheAssembly()
     {
         var services = new ServiceCollection().AddApplication();
-        var operations = ServiceCollectionExtensions.Operations(typeof(OperationAttribute).Assembly).ToList();
+        var assembly = typeof(OperationAttribute).Assembly;
+        var operations = ServiceCollectionExtensions.Operations(assembly).Concat(ServiceCollectionExtensions.Facades(assembly)).ToList();
 
         services.Select(d => d.ServiceType).Should().BeEquivalentTo(operations);
         services.Should().OnlyContain(d => d.Lifetime == ServiceLifetime.Scoped);

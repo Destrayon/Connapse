@@ -1,6 +1,9 @@
 using System.Text.Json;
+using Connapse.Application;
+using Connapse.Application.Sources;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -37,27 +40,17 @@ public static class SourcesEndpoints
         group.MapGet("/", async (
             [FromQuery] int? skip,
             [FromQuery] int? take,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IAuthorizationService authorization,
-            [FromServices] PrivateSourceVisibility visibility,
+            [FromServices] ListSources list,
             HttpContext http,
             CancellationToken ct) =>
         {
-            int effectiveSkip = skip ?? 0;
-            int effectiveTake = take ?? 50;
-            var validationError = PaginationValidator.Validate(effectiveSkip, effectiveTake);
-            if (validationError is not null) return validationError;
+            var listed = await list.RunAsync(Rest(http), new ListSourcesQuery(skip ?? 0, take ?? 50), ct);
+            if (!listed.Succeeded)
+                return OperationProblems.Result(listed);
 
-            var sources = await sourceStore.ListAsync(effectiveSkip, effectiveTake + 1, ct);
-            bool hasMore = sources.Count > effectiveTake;
-            var page = hasMore ? sources.Take(effectiveTake).ToList() : sources;
-
-            bool diagnostics = await IsAdminAsync(authorization, http);
-            // A private GitHub source names a private repository; it is listed only to those who may read it.
-            var visible = await visibility.ForAsync(http.User, ct);
-            var items = page.Where(visible).Select(s => SourceResponse.From(s, diagnostics)).ToList();
-
-            return Results.Ok(new PagedResponse<SourceResponse>(items, items.Count, hasMore));
+            var page = listed.Result!;
+            var items = page.Items.Select(s => SourceResponse.From(s, page.Diagnostics)).ToList();
+            return Results.Ok(new PagedResponse<SourceResponse>(items, items.Count, page.HasMore));
         })
         .WithName("ListSources")
         .WithDescription("List sources with pagination (?skip=0&take=50). Returns sync state, never a file listing.")
@@ -66,18 +59,14 @@ public static class SourcesEndpoints
         // GET /api/sources/{sourceId}
         group.MapGet("/{sourceId:guid}", async (
             Guid sourceId,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IAuthorizationService authorization,
-            [FromServices] PrivateSourceVisibility visibility,
+            [FromServices] GetSource get,
             HttpContext http,
             CancellationToken ct) =>
         {
-            var source = await sourceStore.GetAsync(sourceId, ct);
-            if (source is null || !(await visibility.ForAsync(http.User, ct))(source))
-                return Results.NotFound(new { error = $"Source {sourceId} not found" });
-
-            bool diagnostics = await IsAdminAsync(authorization, http);
-            return Results.Ok(SourceResponse.From(source, diagnostics));
+            var read = await get.RunAsync(Rest(http), sourceId, ct);
+            return read.Succeeded
+                ? Results.Ok(SourceResponse.From(read.Result!.Source, read.Result.Diagnostics))
+                : OperationProblems.Result(read);
         })
         .WithName("GetSource")
         .WithDescription("Get a source's configuration summary and sync state.")
@@ -259,10 +248,9 @@ public static class SourcesEndpoints
         group.MapPatch("/{sourceId:guid}", async (
             Guid sourceId,
             [FromBody] JsonElement body,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IConnectionStore connectionStore,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] UpdateSource update,
             [FromServices] Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
+            HttpContext http,
             CancellationToken ct) =>
         {
             if (body.ValueKind != JsonValueKind.Object)
@@ -277,76 +265,10 @@ public static class SourcesEndpoints
                 return Results.BadRequest(new { error = $"Invalid request: {ex.Message}" });
             }
 
-            if (!string.IsNullOrWhiteSpace(request.ScopeJson))
-            {
-                // Disposed: JsonDocument rents pooled buffers, and this runs per request.
-                try { using var _ = JsonDocument.Parse(request.ScopeJson); }
-                catch (JsonException ex)
-                { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
-            }
-
-            // A GitHub source's documents are addressed — or deliberately not — by whether it is
-            // private, and keyed on its repository id. Changing either in place would leave the
-            // documents already indexed with the old addressing until a re-sync replaced them:
-            // public rows (no address) of a repository now marked private would stay visible to
-            // everyone. So they are fixed at creation; to change them, add the repository again.
-            if (!string.IsNullOrWhiteSpace(request.ScopeJson)
-                && await sourceStore.GetAsync(sourceId, ct) is { } existing
-                && GitHubIdentityChanged(existing.ScopeJson, request.ScopeJson))
-            {
-                return Results.BadRequest(new
-                {
-                    error = "A GitHub source's private flag and repository id cannot be changed. Add the repository again as a new source.",
-                });
-            }
-
-            // A custom source's scope names the middle man its connection's token is sent to. Changing it in
-            // place would let anyone who may edit sources point that token at another server, so it is fixed
-            // at creation; to read elsewhere, create a new source.
-            if (request.ScopeJson is not null
-                && await sourceStore.GetAsync(sourceId, ct) is { } custom
-                && (custom.Provider is ConnectionProvider.Custom
-                    || (custom.ConnectionId is Guid customConnectionId
-                        && await connectionStore.GetAsync(customConnectionId, ct) is { Provider: ConnectionProvider.Custom }))
-                && CustomSourceScope.TryParse(request.ScopeJson) != CustomSourceScope.TryParse(custom.ScopeJson))
-            {
-                return Results.BadRequest(new
-                {
-                    error = "A custom source's source server and scope cannot be changed. Create a new source instead.",
-                    field = "scope",
-                });
-            }
-
-            // A Confluence source keeps its space; what it reads from it is checked as on creation.
-            // A Jira source, known by its stored kind, keeps its project the same way.
-            if (request.ScopeJson is not null
-                && await sourceStore.GetAsync(sourceId, ct) is { ConnectionId: Guid connectionId } current
-                && await connectionStore.GetAsync(connectionId, ct) is { Provider: ConnectionProvider.Atlassian })
-            {
-                var atlassian = AtlassianSourceScope.IsJira(current.ScopeJson)
-                    ? JiraSourceScope.Update(current.ScopeJson, request.ScopeJson)
-                    : ConfluenceSourceScope.Update(current.ScopeJson, request.ScopeJson);
-                if (atlassian.Outcome != AtlassianSourceScope.Outcome.Valid)
-                    return Results.BadRequest(new { error = atlassian.Error, field = atlassian.Field });
-                request = request with { ScopeJson = atlassian.ScopeJson };
-            }
-
-            // A source holds no token: a custom source reads with its connection's, which is replaced there.
-            if (request.Secret is not null)
-                return Results.BadRequest(new
-                {
-                    error = "A source takes no secret. Replace a custom source's token on its connection, or on its custom provider.",
-                    field = "secret",
-                });
-
-            var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
-            if (updated is null)
-                return Results.NotFound(new { error = $"Source {sourceId} not found" });
-
-            await auditLogger.LogAsync("source.updated", "source", sourceId.ToString(),
-                new { updated.Name }, ct);
-
-            return Results.Ok(SourceResponse.From(updated, includeDiagnostics: true));
+            var updated = await update.RunAsync(Rest(http), sourceId, request, ct);
+            return updated.Succeeded
+                ? Results.Ok(SourceResponse.From(updated.Result!, includeDiagnostics: true))
+                : OperationProblems.Result(updated);
         })
         .Accepts<UpdateSourceRequest>("application/json")
         .WithName("UpdateSource")
@@ -512,13 +434,7 @@ public static class SourcesEndpoints
         return old.Private != now.Private || old.RepoId != now.RepoId;
     }
 
-    /// <summary>
-    /// Whether the caller may see diagnostic detail. Reads are open to viewers, but a
-    /// provider's failure text tends to quote the resource that failed, so it is withheld
-    /// from anyone who is not already entitled to know the source's scope.
-    /// </summary>
-    private static async Task<bool> IsAdminAsync(IAuthorizationService authorization, HttpContext http) =>
-        (await authorization.AuthorizeAsync(http.User, "RequireAdmin")).Succeeded;
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 }
 
 /// <summary>
