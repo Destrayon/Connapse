@@ -10,7 +10,7 @@
       source.synced source {id1} actor={admin} details={"Name": "{name}", "Deleted": 0, "Upserted": 1, "WithheldDeletions": 0}
     ],
     Jobs: [
-      IIngestionJobs.IngestAsync("{id2}", {"DocumentId":"{id2}","FileName":"doc.txt","Path":"{root}\\doc.txt","Metadata":{"OriginalFileName":"doc.txt","Source":"SourceSync","SyncedAt":"{time}","RemoteLastModified":"{time}","RemoteSize":"45"},"Generation":2,"Owner":{"Id":"{id1}","IsSource":true,"SourceId":"{id1}"}}, null)
+      IIngestionJobs.IngestAsync("{id2}", {"DocumentId":"{id2}","FileName":"doc.txt","Path":"{root}/doc.txt","Metadata":{"OriginalFileName":"doc.txt","Source":"SourceSync","SyncedAt":"{time}","RemoteLastModified":"{time}","RemoteSize":"45"},"Generation":2,"Owner":{"Id":"{id1}","IsSource":true,"SourceId":"{id1}"}}, null)
     ]
   },
   Surface: {
