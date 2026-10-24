@@ -71,25 +71,27 @@ public static partial class Operations
             ArrangesSource = true,
         },
 
-        // A rename: the page's Edit source form, and REST's PATCH with just the new name.
-        new("sources_update", [Case.Valid, Case.Invalid, Case.UnderScoped], Writes: true, 0, false,
+        // A rename: the page's Edit source form, and REST's PATCH with just the new name. The invalid case
+        // renames to a blank name; preflight renames a source that doesn't exist.
+        new("sources_update", [Case.Valid, Case.Invalid, Case.UnderScoped, Case.Preflight], Writes: true, 0, false,
             Rest: async (f, c, p, k) =>
             {
                 using var rest = await Surfaces.RestAsync(f, p);
-                return await Surfaces.ResultAsync(await rest.PatchAsJsonAsync($"/api/sources/{SourceTarget(c, k)}", new { name = Renamed(c) }));
+                return await Surfaces.ResultAsync(await rest.PatchAsJsonAsync($"/api/sources/{UpdateTarget(c, k)}", new { name = UpdateName(c, k) }));
             },
             Mcp: null,
             Ui: async (f, c, p, k) =>
             {
                 using var ui = await Surfaces.UiAsync(f, p);
-                var page = ui.Context.Render<SourceEdit>(ps => ps.Add(x => x.Id, Guid.Parse(SourceTarget(c, k))));
+                var page = ui.Context.Render<SourceEdit>(ps => ps.Add(x => x.Id, Guid.Parse(UpdateTarget(c, k))));
                 page.WaitForAssertion(() => page.FindAll("h1, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 if (page.FindAll(".alert-danger").FirstOrDefault() is { } loadError)
                     return Surfaces.ErrorKind(loadError.TextContent.Trim());
-                page.Find("#source-name").Change(Renamed(c));
+                page.Find("#source-name").Change(UpdateName(c, k));
                 await ClickAsync(() => page.Find("button.btn-primary"));
-                page.WaitForAssertion(() => page.FindAll(".alert-success, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
-                return page.FindAll(".alert-danger").FirstOrDefault() is { } alert ? Surfaces.ErrorKind(alert.TextContent.Trim()) : "ok";
+                // A blank name is refused beside the field, before anything is sent.
+                page.WaitForAssertion(() => page.FindAll(".alert-success, .alert-danger, #source-name-error").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+                return page.FindAll(".alert-danger, #source-name-error").FirstOrDefault() is { } alert ? Surfaces.ErrorKind(alert.TextContent.Trim()) : "ok";
             },
             Project: (sp, c) => SourceStateAsync(sp, c))
         {
@@ -331,6 +333,12 @@ public static partial class Operations
 
     /// <summary>The source a case targets: an unknown one for the invalid case, the case's own otherwise.</summary>
     private static string SourceTarget(CaseContext c, string @case) => @case == Case.Invalid ? c.Unknown : c.Source!.Id.ToString();
+
+    /// <summary>The source a rename targets: an unknown one for preflight, the case's own otherwise.</summary>
+    private static string UpdateTarget(CaseContext c, string @case) => @case == Case.Preflight ? c.Unknown : c.Source!.Id.ToString();
+
+    /// <summary>The name a rename sends: blank for the invalid case, which every surface must refuse (#862).</summary>
+    private static string UpdateName(CaseContext c, string @case) => @case == Case.Invalid ? "   " : Renamed(c);
 
     /// <summary>
     /// The Sources page's own failure: its dismissible message, not a row's sync error, which another

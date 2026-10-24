@@ -251,7 +251,13 @@ public class PostgresSourceStore(
         if (entity is null) return null;
 
         if (!string.IsNullOrWhiteSpace(request.Name))
-            entity.Name = request.Name.Trim();
+        {
+            string name = request.Name.Trim();
+            // Refused here rather than by the unique index, which would surface as a server error.
+            if (name != entity.Name && await context.Sources.AnyAsync(s => s.Id != id && s.Name == name, ct))
+                throw new DuplicateSourceNameException($"A source with the name '{name}' already exists.");
+            entity.Name = name;
+        }
 
         if (request.Description is not null)
             entity.Description = request.Description.Trim();

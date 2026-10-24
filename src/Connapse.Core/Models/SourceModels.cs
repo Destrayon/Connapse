@@ -67,6 +67,9 @@ public class SourceAccessRevokedException(string message, Exception inner) : IOE
 /// <summary>A custom connection already has a source for the scope a new one names.</summary>
 public sealed class DuplicateSourceScopeException(string message) : InvalidOperationException(message);
 
+/// <summary>Another source already has the name a rename asks for.</summary>
+public sealed class DuplicateSourceNameException(string message) : InvalidOperationException(message);
+
 public record CreateSourceRequest(
     string Name,
     Guid? ConnectionId,
