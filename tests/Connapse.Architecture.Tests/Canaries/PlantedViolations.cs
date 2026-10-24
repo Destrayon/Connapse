@@ -34,3 +34,29 @@ internal static class PlantedEndpoints
         });
     }
 }
+
+// Operations with incomplete metadata (#831). A complete one sits beside them, so the rule must
+// report exactly the broken ones.
+[Connapse.Application.Operation("planted.complete", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal sealed class PlantedCompleteOperation;
+
+[Connapse.Application.Operation("planted.noscope", Risk = Connapse.Application.RiskTier.Write)]
+internal sealed class PlantedOperationWithoutScope;
+
+[Connapse.Application.Operation("planted.norisk", Scope = "knowledge:write")]
+internal sealed class PlantedOperationWithoutRisk;
+
+[Connapse.Application.Operation("planted.undefinedrisk", Scope = "knowledge:write", Risk = (Connapse.Application.RiskTier)42)]
+internal sealed class PlantedOperationWithUndefinedRisk;
+
+[Connapse.Application.Operation(" ", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal sealed class PlantedOperationWithoutId;
+
+[Connapse.Application.Operation("planted.abstract", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal abstract class PlantedAbstractOperation;
+
+[Connapse.Application.Operation("planted.shared", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal sealed class PlantedSharedIdA;
+
+[Connapse.Application.Operation("planted.shared", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal sealed class PlantedSharedIdB;
