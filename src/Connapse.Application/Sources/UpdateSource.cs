@@ -70,6 +70,10 @@ public sealed class UpdateSource(
                     "This source's connection no longer exists, so no scope kind can be checked against it.", "scope");
             if (SourceScopeRequests.Mismatch(typed, provider.Value) is { } mismatch)
                 return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, mismatch, "scope");
+            // A source keeps its kind: a Jira source can't become a Confluence one, though both read through Atlassian.
+            if (SourceScopeCodec.Read(provider.Value, existing.ScopeJson) is { } stored && stored.GetType() != typed.GetType())
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid,
+                    SourceScopeRequests.KindChanged(stored, typed), "scope");
 
             request = request with { ScopeJson = SourceScopeCodec.Write(typed, existing.ScopeJson), Scope = null };
         }

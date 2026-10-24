@@ -13,6 +13,12 @@ public static class SourceScopeRequests
 {
     public const string BothGiven = "Give the scope as \"scope\" or the deprecated \"scopeJson\", not both.";
 
+    public const string NeedsConnection = "A typed scope needs a connectionId: only a connection's sources can read one.";
+
+    /// <summary>Why a source whose scope is <paramref name="stored"/> can't take <paramref name="requested"/> instead.</summary>
+    public static string KindChanged(SourceScope stored, SourceScope requested) =>
+        $"This source's scope is a \"{SourceScopeCodec.TypeOf(stored)}\" and stays one; a \"{SourceScopeCodec.TypeOf(requested)}\" scope needs a new source.";
+
     /// <summary>Why <paramref name="scope"/> can't be a scope of <paramref name="provider"/>'s sources, or null when it can.</summary>
     public static string? Mismatch(SourceScope scope, ConnectionProvider provider) =>
         SourceScopeCodec.ProviderOf(scope) == provider

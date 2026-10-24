@@ -117,12 +117,9 @@ public sealed class CreateSource(
                 "GitHub sources need a GitHub App connection: pass the connectionId of a GitHub installation instead of a provider");
         }
 
-        if (request.ConnectionId is null && request.Provider is { } provider && request.Scope is { } connectionless)
-        {
-            if (SourceScopeRequests.Mismatch(connectionless, provider) is { } mismatch)
-                return Fail(SourceWriteStatus.Invalid, mismatch, "scope");
-            scopeJson = SourceScopeCodec.Write(connectionless);
-        }
+        // Only a connection reads a typed scope's sources: no provider left to a connection-less source syncs one.
+        if (request.ConnectionId is null && request.Scope is not null)
+            return Fail(SourceWriteStatus.Invalid, SourceScopeRequests.NeedsConnection, "connectionId");
 
         if (!string.IsNullOrWhiteSpace(scopeJson))
         {

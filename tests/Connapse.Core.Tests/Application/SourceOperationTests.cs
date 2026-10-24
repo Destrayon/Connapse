@@ -210,6 +210,34 @@ public class SourceOperationTests
     }
 
     [Fact]
+    public async Task Update_TypedScopeOfAnotherKindOnTheSameProvider_IsRefused()
+    {
+        Guid connectionId = Guid.NewGuid();
+        var source = Named("jira") with { ConnectionId = connectionId, ScopeJson = """{"kind":"jira-project","projectId":"10000","projectKey":"ENG"}""" };
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        _connections.GetAsync(connectionId, Arg.Any<CancellationToken>())
+            .Returns(new Connection(connectionId, "c", ConnectionProvider.Atlassian, "{}", null, DateTime.UtcNow, DateTime.UtcNow));
+
+        var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Scope: new ConfluenceSpaceScope("98306", "DOCS")));
+
+        updated.Status.Should().Be(SourceWriteStatus.Invalid);
+        updated.Field.Should().Be("scope");
+        updated.Detail.Should().Contain("\"jira\"").And.Contain("\"confluence\"");
+        await _sources.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!);
+    }
+
+    [Fact]
+    public async Task Create_TypedScopeWithoutAConnection_IsRefusedBeforeAnythingIsStored()
+    {
+        var created = await Create().RunAsync(Caller,
+            new NewSource("fs", ConnectionId: null, Provider: ConnectionProvider.Filesystem, Scope: new FilesystemFolderScope("notes")));
+
+        created.Status.Should().Be(SourceWriteStatus.Invalid);
+        created.Field.Should().Be("connectionId");
+        await _sources.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+    }
+
+    [Fact]
     public async Task Update_ScopeAndScopeJson_IsRefused()
     {
         var updated = await Update().RunAsync(Caller, Guid.NewGuid(), new UpdateSourceRequest(ScopeJson: "{}", Scope: new S3BucketScope("b")));
