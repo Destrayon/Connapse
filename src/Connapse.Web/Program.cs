@@ -29,6 +29,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // First, before anything touches Regex: the default match timeout is read once, at type init.
 Connapse.Core.Utilities.RegexTimeout.ApplyProcessDefault();
@@ -159,6 +160,9 @@ if (allowAnonDiscovery)
 
 builder.Services.AddMemoryCache();
 
+// The REST API's shape, generated at build time into docs/api/openapi.json (#857). No route serves it.
+builder.Services.AddOpenApi();
+
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed
 // after a source already exists.
@@ -280,46 +284,54 @@ builder.Services.AddCors(options =>
 // Remove default "Server: Kestrel" header from all responses
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
+// The build runs this entry point to write the OpenAPI document (#857). It needs only the mapped
+// endpoints, so it must not touch the database, start background services or schedule jobs: a
+// build has no database. The host still starts, which would construct every hosted service.
+bool generatingOpenApiDocument = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
+if (generatingOpenApiDocument)
+    builder.Services.RemoveAll<IHostedService>();
+
 var app = builder.Build();
 
 // Apply pending migrations and ensure infrastructure is ready
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
-    await db.Database.MigrateAsync();
-
-    // Migrate Identity tables (separate migration history)
-    var identityDb = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
-    await identityDb.Database.MigrateAsync();
-
-    // Seed default roles and admin user
-    var adminSeed = scope.ServiceProvider.GetRequiredService<AdminSeedService>();
-    await adminSeed.SeedAsync();
-
-    // Custom sources made before they needed a connection move onto one; it runs before the sync starts.
-    try
+if (!generatingOpenApiDocument)
+    using (var scope = app.Services.CreateScope())
     {
-        await scope.ServiceProvider.GetRequiredService<Connapse.Web.Services.CustomSourceConnectionMigration>().RunAsync();
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "Custom sources could not be moved onto connections; they keep reading with their own tokens until the next start.");
-    }
+        var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
+        await db.Database.MigrateAsync();
 
-    var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
-    if (minio is not null)
-    {
+        // Migrate Identity tables (separate migration history)
+        var identityDb = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+        await identityDb.Database.MigrateAsync();
+
+        // Seed default roles and admin user
+        var adminSeed = scope.ServiceProvider.GetRequiredService<AdminSeedService>();
+        await adminSeed.SeedAsync();
+
+        // Custom sources made before they needed a connection move onto one; it runs before the sync starts.
         try
         {
-            await minio.EnsureBucketExistsAsync();
+            await scope.ServiceProvider.GetRequiredService<Connapse.Web.Services.CustomSourceConnectionMigration>().RunAsync();
         }
         catch (Exception ex)
         {
-            app.Logger.LogWarning(ex, "MinIO is not reachable — bucket check skipped. File uploads will fail until MinIO is available.");
+            app.Logger.LogError(ex, "Custom sources could not be moved onto connections; they keep reading with their own tokens until the next start.");
         }
-    }
 
-}
+        var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
+        if (minio is not null)
+        {
+            try
+            {
+                await minio.EnsureBucketExistsAsync();
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "MinIO is not reachable — bucket check skipped. File uploads will fail until MinIO is available.");
+            }
+        }
+
+    }
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -374,54 +386,57 @@ app.UseRateLimiter();
 app.UseAuthorization();
 
 // Hangfire dashboard — gated by HangfireDashboardAuthFilter (defers to "RequireAdmin" policy).
-app.UseHangfireDashboard("/hangfire", new DashboardOptions
-{
-    Authorization = new[]
+// Its storage opens a database connection, so OpenAPI generation leaves it out.
+if (!generatingOpenApiDocument)
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
     {
+        Authorization = new[]
+        {
         app.Services.GetRequiredService<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
     }
-});
+    });
 
 // Register recurring jobs idempotently at startup. AddOrUpdate is safe to call repeatedly.
-using (var scope = app.Services.CreateScope())
-{
-    var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
-    // Every 5 minutes: scan for containers with stale summaries (per-doc summaries newer
-    // than container summary) and enqueue a rollup for those that have settled (no in-flight
-    // PerDocSummary jobs). This replaces per-PerDocSummary scheduling: bursts of N uploads
-    // converge to 1 rollup instead of N. Pattern matches Postgres materialized view refresh
-    // and Algolia derived-index updates — sweep-based, not write-through, for expensive
-    // aggregates over frequently-changing base data.
-    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.ISummaryJobs>(
-        recurringJobId: "summary-sweep-stale-containers",
-        methodCall: s => s.SweepStaleContainersAsync(default),
-        cronExpression: "*/5 * * * *");
+if (!generatingOpenApiDocument)
+    using (var scope = app.Services.CreateScope())
+    {
+        var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+        // Every 5 minutes: scan for containers with stale summaries (per-doc summaries newer
+        // than container summary) and enqueue a rollup for those that have settled (no in-flight
+        // PerDocSummary jobs). This replaces per-PerDocSummary scheduling: bursts of N uploads
+        // converge to 1 rollup instead of N. Pattern matches Postgres materialized view refresh
+        // and Algolia derived-index updates — sweep-based, not write-through, for expensive
+        // aggregates over frequently-changing base data.
+        recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.ISummaryJobs>(
+            recurringJobId: "summary-sweep-stale-containers",
+            methodCall: s => s.SweepStaleContainersAsync(default),
+            cronExpression: "*/5 * * * *");
 
-    // Every 10 minutes: re-enqueue documents whose ingestion job was lost. Status lives on the
-    // document row, so a document whose job died would otherwise sit Queued or Processing for good.
-    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.IIngestionJobs>(
-        recurringJobId: "ingestion-requeue-stuck-documents",
-        methodCall: j => j.RequeueStuckDocumentsAsync(default),
-        cronExpression: "*/10 * * * *");
+        // Every 10 minutes: re-enqueue documents whose ingestion job was lost. Status lives on the
+        // document row, so a document whose job died would otherwise sit Queued or Processing for good.
+        recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.IIngestionJobs>(
+            recurringJobId: "ingestion-requeue-stuck-documents",
+            methodCall: j => j.RequeueStuckDocumentsAsync(default),
+            cronExpression: "*/10 * * * *");
 
-    // Daily: ask Atlassian whether it still accepts the stored linking app, so a revoked secret
-    // shows on the Providers page before someone's sign-in fails.
-    recurringJobManager.AddOrUpdate<Connapse.Web.Services.AtlassianLinkAppCheckJob>(
-        recurringJobId: Connapse.Web.Services.AtlassianLinkAppCheckJob.RecurringJobId,
-        methodCall: j => j.RunAsync(default),
-        cronExpression: Cron.Daily());
+        // Daily: ask Atlassian whether it still accepts the stored linking app, so a revoked secret
+        // shows on the Providers page before someone's sign-in fails.
+        recurringJobManager.AddOrUpdate<Connapse.Web.Services.AtlassianLinkAppCheckJob>(
+            recurringJobId: Connapse.Web.Services.AtlassianLinkAppCheckJob.RecurringJobId,
+            methodCall: j => j.RunAsync(default),
+            cronExpression: Cron.Daily());
 
-    // Every minute: tell custom providers' middle men about deleted users' links until each acknowledges.
-    recurringJobManager.AddOrUpdate<Connapse.Web.Services.CustomLinkRemovalJob>(
-        recurringJobId: Connapse.Web.Services.CustomLinkRemovalJob.RecurringJobId,
-        methodCall: j => j.RunAsync(default),
-        cronExpression: Cron.Minutely());
+        // Every minute: tell custom providers' middle men about deleted users' links until each acknowledges.
+        recurringJobManager.AddOrUpdate<Connapse.Web.Services.CustomLinkRemovalJob>(
+            recurringJobId: Connapse.Web.Services.CustomLinkRemovalJob.RecurringJobId,
+            methodCall: j => j.RunAsync(default),
+            cronExpression: Cron.Minutely());
 
-    // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
-    // in the database independently of the code that registered them. Left in place, the old
-    // entry would fire every half hour into a job type that no longer exists.
-    recurringJobManager.RemoveIfExists("grant-reconcile-orphaned");
-}
+        // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
+        // in the database independently of the code that registered them. Left in place, the old
+        // entry would fire every half hour into a job type that no longer exists.
+        recurringJobManager.RemoveIfExists("grant-reconcile-orphaned");
+    }
 
 app.UseAntiforgery();
 

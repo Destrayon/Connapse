@@ -65,6 +65,18 @@ jobs:
           path: connapse-docker-${{ github.ref_name }}.zip
           retention-days: 1
 
+      # The REST API's shape at this tag. CommittedSpec_MatchesGenerated keeps the committed file
+      # equal to what the code generates, so the tagged copy is the release's API (#857).
+      - name: Stage the OpenAPI spec
+        run: cp docs/api/openapi.json connapse-openapi-${{ github.ref_name }}.json
+
+      - name: Upload OpenAPI spec artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: connapse-openapi
+          path: connapse-openapi-${{ github.ref_name }}.json
+          retention-days: 1
+
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
@@ -97,6 +109,10 @@ jobs:
             See `README.md` inside the zip for full setup instructions.
 
             **Docker image**: `ghcr.io/destrayon/connapse:${{ github.ref_name }}`
+
+            ## REST API spec
+
+            `connapse-openapi-${{ github.ref_name }}.json` is this release's OpenAPI 3.1 document.
 
             ## Connapse CLI
 
