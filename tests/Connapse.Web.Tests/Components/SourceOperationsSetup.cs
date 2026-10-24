@@ -27,6 +27,8 @@ public static class SourceOperationsSetup
         services.AddScoped(sp => sp.GetService<CustomSourceSetup>() is null
             ? Substitute.For<ISourceCreateRules>()
             : ActivatorUtilities.CreateInstance<SourceCreateRules>(sp));
+        // Pages that register the sync service sync through it; the rest never sync.
+        services.AddScoped(sp => sp.GetService<SourceSyncService>() as ISourceSync ?? Substitute.For<ISourceSync>());
         // A page reads its caller from here. bUnit's own placeholder throws until a test signs someone
         // in, so a test that didn't gets a signed-in caller; one that did keeps its own.
         if (services.LastOrDefault(d => d.ServiceType == typeof(AuthenticationStateProvider)) is not { } current

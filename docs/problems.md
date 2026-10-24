@@ -37,6 +37,11 @@ Confluence space, Jira project or custom scope is added once per connection).
 The provider couldn't be asked while checking the source's scope: Atlassian or the custom source
 server didn't answer. Nothing was saved; try again.
 
+## sync-in-progress
+
+A sync for this source is already running, most often the scheduled one. Nothing went wrong and
+nothing was started; the running cycle picks up the changes.
+
 ## invalid-page
 
 The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200.

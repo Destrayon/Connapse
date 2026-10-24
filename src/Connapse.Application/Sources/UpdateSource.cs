@@ -24,6 +24,9 @@ public enum SourceWriteStatus
 
     [Failure(502, "provider-unavailable", "The provider didn't answer")]
     Unavailable,
+
+    [Failure(409, "sync-in-progress", "A sync is already running")]
+    Busy,
 }
 
 /// <summary>

@@ -30,8 +30,11 @@ public class SourceSyncService(
     IServiceScopeFactory scopeFactory,
     IConnectorFactory connectorFactory,
     IIngestionQueue queue,
-    ILogger<SourceSyncService> logger) : BackgroundService
+    ILogger<SourceSyncService> logger) : BackgroundService, Connapse.Application.Ports.ISourceSync
 {
+    public Task<SourceSyncResult> SyncNowAsync(Source source, Connection? connection, bool applyWithheldDeletions, CancellationToken ct = default) =>
+        SyncSourceAsync(source, connection, ct, applyWithheldDeletions);
+
     private static readonly TimeSpan DefaultSyncInterval = TimeSpan.FromMinutes(5);
 
     /// <summary>

@@ -204,6 +204,54 @@ public class SourceOperationTests
         created.Detail.Should().Be("Source 'docs' already exists");
     }
 
+    private readonly ISourceSync _sync = Substitute.For<ISourceSync>();
+
+    private SyncSource Sync() => new(_sources, _connections, _sync, _audit, _authorizer);
+
+    [Fact]
+    public async Task Sync_PausedSource_IsRefusedAndNeverRuns()
+    {
+        var source = Named("paused") with { Enabled = false };
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+
+        var synced = await Sync().RunAsync(Caller, source.Id);
+
+        synced.Status.Should().Be(SourceWriteStatus.Invalid);
+        synced.Detail.Should().Be("Source 'paused' is disabled");
+        await _sync.DidNotReceiveWithAnyArgs().SyncNowAsync(default!, default, default);
+    }
+
+    [Fact]
+    public async Task Sync_AlreadyRunning_IsBusyAndWritesNoAuditRow()
+    {
+        var connection = OnConnection();
+        var source = Named("busy") with { ConnectionId = connection.Id };
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        _sync.SyncNowAsync(source, connection, false, Arg.Any<CancellationToken>())
+            .Returns(new SourceSyncResult(0, 0, false, false, null, AlreadyRunning: true));
+
+        var synced = await Sync().RunAsync(Caller, source.Id);
+
+        synced.Status.Should().Be(SourceWriteStatus.Busy);
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!);
+    }
+
+    [Fact]
+    public async Task Sync_Completed_RecordsTheCountsWithheldDeletionsIncluded()
+    {
+        var connection = OnConnection();
+        var source = Named("synced") with { ConnectionId = connection.Id };
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        _sync.SyncNowAsync(source, connection, false, Arg.Any<CancellationToken>())
+            .Returns(new SourceSyncResult(3, 1, false, false, null, WithheldDeletions: 2));
+
+        await Sync().RunAsync(Caller, source.Id);
+
+        await _audit.Received(1).LogAsync("source.synced", "source", source.Id.ToString(),
+            Arg.Is<object>(d => d.ToString() == new { Name = "synced", Upserted = 3, Deleted = 1, WithheldDeletions = 2 }.ToString()),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Delete_WrongNameTyped_IsInvalidAndDeletesNothing()
     {
