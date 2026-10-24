@@ -36,23 +36,25 @@ public class AuditEndpointsTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task ListAudit_Paged_SaysWhetherMoreFollow()
+    public async Task ListAudit_NextPage_NeitherRepeatsNorSkips_WhileEntriesArrive()
     {
         string action = $"test.audit.{Guid.NewGuid():N}";
-        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
-        {
-            var audit = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
-            for (int i = 0; i < 3; i++)
-                await audit.LogAsync(action, "source", $"r{i}");
-        }
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var audit = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
+        for (int i = 0; i < 3; i++)
+            await audit.LogAsync(action, "source", $"r{i}");
 
         var first = await fixture.AdminClient.GetFromJsonAsync<JsonElement>($"/api/v1/audit/?action={action}&take=2");
-        var rest = await fixture.AdminClient.GetFromJsonAsync<JsonElement>($"/api/v1/audit/?action={action}&take=2&skip=2");
+        // An entry written between the pages would have pushed offset paging back by one.
+        await audit.LogAsync(action, "source", "late");
+        string next = first.GetProperty("nextBefore").GetString()!;
+        var rest = await fixture.AdminClient.GetFromJsonAsync<JsonElement>($"/api/v1/audit/?action={action}&take=2&before={next}");
 
-        first.GetProperty("items").GetArrayLength().Should().Be(2);
+        first.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("resourceId").GetString()).Should().Equal("r2", "r1");
         first.GetProperty("hasMore").GetBoolean().Should().BeTrue();
-        rest.GetProperty("items").GetArrayLength().Should().Be(1);
+        rest.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("resourceId").GetString()).Should().Equal("r0");
         rest.GetProperty("hasMore").GetBoolean().Should().BeFalse();
+        rest.GetProperty("nextBefore").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Theory]
@@ -76,7 +78,7 @@ public class AuditEndpointsTests(SharedWebAppFixture fixture)
     [Theory]
     [InlineData("take=0", "invalid-page")]
     [InlineData("take=201", "invalid-page")]
-    [InlineData("skip=-1", "invalid-page")]
+    [InlineData("before=not-a-cursor", "invalid-page")]
     [InlineData("since=2026-10-02T00:00:00Z&until=2026-10-01T00:00:00Z", "invalid-audit-filter")]
     public async Task ListAudit_BadQuery_IsAValidationProblem(string query, string slug)
     {

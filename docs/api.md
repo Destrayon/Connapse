@@ -1638,7 +1638,7 @@ Removes the linked identity and evicts cached scope entries.
 
 Every sensitive action writes an audit entry: who did it, to which resource, from which IP address, and when. Entries come newest first.
 
-**Query Parameters**: `action`, `userId`, `resourceType`, `resourceId` (exact matches); `since` (inclusive) and `until` (exclusive), UTC, where a time given without a zone is read as UTC; `skip` (default 0) and `take` (default 50, up to 200).
+**Query Parameters**: `action`, `userId`, `resourceType`, `resourceId` (exact matches); `since` (inclusive) and `until` (exclusive), UTC, where a time given without a zone is read as UTC; `take` (default 50, up to 200); `before`, a page's `nextBefore`, for the next page. Paging by cursor means entries written between requests never repeat or shift a page.
 
 **Response** (200 OK):
 ```json
@@ -1647,12 +1647,12 @@ Every sensitive action writes an audit entry: who did it, to which resource, fro
     { "id": "…", "createdAt": "2026-10-24T21:40:00Z", "action": "source.updated", "userId": "…", "userEmail": "admin@example.com",
       "resourceType": "source", "resourceId": "…", "details": { "Name": "docs" }, "ipAddress": "10.0.0.4" }
   ],
-  "totalCount": 1,
-  "hasMore": false
+  "hasMore": true,
+  "nextBefore": "NjM4OTY…"
 }
 ```
 
-**Errors**: 400 `invalid-page` (skip or take out of range), 400 `invalid-audit-filter` (`since` not before `until`), 403 `forbidden`.
+**Errors**: 400 `invalid-page` (`take` out of range, or a `before` this endpoint didn't return), 400 `invalid-audit-filter` (`since` not before `until`), 403 `forbidden`.
 
 ---
 

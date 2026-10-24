@@ -34,8 +34,6 @@ public sealed class ListAuditLog(IAuditLogReader reader, IOperationAuthorizer au
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.AuditReader))
             return Attempt<AuditPage, AuditReadStatus>.Fail(AuditReadStatus.Forbidden, "Only administrators can read the audit log.");
-        if (query.Skip < 0)
-            return Attempt<AuditPage, AuditReadStatus>.Fail(AuditReadStatus.InvalidPage, "skip must be >= 0", "skip");
         if (query.Take is < 1 or > MaxTake)
             return Attempt<AuditPage, AuditReadStatus>.Fail(AuditReadStatus.InvalidPage, $"take must be between 1 and {MaxTake}", "take");
         if (query.Since is { } since && query.Until is { } until && since >= until)

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -19,17 +18,21 @@ public sealed class AuditLogReader(IDbContextFactory<ConnapseIdentityDbContext> 
         if (query.ResourceId is { } resourceId) entries = entries.Where(e => e.ResourceId == resourceId);
         if (query.Since is { } since) entries = entries.Where(e => e.CreatedAt >= since);
         if (query.Until is { } until) entries = entries.Where(e => e.CreatedAt < until);
+        // Keyset paging: strictly after the previous page's last entry in (CreatedAt, Id) order, so new entries
+        // can't push an entry onto two pages and a deep page costs what the first does.
+        if (query.Before is { } before)
+            entries = entries.Where(e => e.CreatedAt < before.CreatedAt || (e.CreatedAt == before.CreatedAt && e.Id.CompareTo(before.Id) < 0));
 
         // One more than the page, to know whether another follows. Id breaks ties between entries written in the same tick.
         var rows = await entries
             .OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
-            .Skip(query.Skip).Take(query.Take + 1)
+            .Take(query.Take + 1)
             .Select(e => new { Entry = e, Email = e.User == null ? null : e.User.Email })
             .ToListAsync(ct);
 
         var items = rows.Take(query.Take).Select(r => new AuditEntry(
             r.Entry.Id, r.Entry.CreatedAt, r.Entry.Action, r.Entry.UserId, r.Email,
             r.Entry.ResourceType, r.Entry.ResourceId, r.Entry.Details?.RootElement.Clone(), r.Entry.IpAddress)).ToList();
-        return new AuditPage(items, rows.Count > query.Take);
+        return new AuditPage(items, rows.Count > query.Take ? new AuditCursor(items[^1].CreatedAt, items[^1].Id) : null);
     }
 }

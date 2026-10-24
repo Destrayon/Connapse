@@ -75,7 +75,8 @@ without a zone is read as UTC.
 
 ## invalid-page
 
-The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200.
+The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200. For the
+audit log, `before` must be a `nextBefore` value the endpoint returned.
 
 ## approval-not-signed-in
 
