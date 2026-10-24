@@ -147,8 +147,8 @@
     "IsEmpty": false
   },
   "Pages/ProfileIntegrations.razor": {
-    "CodeLines": 344,
-    "Injects": 17,
+    "CodeLines": 343,
+    "Injects": 16,
     "Complexity": 89,
     "MarkupLogic": 42,
     "IsEmpty": false

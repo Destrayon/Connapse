@@ -20,7 +20,7 @@ public sealed class CustomLinkService(
     ICustomProviderStore providers,
     IHttpClientFactory httpClients,
     IOptionsMonitor<CustomSourceSettings> settings,
-    TimeProvider time)
+    TimeProvider time) : Connapse.Application.Ports.ICustomAccountLinks
 {
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StatusBudget = TimeSpan.FromSeconds(3);

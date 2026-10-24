@@ -80,6 +80,8 @@ public static class AuthzExpectations
         return string.Join("+", named.Select(p => p switch
         {
             "RequirePerson" => "user",
+            // A person or their token, never an agent key: the matrix's "user" (#865).
+            "RequireAccount" => "user",
             "RequireViewer" => "viewer",
             "RequireEditor" => "editor",
             "RequireAdmin" => "admin",

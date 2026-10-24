@@ -331,6 +331,10 @@ public static class IdentityServiceExtensions
             // something the token waiting on it can do (#782).
             .AddPolicy("RequirePerson", policy =>
                 policy.RequireAuthenticatedUser().RequireAssertion(context => !McpApprovalClaims.IsToken(context.User)))
+            // A person acting on their own account, by sign-in or by their own token: their linked
+            // accounts are theirs to read. An agent key acts as no person, so it has none (#865).
+            .AddPolicy("RequireAccount", policy =>
+                policy.RequireAuthenticatedUser().RequireAssertion(context => !context.User.IsInRole("Agent")))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

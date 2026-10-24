@@ -13,7 +13,7 @@
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
 @inject AtlassianIdentityLinkStore AtlassianIdentityLinks
 @inject AtlassianLinkFlow AtlassianLinkFlow
-@inject Connapse.Core.Interfaces.IProviderCredentialStore ProviderCredentials
+@inject Connapse.Application.Links.AccountLinkOperations AccountLinks
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
 @inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
@@ -22,7 +22,6 @@
 @inject NavigationManager Navigation
 @inject ILogger<ProfileIntegrations> Logger
 @inject Connapse.Core.Interfaces.IAuditLogger AuditLogger
-@inject Connapse.Web.Services.CustomLinkService CustomLinks
 @rendermode InteractiveServer
 
 <PageTitle>Integrations - Connapse</PageTitle>
@@ -414,9 +413,9 @@
         <AtlassianIdentityCard Link="atlassianIdentity" SignInAvailable="atlassianSignInAvailable" Busy="isProcessing"
                                OnConnect="ConnectAtlassian" OnDisconnect="DisconnectAtlassianAsync" />
 
-        @foreach (var provider in customProviders)
+        @foreach (var link in customLinks)
         {
-            <CustomProviderLinkCard @key="provider.Id" Provider="provider" UserId="currentUserId" />
+            <CustomProviderLinkCard @key="link.Provider.Id" Provider="link.Provider" UserId="currentUserId" />
         }
     </div>
 </div>
@@ -463,22 +462,21 @@
 
     private async Task LoadIdentitiesAsync()
     {
-        awsIdentity = await AwsIdentityLinkService.GetAsync(currentUserId);
-        azureIdentity = await AzureIdentityLinkService.GetAsync(currentUserId);
-        gitHubIdentity = await GitHubIdentityLinks.GetAsync(currentUserId);
+        var links = (await AccountLinks.MineAsync(AuthenticationStateProvider)).ResultOr(failed => (statusMessage, statusSuccess) = (failed, false), Connapse.Application.Links.AccountLinks.None);
+        (awsIdentity, azureIdentity, gitHubIdentity) = (links.Aws, links.Azure, links.GitHub);
 
         // Available once the provider App exists and can sign users in (an App registered by hand
         // has no client secret, so it cannot).
-        gitHubSecretRevoked = await GitHubApp.CanSignInUsersAsync() && await GitHubApp.StoredClientSecretMatchesAsync() == false;
-        gitHubSignInAvailable = !gitHubSecretRevoked && await GitHubApp.CanSignInUsersAsync();
+        gitHubSignInAvailable = links.GitHubAvailable;
+        gitHubSecretRevoked = !gitHubSignInAvailable && await GitHubApp.CanSignInUsersAsync();
         gitHubAppExists = gitHubSignInAvailable || await GitHubApp.IsConfiguredAsync();
 
-        atlassianIdentity = await AtlassianIdentityLinks.GetAsync(currentUserId);
-        atlassianSignInAvailable = await ProviderCredentials.GetAtlassianLinkAppAsync() is { SignInEnabled: true };
-        customProviders = await CustomLinks.LinkableAsync(CancellationToken.None);
+        atlassianIdentity = links.Atlassian;
+        atlassianSignInAvailable = links.AtlassianAvailable;
+        customLinks = links.Custom;
     }
 
-    private IReadOnlyList<Connapse.Core.CustomProvider> customProviders = [];
+    private IReadOnlyList<Connapse.Application.Links.CustomAccountLink> customLinks = [];
 
     private void ApplyCustomErrorFromQuery()
     {
@@ -502,7 +500,7 @@
         statusSuccess = false;
     }
 
-    private Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity? atlassianIdentity;
+    private Connapse.Application.Links.AtlassianAccountLink? atlassianIdentity;
     private bool atlassianSignInAvailable;
 
     private void ApplyAtlassianErrorFromQuery()
@@ -577,7 +575,7 @@
         }
     }
 
-    private Connapse.Identity.Data.Entities.UserGitHubIdentityLinkEntity? gitHubIdentity;
+    private Connapse.Application.Links.GitHubAccountLink? gitHubIdentity;
     private bool gitHubSignInAvailable;
     private bool gitHubAppExists;
 
