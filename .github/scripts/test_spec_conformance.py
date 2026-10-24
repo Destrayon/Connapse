@@ -31,14 +31,21 @@ class MergeTests(unittest.TestCase):
 
 
 class CompareTests(unittest.TestCase):
+    K = "GET /api/x 404: status not in the spec"
+
     def test_exact_match_passes(self):
-        self.assertEqual(spec_conformance.compare({"k": ""}, {"k": "why"}), ([], []))
+        self.assertEqual(spec_conformance.compare({"GET /api/x 404"}, {self.K: ""}, {self.K: "why"}), ([], [], []))
 
     def test_a_violation_the_list_lacks_is_added(self):
-        self.assertEqual(spec_conformance.compare({"k": "", "new": ""}, {"k": "why"}), (["new"], []))
+        new = "GET /api/y 200: body not described"
+        self.assertEqual(spec_conformance.compare({"GET /api/x 404", "GET /api/y 200"}, {self.K: "", new: ""}, {self.K: "why"}),
+                         ([new], [], []))
 
-    def test_a_listed_violation_no_longer_seen_is_closed(self):
-        self.assertEqual(spec_conformance.compare({}, {"k": "why"}), ([], ["k"]))
+    def test_a_listed_violation_seen_conforming_is_closed(self):
+        self.assertEqual(spec_conformance.compare({"GET /api/x 404"}, {}, {self.K: "why"}), ([], [self.K], []))
+
+    def test_a_listed_violation_not_exercised_is_only_reported(self):
+        self.assertEqual(spec_conformance.compare(set(), {}, {self.K: "why"}), ([], [], [self.K]))
 
 
 if __name__ == "__main__":

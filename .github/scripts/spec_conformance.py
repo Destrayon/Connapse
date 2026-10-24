@@ -3,7 +3,9 @@
 Every integration shard's test host checks each /api response against docs/api/openapi.json and writes
 what it saw to spec-conformance-*.json. This joins the shards' records and compares the violations with
 tests/Connapse.Integration.Tests/Spec/known-spec-violations.json exactly: a violation not listed fails, and
-so does a listed one no shard saw, which has been fixed and must be deleted from the list.
+so does a listed one whose operation and status a shard saw conforming, which has been fixed and must be
+deleted from the list. A listed one the run didn't exercise at all is only warned about: which statuses a
+run reaches can vary (a conflict that depends on timing), so its absence proves nothing.
 
 Usage (in the job that has every shard's results):
   spec_conformance.py --reports "**/spec-conformance-*.json" --known tests/Connapse.Integration.Tests/Spec/known-spec-violations.json
@@ -27,9 +29,18 @@ def merge(paths: list[str]) -> tuple[set[str], dict[str, str]]:
     return seen, violations
 
 
-def compare(violations: dict[str, str], known: dict[str, str]) -> tuple[list[str], list[str]]:
-    """The violations the list lacks, and the listed ones no longer seen."""
-    return sorted(set(violations) - set(known)), sorted(set(known) - set(violations))
+def operation_status(key: str) -> str:
+    """'GET /api/x 404: reason' -> 'GET /api/x 404', the pair a shard records as seen."""
+    return key.split(": ", 1)[0]
+
+
+def compare(seen: set[str], violations: dict[str, str], known: dict[str, str]) -> tuple[list[str], list[str], list[str]]:
+    """The violations the list lacks; the listed ones a shard saw conforming; and the listed ones not exercised."""
+    added = sorted(set(violations) - set(known))
+    gone = set(known) - set(violations)
+    closed = sorted(k for k in gone if operation_status(k) in seen)
+    unexercised = sorted(k for k in gone if operation_status(k) not in seen)
+    return added, closed, unexercised
 
 
 def main() -> int:
@@ -46,13 +57,15 @@ def main() -> int:
     seen, violations = merge(paths)
     with open(a.known, encoding="utf-8-sig") as f:
         known = json.load(f)
-    added, closed = compare(violations, known)
+    added, closed, unexercised = compare(seen, violations, known)
 
     print(f"{len(paths)} shard report(s), {len(seen)} operation and status pairs seen, {len(violations)} violation(s), {len(known)} listed")
     for key in added:
         print(f"::error::not listed in {a.known}: \"{key}\"  ({violations[key]})")
     for key in closed:
-        print(f"::error::listed in {a.known} but no longer seen; delete it: \"{key}\"")
+        print(f"::error::listed in {a.known} but its response now conforms; delete it: \"{key}\"")
+    for key in unexercised:
+        print(f"::warning::listed in {a.known} but not exercised by this run: \"{key}\"")
     if added:
         print("Fix the endpoint or its spec, or add each new violation to the list with the reason. Entries to add:")
         print(json.dumps({key: "" for key in added}, indent=2))
