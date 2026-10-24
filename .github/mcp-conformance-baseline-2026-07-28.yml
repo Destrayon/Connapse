@@ -19,6 +19,9 @@ server:
   - prompts-get-embedded-resource
   - prompts-get-with-image
   - caching
+  # Only warns: with no resources, resources/read is an unknown method (-32601) rather than the -32602
+  # with the URI this scenario prefers for a missing resource.
+  - sep-2164-resource-not-found
   # These call the suite's own sample or diagnostic tools (image, audio, progress, JSON Schema 2020-12,
   # x-mcp-header parameters, test_missing_capability), which a product server doesn't have.
   - tools-call-image
