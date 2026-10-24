@@ -1562,6 +1562,28 @@ AWS-only per-user identity link, backed by an IAM Identity Center SAML flow (see
 [architecture.md](architecture.md) — Identity Linking). Azure AD per-user identity linking was
 removed in the Azure teardown (#476).
 
+### List My Account Links
+
+**Endpoint**: `GET /api/v1/auth/links`
+
+**Authorization**: a signed-in person or their own token (`knowledge:read`); agent keys get 403.
+
+The caller's own linked accounts, one entry per provider: AWS, Microsoft Entra ID, GitHub, Atlassian, then each custom provider. Search hides documents that only an unlinked account may read, so an agent can use this to explain a missing result. Linking itself happens in a browser, at `linkPage`.
+
+**Response** (200 OK):
+```json
+{
+  "links": [
+    { "provider": "github", "providerId": null, "name": "GitHub", "linked": true, "account": "octocat", "linkedAt": "2026-10-01T12:00:00Z", "canLink": true },
+    { "provider": "atlassian", "providerId": null, "name": "Atlassian", "linked": false, "account": null, "linkedAt": null, "canLink": false },
+    { "provider": "custom", "providerId": "3f2c…", "name": "Acme Wiki", "linked": null, "account": null, "linkedAt": null, "canLink": true }
+  ],
+  "linkPage": "/profile/integrations"
+}
+```
+
+`linked` is null when a custom provider's source server couldn't say within a few seconds. `canLink` says whether this server offers linking for that provider.
+
 ### Start AWS Connect
 
 **Endpoint**: `GET /api/v1/auth/cloud/aws/connect`

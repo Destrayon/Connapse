@@ -18,4 +18,10 @@ public static class Policies
     public const string Viewer = "RequireViewer";
 
     public const string Admin = "RequireAdmin";
+
+    /// <summary>A person's own account, through any sign-in or their own token; never an agent key.</summary>
+    public const string Account = "RequireAccount";
+
+    /// <summary>A person signing in: a browser session or their own bearer token, never a personal access token or agent key.</summary>
+    public const string Person = "RequirePerson";
 }

@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using Connapse.Application;
+using Connapse.Application.Links;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -9,6 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using Connapse.Web;
+using Connapse.Web.Problems;
 
 namespace Connapse.Web.Endpoints;
 
@@ -110,6 +114,21 @@ public static class AuthEndpoints
         .WithName("GetMe")
         .WithDescription("Return the authenticated caller's identity (id, email, display name, roles).")
         .RequireAuthorization();
+
+        // GET /api/v1/auth/links — the caller's linked accounts, so an agent can say why search hides a document (#865)
+        group.MapGet("/links", async (
+            HttpContext http,
+            [FromServices] ListAccountLinks list,
+            CancellationToken ct) =>
+        {
+            var read = await list.RunAsync(new OperationContext(http.User, OperationSurface.Rest), new ListAccountLinksQuery(), ct);
+            return read.Succeeded
+                ? Results.Ok(AccountLinksResponse.From(read.Result!))
+                : OperationProblems.Result(read);
+        })
+        .WithName("ListAccountLinks")
+        .WithDescription("List the caller's linked accounts (AWS, Entra ID, GitHub, Atlassian, custom providers): whether each is linked, as whom, since when, and whether this server offers linking. Search hides documents that only an unlinked account may read. Linking itself happens in a browser at /profile/integrations.")
+        .RequireAuthorization(Policies.Account);
 
         // GET /api/v1/auth/pats — list the authenticated user's PATs
         group.MapGet("/pats", async (

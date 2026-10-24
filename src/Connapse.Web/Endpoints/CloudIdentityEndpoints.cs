@@ -1,10 +1,14 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using Connapse.Application;
+using Connapse.Application.Links;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
 using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Web.Problems;
 using ITfoxtec.Identity.Saml2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -694,104 +698,16 @@ public static class CloudIdentityEndpoints
             return Results.Redirect("/profile/integrations?linked=atlassian");
         }).RequireAuthorization();
 
+        // DELETE /api/v1/auth/cloud/{provider}: the same links.unlink the profile page runs (#866).
         group.MapDelete("/{provider}", async (
             string provider,
             HttpContext httpContext,
-            [FromServices] IAwsIdentityLinkService awsLinks,
-            [FromServices] IAzureIdentityLinkService azureLinks,
-            [FromServices] GitHubIdentityLinkStore gitHubLinks,
-            [FromServices] GitHubLinkFlow gitHubFlow,
-            [FromServices] AtlassianIdentityLinkStore atlassianLinks,
-            [FromServices] AtlassianLinkFlow atlassianFlow,
-            [FromServices] IAuditLogger audit,
-            [FromServices] IConnectorScopeCache scopeCache,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IConnectionStore connectionStore,
+            [FromServices] UnlinkAccount unlink,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null) return Results.Unauthorized();
-
-            if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider)
-                || cloudProvider is not (CloudProvider.AWS or CloudProvider.Azure or CloudProvider.GitHub or CloudProvider.Atlassian))
-            {
-                return Results.BadRequest(new
-                {
-                    error = "invalid_provider",
-                    message = $"Unknown provider: {provider}. Valid values: AWS, Azure, GitHub, Atlassian."
-                });
-            }
-
-            if (cloudProvider == CloudProvider.Atlassian)
-            {
-                // Refused first, so a sign-in racing the delete cannot put the link back.
-                atlassianFlow.RevokeFor(userId.Value);
-                bool atlassianDeleted = await atlassianLinks.DeleteAsync(userId.Value, ct);
-                if (atlassianDeleted)
-                    await audit.LogAsync("identity.atlassian.unlinked", "user", userId.Value.ToString(), null, ct);
-                return atlassianDeleted ? Results.NoContent() : Results.NotFound();
-            }
-
-            if (cloudProvider == CloudProvider.GitHub)
-            {
-                // Refused first, so a sign-in racing the delete cannot put the link back.
-                gitHubFlow.RevokeFor(userId.Value);
-                bool gitHubDeleted = await gitHubLinks.DeleteAsync(userId.Value, ct);
-                if (gitHubDeleted)
-                    await audit.LogAsync("identity.github.unlinked", "user", userId.Value.ToString(), null, ct);
-                return gitHubDeleted ? Results.NoContent() : Results.NotFound();
-            }
-
-            if (cloudProvider == CloudProvider.Azure)
-            {
-                // Azure permissions are resolved live per search hit rather than cached against
-                // the link, so removing the link is the whole revocation.
-                bool azureDeleted = await azureLinks.DisconnectAsync(userId.Value, ct);
-                return azureDeleted ? Results.NoContent() : Results.NotFound();
-            }
-
-            // AWS links live in their own store, the one the integrations page reads and
-            // deletes through; the cloud-identity table this route used to consult never holds
-            // a SAML link, so deleting there answered 404 and left the link in force.
-            var result = await awsLinks.DisconnectAsync(userId.Value, ct);
-            if (result.LinkChangedDuringDisconnect)
-            {
-                return Results.Conflict(new
-                {
-                    error = "link_changed",
-                    message = "The AWS identity link changed while disconnecting. Try again."
-                });
-            }
-
-            bool deleted = result.Deleted;
-
-            // Evict cached scope entries for this user + provider
-            if (deleted)
-            {
-                // Sources, not containers (#353). The scope cache is keyed on the thing whose
-                // access was cached, and that is now a source: containers are managed storage
-                // and were never cloud-scoped. A source's provider lives on its connection,
-                // so the match is made there.
-                try
-                {
-                    var connections = await connectionStore.ListAsync(take: int.MaxValue, ct: ct);
-                    var matching = connections
-                        .Where(c => c.Provider == ConnectionProvider.S3)
-                        .Select(c => c.Id)
-                        .ToHashSet();
-
-                    if (matching.Count > 0)
-                    {
-                        var sources = await sourceStore.ListAsync(take: int.MaxValue, ct: ct);
-                        foreach (var s in sources.Where(s => s.ConnectionId is Guid cid && matching.Contains(cid)))
-                            scopeCache.Invalidate(userId.Value, s.Id);
-                    }
-                }
-                catch { /* Best-effort eviction — cache will expire naturally */ }
-            }
-
-            return deleted ? Results.NoContent() : Results.NotFound();
-        }).RequireAuthorization();
+            var unlinked = await unlink.RunAsync(new OperationContext(httpContext.User, OperationSurface.Rest), new UnlinkAccountRequest(provider), ct);
+            return unlinked.Succeeded ? Results.NoContent() : OperationProblems.Result(unlinked);
+        }).RequireAuthorization(Policies.Person);
 
         return app;
     }

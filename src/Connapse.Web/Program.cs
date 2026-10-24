@@ -182,6 +182,7 @@ builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceConnectionMigration>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
+builder.Services.AddScoped<Connapse.Application.Ports.ICustomAccountLinks>(sp => sp.GetRequiredService<Connapse.Web.Services.CustomLinkService>());
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkRemovalJob>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();

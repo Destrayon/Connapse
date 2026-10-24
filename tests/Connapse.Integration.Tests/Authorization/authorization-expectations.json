@@ -295,6 +295,11 @@
       "risk": "credential",
       "scope": null
     },
+    "GET /api/v1/auth/links": {
+      "requires": "user",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/v1/auth/me": {
       "requires": "user",
       "risk": "read",
