@@ -106,28 +106,34 @@ semantic-search
 
 ### 4. Configure Branch Protection Rules
 
-**Location**: Settings → Branches → Add branch protection rule
+A repository ruleset covers `main` and `epic/**` (classic branch protection takes one branch name and can't match `epic/**`). It requires status checks only: Connapse has a single maintainer, and GitHub doesn't let a PR's author approve it, so required reviews or code-owner approval could never be met. Not applied yet; to apply it (#787):
 
-**For `main` branch**:
-
-#### Rule name
+```bash
+gh api -X POST repos/Destrayon/Connapse/rulesets --input - <<'JSON'
+{
+  "name": "Proof tests gate (#787)",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/heads/main", "refs/heads/epic/**"], "exclude": [] } },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "required_status_checks": [
+          { "context": "build-and-test", "integration_id": 15368 },
+          { "context": "code-quality", "integration_id": 15368 }
+        ]
+      }
+    }
+  ]
+}
+JSON
 ```
-main
-```
 
-#### Protection settings (recommended):
-- ✅ **Require pull request before merging**
-  - ✅ Require approvals: 1 (if you have collaborators)
-  - ✅ Dismiss stale pull request approvals when new commits are pushed
-- ✅ **Require status checks to pass before merging**
-  - ✅ Require branches to be up to date before merging
-  - Select: "build", "test" (after CI workflow is created)
-- ✅ **Require conversation resolution before merging**
-- ❌ **Require signed commits** (optional, more strict)
-- ❌ **Require linear history** (optional, prevents merge commits)
-- ✅ **Include administrators** (apply rules to admins too)
-- ✅ **Allow force pushes** - **OFF** (prevent force push to main)
-- ✅ **Allow deletions** - **OFF** (prevent branch deletion)
+- `build-and-test` is CI's final job: it fails unless every job it waits on (small, medium, integration 1–3, code-quality, mcp-conformance) succeeded, and it runs the speed budgets and `PrPipeline_WallTimeUnder6Min`. `code-quality` is listed too so it shows as required on its own.
+- `integration_id` 15368 is the GitHub Actions app, so only Actions can report those checks.
+- `.github/CODEOWNERS` gates nothing under this ruleset. For a solo maintainer it's informational: it marks the proof tests, their lists and the build-check settings, and starts requesting reviews if a second reviewer and a code-owner review rule are added.
 
 ---
 
