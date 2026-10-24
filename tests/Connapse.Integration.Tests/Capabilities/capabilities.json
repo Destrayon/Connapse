@@ -40,7 +40,8 @@
       "routes": [
         "DELETE /api/containers/{containerId:guid}"
       ],
-      "mcp": "container_delete"
+      "mcp": "container_delete",
+      "note": "Over MCP it waits for approval unless the token has approval off: the token's owner or an administrator approves it on the /approvals page, which only the UI offers, and the same call then runs once."
     },
     {
       "id": "containers.stats",
@@ -161,7 +162,8 @@
       "routes": [
         "DELETE /api/containers/{containerId:guid}/files/{fileId}"
       ],
-      "mcp": "delete_file"
+      "mcp": "delete_file",
+      "note": "Over MCP it waits for approval unless the token has approval off: the token's owner or an administrator approves it on the /approvals page, which only the UI offers, and the same call then runs once."
     },
     {
       "id": "files.bulkDelete",
@@ -170,7 +172,7 @@
         "POST /api/containers/{containerId:guid}/files/bulk-delete"
       ],
       "mcp": "bulk_delete",
-      "note": "REST deletes one file at a time today."
+      "note": "REST deletes one file at a time today. Over MCP it waits for approval unless the token has approval off: the token's owner or an administrator approves it on the /approvals page, which only the UI offers, and the same call then runs once."
     },
     {
       "id": "files.reindexCheck",
@@ -1023,10 +1025,6 @@
     "* /hubs/ingestion": "The UI's live ingestion feed; batches.status is the capability.",
     "* /hubs/ingestion/negotiate": "The UI's live ingestion feed; batches.status is the capability.",
     "POST /mcp/": "The MCP transport itself; its tools are rows.",
-    "GET /mcp/": "The MCP transport itself; its tools are rows.",
-    "DELETE /mcp/": "The MCP transport itself; its tools are rows.",
-    "GET /mcp/sse": "The MCP transport itself; its tools are rows.",
-    "POST /mcp/message": "The MCP transport itself; its tools are rows.",
     "GET /.well-known/oauth-authorization-server": "OAuth discovery metadata.",
     "GET /.well-known/oauth-protected-resource": "OAuth discovery metadata.",
     "GET /.well-known/oauth-protected-resource/{**resourcePath}": "OAuth discovery metadata.",

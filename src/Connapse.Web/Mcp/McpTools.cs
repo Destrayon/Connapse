@@ -1,4 +1,6 @@
-﻿using Connapse.Core;
+﻿using Connapse.Application;
+using Microsoft.AspNetCore.Authorization;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
@@ -19,7 +21,8 @@ public class McpTools
     internal const int ListFilesSoftLimit = 50;
 
 
-    [McpServerTool(Name = "container_create"),
+    [McpServerTool(Name = "container_create", Destructive = false),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Create a new container for organizing documents. Use when setting up a new knowledge domain or project.")]
     public static async Task<string> ContainerCreate(
         IServiceProvider services,
@@ -43,6 +46,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Lists every searchable knowledge scope with its description and document count. Each entry is either kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
         IServiceProvider services,
@@ -96,6 +100,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_delete", Destructive = true),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
      Description("Delete a container. It must be emptied first, because deleting one deletes its stored files. External sources are not containers and cannot be deleted here.")]
     public static async Task<string> ContainerDelete(
         IServiceProvider services,
@@ -122,6 +127,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again.")]
     public static async Task<string> SearchKnowledge(
         IServiceProvider services,
@@ -226,6 +232,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Lists folder entries and document IDs at a path within a container (does NOT return file contents — for content questions, use `search_knowledge`). Intended for inventory requests such as 'what files exist in X' or when the user named a specific filename. Large listings return a soft error directing you to `search_knowledge`; override with `confirmLarge: true` or paginate with `limit`.")]
     public static async Task<string> ListFiles(
         IServiceProvider services,
@@ -338,7 +345,8 @@ public class McpTools
         return text.TrimEnd();
     }
 
-    [McpServerTool(Name = "upload_file"),
+    [McpServerTool(Name = "upload_file", Destructive = false),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Upload a file to be parsed, chunked, embedded, and made searchable. Provide either 'content' (base64) or 'textContent' (raw text), not both.")]
     public static async Task<string> UploadFile(
         IServiceProvider services,
@@ -410,6 +418,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "delete_file", Destructive = true),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
      Description("Delete a file and all its chunks and vectors. To update a file, delete it first then re-upload with upload_file.")]
     public static async Task<string> DeleteFile(
         IServiceProvider services,
@@ -458,6 +467,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "bulk_delete", Destructive = true),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
      Description("Delete up to 100 files in one call. Returns per-file success/failure results.")]
     public static async Task<string> BulkDelete(
         IServiceProvider services,
@@ -521,7 +531,8 @@ public class McpTools
         return summary;
     }
 
-    [McpServerTool(Name = "bulk_upload"),
+    [McpServerTool(Name = "bulk_upload", Destructive = false),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Upload up to 100 files in one call. Each file is parsed, chunked, and embedded. Returns per-file results.")]
     public static async Task<string> BulkUpload(
         IServiceProvider services,
@@ -629,6 +640,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "get_document", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Retrieve a single document's full text by ID or path. Returns extracted text for binary formats (PDF, DOCX, PPTX). Intended for use after `search_knowledge` returns a `DocumentId` worth reading in entirety, or when the user has named an exact file.")]
     public static async Task<string> GetDocument(
         IServiceProvider services,
@@ -754,6 +766,7 @@ public class McpTools
     private static bool IsTextNative(string extension) => TextExtensions.Contains(extension);
 
     [McpServerTool(Name = "container_stats", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Get container statistics: document counts, chunk count, storage size, and embedding model info.")]
     public static async Task<string> ContainerStats(
         IServiceProvider services,
@@ -805,6 +818,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_describe", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Returns an agent-optimized description of a knowledge scope — container or source: its description, auto-generated summary (if available), and document statistics. Use this to understand what a scope covers before querying via search_knowledge, or when container_list output is insufficient to choose between them. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
     public static async Task<string> ContainerDescribe(
         IServiceProvider services,
