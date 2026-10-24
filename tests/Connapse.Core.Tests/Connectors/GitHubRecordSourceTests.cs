@@ -1,3 +1,4 @@
+using Connapse.Core;
 using System.Text;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
