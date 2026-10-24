@@ -112,6 +112,9 @@ public sealed class SourceCreateRules(
             // enforces on every sync.
             case ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.Filesystem or ConnectionProvider.Sftp:
                 {
+                    // Scope JSON that doesn't parse is the create's own refusal, worded as it always was.
+                    if (!ParsesAsJson(scopeJson))
+                        return new ScopeCheck(scopeJson);
                     var checkedScope = preflight.Check(connection, string.IsNullOrWhiteSpace(scopeJson) ? "{}" : scopeJson);
                     return checkedScope.IsRefused
                         ? ScopeCheck.Refuse(checkedScope.Error!, "scopeJson")
@@ -120,6 +123,22 @@ public sealed class SourceCreateRules(
 
             default:
                 return new ScopeCheck(scopeJson);
+        }
+    }
+
+    /// <summary>Whether a scope parses as JSON; blank does, since a blank scope is read as "{}".</summary>
+    private static bool ParsesAsJson(string? scopeJson)
+    {
+        if (string.IsNullOrWhiteSpace(scopeJson))
+            return true;
+        try
+        {
+            using var _ = System.Text.Json.JsonDocument.Parse(scopeJson);
+            return true;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
         }
     }
 }

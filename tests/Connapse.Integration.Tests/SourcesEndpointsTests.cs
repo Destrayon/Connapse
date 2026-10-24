@@ -287,6 +287,10 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Worded as it always was, ahead of the storage scope check, which can't read it either.
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().StartWith("Invalid scope JSON:");
+        body.TryGetProperty("field", out _).Should().BeFalse();
     }
 
     [Fact]

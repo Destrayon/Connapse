@@ -1441,6 +1441,7 @@
         creating = true;
         var created = new List<string>();
         var skipped = new List<string>();
+        var failed = new List<string>();
 
         try
         {
@@ -1458,24 +1459,26 @@
 
             foreach (var request in githubForm.ToRequests(connection.Id, found.Id, isPrivate))
             {
-                // A refusal is most often a duplicate name: this repository's source of that kind already exists.
+                // A conflict is a duplicate name: this repository's source of that kind already exists. Any other
+                // refusal is GitHub's answer for this one, which is not the same as having it already.
                 var attempt = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(), NewSource.From(request));
                 if (attempt.Succeeded)
                     created.Add(attempt.Result!.Source.Name);
                 else
-                    skipped.Add(attempt.Detail!);
+                    (attempt.Status == SourceWriteStatus.Conflict ? skipped : failed).Add(attempt.Detail!);
             }
 
             if (created.Count == 0)
             {
-                createError = "Nothing added. " + string.Join(" ", skipped);
+                createError = "Nothing added. " + string.Join(" ", skipped.Concat(failed));
                 return;
             }
 
             form = null;
             githubForm = null;
             Succeed($"Added {string.Join(" and ", created)}. They sync on the next cycle, or press Sync."
-                + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : ""));
+                + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : "")
+                + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
             privateNote = isPrivate
                 ? $"{found.FullName} is {found.Visibility}. Its content appears only for people who link their GitHub account under Profile → Integrations and can read the repository on GitHub."
                 : null;
