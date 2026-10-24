@@ -62,6 +62,7 @@ public static class SettingsEndpoints
             [FromBody] JsonElement settingsJson,
             [FromServices] ISettingsStore settingsStore,
             [FromServices] IServiceProvider serviceProvider,
+            [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             var categoryLower = category.ToLowerInvariant();
@@ -104,7 +105,6 @@ public static class SettingsEndpoints
                 if (embeddingSettings != null)
                 {
                     var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
-                    var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
                     var indexLogger = loggerFactory.CreateLogger("SettingsEndpoints.IndexReconciliation");
                     _ = Task.Run(async () =>
                     {
@@ -151,8 +151,7 @@ public static class SettingsEndpoints
             catch (Exception ex)
             {
                 // The exception's text can carry a connection string or an internal id; it stays in the log.
-                serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("SettingsEndpoints")
-                    .LogError(ex, "Updating settings failed");
+                loggerFactory.CreateLogger("SettingsEndpoints").LogError(ex, "Updating settings failed");
                 return Results.Problem(
                     statusCode: 500,
                     title: "Failed to update settings");
