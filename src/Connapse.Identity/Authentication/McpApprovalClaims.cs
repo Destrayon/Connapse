@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
 
 namespace Connapse.Identity.Authentication;
 
@@ -26,6 +27,13 @@ public static class McpApprovalClaims
     /// <summary>Whether the caller is a PAT or an agent key rather than a person who signed in.</summary>
     public static bool IsToken(ClaimsPrincipal user) =>
         user.FindFirst("auth_method")?.Value is "api_key" or "agent_api_key";
+
+    /// <summary>
+    /// Whether the caller signed in to the UI in a browser. A bearer token, even one issued to a person
+    /// through OAuth, is what an MCP client holds, so it must not decide the client's own held calls.
+    /// </summary>
+    public static bool IsBrowserSession(ClaimsPrincipal user) =>
+        user.Identities.Any(i => i.IsAuthenticated && i.AuthenticationType == IdentityConstants.ApplicationScheme);
 
     /// <summary>The person a token acts for: an agent's creator, or the user themself.</summary>
     public static Guid? OwnerUserId(ClaimsPrincipal user) =>

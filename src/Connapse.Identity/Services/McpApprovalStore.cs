@@ -97,18 +97,21 @@ public sealed class McpApprovalStore(IDbContextFactory<ConnapseIdentityDbContext
     {
         await using var db = await contexts.CreateDbContextAsync(ct);
         var now = clock.GetUtcNow().UtcDateTime;
-        var request = await db.McpApprovals.FirstOrDefaultAsync(a => a.Id == id, ct);
+        var request = await db.McpApprovals.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id, ct);
         if (request is null || (!isAdmin && request.OwnerUserId != userId))
             return request is null ? McpApprovalDecision.NotFound : McpApprovalDecision.Forbidden;
-        if (request.Status != McpApprovalStatus.Pending || request.ExpiresAt <= now)
-            return McpApprovalDecision.NotPending;
 
-        request.Status = approve ? McpApprovalStatus.Approved : McpApprovalStatus.Denied;
-        request.DecidedAt = now;
-        request.DecidedByUserId = userId;
-        if (approve)
-            request.ExpiresAt = now + ApprovedFor;
-        await db.SaveChangesAsync(ct);
-        return McpApprovalDecision.Decided;
+        // Conditional on still being Pending, so an approve and a deny racing can't both land and the
+        // later one overwrite the other.
+        var status = approve ? McpApprovalStatus.Approved : McpApprovalStatus.Denied;
+        var expiresAt = approve ? now + ApprovedFor : request.ExpiresAt;
+        int decided = await db.McpApprovals
+            .Where(a => a.Id == id && a.Status == McpApprovalStatus.Pending && a.ExpiresAt > now)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(a => a.Status, status)
+                .SetProperty(a => a.DecidedAt, now)
+                .SetProperty(a => a.DecidedByUserId, userId)
+                .SetProperty(a => a.ExpiresAt, expiresAt), ct);
+        return decided == 1 ? McpApprovalDecision.Decided : McpApprovalDecision.NotPending;
     }
 }
