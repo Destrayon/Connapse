@@ -1681,7 +1681,7 @@ Registered clients oldest first, then metadata-URL clients that hold grants.
 
 **Endpoint**: `DELETE /api/v1/oauth-clients/{clientId}` (escape a metadata-URL client ID)
 
-Removes the client's registration, so it can't start a new sign-in; revokes every refresh token it holds; and deletes its pending authorization codes. Access tokens it already holds stay valid until they expire. A metadata-URL client can sign in again if a person approves it again. Writes an `oauth.client.revoked` audit entry.
+Removes the client's registration, so it can't start a new sign-in; revokes every refresh token it holds; and deletes its pending authorization codes. Access tokens it already holds stay valid until they expire. A registered client's tokens and codes stop working once its registration is gone, even one minted while the revoke ran. A metadata-URL client can sign in again if a person approves it again. Writes an `oauth.client.revoked` audit entry.
 
 **Response** (200 OK): `{ "clientId": "…", "clientRemoved": true, "refreshTokensRevoked": 2, "authCodesRemoved": 0 }`
 

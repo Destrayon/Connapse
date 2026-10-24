@@ -72,6 +72,38 @@ public class OAuthClientEndpointsTests(SharedWebAppFixture fixture)
         (await ListAsync()).Should().NotContain(c => c.GetProperty("clientId").GetString() == clientId);
     }
 
+    [Fact]
+    public async Task Refresh_ForAClientWhoseRegistrationIsGone_IsRefused()
+    {
+        // A refresh racing a revoke can save a replacement token after the revoke committed. The client's
+        // registration is gone either way, so that token must not refresh again.
+        string clientId = await RegisterAsync($"Test MCP {Guid.NewGuid():N}");
+        string refreshToken;
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            var tokens = scope.ServiceProvider.GetRequiredService<Connapse.Identity.Services.ITokenService>();
+            var pair = await tokens.GenerateTokenPairAsync(
+                [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, AdminUserId().ToString())], AdminUserId());
+            refreshToken = pair.RefreshToken;
+            var db = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+            var row = await db.RefreshTokens.OrderByDescending(t => t.CreatedAt).FirstAsync(t => t.UserId == AdminUserId() && t.ClientId == null);
+            row.ClientId = clientId;
+            await db.SaveChangesAsync();
+            await db.OAuthClients.Where(c => c.ClientId == clientId).ExecuteDeleteAsync();
+        }
+
+        using var client = fixture.Factory.CreateClient();
+        using var response = await client.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = clientId,
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString().Should().Be("invalid_grant");
+    }
+
     private async Task<string> RegisterAsync(string name)
     {
         using var client = fixture.Factory.CreateClient();
