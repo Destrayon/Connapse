@@ -64,6 +64,14 @@ public class AtlassianKindRuleTests
 
         PrivateSourceVisibility.IsSearchableWhenHidden(source).Should().Be(kind != Kind.None, $"{row}: only an Atlassian kind is checked live per hit");
 
+        // Hiding fails closed: a row in any case of an Atlassian kind stays hidden from non-administrators,
+        // here with no connection to hide it by, whatever the kind rule reads.
+        var unbound = source with { ConnectionId = null };
+        bool namesAnAtlassianKindInAnyCase = scopeJson.Contains("jira-project", StringComparison.OrdinalIgnoreCase)
+            || scopeJson.Contains("confluence-space", StringComparison.OrdinalIgnoreCase);
+        if (namesAnAtlassianKindInAnyCase)
+            PrivateSourceVisibility.IsVisible(unbound, new HashSet<string>(), new HashSet<Guid>()).Should().BeFalse($"{row}: hidden as before");
+
         var form = SourceEditForm.From(source, ConnectionProvider.Atlassian);
         (form.Jira is not null).Should().Be(jira, $"{row}: the edit page offers Jira settings only for a Jira row");
         (form.Confluence is not null).Should().Be(confluence, $"{row}: the edit page offers Confluence settings only for a Confluence row");

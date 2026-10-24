@@ -69,7 +69,7 @@ public sealed class PrivateSourceVisibility(
     {
         // A Confluence space's name can itself be sensitive, and no per-user answer is cheap enough
         // to ask per listing, so these are shown to administrators only (who return before here).
-        if (IsAtlassianContent(source.ScopeJson))
+        if (LooksAtlassian(source.ScopeJson))
             return false;
 
         // The same holds for every kind an Atlassian connection carries, Jira's included, so the
@@ -106,7 +106,15 @@ public sealed class PrivateSourceVisibility(
         IsAtlassianContent(source.ScopeJson) || CustomSourceScope.TryParse(source.ScopeJson) is not null;
 
     /// <summary>A Confluence space or a Jira project: an Atlassian kind whose hits are checked live per user.</summary>
-    private static bool IsAtlassianContent(string? scopeJson)
+    private static bool IsAtlassianContent(string? scopeJson) =>
+        SourceScopeCodec.AtlassianKindOf(scopeJson) != AtlassianScopeKind.None;
+
+    /// <summary>
+    /// Whether a row names an Atlassian kind in any case, for hiding only. Deliberately broader than
+    /// <see cref="SourceScopeCodec.AtlassianKindOf(string?)"/>: a hand-edited row the kind rule reads as no
+    /// kind must not be listed more widely for it, so hiding keeps the looser match and fails closed.
+    /// </summary>
+    private static bool LooksAtlassian(string? scopeJson)
     {
         try
         {

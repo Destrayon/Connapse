@@ -132,6 +132,11 @@ public abstract class AtlassianSourceSelection
         {
             try
             {
+                // Only a row of the product that holds the id: a space for spaceId, a project for projectId.
+                if (SourceScopeCodec.AtlassianKindOf(source.ScopeJson)
+                    != (key == "projectId" ? AtlassianScopeKind.JiraProject : AtlassianScopeKind.ConfluenceSpace))
+                    continue;
+
                 using var doc = JsonDocument.Parse(source.ScopeJson);
                 if (doc.RootElement.ValueKind == JsonValueKind.Object
                     && doc.RootElement.TryGetProperty(key, out var id))

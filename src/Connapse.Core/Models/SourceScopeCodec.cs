@@ -127,7 +127,8 @@ public static class SourceScopeCodec
     public static AtlassianScopeKind AtlassianKindOf(string? storedJson) =>
         Parse(storedJson) is { } o ? AtlassianKindOf(o) : AtlassianScopeKind.None;
 
-    private static AtlassianScopeKind AtlassianKindOf(JsonObject o) => Str(o, "kind") switch
+    /// <summary>The same rule, for a stored scope already parsed.</summary>
+    public static AtlassianScopeKind AtlassianKindOf(JsonObject o) => Str(o, "kind") switch
     {
         JiraKind => AtlassianScopeKind.JiraProject,
         ConfluenceKind => AtlassianScopeKind.ConfluenceSpace,

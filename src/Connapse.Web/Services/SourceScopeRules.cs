@@ -36,9 +36,15 @@ public sealed class SourceScopeRules(IConnectionStore connections) : ISourceScop
         // A Jira source, known by its stored kind, keeps its project the same way.
         if (connection is { Provider: ConnectionProvider.Atlassian })
         {
-            var atlassian = AtlassianSourceScope.IsJira(current.ScopeJson)
-                ? JiraSourceScope.Update(current.ScopeJson, requestedScopeJson)
-                : ConfluenceSourceScope.Update(current.ScopeJson, requestedScopeJson);
+            var atlassian = SourceScopeCodec.AtlassianKindOf(current.ScopeJson) switch
+            {
+                AtlassianScopeKind.JiraProject => JiraSourceScope.Update(current.ScopeJson, requestedScopeJson),
+                AtlassianScopeKind.ConfluenceSpace => ConfluenceSourceScope.Update(current.ScopeJson, requestedScopeJson),
+                _ => null,
+            };
+            if (atlassian is null)
+                return ScopeCheck.Refuse(
+                    "This source's stored scope names no Atlassian kind, so it can't be changed in place. Create the source again.", "scope");
             return atlassian.Outcome == AtlassianSourceScope.Outcome.Valid
                 ? new ScopeCheck(atlassian.ScopeJson)
                 : ScopeCheck.Refuse(atlassian.Error!, atlassian.Field);

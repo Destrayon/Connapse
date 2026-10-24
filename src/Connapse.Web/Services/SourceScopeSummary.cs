@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Connapse.Core;
 
 namespace Connapse.Web.Services;
 
@@ -89,7 +90,7 @@ public static class SourceScopeSummary
     /// </summary>
     private static string? ConfluenceSpace(JsonObject node, string? siteHost)
     {
-        if (!string.Equals(Str(node, "kind"), "confluence-space", StringComparison.OrdinalIgnoreCase))
+        if (SourceScopeCodec.AtlassianKindOf(node) != AtlassianScopeKind.ConfluenceSpace)
             return null;
 
         string? key = Str(node, "spaceKey");
@@ -110,7 +111,7 @@ public static class SourceScopeSummary
     /// </summary>
     private static string? JiraProject(JsonObject node, string? siteHost)
     {
-        if (!AtlassianSourceScope.IsJiraKind(Str(node, "kind")))
+        if (SourceScopeCodec.AtlassianKindOf(node) != AtlassianScopeKind.JiraProject)
             return null;
 
         string project = "Jira project " + (Str(node, "projectKey") ?? node["projectId"]?.ToString() ?? "?");
