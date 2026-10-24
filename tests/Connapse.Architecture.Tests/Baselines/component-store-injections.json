@@ -21,7 +21,6 @@
   "Pages.Search -> ISourceStore",
   "Pages.Settings -> ISettingsStore",
   "Pages.SourceEdit -> IConnectionStore",
-  "Pages.SourceEdit -> ISourceStore",
   "Pages.Sources -> IConnectionStore",
   "Pages.Sources -> ISourceStore",
   "Settings.EmbeddingSettingsTab -> ISettingsStore",

@@ -35,5 +35,8 @@
   "sources_list/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
   "sources_get/valid/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
   "sources_get/invalid/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
-  "sources_get/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783"
+  "sources_get/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "sources_update/valid/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "sources_update/invalid/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "sources_update/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783"
 }

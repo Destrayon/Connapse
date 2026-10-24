@@ -69,7 +69,36 @@ public static partial class Operations
             AbsentReasons = NoSourceTools,
             ArrangesSource = true,
         },
+
+        // A rename: the page's Edit source form, and REST's PATCH with just the new name.
+        new("sources_update", [Case.Valid, Case.Invalid, Case.UnderScoped], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                return await Surfaces.ResultAsync(await rest.PatchAsJsonAsync($"/api/sources/{SourceTarget(c, k)}", new { name = Renamed(c) }));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = ui.Context.Render<SourceEdit>(ps => ps.Add(x => x.Id, Guid.Parse(SourceTarget(c, k))));
+                page.WaitForAssertion(() => page.FindAll("h1, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+                if (page.FindAll(".alert-danger").FirstOrDefault() is { } loadError)
+                    return Surfaces.ErrorKind(loadError.TextContent.Trim());
+                page.Find("#source-name").Change(Renamed(c));
+                await ClickAsync(() => page.Find("button.btn-primary"));
+                page.WaitForAssertion(() => page.FindAll(".alert-success, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+                return page.FindAll(".alert-danger").FirstOrDefault() is { } alert ? Surfaces.ErrorKind(alert.TextContent.Trim()) : "ok";
+            },
+            Project: (sp, c) => SourceStateAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+        },
     ];
+
+    /// <summary>The name a rename gives the case's source; it keeps the case's prefix, so the projection still finds it.</summary>
+    private static string Renamed(CaseContext c) => $"{c.Source!.Name}-up";
 
     /// <summary>The source a case targets: an unknown one for the invalid case, the case's own otherwise.</summary>
     private static string SourceTarget(CaseContext c, string @case) => @case == Case.Invalid ? c.Unknown : c.Source!.Id.ToString();

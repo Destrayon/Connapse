@@ -80,8 +80,6 @@
   "SettingsEndpoints POST /api/settings/reindex -> ISettingsStore",
   "SettingsEndpoints PUT /api/settings/{category} -> ISettingsStore",
   "SourcesEndpoints DELETE /api/sources/{sourceId:guid} -> ISourceStore",
-  "SourcesEndpoints PATCH /api/sources/{sourceId:guid} -> IConnectionStore",
-  "SourcesEndpoints PATCH /api/sources/{sourceId:guid} -> ISourceStore",
   "SourcesEndpoints POST /api/sources/ -> IConnectionStore",
   "SourcesEndpoints POST /api/sources/ -> ISourceStore",
   "SourcesEndpoints POST /api/sources/{sourceId:guid}/retry-failed -> ISourceStore",
