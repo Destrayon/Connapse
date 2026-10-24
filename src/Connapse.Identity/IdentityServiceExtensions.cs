@@ -70,6 +70,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<IMcpApprovalStore, McpApprovalStore>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<IAuditLogReader, AuditLogReader>();
+        services.AddScoped<IOAuthClientRegistry, OAuthClientRegistry>();
         services.AddScoped<OAuthAuthCodeService>();
         services.AddHttpClient<OAuthClientService>();
         services.AddScoped<AwsIdentityLinkStore>();
@@ -344,6 +345,11 @@ public static class IdentityServiceExtensions
             .AddPolicy("RequireAuditReader", policy =>
                 policy.RequireRole("Owner", "Admin").RequireAssertion(context =>
                     !context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "admin:audit")))
+            // Which OAuth clients hold grants, and revoking one, is an administrator's; a token of theirs
+            // only with admin:oauth-clients (#881).
+            .AddPolicy("RequireClientAdmin", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context =>
+                    !context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "admin:oauth-clients")))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

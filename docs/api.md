@@ -1656,6 +1656,39 @@ Every sensitive action writes an audit entry: who did it, to which resource, fro
 
 ---
 
+## OAuth Clients
+
+OAuth clients are the MCP clients that sign people in to Connapse: ones that registered themselves (`/oauth/register`), and ones known by a client ID metadata URL, which never register. Both require Owner or Admin, and a personal access token needs the `admin:oauth-clients` scope.
+
+### List OAuth Clients
+
+**Endpoint**: `GET /api/v1/oauth-clients/`
+
+Registered clients oldest first, then metadata-URL clients that hold grants.
+
+**Response** (200 OK):
+```json
+[
+  { "clientId": "5f0c…", "name": "Claude Desktop", "applicationType": "native", "redirectUris": ["http://127.0.0.1:8765/callback"],
+    "registered": true, "registeredAt": "2026-10-01T12:00:00Z", "registeredFromIp": "10.0.0.4",
+    "activeGrants": 2, "users": 1, "lastGrantAt": "2026-10-24T09:00:00Z" }
+]
+```
+
+`activeGrants` counts refresh tokens neither revoked nor expired; `users` is how many people granted them.
+
+### Revoke an OAuth Client
+
+**Endpoint**: `DELETE /api/v1/oauth-clients/{clientId}` (escape a metadata-URL client ID)
+
+Removes the client's registration, so it can't start a new sign-in; revokes every refresh token it holds; and deletes its pending authorization codes. Access tokens it already holds stay valid until they expire. A metadata-URL client can sign in again if a person approves it again. Writes an `oauth.client.revoked` audit entry.
+
+**Response** (200 OK): `{ "clientId": "…", "clientRemoved": true, "refreshTokensRevoked": 2, "authCodesRemoved": 0 }`
+
+**Errors**: 404 `oauth-client-not-found` (no registration, grants or pending codes), 403 `forbidden`.
+
+---
+
 ## Versioning
 
 **Current Version**: `v0.3.2`

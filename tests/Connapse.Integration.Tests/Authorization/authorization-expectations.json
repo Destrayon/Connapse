@@ -85,6 +85,11 @@
       "risk": "destructive",
       "scope": null
     },
+    "DELETE /api/v1/oauth-clients/{clientId}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:oauth-clients"
+    },
     "GET /.well-known/oauth-authorization-server": {
       "requires": "anonymous",
       "risk": "read",
@@ -339,6 +344,11 @@
       "requires": "anonymous",
       "risk": "read",
       "scope": null
+    },
+    "GET /api/v1/oauth-clients/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:oauth-clients"
     },
     "GET /api/v1/providers/github/installed": {
       "requires": "admin",

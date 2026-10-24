@@ -27,4 +27,7 @@ public static class Policies
 
     /// <summary>An administrator; a token of theirs only with the admin:audit scope.</summary>
     public const string AuditReader = "RequireAuditReader";
+
+    /// <summary>An administrator; a token of theirs only with the admin:oauth-clients scope.</summary>
+    public const string ClientAdmin = "RequireClientAdmin";
 }

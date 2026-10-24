@@ -3696,6 +3696,44 @@
         }
       }
     },
+    "/api/v1/oauth-clients": {
+      "get": {
+        "tags": [
+          "OAuth Clients"
+        ],
+        "description": "List the OAuth clients with access: those that registered themselves, then those known by a metadata URL that hold grants, with their active grant and user counts. Administrators only.",
+        "operationId": "ListOAuthClients",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/oauth-clients/{clientId}": {
+      "delete": {
+        "tags": [
+          "OAuth Clients"
+        ],
+        "description": "Revoke an OAuth client: remove its registration, revoke its refresh tokens and delete its pending authorization codes. Access tokens it already holds expire within their short lifetime. Escape a metadata-URL client id. Administrators only.",
+        "operationId": "RevokeOAuthClient",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/containers/{containerId}/files": {
       "post": {
         "tags": [
@@ -12100,6 +12138,9 @@
     },
     {
       "name": "Audit"
+    },
+    {
+      "name": "OAuth Clients"
     },
     {
       "name": "Files"

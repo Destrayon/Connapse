@@ -13,8 +13,10 @@ declared slug has an entry here.
 
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
 changing needs Administrator. The audit log: reading needs Administrator, and a token needs
-`admin:audit`. Account links: reading needs a person or their own token with `knowledge:read`;
-unlinking needs the person signed in themselves, never a personal access token or agent key.
+`admin:audit`. OAuth clients: listing and revoking need Administrator, and a token needs
+`admin:oauth-clients`. Account links: reading needs a person or their own token with
+`knowledge:read`; unlinking needs the person signed in themselves, never a personal access token or
+agent key.
 
 ## invalid-link-provider
 
@@ -72,6 +74,11 @@ The provider named in the path isn't one Connapse has. Providers are named as th
 
 An audit log filter can't match anything: `since` must be before `until`. Both are UTC; a time given
 without a zone is read as UTC.
+
+## oauth-client-not-found
+
+No OAuth client with that id has access: it isn't registered and holds no refresh tokens or pending
+authorization codes. It may already have been revoked.
 
 ## invalid-page
 

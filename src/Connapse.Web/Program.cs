@@ -485,6 +485,7 @@ api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapSourcesEndpoints();
 api.MapAuditEndpoints();
+api.MapOAuthClientEndpoints();
 api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
