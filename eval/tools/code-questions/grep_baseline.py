@@ -2,8 +2,9 @@
 
     python -I grep_baseline.py <work-dir> <questions.jsonl> <out.json>
 
-For each question, every text file the repo tracks at its pinned commit is ranked by how many times the
-symbol's own name (the last part of `Type.Member`) appears as a whole word, most first, ties by path.
+For each question, every text file the repo tracks at its pinned commit is ranked by how many of its
+lines hold the symbol's own name (the last part of `Type.Member`) as a whole word, which is the count
+`grep -w -c` prints, most first, ties by path.
 Recall@k is the share of the answer key's files in the top k, capped at k when the key is bigger:
 |top-k ∩ key| / min(|key|, k). The later gate for the code engine is Recall@10 0.15 above this, on the
 held-out half.
@@ -20,13 +21,16 @@ WORD = re.compile(r"[A-Za-z_$][\w$]*")
 
 
 def corpus(src: Path) -> dict[str, Counter]:
-    """Each tracked text file's whole-word counts. Binary files (a NUL byte) are skipped."""
+    """For each tracked text file, how many lines hold each whole word. Binary files (a NUL byte) are skipped."""
     files = subprocess.run(["git", "-C", str(src), "ls-files", "-z"], capture_output=True, check=True).stdout.decode().split("\0")
     out = {}
     for f in filter(None, files):
         data = (src / f).read_bytes()
         if b"\0" not in data[:8192]:
-            out[f] = Counter(WORD.findall(data.decode("utf-8", errors="replace")))
+            lines = Counter()
+            for line in data.decode("utf-8", errors="replace").splitlines():
+                lines.update(set(WORD.findall(line)))
+            out[f] = lines
     return out
 
 
@@ -55,7 +59,7 @@ def main() -> int:
 
     result = {g: {"questions": len(m["recall@10"]), **{name: round(sum(v) / len(v), 4) for name, v in m.items()}}
               for g, m in sorted(groups.items())}
-    out.write_text(json.dumps({"system": "grep -w -c, files ranked by count", "groups": result}, indent=2) + "\n", encoding="utf-8")
+    out.write_text(json.dumps({"system": "grep -w -c, files ranked by matching lines", "groups": result}, indent=2) + "\n", encoding="utf-8")
     for g, m in result.items():
         if g.count("/") < 2:
             print(f"{g:24} n={m['questions']:3}  R@5 {m['recall@5']:.3f}  R@10 {m['recall@10']:.3f}  R@20 {m['recall@20']:.3f}")

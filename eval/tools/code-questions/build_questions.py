@@ -75,13 +75,21 @@ def describe_scip(symbol: str) -> tuple[str, str, str] | None:
     return None
 
 
-def from_scip(path: Path) -> dict:
-    """Symbol records from a SCIP index: kind, name, definition, body lines, references and uses (1-based lines)."""
+CALL = re.compile(r"\s*(<[^()]*>)?\s*\(")  # what follows a called name: `f(`, `f<T>(`
+
+
+def from_scip(path: Path, src: Path) -> dict:
+    """Symbol records from a SCIP index: kind, name, definition, body lines, references and uses (1-based lines).
+
+    A reference is a call when `(` follows the name. A body's uses start after its signature: after the
+    line that ends with `{` (TypeScript) or `:` (Python), or on the definition's line for a one-liner.
+    """
     docs = scip.read(str(path))
-    found, refs, occurrences = {}, defaultdict(list), {}
+    found, refs, occurrences, texts = {}, defaultdict(list), {}, {}
     for doc in docs:
         p = doc.path.replace("\\", "/")
         occurrences[p] = doc.occurrences
+        texts[p] = (src / p).read_text(encoding="utf-8", errors="replace").splitlines()
         defs = sorted((o for o in doc.occurrences if o.roles & scip.DEFINITION and not o.symbol.startswith("local ")), key=lambda o: o.line)
         for k, o in enumerate(defs):
             # Without an enclosing range (scip-python) a body runs to the next definition outside it.
@@ -95,10 +103,14 @@ def from_scip(path: Path) -> dict:
                 found[o.symbol] = {"kind": d[0], "qualified": d[1], "noun": d[2], "path": p, "line": o.line + 1, "body": body}
         for o in doc.occurrences:
             if not o.roles & (scip.DEFINITION | scip.IMPORT) and not o.symbol.startswith("local "):
-                refs[o.symbol].append((p, o.line + 1))
+                line = texts[p][o.range[2]] if o.range[2] < len(texts[p]) else ""
+                refs[o.symbol].append((p, o.line + 1, bool(CALL.match(line[o.range[3]:]))))
     for symbol, info in found.items():
         info["refs"] = refs.get(symbol, [])
         start, end = info["body"]
+        opener = "{" if symbol.startswith("scip-typescript") else ":"
+        text = texts[info["path"]]
+        start = next((n + 1 for n in range(start, end + 1) if n <= len(text) and text[n - 1].rstrip().endswith(opener)), start)
         uses = []
         for o in occurrences[info["path"]]:
             s = o.symbol
@@ -132,7 +144,7 @@ def build(work: Path, repos: dict) -> list[dict]:
         if repo["indexer"] == "roslyn":
             found, error_files = from_roslyn(work / "out" / f"{name}.roslyn.json")
         else:
-            found, error_files = from_scip(work / "out" / f"{name}.scip"), []
+            found, error_files = from_scip(work / "out" / f"{name}.scip", src), []
         # What a body uses: in-repo methods and types, and anything defined in another file (a TypeScript
         # `const f = () => ...` is a variable to the indexer, yet calling it is calling code elsewhere).
         for info in found.values():
@@ -160,7 +172,7 @@ def build(work: Path, repos: dict) -> list[dict]:
         candidates = {}
         for s, info in found.items():
             short = info["qualified"].split(".")[-1]
-            files = sorted({p for p, _ in info["refs"]})
+            files = sorted({p for p, *_ in info["refs"]})
             if (counts[(info["kind"], info["qualified"])] == 1 and NAME.match(short) and len(short) >= 3 and not short.startswith("__")
                     and not info.get("nested")
                     and not NOT_DEFINED_HERE.search(info["path"]) and 1 <= len(files) <= MAX_FILES):
@@ -178,11 +190,15 @@ def build(work: Path, repos: dict) -> list[dict]:
         unindexed = {s for s, files in candidates.items()
                      if any(found[s]["qualified"].split(".")[-1] in w and f not in files for f, w in blind_words.items())}
 
+        # A caller key holds only the files that call it, not every file that names it.
+        calls = {s: sorted({p for p, _, call in found[s]["refs"] if call}) for s in candidates}
+
         for kind, target in TARGETS.items():
+            weight = calls if kind == "callers" else candidates
             if kind == "definition":
                 pool = list(candidates)
             elif kind == "callers":
-                pool = [s for s in candidates if found[s]["kind"] == "callable" and s not in unindexed]
+                pool = [s for s in candidates if found[s]["kind"] == "callable" and calls[s] and s not in unindexed]
             elif kind == "usages":
                 pool = [s for s in candidates if found[s]["kind"] in ("type", "term") and s not in unindexed]
             else:
@@ -191,7 +207,7 @@ def build(work: Path, repos: dict) -> list[dict]:
             rng = random.Random(f"{seed}:{name}:{kind}")
             by_band = defaultdict(list)
             for s in sorted(pool):
-                by_band[band(len(candidates[s]))].append(s)
+                by_band[band(len(weight[s]))].append(s)
             for b in by_band.values():
                 rng.shuffle(b)
             picked = []
@@ -201,7 +217,7 @@ def build(work: Path, repos: dict) -> list[dict]:
                         picked.append(by_band[b].pop())
 
             for n, s in enumerate(picked, 1):
-                info, files = found[s], candidates[s]
+                info, files = found[s], weight[s]
                 noun, qualified = info["noun"], info["qualified"]
                 answer = {"definition": {"path": info["path"], "lines": info["body"]}}
                 if kind == "definition":
@@ -215,7 +231,8 @@ def build(work: Path, repos: dict) -> list[dict]:
                     answer["uses"] = [{"symbol": u, "path": found[u]["path"], "line": found[u]["line"]} for u in info["uses"]]
                     answer["files"] = sorted({info["path"], *(found[u]["path"] for u in info["uses"])})
                 if kind in ("callers", "usages"):
-                    answer["locations"] = [{"path": p, "line": line} for p, line in sorted(set(info["refs"]))]
+                    answer["locations"] = [{"path": p, "line": line} for p, line, call in sorted(set(info["refs"]))
+                                           if call or kind == "usages"]
                 questions.append({
                     "id": f"{name}-{kind}-{n:03d}", "repo": name, "kind": kind, "question": text, "name": qualified,
                     "symbol": s, "referencingFiles": len(files), "split": split_of(seed, name, s), "answer": answer,

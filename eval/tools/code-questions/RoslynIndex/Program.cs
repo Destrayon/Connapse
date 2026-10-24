@@ -29,7 +29,7 @@ internal static class Indexer
         public required string Path { get; init; }
         public required int Line { get; init; }
         public required int[] Body { get; init; }
-        public SortedSet<(string Path, int Line)> Refs { get; } = [];
+        public SortedSet<(string Path, int Line, bool Call)> Refs { get; } = [];
         public SortedSet<string> Uses { get; } = new(StringComparer.Ordinal);
     }
 
@@ -95,10 +95,11 @@ internal static class Indexer
                     target = extension;
                 if (target is null || Id(target.OriginalDefinition) is not { } id || !entries.TryGetValue(id, out var entry))
                     continue;
-                entry.Refs.Add((path, name.GetLocation().GetLineSpan().StartLinePosition.Line + 1));
+                entry.Refs.Add((path, name.GetLocation().GetLineSpan().StartLinePosition.Line + 1, IsCall(name)));
 
+                // A body's uses: names in its statements or initializer, not in its signature.
                 var owner = name.Ancestors().FirstOrDefault(IsDeclaration);
-                if (owner is not null && model.GetDeclaredSymbol(owner) is { } user && Id(user) is { } userId
+                if (owner is not null && InBody(owner, name) && model.GetDeclaredSymbol(owner) is { } user && Id(user) is { } userId
                     && userId != id && entries.TryGetValue(userId, out var userEntry)
                     && !SymbolEqualityComparer.Default.Equals(target.OriginalDefinition, user.ContainingType))
                     userEntry.Uses.Add(id);
@@ -109,7 +110,7 @@ internal static class Indexer
         {
             symbol = e.Key, kind = e.Value.Kind, qualified = e.Value.Qualified, noun = e.Value.Noun,
             path = e.Value.Path, line = e.Value.Line, body = e.Value.Body,
-            refs = e.Value.Refs.Select(r => new object[] { r.Path, r.Line }), uses = e.Value.Uses,
+            refs = e.Value.Refs.Select(r => new object[] { r.Path, r.Line, r.Call }), uses = e.Value.Uses,
         }).OrderBy(r => r.symbol, StringComparer.Ordinal);
         await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new { symbols = records, errorFiles }));
         Console.Error.WriteLine($"{entries.Count} symbols written to {output}");
@@ -118,6 +119,30 @@ internal static class Indexer
 
     private static bool IsDeclaration(SyntaxNode node) => node is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax
         or MethodDeclarationSyntax or PropertyDeclarationSyntax or EventDeclarationSyntax or VariableDeclaratorSyntax { Parent.Parent: BaseFieldDeclarationSyntax };
+
+    // Whether the name is what an invocation calls: `F()`, `x.F()`, `x?.F()`. A `nameof(F)` or a method
+    // passed as a delegate names F without calling it.
+    private static bool IsCall(SimpleNameSyntax name) => name.Parent switch
+    {
+        InvocationExpressionSyntax invocation => invocation.Expression == name,
+        MemberAccessExpressionSyntax access => access.Name == name && access.Parent is InvocationExpressionSyntax i && i.Expression == access,
+        MemberBindingExpressionSyntax binding => binding.Parent is InvocationExpressionSyntax i && i.Expression == binding,
+        _ => false,
+    };
+
+    private static bool InBody(SyntaxNode owner, SyntaxNode name)
+    {
+        IEnumerable<SyntaxNode?> parts = owner switch
+        {
+            BaseMethodDeclarationSyntax method => [method.Body, method.ExpressionBody],
+            BasePropertyDeclarationSyntax property => [
+                ..property.AccessorList?.Accessors.SelectMany(a => new SyntaxNode?[] { a.Body, a.ExpressionBody }) ?? [],
+                (property as PropertyDeclarationSyntax)?.ExpressionBody, (property as PropertyDeclarationSyntax)?.Initializer],
+            VariableDeclaratorSyntax field => [field.Initializer],
+            _ => [],
+        };
+        return parts.Any(p => p is not null && p.Span.Contains(name.Span));
+    }
 
     private static (string Kind, string Noun)? Describe(ISymbol symbol) => symbol switch
     {

@@ -20,40 +20,44 @@
   - **C#:** `RoslynIndex` (Roslyn 5.6 `MSBuildWorkspace`) loads each solution and binds every name in every file to the symbol it means. Every project compiles except the three noted under limitations. scip-dotnet was tried first and dropped: its newest release (0.2.14) bundles Roslyn 4.4 (C# 11), which left 283 of Connapse's 1,189 files unbound, every one that uses a primary constructor.
   - **TypeScript:** scip-typescript 0.4.0.
   - **Python:** scip-python 0.6.6, run in a capped Linux container, because on Windows it fails at startup.
-  - **Unit:** keys are file paths. A definition key is the declaring file, and also gives the declaration's line span. A callers or usages key is every file holding a reference, with each reference's line. A how key is the definition's file plus the files defining what its body uses: in-repo methods and types, and any in-repo symbol defined in another file.
-- **Questions:** 321 in `questions.jsonl`.
+  - **Unit:** keys are file paths. A definition key is the declaring file, and also gives the declaration's line span. A callers key is every file that calls the symbol (a `nameof`, or a method passed as a value, names it without calling it). A usages key is every file that names it. Both carry each line. A how key is the definition's file plus the files defining what its body uses: in-repo methods and types named in its statements, not its signature, and any in-repo symbol defined in another file. Implicit `var` is not counted as a use of the type it infers.
+- **Questions:** 319 in `questions.jsonl`.
 
   | Repo | definition | callers | usages | how |
   |---|---|---|---|---|
   | Connapse | 32 | 20 | 20 | 12 |
   | serilog | 32 | 20 | 20 | 12 |
-  | ky | 32 | 13 | 20 | 4 |
+  | ky | 32 | 12 | 20 | 3 |
   | click | 32 | 20 | 20 | 12 |
 
-  ky is small: it has only 13 functions with callers to ask about, and 4 methods long enough for a "how" question.
+  ky is small: it has only 12 functions with callers to ask about, and 3 methods long enough for a "how" question.
   - **Wording:** each question names the symbol by its qualified name, for example "What calls the method `SyncSource.RunAsync`?", and only symbols whose qualified name is unique in their repo are used.
   - **Which symbols:** definitions in tests, docs, examples, benchmarks, migrations and generated files are left out. References from anywhere count.
-- **Sampling by use:** a symbol's weight is the number of files referencing it, from 1 to 30. Each kind draws evenly across five bands (1, 2–3, 4–7, 8–15, 16–30 files) with a seeded RNG. Widely used symbols are rarer, so the final spread is 103 / 94 / 69 / 33 / 22. A "how" question needs a body of at least 8 lines that uses at least 2 in-repo symbols.
-- **Split:** each question carries `"split": "tuning"` or `"heldout"`, set by the first byte of SHA-256(`seed:repo:symbol`) with seed 35, when the set is built and before any system has run. Every question about one symbol lands in the same half. The halves are 163 tuning and 158 held-out. Tune on the tuning half and report gates on the held-out half.
+- **Sampling by use:** a symbol's weight is the number of files referencing it, from 1 to 30. Each kind draws evenly across five bands (1, 2–3, 4–7, 8–15, 16–30 files) with a seeded RNG. Widely used symbols are rarer, so the final spread is 107 / 90 / 67 / 33 / 22. A "how" question needs a body of at least 8 lines that uses at least 2 in-repo symbols.
+- **Split:** each question carries `"split": "tuning"` or `"heldout"`, set by the first byte of SHA-256(`seed:repo:symbol`) with seed 35, when the set is built and before any system has run. Every question about one symbol lands in the same half. The halves are 157 tuning and 162 held-out. Tune on the tuning half and report gates on the held-out half.
 - **Scoring:** Recall@k is |top-k ∩ key| / min(|key|, k), averaged over questions.
-- **Grep baseline** (`grep-baseline.json`, from `grep_baseline.py`). Every tracked text file is ranked by how often the symbol's own name occurs as a whole word, which is what `grep -w -c` does. Held-out half:
+- **Grep baseline** (`grep-baseline.json`, from `grep_baseline.py`). Every tracked text file is ranked by how many of its lines hold the symbol's own name as a whole word, as `grep -w -c` counts them. Held-out half:
 
   | Group | Questions | R@5 | R@10 | R@20 |
   |---|---|---|---|---|
-  | all | 158 | 0.717 | 0.832 | 0.926 |
+  | all | 162 | 0.700 | 0.829 | 0.912 |
   | definition | 60 | 0.717 | 0.883 | 0.967 |
-  | callers | 34 | 0.779 | 0.884 | 0.990 |
-  | usages | 44 | 0.798 | 0.888 | 0.981 |
-  | how | 20 | 0.430 | 0.464 | 0.573 |
-  | crowded (>10 files hold the name) | 65 | 0.455 | 0.671 | 0.900 |
-  | sparse (≤10 files hold the name) | 93 | 0.899 | 0.944 | 0.944 |
+  | callers | 38 | 0.719 | 0.883 | 0.969 |
+  | usages | 44 | 0.798 | 0.884 | 0.981 |
+  | how | 20 | 0.394 | 0.443 | 0.485 |
+  | crowded (>10 files hold the name) | 71 | 0.464 | 0.714 | 0.902 |
+  | sparse (≤10 files hold the name) | 91 | 0.883 | 0.919 | 0.919 |
 
-  Grep is strong here by construction: every file in a callers or usages key contains the symbol's name, so grep can only lose by ranking. On sparse names it scores about 1.0, and "+0.15 over grep" overall would mean 0.98. A gate is reachable on the crowded group (0.671, where ranking decides) and the how group (0.464). Choosing the gate is a decision for CON-36/37.
+  Grep is strong here by construction: every file in a callers or usages key contains the symbol's name, so grep can only lose by ranking. On sparse names it scores about 1.0, and "+0.15 over grep" overall would mean 0.98. A gate is reachable on the crowded group (0.714, where ranking decides) and the how group (0.443). Choosing the gate is a decision for CON-36/37.
 - **Hand check:** 12 how questions, drawn with seed 35.
   - All 12 definitions and line spans are right.
   - Every symbol a key lists is named in its body.
-  - In the six read line by line (three click, ky `timeout`, serilog `SafeAggregateSink.Emit` and `LogContext.Suspend`), no in-repo call is missing.
-  - Two fixes came out of the check, and both are in the builder. `var` had counted as a use of the type it infers. Methods of 7 lines or fewer, which only check and forward, made trivial "how" questions.
+  - In the bodies read line by line (click `_force_correct_text_reader` and `Parameter.value_from_envvar`, serilog `BatchingSink.Dispose` and `LoggerEnrichmentConfiguration.Wrap`, Connapse `SummaryJobs.GenerateAndCacheSummaryAsync`), no in-repo call is missing.
+  - Fixes that came out of the check and the review, all in the generator:
+    - `var` had counted as a use of the type it infers.
+    - Methods of 7 lines or fewer made trivial "how" questions.
+    - Signature types counted as body uses.
+    - A `nameof` counted as a caller.
 - **Reproduce:** this needs Git Bash, the .NET 10 SDK, Node 22 and Docker. Run it at below-normal priority:
 
   ```
