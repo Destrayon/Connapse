@@ -23,6 +23,12 @@ public static class SourceOperationsSetup
         services.AddSingleton(authorizer);
         services.AddScoped<ISourceVisibility>(sp => sp.GetService<PrivateSourceVisibility>() ?? (ISourceVisibility)new SeesEverything());
         services.AddScoped<ISourceScopeRules, SourceScopeRules>();
+        // Pages that only edit (SourceEdit) register none of what creating checks with; they never create.
+        services.AddScoped(sp => sp.GetService<CustomSourceSetup>() is null
+            ? Substitute.For<ISourceCreateRules>()
+            : ActivatorUtilities.CreateInstance<SourceCreateRules>(sp));
+        // Pages that register the sync service sync through it; the rest never sync.
+        services.AddScoped(sp => sp.GetService<SourceSyncService>() as ISourceSync ?? Substitute.For<ISourceSync>());
         // A page reads its caller from here. bUnit's own placeholder throws until a test signs someone
         // in, so a test that didn't gets a signed-in caller; one that did keeps its own.
         if (services.LastOrDefault(d => d.ServiceType == typeof(AuthenticationStateProvider)) is not { } current

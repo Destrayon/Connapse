@@ -27,6 +27,21 @@ creation (a GitHub source's repository or private flag, a custom source's server
 Atlassian source's space or project), or a secret, which a source never holds. `field` names the
 input at fault when there is one.
 
+## source-conflict
+
+A source with that name already exists, or the connection already has a source for that scope (a
+Confluence space, Jira project or custom scope is added once per connection).
+
+## provider-unavailable
+
+The provider couldn't be asked while checking the source's scope: Atlassian or the custom source
+server didn't answer. Nothing was saved; try again.
+
+## sync-in-progress
+
+A sync for this source is already running, most often the scheduled one. Nothing went wrong and
+nothing was started; the running cycle picks up the changes.
+
 ## invalid-page
 
 The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200.

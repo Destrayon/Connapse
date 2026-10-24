@@ -5,6 +5,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Components.Pages;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests.CrossSurface;
@@ -95,7 +96,235 @@ public static partial class Operations
             AbsentReasons = NoSourceTools,
             ArrangesSource = true,
         },
+
+        // A new source on the case's connection: an empty name is invalid, the case's own source's name a duplicate.
+        new("sources_create", [Case.Valid, Case.Invalid, Case.UnderScoped, Case.Preflight], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                return await Surfaces.ResultAsync(await rest.PostAsJsonAsync("/api/sources", new { name = NewSourceName(c, k), connectionId = c.Source!.ConnectionId, scopeJson = "{}" }));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = await SourcesPageAsync(ui);
+                if (SourcesPageError(page) is { } error)
+                    return error;
+                if (page.FindAll("button.btn-primary").FirstOrDefault(b => b.TextContent.Contains("New source", StringComparison.Ordinal)) is null)
+                    return "error:forbidden";
+                await ClickAsync(() => page.FindAll("button.btn-primary").First(b => b.TextContent.Contains("New source", StringComparison.Ordinal)));
+                page.Find("#source-connection").Change(c.Source!.ConnectionId.ToString());
+                page.Find("#source-name").Change(NewSourceName(c, k));
+                await ClickAsync(() => page.FindAll("#new-source-dialog button.btn-primary").First(b => b.TextContent.Contains("Create source", StringComparison.Ordinal)));
+                page.WaitForAssertion(() => (page.FindAll("#new-source-dialog").Count == 0
+                    || page.FindAll("#new-source-dialog .alert-danger").Count > 0).Should().BeTrue(), TimeSpan.FromSeconds(10));
+                return page.FindAll("#new-source-dialog .alert-danger").FirstOrDefault() is { } alert
+                    ? Surfaces.ErrorKind(alert.TextContent.Trim())
+                    : "ok";
+            },
+            Project: (sp, c) => SourceStateAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+        },
+
+        // The name typed to confirm, as the page asks: the invalid case types a wrong one; preflight names an unknown source.
+        new("sources_delete", [Case.Valid, Case.Invalid, Case.UnderScoped, Case.Preflight], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                string target = k == Case.Preflight ? c.Unknown : c.Source!.Id.ToString();
+                string confirm = k == Case.Invalid ? "not-the-name" : c.Source!.Name;
+                return await Surfaces.ResultAsync(await rest.DeleteAsync($"/api/sources/{target}?confirmName={Uri.EscapeDataString(confirm)}"));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = await SourcesPageAsync(ui);
+                // The page lists only what exists, so an unknown source has no row to delete.
+                if (k == Case.Preflight || SourceRow(page, c) is null)
+                    return SourcesPageError(page) ?? "error:not_found";
+                if (RowButton(page, c, "Delete") is null)
+                    return "error:forbidden";
+                await ClickAsync(() => RowButton(page, c, "Delete")!);
+                page.Find("#delete-source-confirm").Input(k == Case.Invalid ? "not-the-name" : c.Source!.Name);
+                if (page.Find("#delete-source-submit").HasAttribute("disabled"))
+                    return "error:validation";
+                await ClickAsync(() => page.Find("#delete-source-submit"));
+                page.WaitForAssertion(() => page.FindAll("#delete-source-dialog").Should().BeEmpty(), TimeSpan.FromSeconds(10));
+                return SourcesPageError(page) ?? "ok";
+            },
+            Project: (sp, c) => SourceStateAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+        },
+
+        // Pausing: PATCH with enabled=false, and the row's "Pause syncing".
+        new("sources_pause", [Case.Valid, Case.UnderScoped], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                return await Surfaces.ResultAsync(await rest.PatchAsJsonAsync($"/api/sources/{c.Source!.Id}", new { enabled = false }));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = await SourcesPageAsync(ui);
+                if (SourcesPageError(page) is { } error)
+                    return error;
+                if (RowButton(page, c, "Pause syncing") is null)
+                    return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
+                await ClickAsync(() => RowButton(page, c, "Pause syncing")!);
+                page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+                return SourcesPageError(page) ?? "ok";
+            },
+            Project: (sp, c) => SourceStateAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+        },
+
+        // One sync cycle now: REST's POST .../sync and the row's Sync button. Preflight names a paused source, which neither syncs.
+        new("sources_sync", [Case.Valid, Case.UnderScoped, Case.Preflight], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                return await Surfaces.ResultAsync(await rest.PostAsync($"/api/sources/{c.Source!.Id}/sync", null));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = await SourcesPageAsync(ui);
+                if (SourcesPageError(page) is { } error)
+                    return error;
+                if (RowButton(page, c, "Sync") is null)
+                    return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
+                await ClickAsync(() => RowButton(page, c, "Sync")!);
+                page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(30));
+                return SourcesPageError(page) ?? "ok";
+            },
+            Project: (sp, c) => SourceStateWithDocumentsAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+            Prepare = async (f, c, k) =>
+            {
+                if (k == Case.Preflight)
+                    (await f.AdminClient.PatchAsJsonAsync($"/api/sources/{c.Source!.Id}", new { enabled = false })).EnsureSuccessStatusCode();
+            },
+        },
+
+        // Retrying the documents whose ingestion failed: REST's POST .../retry-failed and the row's Retry failed.
+        new("sources_retry", [Case.Valid, Case.UnderScoped], Writes: true, 0, false,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                return await Surfaces.ResultAsync(await rest.PostAsync($"/api/sources/{c.Source!.Id}/retry-failed", null));
+            },
+            Mcp: null,
+            Ui: async (f, c, p, k) =>
+            {
+                using var ui = await Surfaces.UiAsync(f, p);
+                var page = await SourcesPageAsync(ui);
+                if (SourcesPageError(page) is { } error)
+                    return error;
+                if (RowButton(page, c, "Retry failed") is null)
+                    return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
+                await ClickAsync(() => RowButton(page, c, "Retry failed")!);
+                page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+                return SourcesPageError(page) ?? "ok";
+            },
+            Project: (sp, c) => SourceStateWithDocumentsAsync(sp, c))
+        {
+            AbsentReasons = NoSourceTools,
+            ArrangesSource = true,
+            Prepare = (f, c, k) => SeedFailedDocumentAsync(f, c.Source!),
+        },
     ];
+
+    /// <summary>Out of attempts, as a document that kept failing is: a retry must give it a fresh budget.</summary>
+    private const int ExhaustedAttempts = 4;
+
+    /// <summary>
+    /// Syncs the source, waits for its document to settle, then marks it failed and out of attempts:
+    /// a real failure needs a broken parser or model, and this is the state one leaves.
+    /// </summary>
+    private static async Task SeedFailedDocumentAsync(SharedWebAppFixture fixture, SourceCase source)
+    {
+        (await fixture.AdminClient.PostAsync($"/api/sources/{source.Id}/sync", null)).EnsureSuccessStatusCode();
+        await using var conn = await OpenAsync(fixture.Factory.Services);
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (true)
+        {
+            await using var read = new Npgsql.NpgsqlCommand("SELECT ingestion_status FROM documents WHERE source_id = @id", conn);
+            read.Parameters.AddWithValue("id", source.Id);
+            string? status = (string?)await read.ExecuteScalarAsync();
+            if (status is "Ready" or "FailedRetryable" or "FailedPermanent")
+                break;
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"The source's document never settled (status {status ?? "missing"})");
+            await Task.Delay(250);
+        }
+        await using var fail = new Npgsql.NpgsqlCommand(
+            $"UPDATE documents SET ingestion_status = 'FailedRetryable', attempt_count = {ExhaustedAttempts} WHERE source_id = @id", conn);
+        fail.Parameters.AddWithValue("id", source.Id);
+        await fail.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<Npgsql.NpgsqlConnection> OpenAsync(IServiceProvider services)
+    {
+        string connection = services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>().GetConnectionString("DefaultConnection")!;
+        var conn = new Npgsql.NpgsqlConnection(connection);
+        await conn.OpenAsync();
+        return conn;
+    }
+
+    /// <summary>
+    /// The source's state, plus its documents: how many it owns, and whether a failed one was given a
+    /// fresh attempt budget. Read as yes or no, since a worker may claim the retried job at once.
+    /// </summary>
+    private static async Task<StateProjection> SourceStateWithDocumentsAsync(IServiceProvider services, CaseContext c)
+    {
+        var projection = await SourceStateAsync(services, c);
+        await using var conn = await OpenAsync(services);
+        await using var cmd = new Npgsql.NpgsqlCommand("SELECT id, attempt_count FROM documents WHERE source_id = @id", conn);
+        cmd.Parameters.AddWithValue("id", c.Source!.Id);
+        var documents = new List<(string Id, int Attempts)>();
+        await using (var reader = await cmd.ExecuteReaderAsync())
+            while (await reader.ReadAsync())
+                documents.Add((reader.GetGuid(0).ToString(), reader.GetInt32(1)));
+        // The documents' ids are resources too, so a job naming one compares by token, not by id.
+        return new StateProjection(
+            [.. projection.State, $"documents owned={documents.Count} out of attempts={documents.Count(d => d.Attempts >= ExhaustedAttempts)}"],
+            [.. projection.ResourceIds, .. documents.Select(d => d.Id)]);
+    }
+
+    /// <summary>A create's name: empty for the invalid case, the existing source's for the duplicate preflight, a new one otherwise.</summary>
+    private static string NewSourceName(CaseContext c, string @case) => @case switch
+    {
+        Case.Invalid => "",
+        Case.Preflight => c.Source!.Name,
+        _ => $"{c.Source!.Name}-nw",
+    };
+
+    /// <summary>The Sources page once its list (or its refusal) has rendered.</summary>
+    private static Task<IRenderedComponent<Sources>> SourcesPageAsync(UiSurface ui)
+    {
+        var page = ui.Context.Render<Sources>();
+        page.WaitForAssertion(() => page.FindAll("table.table, .card-body.text-center, div.alert-dismissible.alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+        return Task.FromResult(page);
+    }
+
+    private static AngleSharp.Dom.IElement? SourceRow(IRenderedComponent<Sources> page, CaseContext c) =>
+        page.FindAll("tr").FirstOrDefault(r => r.QuerySelector(".fw-medium")?.TextContent.Trim() == c.Source!.Name);
+
+    private static AngleSharp.Dom.IElement? RowButton(IRenderedComponent<Sources> page, CaseContext c, string label) =>
+        SourceRow(page, c)?.QuerySelectorAll("button").FirstOrDefault(b => b.TextContent.Contains(label, StringComparison.Ordinal));
 
     /// <summary>The name a rename gives the case's source; it keeps the case's prefix, so the projection still finds it.</summary>
     private static string Renamed(CaseContext c) => $"{c.Source!.Name}-up";
@@ -136,7 +365,7 @@ public static partial class Operations
         {
             var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
             foreach (var s in (await sources.ListAsync(take: int.MaxValue)).Where(s => s.Name.StartsWith(source.Name, StringComparison.Ordinal)))
-                await sources.DeleteAsync(s.Id);
+                await DeleteEventuallyAsync(sources, s.Id);
             await scope.ServiceProvider.GetRequiredService<IConnectionStore>().DeleteAsync(source.ConnectionId);
         }
         try
@@ -146,6 +375,26 @@ public static partial class Operations
         catch (IOException)
         {
             // A sync can still be reading it; the OS temp cleanup takes it later.
+        }
+    }
+
+    /// <summary>
+    /// Deletes a source, retrying a Postgres deadlock: a retried document can still be re-ingesting.
+    /// Best effort, as the snapshot tests' cleanup is: a source still locked is left for the next run.
+    /// </summary>
+    private static async Task DeleteEventuallyAsync(ISourceStore sources, Guid id)
+    {
+        for (int attempt = 1; attempt <= 5; attempt++)
+        {
+            try
+            {
+                await sources.DeleteAsync(id);
+                return;
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is Microsoft.EntityFrameworkCore.DbUpdateException)
+            {
+                // A deadlock victim: the other transaction has finished or will, so try again.
+            }
         }
     }
 

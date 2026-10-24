@@ -1,6 +1,6 @@
 using Connapse.Core;
 
-namespace Connapse.Web.Services;
+namespace Connapse.Application.Sources;
 
 /// <summary>
 /// Deleting a source removes everything Connapse indexed from it, so the Sources page and the

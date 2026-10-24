@@ -18,6 +18,15 @@ public enum SourceWriteStatus
 
     [Failure(400, "invalid-source", "Invalid source settings")]
     Invalid,
+
+    [Failure(409, "source-conflict", "Source already exists")]
+    Conflict,
+
+    [Failure(502, "provider-unavailable", "The provider didn't answer")]
+    Unavailable,
+
+    [Failure(409, "sync-in-progress", "A sync is already running")]
+    Busy,
 }
 
 /// <summary>
