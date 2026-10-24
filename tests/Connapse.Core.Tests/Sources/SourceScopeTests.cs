@@ -11,7 +11,6 @@ namespace Connapse.Core.Tests.Sources;
 /// and rows stored before the type existed load as they are, with no migration.
 /// </summary>
 [Trait("Category", "Unit")]
-[Trait("Size", "Small")]
 public class SourceScopeTests
 {
     private static readonly JsonSerializerOptions Api = new(JsonSerializerDefaults.Web);
