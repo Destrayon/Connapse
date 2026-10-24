@@ -1,4 +1,5 @@
 [
+  "tests/Proof/DoNotMerge.cs: Probe: 1",
   "tests/Connapse.Core.Tests/CloudScope/AtlassianSearchResultVerifierTests.cs: SendAsync: 1",
   "tests/Connapse.Core.Tests/Llm/OllamaLlmProviderTests.cs: SendAsync: 1",
   "tests/Connapse.Identity.Tests/AwsIdentityLinkServiceTests.cs: DisconnectAsync_LinkReplacedDuringDisconnect_LeavesTheNewRowInPlace_AndReportsLinkChanged: 1",
