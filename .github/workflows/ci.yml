@@ -34,6 +34,11 @@ jobs:
         echo $(( $(date +%s) - start )) > walls/small.txt
         exit $status
 
+    # The CI scripts' own tests: the shard planner decides which tests every PR runs where.
+    - name: Test the CI scripts
+      if: success() || failure()
+      run: python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
+
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
@@ -90,8 +95,9 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # Integration.Tests' Medium tier in three shards by test class. Each shard starts its own host and
-  # containers; the last shard runs every class the others don't name (shard_tests.py).
+  # Integration.Tests' Medium tier in three shards by test class, balanced by each class's past run time
+  # (.github/test-timings, #843). Each shard starts its own host and containers; the last shard runs
+  # every class the others don't name (shard_tests.py). Each writes its plan and time to its summary.
   integration:
     runs-on: ubuntu-latest
     strategy:
@@ -112,12 +118,16 @@ jobs:
       run: |
         mkdir -p walls
         filter=$(python3 .github/scripts/shard_tests.py --project tests/Connapse.Integration.Tests --shards 3 --index ${{ matrix.shard }} \
-          --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)")
+          --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)" \
+          --timings .github/test-timings/integration-tests.json --strategy timed \
+          --summary "$GITHUB_STEP_SUMMARY" --predicted-out walls/integration-${{ matrix.shard }}.predicted)
         start=$(date +%s)
         set +e
         dotnet test tests/Connapse.Integration.Tests --no-build --configuration Release --filter "$filter" --verbosity normal --logger "trx;LogFileName=medium-tests-shard-${{ matrix.shard }}.trx" --collect:"XPlat Code Coverage"
         status=$?
-        echo $(( $(date +%s) - start )) > walls/integration-${{ matrix.shard }}.txt
+        wall=$(( $(date +%s) - start ))
+        echo $wall > walls/integration-${{ matrix.shard }}.txt
+        echo "Ran in ${wall} s, host start-up included." >> "$GITHUB_STEP_SUMMARY"
         exit $status
 
     - name: Upload test results
@@ -167,6 +177,31 @@ jobs:
         bad = {k: v["result"] for k, v in json.load(sys.stdin).items() if v["result"] != "success"}
         print("all jobs succeeded" if not bad else f"::error::jobs that did not succeed: {bad}")
         sys.exit(1 if bad else 0)'
+
+    # The integration shards side by side, and the per-class timings this run measured. Commit
+    # integration-timings' file over .github/test-timings/integration-tests.json when the shards drift
+    # apart (classes added, or grown slower): the plan reads only the committed file.
+    - name: Shard times
+      if: success() || failure()
+      run: |
+        {
+          echo "### Integration.Tests shards"
+          echo "| Shard | Predicted tests (s) | Ran (s) |"
+          echo "|---|---|---|"
+          for n in 1 2 3; do
+            echo "| $n | $(cat walls/integration-$n.predicted 2>/dev/null || echo ?) | $(cat walls/integration-$n.txt 2>/dev/null || echo ?) |"
+          done
+        } >> "$GITHUB_STEP_SUMMARY"
+        python3 .github/scripts/shard_tests.py --make-timings --trx "**/medium-tests-shard-*.trx" --out integration-timings/integration-tests.json \
+          || echo "::warning::no shard TRX to refresh the timings from"
+
+    - name: Upload refreshed timings
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: integration-timings
+        path: integration-timings/
+        if-no-files-found: ignore
 
     # Every tier is checked even if another fails, and every test project must have reported. The
     # Medium tier's wall time is its slowest job's, since the jobs run side by side.
