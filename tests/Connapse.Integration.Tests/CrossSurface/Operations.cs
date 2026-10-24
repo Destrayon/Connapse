@@ -59,6 +59,9 @@ public sealed record Operation(
     /// <summary>Whether the case needs its own source (on its own filesystem connection) as well as its container.</summary>
     public bool ArrangesSource { get; init; }
 
+    /// <summary>Anything the case's source needs before the action, such as a failed document to retry.</summary>
+    public Func<SharedWebAppFixture, CaseContext, string, Task>? Prepare { get; init; }
+
     /// <summary>Who runs a case: a Viewer for an under-scoped write, a user with no role for an under-scoped read, the admin otherwise.</summary>
     public Principal PrincipalFor(string @case) =>
         @case != Case.UnderScoped ? Principal.Admin : Writes ? Principal.Viewer : Principal.NoRole;
@@ -226,6 +229,8 @@ public static partial class Operations
         var context = new CaseContext(id, name, files);
         if (operation.ArrangesSource)
             context = context with { Source = await ArrangeSourceAsync(fixture, name) };
+        if (operation.Prepare is { } prepare)
+            await prepare(fixture, context, @case);
         if (operation.WaitForIngestion && @case is Case.Valid or Case.UnderScoped)
             foreach (var (fileId, _) in files)
                 await WaitForReadyAsync(fixture, id, fileId);

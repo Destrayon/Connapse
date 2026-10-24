@@ -1,0 +1,19 @@
+﻿{
+  Reason: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: ok,
+    State: [
+      source {name} enabled=True description= status=Succeeded synced=True,
+      documents owned=1 out of attempts=0
+    ],
+    Audit: [
+      source.synced source {id1} actor={admin} details={"Name": "{name}", "Deleted": 0, "Upserted": 1, "WithheldDeletions": 0}
+    ],
+    Jobs: [
+      IIngestionJobs.IngestAsync("{id2}", {"DocumentId":"{id2}","FileName":"doc.txt","Path":"{root}\\doc.txt","Metadata":{"OriginalFileName":"doc.txt","Source":"SourceSync","SyncedAt":"{time}","RemoteLastModified":"{time}","RemoteSize":"45"},"Generation":2,"Owner":{"Id":"{id1}","IsSource":true,"SourceId":"{id1}"}}, null)
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}
