@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Connapse.Core;
 
@@ -28,6 +29,29 @@ public static class SourceScopeCodec
         CustomSourceScope => ConnectionProvider.Custom,
         _ => throw new ArgumentOutOfRangeException(nameof(scope), scope.GetType().Name, "No provider reads this kind of scope."),
     };
+
+    /// <summary>The kinds of scope a provider's sources take, each with the <c>type</c> the API names it by.</summary>
+    public static IReadOnlyList<(string Type, Type Record)> KindsFor(ConnectionProvider provider) => provider switch
+    {
+        ConnectionProvider.S3 => [Kind<S3BucketScope>()],
+        ConnectionProvider.AzureBlob => [Kind<AzureBlobContainerScope>()],
+        ConnectionProvider.Filesystem => [Kind<FilesystemFolderScope>()],
+        ConnectionProvider.Sftp => [Kind<SftpFolderScope>()],
+        ConnectionProvider.GitHub => [Kind<GitHubRepositoryScope>()],
+        ConnectionProvider.Atlassian => [Kind<JiraProjectScope>(), Kind<ConfluenceSpaceScope>()],
+        ConnectionProvider.Custom => [Kind<CustomSourceScope>()],
+        _ => [],
+    };
+
+    /// <summary>The <c>type</c> the API names a scope's kind by.</summary>
+    public static string TypeOf(SourceScope scope) => TypeNames[scope.GetType()];
+
+    private static readonly Dictionary<Type, string> TypeNames = typeof(SourceScope)
+        .GetCustomAttributes(typeof(JsonDerivedTypeAttribute), inherit: false)
+        .Cast<JsonDerivedTypeAttribute>()
+        .ToDictionary(a => a.DerivedType, a => (string)a.TypeDiscriminator!);
+
+    private static (string Type, Type Record) Kind<T>() where T : SourceScope => (TypeNames[typeof(T)], typeof(T));
 
     /// <summary>
     /// The typed scope a stored row holds, or null when the JSON doesn't name a scope of the provider's

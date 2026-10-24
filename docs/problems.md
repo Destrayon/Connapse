@@ -62,6 +62,11 @@ server didn't answer. Nothing was saved; try again.
 A sync for this source is already running, most often the scheduled one. Nothing went wrong and
 nothing was started; the running cycle picks up the changes.
 
+## provider-not-found
+
+The provider named in the path isn't one Connapse has. Providers are named as the API writes them, such as
+`S3`, `AzureBlob`, `Filesystem`, `Sftp`, `GitHub`, `Atlassian` and `Custom`, in any case.
+
 ## invalid-page
 
 The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200.

@@ -190,6 +190,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/v1/sources/scope-schema/{provider}": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/v1/agents/": {
       "requires": "admin",
       "risk": "read",

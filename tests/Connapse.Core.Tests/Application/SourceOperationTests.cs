@@ -179,7 +179,57 @@ public class SourceOperationTests
             Arg.Is<object>(d => d.ToString() == new { Name = "renamed" }.ToString()), Arg.Any<CancellationToken>());
     }
 
-    private UpdateSource Update() => new(_sources, _scopes, _audit, _authorizer);
+    [Fact]
+    public async Task Update_TypedScopeForAnotherProvider_IsRefusedBeforeAnythingIsWritten()
+    {
+        var source = OnS3Connection("""{"bucketName":"b"}""");
+
+        var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Scope: new FilesystemFolderScope("notes")));
+
+        updated.Status.Should().Be(SourceWriteStatus.Invalid);
+        updated.Field.Should().Be("scope");
+        updated.Detail.Should().Contain("\"filesystem\"").And.Contain("\"s3\"");
+        await _sources.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!);
+    }
+
+    [Fact]
+    public async Task Update_TypedScope_IsStoredOverTheRowsOtherKeys()
+    {
+        var source = OnS3Connection("""{"bucketName":"b","note":1}""");
+        _scopes.CheckUpdateAsync(source, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(ci => new ScopeCheck(ci.ArgAt<string>(1)));
+        _sources.UpdateAsync(source.Id, Arg.Any<UpdateSourceRequest>(), Arg.Any<CancellationToken>()).Returns(source);
+
+        var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Scope: new S3BucketScope("b", "p/")));
+
+        updated.Succeeded.Should().BeTrue();
+        await _sources.Received(1).UpdateAsync(source.Id,
+            Arg.Is<UpdateSourceRequest>(r => r.Scope == null
+                && System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(r.ScopeJson!),
+                    System.Text.Json.Nodes.JsonNode.Parse("""{"bucketName":"b","note":1,"prefix":"p/"}"""))),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_ScopeAndScopeJson_IsRefused()
+    {
+        var updated = await Update().RunAsync(Caller, Guid.NewGuid(), new UpdateSourceRequest(ScopeJson: "{}", Scope: new S3BucketScope("b")));
+
+        updated.Status.Should().Be(SourceWriteStatus.Invalid);
+        updated.Field.Should().Be("scope");
+    }
+
+    /// <summary>A source on an S3 connection, as the store and the connection store return it.</summary>
+    private Source OnS3Connection(string scopeJson)
+    {
+        Guid connectionId = Guid.NewGuid();
+        var source = Named("s3") with { ConnectionId = connectionId, ScopeJson = scopeJson };
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        _connections.GetAsync(connectionId, Arg.Any<CancellationToken>())
+            .Returns(new Connection(connectionId, "c", ConnectionProvider.S3, "{}", null, DateTime.UtcNow, DateTime.UtcNow));
+        return source;
+    }
+
+    private UpdateSource Update() => new(_sources, _connections, _scopes, _audit, _authorizer);
 
     private readonly IConnectionStore _connections = Substitute.For<IConnectionStore>();
     private readonly ISourceCreateRules _createRules = Substitute.For<ISourceCreateRules>();

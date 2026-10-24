@@ -305,7 +305,7 @@
         "GET /api/v1/sources/scope-schema/{provider}"
       ],
       "mcp": "generic",
-      "note": "ScopeJson differs per provider and has no published schema."
+      "note": "Each provider's scope kinds, from the typed SourceScope records; the OpenAPI document shows the same scope as a discriminated anyOf."
     },
     {
       "id": "sources.unlocated",
