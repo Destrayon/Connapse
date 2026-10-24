@@ -204,7 +204,6 @@
   "operation settings.summaries.clear: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation settings.testConnection: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation settings.update: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation sources.scopeSchema: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation sources.unlocated: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation users.delete: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation users.list: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
@@ -255,7 +254,6 @@
   "route search.source: missing POST /api/sources/{sourceId:guid}/search": "No REST route: the capability exists only in the web UI. REST search takes container ids only; MCP is ahead here.",
   "route settings.reset: missing DELETE /api/v1/settings/{category}": "No REST route: the capability exists only in the web UI.",
   "route settings.summaries.clear: missing POST /api/v1/settings/summaries/clear": "No REST route: the capability exists only in the web UI.",
-  "route sources.scopeSchema: missing GET /api/v1/sources/scope-schema/{provider}": "No REST route: the capability exists only in the web UI. ScopeJson differs per provider and has no published schema.",
   "route sources.unlocated: missing GET /api/sources/{sourceId:guid}/unlocated": "No REST route: the capability exists only in the web UI.",
   "route users.delete: missing DELETE /api/v1/auth/users/{id:guid}": "No REST route: the capability exists only in the web UI. Also queues custom-link removals."
 }
