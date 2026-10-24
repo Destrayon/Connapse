@@ -94,8 +94,15 @@
 
         <div class="col-md-6">
             <label class="form-label">Temperature</label>
-            <InputNumber @bind-Value="localSettings.Temperature" class="form-control" step="0.1" min="0" max="2" />
-            <small class="form-text text-muted">Randomness (0.0-2.0)</small>
+            <InputNumber @bind-Value="localSettings.Temperature" class="form-control" step="0.1" min="0" max="2" disabled="@IsAnthropic" />
+            @if (IsAnthropic)
+            {
+                <small class="form-text text-muted">Not used for Anthropic: its API no longer accepts a temperature, so Claude uses its default</small>
+            }
+            else
+            {
+                <small class="form-text text-muted">Randomness (0.0-2.0)</small>
+            }
         </div>
 
         <div class="col-md-6">
