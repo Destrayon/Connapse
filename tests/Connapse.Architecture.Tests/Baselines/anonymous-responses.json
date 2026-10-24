@@ -63,7 +63,7 @@
   "Endpoints/SettingsEndpoints.cs: POST /api/settings/test-connection: 3",
   "Endpoints/SettingsEndpoints.cs: PUT /api/settings/{category}: 5",
   "Endpoints/SourcesEndpoints.cs: PATCH /api/sources/{sourceId:guid}: 2",
-  "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/retry-failed: 2",
-  "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/sync: 6",
+  "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/retry-failed: 1",
+  "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/sync: 1",
   "Program.cs: GET /api/v1/info: 1"
 ]

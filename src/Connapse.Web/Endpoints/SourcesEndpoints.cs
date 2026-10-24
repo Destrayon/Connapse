@@ -142,51 +142,16 @@ public static class SourcesEndpoints
         // POST /api/sources/{sourceId}/sync
         group.MapPost("/{sourceId:guid}/sync", async (
             Guid sourceId,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IConnectionStore connectionStore,
-            [FromServices] SourceSyncService syncService,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] SyncSource sync,
+            HttpContext http,
             [FromQuery] bool applyWithheldDeletions = false,
             CancellationToken ct = default) =>
         {
-            var source = await sourceStore.GetAsync(sourceId, ct);
-            if (source is null)
-                return Results.NotFound(new { error = $"Source {sourceId} not found" });
+            var synced = await sync.RunAsync(Rest(http), sourceId, applyWithheldDeletions, ct);
+            if (!synced.Succeeded)
+                return OperationProblems.Result(synced);
 
-            if (!source.Enabled)
-                return Results.BadRequest(new { error = $"Source '{source.Name}' is disabled" });
-
-            // A connection-less source (a GitHub source added before App connections) syncs through its Provider; only a source
-            // that names a connection can be missing one.
-            Connection? connection = null;
-            if (source.ConnectionId is Guid connectionId)
-            {
-                connection = await connectionStore.GetAsync(connectionId, ct);
-                if (connection is null)
-                    return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
-            }
-            else if (source.Provider is null)
-            {
-                return Results.BadRequest(new { error = $"Source '{source.Name}' has neither a connection nor a provider" });
-            }
-
-            var result = await syncService.SyncSourceAsync(source, connection, ct, applyWithheldDeletions);
-
-            // Nothing went wrong — the scheduled cycle got there first. 409 rather than 200
-            // so a script driving this does not read "0 upserted" as "nothing to do".
-            if (result.AlreadyRunning)
-            {
-                return Results.Conflict(new
-                {
-                    error = $"A sync for source '{source.Name}' is already in progress.",
-                });
-            }
-
-            await auditLogger.LogAsync(
-                applyWithheldDeletions ? "source.deletions_applied" : "source.synced",
-                "source", source.Id.ToString(),
-                new { source.Name, result.Upserted, result.Deleted, result.WithheldDeletions }, ct);
-
+            var result = synced.Result!.Result;
             return Results.Ok(new
             {
                 result.Upserted,
@@ -203,19 +168,14 @@ public static class SourcesEndpoints
 
         group.MapPost("/{sourceId:guid}/retry-failed", async (
             Guid sourceId,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IReindexService reindexService,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] RetryFailedDocuments retryFailed,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var source = await sourceStore.GetAsync(sourceId, ct);
-            if (source is null)
-                return Results.NotFound(new { error = $"Source {sourceId} not found" });
-
-            int enqueued = await reindexService.RetryFailedAsync(source.Id, ct);
-            await auditLogger.LogAsync("source.retry_failed", "source", source.Id.ToString(), new { source.Name, enqueued }, ct);
-
-            return Results.Ok(new { enqueuedCount = enqueued });
+            var retried = await retryFailed.RunAsync(Rest(http), sourceId, ct);
+            return retried.Succeeded
+                ? Results.Ok(new { enqueuedCount = retried.Result })
+                : OperationProblems.Result(retried);
         })
         .WithName("RetryFailedSourceDocuments")
         .WithDescription("Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file.")
