@@ -21,6 +21,9 @@ public class SourceScopeTests
     {
         { ConnectionProvider.S3, """{"bucketName":"docs","prefix":"handbook/"}""", new S3BucketScope("docs", "handbook/") },
         { ConnectionProvider.S3, """{"bucketName":"docs"}""", new S3BucketScope("docs") },
+        // The Source form stores a blank bucket as "", which the factory reads as the bucket.
+        { ConnectionProvider.S3, """{"bucketName":""}""", new S3BucketScope("") },
+        { ConnectionProvider.AzureBlob, """{"containerName":" "}""", new AzureBlobContainerScope(" ") },
         { ConnectionProvider.AzureBlob, """{"containerName":"docs","prefix":"a/"}""", new AzureBlobContainerScope("docs", "a/") },
         { ConnectionProvider.Filesystem, "{}", new FilesystemFolderScope() },
         { ConnectionProvider.Filesystem, """{"subPath":"notes","includePatterns":["*.md"],"excludePatterns":["drafts/**"]}""",

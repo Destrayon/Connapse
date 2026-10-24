@@ -45,8 +45,10 @@ public static class SourceScopeCodec
 
         return provider switch
         {
-            ConnectionProvider.S3 => NonBlank(o, "bucketName") is { } bucket ? new S3BucketScope(bucket, Str(o, "prefix")) : null,
-            ConnectionProvider.AzureBlob => NonBlank(o, "containerName") is { } container
+            // A blank bucket or container is still the scope's: the factory reads it and refuses it later, by
+            // the connection's allowlist, so it names one here too.
+            ConnectionProvider.S3 => Str(o, "bucketName") is { } bucket ? new S3BucketScope(bucket, Str(o, "prefix")) : null,
+            ConnectionProvider.AzureBlob => Str(o, "containerName") is { } container
                 ? new AzureBlobContainerScope(container, Str(o, "prefix"))
                 : null,
             ConnectionProvider.Filesystem => new FilesystemFolderScope(Str(o, "subPath"), Arr(o, "includePatterns"), Arr(o, "excludePatterns")),
