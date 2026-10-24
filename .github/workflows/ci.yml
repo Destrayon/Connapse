@@ -137,6 +137,7 @@ jobs:
         name: test-results-integration-${{ matrix.shard }}
         path: |
           tests/Connapse.Integration.Tests/TestResults/*.trx
+          tests/Connapse.Integration.Tests/TestResults/spec-conformance-*.json
           walls/
 
     - name: Upload coverage reports
@@ -202,6 +203,12 @@ jobs:
         name: integration-timings
         path: integration-timings/
         if-no-files-found: ignore
+
+    # IntegrationSuite_EveryResponse_ConformsToCommittedSpec (CON-8): every shard's /api responses against
+    # docs/api/openapi.json, compared exactly with the list of today's violations.
+    - name: Check responses against the committed spec
+      if: success() || failure()
+      run: python3 .github/scripts/spec_conformance.py --reports "**/spec-conformance-*.json" --known tests/Connapse.Integration.Tests/Spec/known-spec-violations.json
 
     # Every tier is checked even if another fails, and every test project must have reported. The
     # Medium tier's wall time is its slowest job's, since the jobs run side by side.
