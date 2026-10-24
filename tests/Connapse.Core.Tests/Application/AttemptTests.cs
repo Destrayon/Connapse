@@ -45,6 +45,36 @@ public class AttemptTests
         fail.Should().Throw<ArgumentException>().WithParameterName("status");
     }
 
+    public enum StatusWithoutSuccessAtZero
+    {
+        NotFound,
+        Success,
+    }
+
+    [Flags]
+    public enum FlagsStatus
+    {
+        Success = 0,
+        NotFound = 1,
+        Conflict = 2,
+    }
+
+    [Fact]
+    public void Attempt_StatusEnumWhoseZeroIsNotSuccess_Throws()
+    {
+        var succeed = () => Attempt<string, StatusWithoutSuccessAtZero>.Succeed("done");
+
+        succeed.Should().Throw<TypeInitializationException>().WithInnerException<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Attempt_FlagsStatusEnum_Throws()
+    {
+        var succeed = () => Attempt<string, FlagsStatus>.Succeed("done");
+
+        succeed.Should().Throw<TypeInitializationException>().WithInnerException<InvalidOperationException>();
+    }
+
     [Fact]
     public void AddApplication_RegistersEveryOperationInTheAssembly()
     {

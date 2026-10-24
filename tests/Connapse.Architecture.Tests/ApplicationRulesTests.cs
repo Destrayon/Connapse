@@ -17,20 +17,23 @@ public class ApplicationRulesTests
     private static string ApplicationProject => File.ReadAllText(
         Path.Combine(RepoPaths.Root, "src", "Connapse.Application", "Connapse.Application.csproj"));
 
+    // Written by restore, which every build runs first.
+    private static string ApplicationAssets => File.ReadAllText(
+        Path.Combine(RepoPaths.Root, "src", "Connapse.Application", "obj", "project.assets.json"));
+
     [Fact]
     public void Application_HasNoAspNetCoreDependency()
     {
-        ApplicationRules.AspNetCoreDependencies(Application, ApplicationProject).Should().BeEmpty(
+        ApplicationRules.AspNetCoreDependencies(Application, ApplicationProject, ApplicationAssets).Should().BeEmpty(
             "operations run behind every surface, so they must not depend on HTTP or Razor types");
     }
 
     [Fact]
     public void EveryOperation_HasScopeAndRisk()
     {
-        // Operations live in Connapse.Application; Web is scanned too, so one declared there is
-        // still held to the rule.
+        // Operations live in Connapse.Application; Web is scanned too, so one declared there fails.
         var types = Application.GetTypes().Concat(typeof(Program).Assembly.GetTypes());
-        ApplicationRules.OperationsMissingMetadata(types).Should().BeEmpty();
+        ApplicationRules.OperationsMissingMetadata(types, Application).Should().BeEmpty();
     }
 
     [Fact]
@@ -41,24 +44,48 @@ public class ApplicationRulesTests
               <ItemGroup>
                 <FrameworkReference Include="Microsoft.AspNetCore.App" />
                 <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.0" />
+                <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
               </ItemGroup>
             </Project>
             """;
+        // JwtBearer reaches the compiler; DataProtection is kept from it, so only JwtBearer counts.
+        const string assets = """
+            {
+              "libraries": {
+                "Microsoft.AspNetCore.Authentication.JwtBearer/10.0.7": { "type": "package" },
+                "Microsoft.AspNetCore.DataProtection/10.0.7": { "type": "package" },
+                "Connapse.Core/1.0.0": { "type": "project" }
+              },
+              "project": { "frameworks": { "net10.0": { "dependencies": {
+                "Microsoft.AspNetCore.DataProtection": { "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive" }
+              } } } }
+            }
+            """;
 
         // Connapse.Web references ASP.NET Core assemblies, so it stands in for a polluted Application.
-        ApplicationRules.AspNetCoreDependencies(typeof(Program).Assembly, project).Should().Contain(
+        var found = ApplicationRules.AspNetCoreDependencies(typeof(Program).Assembly, project, assets).ToList();
+
+        found.Should().Contain(
         [
             "references Microsoft.AspNetCore.Http.Abstractions",
             "FrameworkReference Microsoft.AspNetCore.App",
-            "PackageReference Microsoft.AspNetCore.Http.Abstractions",
+            "PackageReference Microsoft.AspNetCore.Http.Abstractions without ExcludeAssets=\"compile\"",
             "DisableTransitiveFrameworkReferences is not true, so the ASP.NET Core framework flows in from Identity",
+            "compiles against package Microsoft.AspNetCore.Authentication.JwtBearer",
+        ]);
+        // Web itself references DataProtection; what must not be reported is the excluded package.
+        found.Should().NotContain(
+        [
+            "PackageReference Microsoft.AspNetCore.DataProtection without ExcludeAssets=\"compile\"",
+            "compiles against package Microsoft.AspNetCore.DataProtection",
         ]);
     }
 
     [Fact]
     public void ArchRule_DetectsOperationsMissingIdScopeOrRisk()
     {
-        ApplicationRules.OperationsMissingMetadata(typeof(PlantedOperationWithoutScope).Assembly.GetTypes()).Should().BeEquivalentTo(
+        var planted = typeof(PlantedOperationWithoutScope).Assembly;
+        ApplicationRules.OperationsMissingMetadata(planted.GetTypes(), planted).Should().BeEquivalentTo(
         [
             "Connapse.Architecture.Tests.Canaries.PlantedOperationWithoutScope: no Scope",
             "Connapse.Architecture.Tests.Canaries.PlantedOperationWithoutRisk: no Risk",
@@ -67,5 +94,12 @@ public class ApplicationRulesTests
             "Connapse.Architecture.Tests.Canaries.PlantedAbstractOperation: abstract, so it is never registered",
             "planted.shared: on Connapse.Architecture.Tests.Canaries.PlantedSharedIdA, Connapse.Architecture.Tests.Canaries.PlantedSharedIdB",
         ]);
+    }
+
+    [Fact]
+    public void ArchRule_DetectsAnOperationOutsideTheApplication()
+    {
+        ApplicationRules.OperationsMissingMetadata([typeof(PlantedCompleteOperation)], Application).Should().Equal(
+            "Connapse.Architecture.Tests.Canaries.PlantedCompleteOperation: outside Connapse.Application, so AddApplication never registers it");
     }
 }

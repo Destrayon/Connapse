@@ -25,4 +25,19 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7" />
   </ItemGroup>
 
+  <!--
+    The ASP.NET Core packages Identity and Storage bring in, made invisible to this project's
+    compiler: an operation that names one of their types doesn't build. They still ship, because
+    the referenced projects use them. Application_HasNoAspNetCoreDependency fails if a package
+    joins the restore graph without an entry here.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Cryptography.Internal" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Cryptography.KeyDerivation" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+  </ItemGroup>
+
 </Project>

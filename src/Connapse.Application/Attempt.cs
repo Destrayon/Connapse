@@ -6,9 +6,21 @@ namespace Connapse.Application;
 /// operation did not do what was asked, which REST maps to a ProblemDetails response, MCP to an
 /// error result, and the UI to a message.
 /// </summary>
+/// <remarks>
+/// A status enum must name its zero value Success and must not be [Flags]; the first use of an
+/// Attempt over any other enum throws, so a failure can never read as a success.
+/// </remarks>
 public sealed record Attempt<TResult, TStatus>
     where TStatus : struct, Enum
 {
+    static Attempt()
+    {
+        if (typeof(TStatus).IsDefined(typeof(FlagsAttribute), inherit: false))
+            throw new InvalidOperationException($"{typeof(TStatus).Name} is a [Flags] enum; an operation status is a single outcome.");
+        if (Enum.GetName(default(TStatus)) != "Success")
+            throw new InvalidOperationException($"{typeof(TStatus).Name} must name its zero value Success, because a status of zero is what Attempt reads as success.");
+    }
+
     private Attempt(TStatus status, TResult? result)
     {
         Status = status;
