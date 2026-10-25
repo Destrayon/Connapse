@@ -31,6 +31,9 @@ public sealed record CaseContext(string ContainerId, string ContainerName, IRead
     /// <summary>The case's own user, named after its container, for the user operations.</summary>
     public UserCase? User { get; init; }
 
+    /// <summary>The case's own pending invite, to the address named after its container, for the invite operations.</summary>
+    public Guid? InviteId { get; init; }
+
     public string FileId => Files[0].Id;
     public string FileName => Files[0].Name;
 
@@ -64,6 +67,9 @@ public sealed record Operation(
 
     /// <summary>Whether the case needs a user of its own to act on.</summary>
     public bool ArrangesUser { get; init; }
+
+    /// <summary>Whether the case needs a pending invite of its own to act on.</summary>
+    public bool ArrangesInvite { get; init; }
 
     /// <summary>Anything the case's source needs before the action, such as a failed document to retry.</summary>
     public Func<SharedWebAppFixture, CaseContext, string, Task>? Prepare { get; init; }
@@ -237,6 +243,8 @@ public static partial class Operations
             context = context with { Source = await ArrangeSourceAsync(fixture, name) };
         if (operation.ArrangesUser)
             context = context with { User = await ArrangeUserAsync(fixture, name) };
+        if (operation.ArrangesInvite)
+            context = context with { InviteId = await ArrangeInviteAsync(fixture, context) };
         if (operation.Prepare is { } prepare)
             await prepare(fixture, context, @case);
         if (operation.WaitForIngestion && @case is Case.Valid or Case.UnderScoped)

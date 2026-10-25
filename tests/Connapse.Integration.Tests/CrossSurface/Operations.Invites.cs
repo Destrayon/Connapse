@@ -54,7 +54,7 @@ public static partial class Operations
             Project: (sp, c) => InviteStateAsync(sp, c))
         {
             AbsentReasons = NoInviteTools,
-            Prepare = (f, c, k) => ArrangeInviteAsync(f, c),
+            ArrangesInvite = true,
         },
 
         // Invites the case's address as a Viewer. The invalid case's address has no domain; preflight
@@ -90,7 +90,7 @@ public static partial class Operations
             Rest: async (f, c, p, k) =>
             {
                 using var rest = await Surfaces.RestAsync(f, p);
-                string target = k == Case.Invalid ? c.Unknown : (await InviteIdAsync(f, c)).ToString();
+                string target = k == Case.Invalid ? c.Unknown : c.InviteId!.Value.ToString();
                 return await Surfaces.ResultAsync(await rest.DeleteAsync($"/api/v1/invites/{target}"));
             },
             Mcp: null,
@@ -108,7 +108,7 @@ public static partial class Operations
             Project: (sp, c) => InviteStateAsync(sp, c))
         {
             AbsentReasons = NoInviteTools,
-            Prepare = (f, c, k) => ArrangeInviteAsync(f, c),
+            ArrangesInvite = true,
         },
     ];
 
@@ -128,21 +128,18 @@ public static partial class Operations
             && r.QuerySelectorAll("button").Any(b => b.TextContent.Trim() == "Revoke"));
 
     /// <summary>Invites the case's address as a Viewer, from the admin, as the invite card would.</summary>
-    private static async Task ArrangeInviteAsync(SharedWebAppFixture fixture, CaseContext c)
+    private static async Task<Guid> ArrangeInviteAsync(SharedWebAppFixture fixture, CaseContext c)
     {
         Guid admin = await Principals.UserIdAsync(fixture, Principal.Admin);
         using var scope = fixture.Factory.Services.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<InviteService>().CreateInviteAsync(InviteEmail(c), "Viewer", admin);
+        var (_, invitation) = await scope.ServiceProvider.GetRequiredService<InviteService>().CreateInviteAsync(InviteEmail(c), "Viewer", admin);
+        return invitation.Id;
     }
 
-    private static async Task<Guid> InviteIdAsync(SharedWebAppFixture fixture, CaseContext c)
-    {
-        using var scope = fixture.Factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
-        return await db.UserInvitations.Where(i => i.Email == InviteEmail(c)).Select(i => i.Id).SingleAsync();
-    }
-
-    /// <summary>Every invite a case may have made: any address with its container's name in it.</summary>
+    /// <summary>
+    /// Every invite a case may have made: any address with its container's name in it. The case's own
+    /// invite is named even once revoked, so its audit row is still found.
+    /// </summary>
     private static async Task<StateProjection> InviteStateAsync(IServiceProvider services, CaseContext c)
     {
         var db = services.GetRequiredService<ConnapseIdentityDbContext>();
@@ -150,11 +147,11 @@ public static partial class Operations
             .Where(i => i.Email.Contains(c.ContainerName))
             .OrderBy(i => i.Email)
             .ToListAsync();
+        var ids = invites.Select(i => i.Id.ToString()).Concat(c.InviteId is { } own ? [own.ToString()] : []).Distinct().ToList();
         if (invites.Count == 0)
-            return new StateProjection(["no invite"], []);
+            return new StateProjection(["no invite"], ids);
         return new StateProjection(
-            invites.Select(i => $"invite {i.Email} role={i.Role} {(i.AcceptedAt is null ? "pending" : "accepted")}").ToList(),
-            invites.Select(i => i.Id.ToString()).ToList());
+            invites.Select(i => $"invite {i.Email} role={i.Role} {(i.AcceptedAt is null ? "pending" : "accepted")}").ToList(), ids);
     }
 
     private static async Task CleanupInvitesAsync(SharedWebAppFixture fixture, CaseContext c)
