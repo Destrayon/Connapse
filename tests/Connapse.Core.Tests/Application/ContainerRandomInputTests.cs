@@ -21,6 +21,7 @@ namespace Connapse.Core.Tests.Application;
 /// CsCheck runs samples on several threads.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ContainerRandomInputTests
 {
     private static readonly DateTime Epoch = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
