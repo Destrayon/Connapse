@@ -66,7 +66,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # A fresh password and JWT secret for each run, so nothing reusable is written down.
+    # A fresh password and JWT secret for each run, so nothing reusable is written down. The rate limits
+    # are raised past what one run sends: at the shipped limits most operations only ever got a 429, so
+    # the logic behind them went untested. Everything else is the compose file as it ships.
     - name: Start the app
       run: |
         password="Nightly-$(openssl rand -hex 12)!"
@@ -74,7 +76,16 @@ jobs:
         echo "::add-mask::$password"
         echo "::add-mask::$secret"
         echo "CONNAPSE_ADMIN_PASSWORD=$password" >> "$GITHUB_ENV"
-        CONNAPSE_ADMIN_PASSWORD="$password" Identity__Jwt__Secret="$secret" docker compose up -d --build web
+        cat > "$RUNNER_TEMP/no-rate-limits.yml" <<'EOF'
+        services:
+          web:
+            environment:
+              RateLimiting__AuthPermitLimit: "1000000"
+              RateLimiting__ApiPermitLimit: "1000000"
+              RateLimiting__McpPermitLimit: "1000000"
+        EOF
+        CONNAPSE_ADMIN_PASSWORD="$password" Identity__Jwt__Secret="$secret" \
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/no-rate-limits.yml" up -d --build web
         for i in $(seq 1 60); do
           curl -fsS http://localhost:5001/health > /dev/null && exit 0
           sleep 5
@@ -97,8 +108,9 @@ jobs:
         docker run --rm --network host --cpus 2 --memory 1g --user "$(id -u):$(id -g)" \
           -e HOME=/tmp -e HYPOTHESIS_STORAGE_DIRECTORY=/tmp/.hypothesis \
           -v "$PWD/docs/api:/spec:ro" -v "$PWD/schemathesis-report:/report" \
+          -v "$PWD/.github/schemathesis.toml:/config/schemathesis.toml:ro" \
           schemathesis/schemathesis@sha256:30ef2766eb58dabfd26f9785d2e29e366a3ab69c2a40e34a8e56dbef5ce525f6 \
-          run /spec/openapi.json --url http://localhost:5001 \
+          --config-file /config/schemathesis.toml run /spec/openapi.json --url http://localhost:5001 \
           -H "Authorization: Bearer $API_TOKEN" \
           --checks not_a_server_error --phases examples,fuzzing --max-examples 20 --request-timeout 30 \
           --report junit --report-dir /report

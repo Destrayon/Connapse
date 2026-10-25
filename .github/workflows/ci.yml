@@ -181,7 +181,9 @@ jobs:
       with:
         base: ${{ steps.base.outputs.path }}
         revision: docs/api/openapi.json
-        fail-on: ERR
+        # WARN too: oasdiff rates some real breaks only as warnings, such as a change it can't compare
+        # exactly inside an allOf.
+        fail-on: WARN
         review: 'false'
         github-token: ''
 

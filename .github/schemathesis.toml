@@ -1,0 +1,4 @@
+# The nightly Schemathesis run (epic #783, CON-53). A 5xx fails it through --checks, and so do these
+# warnings, which mean the run never reached the logic behind an operation: missing_auth when an operation
+# only ever answered 401 or 403 (the token stopped working, say), rate_limited when it mostly answered 429.
+warnings = { fail-on = ["missing_auth", "rate_limited"] }
