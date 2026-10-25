@@ -2,10 +2,10 @@
 @attribute [Authorize(Policy = "RequireAdmin")]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
-@using Connapse.Storage.Settings
+@using Connapse.Application.Settings
 @using Microsoft.Extensions.Options
-@inject ISettingsStore SettingsStore
-@inject ISettingsReloader ReloadService
+@inject UpdateSettings UpdateOperation
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IOptionsMonitor<EmbeddingSettings> EmbeddingOptions
 @inject IOptionsMonitor<ChunkingSettings> ChunkingOptions
 @inject IOptionsMonitor<SearchSettings> SearchOptions
@@ -165,10 +165,9 @@
     private async Task SaveSummarySettings()
     {
         if (summaryTabRef is null) return;
-        // Use "Summary" (capital S) to match the category key read by
-        // ContainerSettingsResolver.GetSummarySettingsAsync.
+        // settings.update stores it under "Summary", the key ContainerSettingsResolver reads.
         var toSave = summaryTabRef.GetCurrentSettings();
-        await SaveSettings("Summary", toSave);
+        await SaveSettings("summary", toSave);
         summarySettings = toSave;
     }
 
@@ -176,10 +175,7 @@
     {
         try
         {
-            await SettingsStore.SaveAsync(category, settings);
-            ReloadService.Reload();
-            saveMessage = $"{category} settings saved successfully!";
-            saveSuccess = true;
+            (saveSuccess, saveMessage) = await UpdateOperation.SaveAsync(AuthStateProvider, category, settings);
         }
         catch (Exception ex)
         {

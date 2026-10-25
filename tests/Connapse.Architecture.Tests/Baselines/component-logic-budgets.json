@@ -168,7 +168,7 @@
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
-    "CodeLines": 76,
+    "CodeLines": 72,
     "Injects": 8,
     "Complexity": 10,
     "MarkupLogic": 21,

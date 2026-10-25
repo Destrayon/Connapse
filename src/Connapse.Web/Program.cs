@@ -204,6 +204,8 @@ builder.Services.AddScoped<Connapse.Application.Ports.ISourceVisibility>(sp => s
 builder.Services.AddScoped<Connapse.Application.Ports.IOperationAuthorizer, Connapse.Web.Services.OperationAuthorizer>();
 builder.Services.AddScoped<Connapse.Application.Ports.IUserDirectory, Connapse.Web.Services.UserDirectory>();
 builder.Services.AddScoped<Connapse.Application.Ports.IInviteStore, Connapse.Web.Services.InviteStore>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConfiguredSettings, Connapse.Web.Services.ConfiguredSettings>();
+builder.Services.AddScoped<Connapse.Application.Ports.IVectorIndexReconciler, Connapse.Web.Services.HangfireVectorIndexReconciler>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();

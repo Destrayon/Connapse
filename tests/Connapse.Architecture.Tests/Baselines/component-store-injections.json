@@ -12,7 +12,6 @@
   "Pages.Providers -> IProviderCredentialStore",
   "Pages.Providers -> ISettingsStore",
   "Pages.Search -> IContainerStore",
-  "Pages.Settings -> ISettingsStore",
   "Pages.SourceEdit -> IConnectionStore",
   "Pages.Sources -> IConnectionStore",
   "Settings.EmbeddingSettingsTab -> ISettingsStore",

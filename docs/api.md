@@ -925,7 +925,9 @@ All settings endpoints require **Admin** role.
 
 **Endpoint**: `GET /api/settings/{category}`
 
-**Categories**: `embedding` | `chunking` | `search` | `llm` | `upload`
+**Categories**: `embedding` | `chunking` | `search` | `llm` | `upload` | `summary`, in any case
+
+API keys are never returned: those fields read as `null`. The provider sign-in categories (`azure`, `azuread`, `samlsignin`, `identitycenter`) are refused here; provider setup owns them.
 
 **Response** (200 OK) — Example for `embedding`:
 ```json
@@ -946,6 +948,9 @@ All settings endpoints require **Admin** role.
 **Endpoint**: `PUT /api/settings/{category}`
 
 **Notes**: Changes take effect immediately (live reload via `IOptionsMonitor<T>`). No restart required.
+The body replaces the whole category; a property the category doesn't have is refused (`400`
+[`invalid-settings`](problems.md#invalid-settings)). An API key left out or
+`null` keeps its stored value, so a body read from `GET` can be sent back as it is.
 
 **Response** (200 OK):
 ```json
@@ -955,6 +960,18 @@ All settings endpoints require **Admin** role.
   "updatedAt": "2026-02-26T11:45:00Z"
 }
 ```
+
+---
+
+### Reset Settings
+
+**Endpoint**: `DELETE /api/v1/settings/{category}`
+
+Removes what is stored for the category, so it reads as configuration (appsettings, environment
+variables) gives it. Resetting `embedding` also rebuilds the configured model's vector index.
+
+**Response** (204 No Content); `404` [`settings-category-not-found`](problems.md#settings-category-not-found)
+for an unknown category.
 
 ---
 

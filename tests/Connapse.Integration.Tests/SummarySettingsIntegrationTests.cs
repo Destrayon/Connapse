@@ -12,11 +12,8 @@ namespace Connapse.Integration.Tests;
 /// Integration tests for SummarySettings round-trip — both global (DB via ISettingsStore)
 /// and per-container (HTTP via /api/containers/{id}/settings).
 ///
-/// Note: as of #330 the global /api/settings/{category} REST endpoint does NOT include
-/// a "summary" case in its switch — only the Blazor UI and ISettingsStore touch global
-/// summary settings today. The global test exercises the service layer directly to prove
-/// persistence. A separate test pins the current 404 behaviour so the gap is visible if
-/// someone later wires the HTTP endpoint without removing the assertion.
+/// The global summary settings are read and changed over /api/settings/summary since #922,
+/// stored under the "Summary" key the page and ContainerSettingsResolver use.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
@@ -107,18 +104,30 @@ public class SummarySettingsIntegrationTests(SharedWebAppFixture fixture)
         }
     }
 
-    // ── Global SummarySettings — pins the missing HTTP endpoint ───────────
+    // ── Global SummarySettings — HTTP round-trip (#922) ───────────────────
 
     [Fact]
-    public async Task GetSettings_SummaryCategory_Returns404_BecauseHttpEndpointNotWired()
+    public async Task PutThenGetSettings_SummaryCategory_RoundTripsThroughTheKeyThePageStores()
     {
-        // Documents the current gap: SettingsEndpoints.cs has no "summary" case in its
-        // GET/PUT switch — global summary settings flow through the Blazor UI and
-        // ISettingsStore only. If this test ever fails with 200, the HTTP endpoint
-        // has been wired up and this test should be replaced with a real round-trip.
-        var response = await fixture.AdminClient.GetAsync("/api/settings/summary");
+        var original = await (await fixture.AdminClient.GetAsync("/api/settings/summary")).Content
+            .ReadFromJsonAsync<SummarySettings>(JsonOptions);
+        try
+        {
+            var put = await fixture.AdminClient.PutAsJsonAsync("/api/settings/summary", original! with { MaxInputTokens = 4321 });
+            put.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            var read = await (await fixture.AdminClient.GetAsync("/api/settings/SUMMARY")).Content
+                .ReadFromJsonAsync<SummarySettings>(JsonOptions);
+            read!.MaxInputTokens.Should().Be(4321);
+
+            using var scope = fixture.Factory.Services.CreateScope();
+            (await scope.ServiceProvider.GetRequiredService<ISettingsStore>().GetAsync<SummarySettings>("Summary"))!
+                .MaxInputTokens.Should().Be(4321, "the page and ContainerSettingsResolver read the \"Summary\" key");
+        }
+        finally
+        {
+            await fixture.AdminClient.PutAsJsonAsync("/api/settings/summary", original);
+        }
     }
 
     // ── Per-container SummarySettings — HTTP round-trip ───────────────────

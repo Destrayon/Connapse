@@ -34,3 +34,4 @@ DELETE /api/v1/auth/custom/{providerId} removed the success response with the st
 GET /api/v1/auth/custom/{providerId}/return removed the success response with the status `200`
 POST /oauth/register removed the success response with the status `200`
 POST /api/sources removed `#/components/schemas/SourceScope` from the `scope` request property `oneOf` list
+GET /api/settings/{category} added `#/components/schemas/SummarySettings` to the response body `anyOf` list for the response status `200`

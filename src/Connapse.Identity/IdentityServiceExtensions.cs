@@ -347,6 +347,10 @@ public static class IdentityServiceExtensions
             // only with admin:oauth-clients (#881).
             .AddPolicy("RequireClientAdmin", policy =>
                 policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:oauth-clients")))
+            // The settings say how Connapse reaches its providers: an administrator's, and a token of theirs only
+            // when issued with admin:settings (#922).
+            .AddPolicy("RequireSettingsAdmin", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:settings")))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

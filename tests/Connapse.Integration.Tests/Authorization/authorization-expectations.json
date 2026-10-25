@@ -100,6 +100,11 @@
       "risk": "destructive",
       "scope": "admin:oauth-clients"
     },
+    "DELETE /api/v1/settings/{category}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
     "GET /.well-known/oauth-authorization-server": {
       "requires": "anonymous",
       "risk": "read",
@@ -188,17 +193,17 @@
     "GET /api/settings/embedding-models": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:settings"
     },
     "GET /api/settings/reindex/status": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:settings"
     },
     "GET /api/settings/{category}": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:settings"
     },
     "GET /api/sources/": {
       "requires": "viewer",
@@ -573,12 +578,12 @@
     "POST /api/settings/reindex": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:settings"
     },
     "POST /api/settings/test-connection": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:settings"
     },
     "POST /api/sources/": {
       "requires": "admin",
@@ -728,7 +733,7 @@
     "PUT /api/settings/{category}": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:settings"
     },
     "PUT /api/v1/agents/{id:guid}/active": {
       "requires": "admin",
