@@ -4,6 +4,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
+using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -14,7 +15,9 @@ public static class ContainersEndpoints
 {
     public static IEndpointRouteBuilder MapContainersEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/containers").WithTags("Containers");
+        var group = app.MapGroup("/api/containers").WithTags("Containers")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // POST /api/containers - Create container
         group.MapPost("/", async (
@@ -24,18 +27,18 @@ public static class ContainersEndpoints
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
-                return Results.BadRequest(new { error = "Container name is required" });
+                return ApiProblem.BadRequest("Container name is required");
 
             var trimmedName = request.Name.Trim();
 
             if (!PathUtilities.IsValidContainerName(trimmedName))
-                return Results.BadRequest(new { error = "Container name must be 2-128 characters, lowercase alphanumeric and hyphens, cannot start or end with a hyphen" });
+                return ApiProblem.BadRequest("Container name must be 2-128 characters, lowercase alphanumeric and hyphens, cannot start or end with a hyphen");
 
             var normalizedName = trimmedName;
 
             var existing = await containerStore.GetByNameAsync(normalizedName, ct);
             if (existing is not null)
-                return Results.Conflict(new { error = $"Container '{normalizedName}' already exists" });
+                return ApiProblem.Conflict($"Container '{normalizedName}' already exists");
 
             var container = await containerStore.CreateAsync(
                 new CreateContainerRequest(normalizedName, request.Description), ct);
@@ -45,6 +48,9 @@ public static class ContainersEndpoints
 
             return Results.Created($"/api/containers/{container.Id}", container);
         })
+        .Produces<Container>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("CreateContainer")
         .WithDescription("Create a new container for organizing files")
         .RequireAuthorization("RequireEditor");
@@ -67,6 +73,8 @@ public static class ContainersEndpoints
 
             return Results.Ok(new PagedResponse<Container>(items, items.Count, hasMore));
         })
+        .Produces<PagedResponse<Container>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .WithName("ListContainers")
         .WithDescription("List containers with pagination (?skip=0&take=50)")
         .RequireAuthorization("RequireViewer");
@@ -86,8 +94,10 @@ public static class ContainersEndpoints
             var container = await containerStore.GetAsync(containerId, ct);
             return container is not null
                 ? Results.Ok(container)
-                : Results.NotFound(new { error = $"Container {containerId} not found" });
+                : ApiProblem.NotFound($"Container {containerId} not found");
         })
+        .Produces<Container>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetContainer")
         .WithDescription("Get a specific container by ID")
         .RequireAuthorization("RequireViewer");
@@ -101,8 +111,10 @@ public static class ContainersEndpoints
             var container = await containerStore.GetByNameAsync(name.ToLowerInvariant(), ct);
             return container is not null
                 ? Results.Ok(container)
-                : Results.NotFound(new { error = $"Container '{name}' not found" });
+                : ApiProblem.NotFound($"Container '{name}' not found");
         })
+        .Produces<Container>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetContainerByName")
         .WithDescription("Get a specific container by name")
         .RequireAuthorization("RequireViewer");
@@ -116,17 +128,17 @@ public static class ContainersEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             try
             {
                 var deleted = await containerStore.DeleteAsync(containerId, ct);
                 if (!deleted)
-                    return Results.NotFound(new { error = $"Container {containerId} not found" });
+                    return ApiProblem.NotFound($"Container {containerId} not found");
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return ApiProblem.BadRequest(ex.Message);
             }
 
             await auditLogger.LogAsync("container.deleted", "container", containerId.ToString(),
@@ -134,6 +146,9 @@ public static class ContainersEndpoints
 
             return Results.NoContent();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("DeleteContainer")
         .WithDescription("Delete a container. It must be empty first — deleting a container deletes its stored objects.")
         .RequireAuthorization("RequireEditor");
@@ -148,34 +163,23 @@ public static class ContainersEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var stats = await documentStore.GetContainerStatsAsync(containerId, ct);
             var models = await modelDiscovery.GetModelsAsync(containerId, ct);
 
-            return Results.Ok(new
-            {
-                containerId = container.Id,
-                containerName = container.Name,
-                documents = new
-                {
-                    total = stats.DocumentCount,
-                    ready = stats.ReadyCount,
-                    processing = stats.ProcessingCount,
-                    failed = stats.FailedCount
-                },
-                totalChunks = stats.TotalChunks,
-                totalSizeBytes = stats.TotalSizeBytes,
-                embeddingModels = models.Select(m => new
-                {
-                    modelId = m.ModelId,
-                    dimensions = m.Dimensions,
-                    vectorCount = m.VectorCount
-                }),
-                lastIndexedAt = stats.LastIndexedAt,
-                createdAt = container.CreatedAt
-            });
+            return Results.Ok(new ContainerStatsResponse(
+                container.Id,
+                container.Name,
+                new ContainerDocumentCounts(stats.DocumentCount, stats.ReadyCount, stats.ProcessingCount, stats.FailedCount),
+                stats.TotalChunks,
+                stats.TotalSizeBytes,
+                models,
+                stats.LastIndexedAt,
+                container.CreatedAt));
         })
+        .Produces<ContainerStatsResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetContainerStats")
         .WithDescription("Get statistics for a container: document counts by status, chunk count, storage size, embedding models, last indexed time")
         .RequireAuthorization("RequireViewer");
@@ -187,11 +191,13 @@ public static class ContainersEndpoints
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var overrides = await containerStore.GetSettingsOverridesAsync(containerId, ct);
             return Results.Ok(overrides ?? new ContainerSettingsOverrides());
         })
+        .Produces<ContainerSettingsOverrides>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetContainerSettings")
         .WithDescription("Get per-container settings overrides")
         .RequireAuthorization("RequireViewer");
@@ -204,11 +210,14 @@ public static class ContainersEndpoints
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             await containerStore.SaveSettingsOverridesAsync(containerId, overrides, ct);
             return Results.Ok(overrides);
         })
+        .Produces<ContainerSettingsOverrides>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("SaveContainerSettings")
         .WithDescription("Save per-container settings overrides")
         .RequireAuthorization("RequireEditor");
@@ -222,12 +231,12 @@ public static class ContainersEndpoints
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             if (request?.MaxDocuments is <= 0)
-                return Results.BadRequest(new { error = "maxDocuments must be a positive number" });
+                return ApiProblem.BadRequest("maxDocuments must be a positive number");
             if (request?.ContinueAfter is not null && !Guid.TryParse(request.ContinueAfter, out _))
-                return Results.BadRequest(new { error = "continueAfter must be a document id from a previous reindex response" });
+                return ApiProblem.BadRequest("continueAfter must be a document id from a previous reindex response");
 
             var options = new ReindexOptions
             {
@@ -242,28 +251,29 @@ public static class ContainersEndpoints
 
             var result = await reindexService.ReindexAsync(options, ct);
 
-            return Results.Ok(new
-            {
-                batchId = result.BatchId,
-                totalDocuments = result.TotalDocuments,
-                enqueuedCount = result.EnqueuedCount,
-                skippedCount = result.SkippedCount,
-                failedCount = result.FailedCount,
-                plannedCount = result.PlannedCount,
-                remainingCount = result.RemainingCount,
-                continueAfter = result.ContinueAfter,
-                dryRun = result.DryRun,
-                reasonCounts = result.ReasonCounts.ToDictionary(
+            return Results.Ok(new ContainerReindexResponse(
+                BatchId: result.BatchId,
+                TotalDocuments: result.TotalDocuments,
+                EnqueuedCount: result.EnqueuedCount,
+                SkippedCount: result.SkippedCount,
+                FailedCount: result.FailedCount,
+                PlannedCount: result.PlannedCount,
+                RemainingCount: result.RemainingCount,
+                ContinueAfter: result.ContinueAfter,
+                DryRun: result.DryRun,
+                ReasonCounts: result.ReasonCounts.ToDictionary(
                     kvp => kvp.Key.ToString(),
                     kvp => kvp.Value),
-                message = (result.DryRun
+                Message: (result.DryRun
                     ? $"Dry run: {result.PlannedCount} would be enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed"
                     : $"Reindex complete: {result.EnqueuedCount} enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed")
                     + (result.ContinueAfter is null
                         ? ""
-                        : $"; stopped at maxDocuments with {result.RemainingCount} not yet evaluated, send continueAfter to continue")
-            });
+                        : $"; stopped at maxDocuments with {result.RemainingCount} not yet evaluated, send continueAfter to continue")));
         })
+        .Produces<ContainerReindexResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("ReindexContainer")
         .WithDescription("Reindex all documents in a container")
         .RequireAuthorization("RequireEditor");
@@ -277,13 +287,15 @@ public static class ContainersEndpoints
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             int enqueued = await reindexService.RetryFailedAsync(containerId, ct);
             await auditLogger.LogAsync("container.retry_failed", "container", containerId.ToString(), new { enqueued }, ct);
 
-            return Results.Ok(new { enqueuedCount = enqueued });
+            return Results.Ok(new RetryFailedResponse(enqueued));
         })
+        .Produces<RetryFailedResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("RetryFailedContainerDocuments")
         .WithDescription("Re-enqueue every document in a container whose ingestion failed, with a fresh attempt budget")
         .RequireAuthorization("RequireEditor");
@@ -301,7 +313,7 @@ public static class ContainersEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             // Managed storage directly, rather than through IConnectorFactory. A container has
             // no connector type to dispatch on any more, and the cloud-scope check that used to
@@ -387,15 +399,15 @@ public static class ContainersEndpoints
             await auditLogger.LogAsync("container.synced", "container", containerId.ToString(),
                 new { enqueued, skipped, total = remoteFiles.Count }, ct);
 
-            return Results.Ok(new
-            {
+            return Results.Ok(new ContainerSyncResponse(
                 batchId,
-                totalFiles = remoteFiles.Count,
-                enqueuedCount = enqueued,
-                skippedCount = skipped,
-                message = $"Sync complete: {enqueued} enqueued, {skipped} skipped"
-            });
+                remoteFiles.Count,
+                enqueued,
+                skipped,
+                $"Sync complete: {enqueued} enqueued, {skipped} skipped"));
         })
+        .Produces<ContainerSyncResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("SyncContainer")
         .WithDescription("Reconcile a container's managed storage with the document table. Lists stored objects, compares to DB, enqueues anything new or unfinished.")
         .RequireAuthorization("RequireEditor");
@@ -436,3 +448,38 @@ public record ContainerReindexRequest(
     bool? DryRun = null,
     int? MaxDocuments = null,
     string? ContinueAfter = null);
+
+// Response DTOs for container endpoints
+public record ContainerStatsResponse(
+    string ContainerId,
+    string ContainerName,
+    ContainerDocumentCounts Documents,
+    long TotalChunks,
+    long TotalSizeBytes,
+    IReadOnlyList<EmbeddingModelInfo> EmbeddingModels,
+    DateTime? LastIndexedAt,
+    DateTime CreatedAt);
+
+public record ContainerDocumentCounts(int Total, int Ready, int Processing, int Failed);
+
+public record ContainerReindexResponse(
+    string BatchId,
+    int TotalDocuments,
+    int EnqueuedCount,
+    int SkippedCount,
+    int FailedCount,
+    int PlannedCount,
+    int RemainingCount,
+    string? ContinueAfter,
+    bool DryRun,
+    Dictionary<string, int> ReasonCounts,
+    string Message);
+
+public record RetryFailedResponse(int EnqueuedCount);
+
+public record ContainerSyncResponse(
+    string BatchId,
+    int TotalFiles,
+    int EnqueuedCount,
+    int SkippedCount,
+    string Message);

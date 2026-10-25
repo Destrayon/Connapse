@@ -2,6 +2,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Web.Problems;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Connapse.Web.Endpoints;
@@ -11,7 +12,9 @@ public static class FoldersEndpoints
     public static IEndpointRouteBuilder MapFoldersEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/containers/{containerId:guid}/folders").WithTags("Folders")
-            .RequireAuthorization("RequireEditor");
+            .RequireAuthorization("RequireEditor")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // POST /api/containers/{containerId}/folders - Create folder
         group.MapPost("/", async (
@@ -23,30 +26,34 @@ public static class FoldersEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             if (string.IsNullOrWhiteSpace(request.Path))
-                return Results.BadRequest(new { error = "Folder path is required" });
+                return ApiProblem.BadRequest("Folder path is required");
 
             // Reject path traversal attempts
             if (PathUtilities.ContainsPathTraversal(request.Path))
-                return Results.BadRequest(new { error = "Path must not contain '..' segments" });
+                return ApiProblem.BadRequest("Path must not contain '..' segments");
 
             var pathSegments = request.Path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
             if (pathSegments.Length > ValidationConstants.MaxPathDepth)
-                return Results.BadRequest(new { error = "path_too_deep", message = $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels" });
+                return ApiProblem.BadRequest("path_too_deep", $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels");
 
             var normalizedPath = PathUtilities.NormalizeFolderPath(request.Path);
 
             if (normalizedPath == "/")
-                return Results.BadRequest(new { error = "Cannot create root folder" });
+                return ApiProblem.BadRequest("Cannot create root folder");
 
             if (await folderStore.ExistsAsync(containerId, normalizedPath, ct))
-                return Results.Conflict(new { error = $"Folder '{normalizedPath}' already exists" });
+                return ApiProblem.Conflict($"Folder '{normalizedPath}' already exists");
 
             var folder = await folderStore.CreateAsync(containerId, normalizedPath, ct);
             return Results.Created($"/api/containers/{containerId}/folders?path={normalizedPath}", folder);
         })
+        .Produces<Folder>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("CreateFolder")
         .WithDescription("Create an empty folder in a container");
 
@@ -64,15 +71,15 @@ public static class FoldersEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             if (string.IsNullOrWhiteSpace(path))
-                return Results.BadRequest(new { error = "Folder path is required" });
+                return ApiProblem.BadRequest("Folder path is required");
 
             var normalizedPath = PathUtilities.NormalizeFolderPath(path);
 
             if (!await folderStore.ExistsAsync(containerId, normalizedPath, ct))
-                return Results.NotFound(new { error = $"Folder '{normalizedPath}' not found" });
+                return ApiProblem.NotFound($"Folder '{normalizedPath}' not found");
 
             // Get documents before deletion so we can cancel jobs and clean up storage
             var documents = await documentStore.ListAsync(containerId, pathPrefix: normalizedPath, take: int.MaxValue, ct: ct);
@@ -84,7 +91,7 @@ public static class FoldersEndpoints
 
             var deleted = await folderStore.DeleteAsync(containerId, normalizedPath, ct);
             if (!deleted)
-                return Results.BadRequest(new { error = "Folder is not empty. Use cascade=true to delete contents." });
+                return ApiProblem.BadRequest("Folder is not empty. Use cascade=true to delete contents.");
 
             // Clean up file storage (best effort)
             foreach (var filePath in filePaths)
@@ -95,6 +102,9 @@ public static class FoldersEndpoints
 
             return Results.NoContent();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("DeleteFolder")
         .WithDescription("Delete a folder, optionally cascading to nested files and subfolders");
 

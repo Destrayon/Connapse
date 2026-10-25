@@ -3,8 +3,10 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.OpenApi;
 
 namespace Connapse.Web.Endpoints;
 
@@ -12,7 +14,9 @@ public static class DocumentsEndpoints
 {
     public static IEndpointRouteBuilder MapDocumentsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/containers/{containerId:guid}/files").WithTags("Files");
+        var group = app.MapGroup("/api/containers/{containerId:guid}/files").WithTags("Files")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // POST /api/containers/{containerId}/files - Upload file(s) to container
         group.MapPost("/", async (
@@ -25,12 +29,12 @@ public static class DocumentsEndpoints
             CancellationToken ct) =>
         {
             if (files.Count == 0)
-                return Results.BadRequest(new { error = "No files provided" });
+                return ApiProblem.BadRequest("No files provided");
 
             foreach (var f in files)
             {
                 if (f.FileName.Length > ValidationConstants.MaxFileNameLength)
-                    return Results.BadRequest(new { error = "filename_too_long", message = $"Filename '{f.FileName[..50]}...' exceeds {ValidationConstants.MaxFileNameLength} characters." });
+                    return ApiProblem.BadRequest("filename_too_long", $"Filename '{f.FileName[..50]}...' exceeds {ValidationConstants.MaxFileNameLength} characters.");
             }
 
             var userId = GetUserId(httpContext);
@@ -66,7 +70,7 @@ public static class DocumentsEndpoints
                 {
                     var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
                     var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
-                    return Results.BadRequest(new { error = "unsupported_file_type", message = $"File type '{ext}' is not supported. Supported types: {supported}" });
+                    return ApiProblem.BadRequest("unsupported_file_type", $"File type '{ext}' is not supported. Supported types: {supported}");
                 }
             }
 
@@ -113,6 +117,9 @@ public static class DocumentsEndpoints
             }
         })
         .DisableAntiforgery()
+        .Produces<UploadResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("UploadFiles")
         .WithDescription("Upload one or more files to a container")
         .RequireAuthorization("RequireEditor");
@@ -136,7 +143,7 @@ public static class DocumentsEndpoints
 
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var browsePath = PathUtilities.NormalizeFolderPath(path ?? "/");
             var entries = new List<BrowseEntry>();
@@ -190,6 +197,9 @@ public static class DocumentsEndpoints
 
             return Results.Ok(new PagedResponse<BrowseEntry>(paged, totalCount, hasMore));
         })
+        .Produces<PagedResponse<BrowseEntry>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("ListFiles")
         .WithDescription("List files and folders at a path within a container (?skip=0&take=50)")
         .RequireAuthorization("RequireViewer");
@@ -206,15 +216,17 @@ public static class DocumentsEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString()
                 || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document, ct))
-                return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
+                return ApiProblem.NotFound($"File {fileId} not found in container {containerId}");
 
             return Results.Ok(document);
         })
+        .Produces<Document>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetFile")
         .WithDescription("Get file details including indexing status")
         .RequireAuthorization("RequireViewer");
@@ -234,11 +246,11 @@ public static class DocumentsEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
-                return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
+                return ApiProblem.NotFound($"File {fileId} not found in container {containerId}");
 
             // Cancel any in-flight ingestion job for this document
             await ingestionQueue.CancelJobForDocumentAsync(fileId);
@@ -263,6 +275,8 @@ public static class DocumentsEndpoints
 
             return Results.NoContent();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("DeleteFile")
         .WithDescription("Delete a file and all associated chunks and vectors")
         .RequireAuthorization("RequireEditor");
@@ -281,20 +295,20 @@ public static class DocumentsEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString()
                 || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document, ct))
-                return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
+                return ApiProblem.NotFound($"File {fileId} not found in container {containerId}");
 
             document.Metadata.TryGetValue("Status", out var status);
             if (status is "Pending" or "Processing" or "Queued")
-                return Results.BadRequest(new { error = "document_not_ready", message = $"Document is still being ingested (status: {status})" });
+                return ApiProblem.BadRequest("document_not_ready", $"Document is still being ingested (status: {status})");
             if (status == "Failed")
             {
                 document.Metadata.TryGetValue("ErrorMessage", out var errorMsg);
-                return Results.BadRequest(new { error = "document_failed", message = $"Document failed ingestion: {errorMsg ?? "unknown error"}" });
+                return ApiProblem.BadRequest("document_failed", $"Document failed ingestion: {errorMsg ?? "unknown error"}");
             }
 
             // Read file content from storage
@@ -331,7 +345,7 @@ public static class DocumentsEndpoints
                     {
                         var parser = parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
                         if (parser is null)
-                            return Results.BadRequest(new { error = "no_parser", message = $"No parser available for '{extension}' files" });
+                            return ApiProblem.BadRequest("no_parser", $"No parser available for '{extension}' files");
 
                         var parsed = await parser.ParseAsync(stream, document.FileName, ct);
                         content = parsed.Content;
@@ -344,7 +358,7 @@ public static class DocumentsEndpoints
             }
             catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException)
             {
-                return Results.NotFound(new { error = "file_not_readable", message = "The backing file could not be read from storage" });
+                return ApiProblem.NotFound("file_not_readable", "The backing file could not be read from storage");
             }
             finally
             {
@@ -358,17 +372,26 @@ public static class DocumentsEndpoints
                 return Results.Text(content, "text/plain");
             }
 
-            return Results.Ok(new
-            {
-                documentId = document.Id,
-                fileName = document.FileName,
-                path = document.Path,
-                contentType = document.ContentType,
-                sizeBytes = document.SizeBytes,
-                createdAt = document.CreatedAt,
-                content
-            });
+            return Results.Ok(new FileContentResponse(
+                document.Id,
+                document.FileName,
+                document.Path,
+                document.ContentType,
+                document.SizeBytes,
+                document.CreatedAt,
+                content));
         })
+        .Produces<FileContentResponse>()
+        // Accept: text/plain gets the text alone. A second Produces for the same status would replace
+        // the JSON one, so the plain-text form is added to the document's 200 instead.
+        .AddOpenApiOperationTransformer((operation, _, _) =>
+        {
+            if (operation.Responses?.TryGetValue("200", out var ok) == true && ok.Content is not null)
+                ok.Content["text/plain"] = new OpenApiMediaType { Schema = new OpenApiSchema { Type = JsonSchemaType.String } };
+            return Task.CompletedTask;
+        })
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetFileContent")
         .WithDescription("Get the full text content of a file. Supports Accept: text/plain for raw text or application/json for structured response.")
         .RequireAuthorization("RequireViewer");
@@ -382,22 +405,22 @@ public static class DocumentsEndpoints
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var check = await reindexService.CheckDocumentAsync(fileId, ct);
-            return Results.Ok(new
-            {
-                documentId = check.DocumentId,
-                needsReindex = check.NeedsReindex,
-                reason = check.Reason.ToString(),
-                currentHash = check.CurrentHash,
-                storedHash = check.StoredHash,
-                currentChunkingStrategy = check.CurrentChunkingStrategy,
-                storedChunkingStrategy = check.StoredChunkingStrategy,
-                currentEmbeddingModel = check.CurrentEmbeddingModel,
-                storedEmbeddingModel = check.StoredEmbeddingModel
-            });
+            return Results.Ok(new FileReindexCheckResponse(
+                check.DocumentId,
+                check.NeedsReindex,
+                check.Reason.ToString(),
+                check.CurrentHash,
+                check.StoredHash,
+                check.CurrentChunkingStrategy,
+                check.StoredChunkingStrategy,
+                check.CurrentEmbeddingModel,
+                check.StoredEmbeddingModel));
         })
+        .Produces<FileReindexCheckResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("CheckFileReindex")
         .WithDescription("Check if a specific file needs reindexing and why")
         .RequireAuthorization("RequireViewer");
@@ -417,16 +440,16 @@ public static class DocumentsEndpoints
     private static IResult MapUploadError(string error)
     {
         if (error.Contains("not found", StringComparison.OrdinalIgnoreCase))
-            return Results.NotFound(new { error = error });
+            return ApiProblem.NotFound(error);
         if (error.Contains("read-only", StringComparison.OrdinalIgnoreCase))
-            return Results.BadRequest(new { error = "write_denied", message = error });
+            return ApiProblem.BadRequest("write_denied", error);
         if (error.Contains("access denied", StringComparison.OrdinalIgnoreCase) || error.Contains("cloud identity", StringComparison.OrdinalIgnoreCase))
-            return Results.Json(new { error = "cloud_access_denied", message = error }, statusCode: 403);
+            return ApiProblem.Forbidden("cloud_access_denied", error);
         if (error.Contains("Unsupported file extension", StringComparison.OrdinalIgnoreCase))
-            return Results.BadRequest(new { error = "unsupported_file_type", message = error });
+            return ApiProblem.BadRequest("unsupported_file_type", error);
         if (error.Contains($"{ValidationConstants.MaxFileNameLength} characters", StringComparison.OrdinalIgnoreCase))
-            return Results.BadRequest(new { error = "filename_too_long", message = error });
-        return Results.BadRequest(new { error = error });
+            return ApiProblem.BadRequest("filename_too_long", error);
+        return ApiProblem.BadRequest(error);
     }
 
     private static Guid? GetUserId(HttpContext httpContext)
@@ -450,6 +473,26 @@ public record UploadedDocumentResponse(
     long SizeBytes,
     string Path,
     string? Error = null);
+
+public record FileContentResponse(
+    string DocumentId,
+    string FileName,
+    string Path,
+    string? ContentType,
+    long SizeBytes,
+    DateTime CreatedAt,
+    string Content);
+
+public record FileReindexCheckResponse(
+    string DocumentId,
+    bool NeedsReindex,
+    string Reason,
+    string? CurrentHash,
+    string? StoredHash,
+    string? CurrentChunkingStrategy,
+    string? StoredChunkingStrategy,
+    string? CurrentEmbeddingModel,
+    string? StoredEmbeddingModel);
 
 public record BrowseEntry(
     string Name,
