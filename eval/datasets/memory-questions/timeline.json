@@ -1,0 +1,1287 @@
+{
+ "HAL": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "MariaDB 11",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-24",
+    "value": "MySQL 8.0",
+    "ticket": "HAL-19"
+   },
+   {
+    "from": "2026-04-08",
+    "value": "MariaDB 11",
+    "ticket": "HAL-21"
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "ca-central-1",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-03",
+    "value": "us-west-2",
+    "ticket": "HAL-20"
+   },
+   {
+    "from": "2026-06-23",
+    "value": "eu-west-1",
+    "ticket": "HAL-27"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Tamsin Quarrell",
+    "ticket": null
+   },
+   {
+    "from": "2026-06-13",
+    "value": "Ines Coldwater",
+    "ticket": "HAL-25"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "GitHub Actions",
+    "ticket": null
+   },
+   {
+    "from": "2026-06-20",
+    "value": "GitLab CI",
+    "ticket": "HAL-26"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "Memcached 1.6",
+    "ticket": null
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "1000 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-05-06",
+    "value": "100 requests/minute",
+    "ticket": "HAL-23"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#hal-oncall",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-17",
+    "value": "#hal-alerts",
+    "ticket": "HAL-16"
+   },
+   {
+    "from": "2026-04-22",
+    "value": "#hal-oncall",
+    "ticket": "HAL-22"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v0.3.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-21",
+    "value": "v1.0.0",
+    "ticket": "HAL-17"
+   },
+   {
+    "from": "2026-02-21",
+    "value": "v1.1.0",
+    "ticket": "HAL-18"
+   },
+   {
+    "from": "2026-05-16",
+    "value": "v1.2.0",
+    "ticket": "HAL-24"
+   }
+  ]
+ },
+ "BRM": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "MySQL 8.0",
+    "ticket": null
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "ca-central-1",
+    "ticket": null
+   },
+   {
+    "from": "2026-05-30",
+    "value": "us-east-2",
+    "ticket": "BRM-11"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Caspian Oduya",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-17",
+    "value": "Ilario Brandtmoss",
+    "ticket": "BRM-7"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "GitHub Actions",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-08",
+    "value": "GitLab CI",
+    "ticket": "BRM-6"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "Redis 7",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-03",
+    "value": "Valkey 8",
+    "ticket": "BRM-5"
+   },
+   {
+    "from": "2026-06-01",
+    "value": "Redis 7",
+    "ticket": "BRM-12"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "1000 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-23",
+    "value": "100 requests/minute",
+    "ticket": "BRM-9"
+   },
+   {
+    "from": "2026-06-21",
+    "value": "250 requests/minute",
+    "ticket": "BRM-13"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#brm-pager",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-16",
+    "value": "#brm-oncall",
+    "ticket": "BRM-4"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v1.5.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-22",
+    "value": "v1.6.0",
+    "ticket": "BRM-8"
+   },
+   {
+    "from": "2026-04-29",
+    "value": "v2.0.0",
+    "ticket": "BRM-10"
+   },
+   {
+    "from": "2026-06-24",
+    "value": "v2.1.0",
+    "ticket": "BRM-14"
+   }
+  ]
+ },
+ "QFT": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "MariaDB 11",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-18",
+    "value": "CockroachDB 23.2",
+    "ticket": "QFT-18"
+   },
+   {
+    "from": "2026-05-12",
+    "value": "PostgreSQL 15",
+    "ticket": "QFT-25"
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "us-west-2",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-13",
+    "value": "eu-central-1",
+    "ticket": "QFT-17"
+   },
+   {
+    "from": "2026-04-29",
+    "value": "us-west-2",
+    "ticket": "QFT-23"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Signe Morrow-Dale",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-14",
+    "value": "Caspian Oduya",
+    "ticket": "QFT-22"
+   },
+   {
+    "from": "2026-05-19",
+    "value": "Marisol Ternby",
+    "ticket": "QFT-26"
+   },
+   {
+    "from": "2026-06-16",
+    "value": "Teodor Klyne",
+    "ticket": "QFT-29"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "CircleCI",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-24",
+    "value": "GitHub Actions",
+    "ticket": "QFT-20"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "no cache",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-01",
+    "value": "Redis 7",
+    "ticket": "QFT-21"
+   },
+   {
+    "from": "2026-05-30",
+    "value": "no cache",
+    "ticket": "QFT-27"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "250 requests/minute",
+    "ticket": null
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#qft-pager",
+    "ticket": null
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v2.6.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-01",
+    "value": "v2.7.0",
+    "ticket": "QFT-16"
+   },
+   {
+    "from": "2026-03-16",
+    "value": "v2.8.0",
+    "ticket": "QFT-19"
+   },
+   {
+    "from": "2026-05-01",
+    "value": "v2.9.0",
+    "ticket": "QFT-24"
+   },
+   {
+    "from": "2026-06-03",
+    "value": "v2.10.0",
+    "ticket": "QFT-28"
+   }
+  ]
+ },
+ "MRW": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "PostgreSQL 15",
+    "ticket": null
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "eu-west-1",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-22",
+    "value": "ca-central-1",
+    "ticket": "MRW-12"
+   },
+   {
+    "from": "2026-03-08",
+    "value": "us-west-2",
+    "ticket": "MRW-14"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Priya Laskin",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-19",
+    "value": "Anouk Vasquell",
+    "ticket": "MRW-11"
+   },
+   {
+    "from": "2026-05-31",
+    "value": "Teodor Klyne",
+    "ticket": "MRW-21"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "GitLab CI",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-26",
+    "value": "Jenkins",
+    "ticket": "MRW-9"
+   },
+   {
+    "from": "2026-04-25",
+    "value": "GitLab CI",
+    "ticket": "MRW-17"
+   },
+   {
+    "from": "2026-05-23",
+    "value": "CircleCI",
+    "ticket": "MRW-20"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "Valkey 8",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-16",
+    "value": "no cache",
+    "ticket": "MRW-6"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "100 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-26",
+    "value": "500 requests/minute",
+    "ticket": "MRW-10"
+   },
+   {
+    "from": "2026-05-13",
+    "value": "1000 requests/minute",
+    "ticket": "MRW-18"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#mrw-oncall",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-23",
+    "value": "#mrw-alerts",
+    "ticket": "MRW-8"
+   },
+   {
+    "from": "2026-03-16",
+    "value": "#mrw-oncall",
+    "ticket": "MRW-15"
+   },
+   {
+    "from": "2026-05-21",
+    "value": "#mrw-pager",
+    "ticket": "MRW-19"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v2.6.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-19",
+    "value": "v2.7.0",
+    "ticket": "MRW-7"
+   },
+   {
+    "from": "2026-02-27",
+    "value": "v2.8.0",
+    "ticket": "MRW-13"
+   },
+   {
+    "from": "2026-04-11",
+    "value": "v2.9.0",
+    "ticket": "MRW-16"
+   }
+  ]
+ },
+ "TDW": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "PostgreSQL 16",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-08",
+    "value": "SQLite 3.45",
+    "ticket": "TDW-26"
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "ap-southeast-1",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-16",
+    "value": "us-west-2",
+    "ticket": "TDW-27"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Ilario Brandtmoss",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-02",
+    "value": "Marisol Ternby",
+    "ticket": "TDW-22"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "GitLab CI",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-24",
+    "value": "CircleCI",
+    "ticket": "TDW-19"
+   },
+   {
+    "from": "2026-04-27",
+    "value": "GitLab CI",
+    "ticket": "TDW-30"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "Valkey 8",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-26",
+    "value": "no cache",
+    "ticket": "TDW-21"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "250 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-25",
+    "value": "100 requests/minute",
+    "ticket": "TDW-20"
+   },
+   {
+    "from": "2026-02-14",
+    "value": "250 requests/minute",
+    "ticket": "TDW-24"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#tdw-alerts",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-08",
+    "value": "#tdw-pager",
+    "ticket": "TDW-23"
+   },
+   {
+    "from": "2026-04-14",
+    "value": "#platform-alerts",
+    "ticket": "TDW-29"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v2.2.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-22",
+    "value": "v2.3.0",
+    "ticket": "TDW-18"
+   },
+   {
+    "from": "2026-02-26",
+    "value": "v3.0.0",
+    "ticket": "TDW-25"
+   },
+   {
+    "from": "2026-04-01",
+    "value": "v3.1.0",
+    "ticket": "TDW-28"
+   },
+   {
+    "from": "2026-05-24",
+    "value": "v4.0.0",
+    "ticket": "TDW-31"
+   }
+  ]
+ },
+ "EMB": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "MariaDB 11",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-11",
+    "value": "SQLite 3.45",
+    "ticket": "EMB-22"
+   },
+   {
+    "from": "2026-03-20",
+    "value": "MySQL 8.0",
+    "ticket": "EMB-25"
+   },
+   {
+    "from": "2026-06-04",
+    "value": "CockroachDB 23.2",
+    "ticket": "EMB-32"
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "us-east-2",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-31",
+    "value": "ca-central-1",
+    "ticket": "EMB-20"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Signe Morrow-Dale",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-18",
+    "value": "Jonah Felgate",
+    "ticket": "EMB-23"
+   },
+   {
+    "from": "2026-05-22",
+    "value": "Signe Morrow-Dale",
+    "ticket": "EMB-30"
+   },
+   {
+    "from": "2026-06-25",
+    "value": "Haruki Belmonde",
+    "ticket": "EMB-34"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "GitLab CI",
+    "ticket": null
+   },
+   {
+    "from": "2026-05-06",
+    "value": "Jenkins",
+    "ticket": "EMB-28"
+   },
+   {
+    "from": "2026-06-10",
+    "value": "GitLab CI",
+    "ticket": "EMB-33"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "no cache",
+    "ticket": null
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "1000 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-09",
+    "value": "250 requests/minute",
+    "ticket": "EMB-21"
+   },
+   {
+    "from": "2026-04-21",
+    "value": "1000 requests/minute",
+    "ticket": "EMB-27"
+   },
+   {
+    "from": "2026-05-07",
+    "value": "500 requests/minute",
+    "ticket": "EMB-29"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#emb-oncall",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-17",
+    "value": "#emb-alerts",
+    "ticket": "EMB-26"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v1.7.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-12",
+    "value": "v1.8.0",
+    "ticket": "EMB-24"
+   },
+   {
+    "from": "2026-06-01",
+    "value": "v2.0.0",
+    "ticket": "EMB-31"
+   }
+  ]
+ },
+ "SLT": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "PostgreSQL 15",
+    "ticket": null
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "us-west-2",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-03",
+    "value": "ca-central-1",
+    "ticket": "SLT-18"
+   },
+   {
+    "from": "2026-04-19",
+    "value": "us-west-2",
+    "ticket": "SLT-23"
+   },
+   {
+    "from": "2026-05-13",
+    "value": "us-east-2",
+    "ticket": "SLT-25"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Anouk Vasquell",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-18",
+    "value": "Ines Coldwater",
+    "ticket": "SLT-21"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "Jenkins",
+    "ticket": null
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "Memcached 1.6",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-01",
+    "value": "Redis 7",
+    "ticket": "SLT-14"
+   },
+   {
+    "from": "2026-04-06",
+    "value": "Memcached 1.6",
+    "ticket": "SLT-20"
+   },
+   {
+    "from": "2026-04-30",
+    "value": "Valkey 8",
+    "ticket": "SLT-24"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "500 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-04",
+    "value": "100 requests/minute",
+    "ticket": "SLT-15"
+   },
+   {
+    "from": "2026-04-01",
+    "value": "250 requests/minute",
+    "ticket": "SLT-17"
+   },
+   {
+    "from": "2026-04-19",
+    "value": "100 requests/minute",
+    "ticket": "SLT-22"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#slt-oncall",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-06",
+    "value": "#slt-alerts",
+    "ticket": "SLT-16"
+   },
+   {
+    "from": "2026-06-20",
+    "value": "#slt-pager",
+    "ticket": "SLT-27"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v0.7.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-15",
+    "value": "v1.0.0",
+    "ticket": "SLT-13"
+   },
+   {
+    "from": "2026-04-04",
+    "value": "v2.0.0",
+    "ticket": "SLT-19"
+   },
+   {
+    "from": "2026-05-30",
+    "value": "v3.0.0",
+    "ticket": "SLT-26"
+   }
+  ]
+ },
+ "KST": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "MariaDB 11",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-10",
+    "value": "MySQL 8.0",
+    "ticket": "KST-17"
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "eu-central-1",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-27",
+    "value": "ca-central-1",
+    "ticket": "KST-15"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Haruki Belmonde",
+    "ticket": null
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "CircleCI",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-15",
+    "value": "Buildkite",
+    "ticket": "KST-9"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "Memcached 1.6",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-23",
+    "value": "Redis 7",
+    "ticket": "KST-13"
+   },
+   {
+    "from": "2026-05-10",
+    "value": "Valkey 8",
+    "ticket": "KST-19"
+   },
+   {
+    "from": "2026-06-03",
+    "value": "no cache",
+    "ticket": "KST-21"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "100 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-27",
+    "value": "250 requests/minute",
+    "ticket": "KST-14"
+   },
+   {
+    "from": "2026-06-18",
+    "value": "100 requests/minute",
+    "ticket": "KST-22"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#kst-pager",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-16",
+    "value": "#kst-alerts",
+    "ticket": "KST-10"
+   },
+   {
+    "from": "2026-05-07",
+    "value": "#kst-oncall",
+    "ticket": "KST-18"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v0.5.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-27",
+    "value": "v0.6.0",
+    "ticket": "KST-11"
+   },
+   {
+    "from": "2026-02-20",
+    "value": "v0.7.0",
+    "ticket": "KST-12"
+   },
+   {
+    "from": "2026-03-17",
+    "value": "v1.0.0",
+    "ticket": "KST-16"
+   },
+   {
+    "from": "2026-05-18",
+    "value": "v1.1.0",
+    "ticket": "KST-20"
+   }
+  ]
+ },
+ "ASH": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "PostgreSQL 16",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-28",
+    "value": "MariaDB 11",
+    "ticket": "ASH-19"
+   },
+   {
+    "from": "2026-04-24",
+    "value": "PostgreSQL 15",
+    "ticket": "ASH-26"
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "ca-central-1",
+    "ticket": null
+   },
+   {
+    "from": "2026-05-01",
+    "value": "us-east-2",
+    "ticket": "ASH-29"
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Ilario Brandtmoss",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-09",
+    "value": "Odessa Venn",
+    "ticket": "ASH-23"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "GitHub Actions",
+    "ticket": null
+   },
+   {
+    "from": "2026-03-19",
+    "value": "CircleCI",
+    "ticket": "ASH-21"
+   },
+   {
+    "from": "2026-04-07",
+    "value": "Buildkite",
+    "ticket": "ASH-22"
+   },
+   {
+    "from": "2026-04-28",
+    "value": "GitHub Actions",
+    "ticket": "ASH-28"
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "Memcached 1.6",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-25",
+    "value": "Valkey 8",
+    "ticket": "ASH-27"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "250 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-08",
+    "value": "1000 requests/minute",
+    "ticket": "ASH-18"
+   },
+   {
+    "from": "2026-03-12",
+    "value": "100 requests/minute",
+    "ticket": "ASH-20"
+   },
+   {
+    "from": "2026-06-12",
+    "value": "500 requests/minute",
+    "ticket": "ASH-32"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#ash-pager",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-11",
+    "value": "#ash-alerts",
+    "ticket": "ASH-24"
+   },
+   {
+    "from": "2026-06-11",
+    "value": "#ash-pager",
+    "ticket": "ASH-31"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v1.1.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-05",
+    "value": "v1.2.0",
+    "ticket": "ASH-17"
+   },
+   {
+    "from": "2026-04-17",
+    "value": "v1.3.0",
+    "ticket": "ASH-25"
+   },
+   {
+    "from": "2026-06-08",
+    "value": "v2.0.0",
+    "ticket": "ASH-30"
+   }
+  ]
+ },
+ "LNF": {
+  "database": [
+   {
+    "from": "2026-01-05",
+    "value": "MariaDB 11",
+    "ticket": null
+   },
+   {
+    "from": "2026-01-24",
+    "value": "PostgreSQL 15",
+    "ticket": "LNF-18"
+   },
+   {
+    "from": "2026-03-02",
+    "value": "MariaDB 11",
+    "ticket": "LNF-21"
+   },
+   {
+    "from": "2026-04-04",
+    "value": "PostgreSQL 15",
+    "ticket": "LNF-22"
+   }
+  ],
+  "region": [
+   {
+    "from": "2026-01-05",
+    "value": "us-west-2",
+    "ticket": null
+   }
+  ],
+  "lead": [
+   {
+    "from": "2026-01-05",
+    "value": "Haruki Belmonde",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-25",
+    "value": "Marisol Ternby",
+    "ticket": "LNF-19"
+   },
+   {
+    "from": "2026-05-06",
+    "value": "Ilario Brandtmoss",
+    "ticket": "LNF-25"
+   },
+   {
+    "from": "2026-06-20",
+    "value": "Haruki Belmonde",
+    "ticket": "LNF-30"
+   }
+  ],
+  "ci": [
+   {
+    "from": "2026-01-05",
+    "value": "GitLab CI",
+    "ticket": null
+   }
+  ],
+  "cache": [
+   {
+    "from": "2026-01-05",
+    "value": "no cache",
+    "ticket": null
+   },
+   {
+    "from": "2026-05-15",
+    "value": "Valkey 8",
+    "ticket": "LNF-26"
+   },
+   {
+    "from": "2026-06-16",
+    "value": "Redis 7",
+    "ticket": "LNF-29"
+   }
+  ],
+  "rate_limit": [
+   {
+    "from": "2026-01-05",
+    "value": "250 requests/minute",
+    "ticket": null
+   },
+   {
+    "from": "2026-02-27",
+    "value": "1000 requests/minute",
+    "ticket": "LNF-20"
+   },
+   {
+    "from": "2026-04-17",
+    "value": "500 requests/minute",
+    "ticket": "LNF-24"
+   }
+  ],
+  "alert": [
+   {
+    "from": "2026-01-05",
+    "value": "#lnf-oncall",
+    "ticket": null
+   },
+   {
+    "from": "2026-04-05",
+    "value": "#platform-alerts",
+    "ticket": "LNF-23"
+   },
+   {
+    "from": "2026-05-16",
+    "value": "#lnf-oncall",
+    "ticket": "LNF-27"
+   }
+  ],
+  "release": [
+   {
+    "from": "2026-01-05",
+    "value": "v0.2.0",
+    "ticket": null
+   },
+   {
+    "from": "2026-05-23",
+    "value": "v0.3.0",
+    "ticket": "LNF-28"
+   },
+   {
+    "from": "2026-06-20",
+    "value": "v0.4.0",
+    "ticket": "LNF-31"
+   }
+  ]
+ }
+}
