@@ -1,11 +1,15 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Connapse.Application;
 using Connapse.Application.Approvals;
 using Connapse.Core;
 using Connapse.Identity.Authentication;
+using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
@@ -78,6 +82,33 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task ContainerDelete_ApprovedForOneOAuthClient_AnotherClientOfTheSameUserStillWaits()
+    {
+        var http = fixture.AdminClient;
+        await using var asker = await OAuthClientAsync();
+        await using var other = await OAuthClientAsync();
+        string target = await CreateContainerAsync(http, "approval-client");
+        try
+        {
+            var call = new Dictionary<string, object?> { ["containerId"] = target };
+            Text(await asker.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
+            (await DecideAsync((await PendingForAsync("container_delete", target)).Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
+
+            Text(await other.CallToolAsync("container_delete", call)).Should().Contain("pending approval",
+                "the approval belongs to the client that asked for it, not to every client of its user");
+            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeTrue();
+
+            var ran = await asker.CallToolAsync("container_delete", call);
+            Text(ran).Should().NotContain("pending approval");
+            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeFalse("the asking client's approval still works");
+        }
+        finally
+        {
+            await http.DeleteAsync($"/api/containers/{target}");
+        }
+    }
+
     /// <summary>An administrator signed in to the UI in a browser, who may decide anyone's request.</summary>
     private static OperationContext Admin(OperationSurface surface, string authenticationType = "Identity.Application") => new(
         new ClaimsPrincipal(new ClaimsIdentity(
@@ -136,6 +167,50 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
             new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
             http,
             ownsHttpClient: true));
+    }
+
+    /// <summary>An MCP client holding an OAuth token that a newly registered client was issued for the administrator.</summary>
+    private async Task<McpClient> OAuthClientAsync()
+    {
+        const string redirect = "http://127.0.0.1:8765/callback";
+        using var anonymous = fixture.Factory.CreateClient();
+        using var registered = await anonymous.PostAsJsonAsync("/oauth/register",
+            new { client_name = $"approval-{Guid.NewGuid():N}", redirect_uris = new[] { redirect }, application_type = "native" });
+        registered.EnsureSuccessStatusCode();
+        string clientId = (await registered.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("client_id").GetString()!;
+        string verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        string code;
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            code = await scope.ServiceProvider.GetRequiredService<OAuthAuthCodeService>().CreateAsync(
+                AdminUserId(), clientId, Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(verifier))), redirect, "knowledge:read knowledge:write");
+        using var exchanged = await anonymous.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = code,
+            ["code_verifier"] = verifier,
+            ["redirect_uri"] = redirect,
+            ["client_id"] = clientId,
+        }));
+        exchanged.EnsureSuccessStatusCode();
+
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            (await exchanged.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("access_token").GetString());
+        return await McpClient.CreateAsync(new HttpClientTransport(
+            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
+            http,
+            ownsHttpClient: true));
+    }
+
+    private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private Guid AdminUserId()
+    {
+        var token = new JwtSecurityTokenHandler().ReadJwtToken(fixture.AdminToken);
+        string? sub = token.Claims.FirstOrDefault(c =>
+            c.Type is "sub" or "nameid" or "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+        Guid.TryParse(sub, out Guid id).Should().BeTrue();
+        return id;
     }
 
     private static string Text(CallToolResult result) =>
