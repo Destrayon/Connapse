@@ -165,8 +165,9 @@ jobs:
       id: base
       if: github.event_name == 'pull_request'
       run: |
-        if git show "origin/${{ github.base_ref }}:docs/api/openapi.json" > "$RUNNER_TEMP/base-openapi.json" 2>/dev/null; then
-          echo "path=$RUNNER_TEMP/base-openapi.json" >> "$GITHUB_OUTPUT"
+        # In the workspace: oasdiff runs in a Docker container that sees only the workspace.
+        if git show "origin/${{ github.base_ref }}:docs/api/openapi.json" > base-openapi.json 2>/dev/null; then
+          echo "path=base-openapi.json" >> "$GITHUB_OUTPUT"
         else
           echo "::notice::${{ github.base_ref }} has no committed spec yet, so there is nothing to break"
         fi
