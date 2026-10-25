@@ -326,10 +326,15 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         List<SearchHit> hits = [.. Enumerable.Range(0, 10).Select(i => new SearchHit($"c{i}", "p1", "", 1f, []))];
         hits.AddRange([Hit("p2", AtlassianUri.ForPage(CloudId, "2")), Hit("p3", AtlassianUri.ForPage(CloudId, "3")),
             Hit("p4", AtlassianUri.ForPage(CloudId, "4"))]);
-        // Every check takes two seconds against the default three-second budget and ten slots.
-        var slow = new DelayingHandler(_api, TimeSpan.FromSeconds(2));
+        // Every check takes 3 s, with four slots and a 5.5 s budget. The four distinct pages fill the
+        // slots once: about 3 s, leaving 2.5 s for a loaded machine. Checked once per chunk, page 1's
+        // chunks take the first round and pages 2 to 4 a second (the cache answers page 1's other
+        // chunks), and one page at a time takes four rounds: at least 6 s either way, past the budget
+        // however fast the machine. Load only makes those slower (CON-83).
+        var slow = new DelayingHandler(_api, TimeSpan.FromSeconds(3));
 
-        var result = await NewVerifier(slow).VerifyAsync(hits, _user, 10);
+        var result = await NewVerifier(slow, new AtlassianVerifierSettings { MaxParallelism = 4, BudgetMs = 5500 })
+            .VerifyAsync(hits, _user, 10);
 
         result.Select(h => h.ChunkId).Should().Equal(hits.Select(h => h.ChunkId));
     }
