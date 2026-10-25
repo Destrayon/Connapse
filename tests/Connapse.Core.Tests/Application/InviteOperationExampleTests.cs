@@ -180,6 +180,21 @@ public class InviteOperationExampleTests
         _audit.ReceivedCalls().Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Create_ThePolicyRefusesAtTheWrite_IsForbiddenWithoutAToken()
+    {
+        // The policy allowed the inviter when asked, then refused at the write: the Owner lost the role meanwhile, say.
+        PolicyAllows(true);
+        StoreAnswers(InviteWrite.Forbidden);
+
+        var created = await CreateAsync(Caller(), "a@example.com", "Admin");
+
+        created.Status.Should().Be(InviteStatus.Forbidden);
+        created.Detail.Should().Be("Only the Owner can invite users with the Admin role.");
+        created.Result.Should().BeNull();
+        _audit.ReceivedCalls().Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData(InviteWrite.UserExists, InviteStatus.UserExists, "A user with email 'a@example.com' already exists.")]
     [InlineData(InviteWrite.PendingExists, InviteStatus.InvitePending, "A pending invitation for 'a@example.com' already exists.")]

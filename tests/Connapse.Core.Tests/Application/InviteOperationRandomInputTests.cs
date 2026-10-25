@@ -94,7 +94,7 @@ public class InviteOperationRandomInputTests
                 InviteStatus expected =
                     !admin || !scope ? InviteStatus.Forbidden
                     : !validEmail || canonical is null ? InviteStatus.InvalidInvite
-                    : !mayInvite ? InviteStatus.Forbidden
+                    : !mayInvite || store == InviteWrite.Forbidden ? InviteStatus.Forbidden
                     : store == InviteWrite.UserExists ? InviteStatus.UserExists
                     : store == InviteWrite.PendingExists ? InviteStatus.InvitePending
                     : InviteStatus.Success;

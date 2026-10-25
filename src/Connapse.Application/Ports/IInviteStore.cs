@@ -16,6 +16,9 @@ public enum InviteWrite
 
     /// <summary>That email already has a pending invitation; nothing was made.</summary>
     PendingExists,
+
+    /// <summary>The instance's invite policy refused the inviter at the write itself; nothing was made.</summary>
+    Forbidden,
 }
 
 /// <summary>
