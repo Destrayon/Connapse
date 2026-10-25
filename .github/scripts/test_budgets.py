@@ -14,6 +14,11 @@ factor. One that slows every test alike reads as a slower runner, so the factor 
 MAX_FACTOR, a little above the slowest runner seen: no run reads as more than that much faster
 than its wall, and a broad slowdown still fails once it passes that.
 
+A factor below 1 is read as 1, so a fast runner is held to its raw wall (CON-90). About 4 s of the
+wall (starting dotnet test and the test hosts, finding the assemblies) doesn't shrink on a fast
+runner, so dividing the whole wall by a low factor inflated it: #931's 14 s on a 0.45x runner read
+as 31.2 s and failed. No run under the limit is pushed over it.
+
 Usage:
   test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds 22 --max-wall-seconds 30 \
       --reference .github/test-timings/small-reference.json
@@ -61,6 +66,10 @@ MIN_MATCHED_SHARE = 0.8
 # The slowest of the runs the reference came from was 1.26x a median runner (CON-87). A factor above
 # this is read as this: past it, slower tests are the code's, not the runner's.
 MAX_FACTOR = 1.5
+
+# A faster runner than the reference's is read as the reference's: the fixed part of its wall would
+# otherwise be scaled up with the rest (CON-90).
+MIN_FACTOR = 1.0
 
 # A reference is a median runner's only if it comes from several runners.
 MIN_REFERENCE_RUNS = 5
@@ -184,8 +193,9 @@ def main(argv: list[str] | None = None) -> int:
                                     f"the runner's speed; refresh it with --write-reference from recent runs' artifacts")
                     wall = None
                 else:
-                    capped = min(factor, MAX_FACTOR)
-                    note = f", capped at {MAX_FACTOR:g}" if capped < factor else ""
+                    capped = min(max(factor, MIN_FACTOR), MAX_FACTOR)
+                    note = (f", capped at {MAX_FACTOR:g}" if capped < factor
+                            else f", read as {MIN_FACTOR:g}" if capped > factor else "")
                     print(f"{a.tier} runner factor {factor:.2f}{note} over {matched} reference tests: "
                           f"{a.wall_seconds:g} s wall is {a.wall_seconds / capped:.1f} s on a median runner")
                     wall, on = a.wall_seconds / capped, "on a median runner"
