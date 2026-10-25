@@ -2,11 +2,13 @@
 
     python -I baseline.py <dataset-dir> <longmemeval_s_cleaned.json> <out.json>
 
-A plain-notes memory is a folder of dated notes and a keyword search over them: no notion of which
-note is newer, which fact superseded which, or what date a question asks about. For each question, all
-notes (every project's) are ranked by BM25 against the question text.
+A plain-notes memory is a project's folder of dated notes and a keyword search over it: no notion of
+which note is newer, which fact superseded which, or what date a question asks about. For each
+question, its project's notes are ranked by BM25 against the question text.
 
-- hit@1, hit@5: an evidence note (one that holds the answer) is ranked first, or in the top five.
+- hit@1, hit@5: an evidence note (one that holds the answer) is ranked first, or in the top five. For
+  a changed question, every change in the window must have one of its notes there; a window with no
+  changes has nothing to find and isn't scored.
 - answer: what a reader of the ranked notes would answer, read mechanically from the first note that
   names a value of the asked fact. For current and as_of, the value the note names last (in "from A to
   B", B). For when, that note's date; for ticket, the first ticket id in the note naming the value.
@@ -62,7 +64,8 @@ def main() -> int:
     notes = [json.loads(line) for line in (root / "notes.jsonl").read_text(encoding="utf-8").splitlines()]
     questions = [json.loads(line) for line in (root / "questions.jsonl").read_text(encoding="utf-8").splitlines()]
     timeline = json.loads((root / "timeline.json").read_text(encoding="utf-8"))
-    index = Bm25([n["text"] for n in notes])
+    by_project = {c: [n for n in notes if n["code"] == c] for c in {n["code"] for n in notes}}
+    indexes = {c: Bm25([n["text"] for n in ns]) for c, ns in by_project.items()}
     fact_of = {"database": "database", "deploy region": "region", "tech lead": "lead", "CI system": "ci", "cache": "cache",
                "public API rate limit": "rate_limit", "alert channel": "alert", "current release": "release"}
 
@@ -70,10 +73,13 @@ def main() -> int:
     for q in questions:
         if q["evidence"] == ["(none)"]:
             continue  # a window with no changes has no evidence note to find
-        ranked = [notes[i] for i in index.rank(q["question"])]
+        ranked = [by_project[q["code"]][i] for i in indexes[q["code"]].rank(q["question"])]
         ids = [n["note"] for n in ranked]
-        evidence = set(q["evidence"])
-        m = {"hit@1": float(ids[0] in evidence), "hit@5": float(bool(evidence & set(ids[:5])))}
+        if q["kind"] == "changed":
+            m = {f"hit@{k}": float(all(set(c["evidence"]) & set(ids[:k]) for c in q["answer"]["changes"])) for k in (1, 5)}
+        else:
+            evidence = set(q["evidence"])
+            m = {"hit@1": float(ids[0] in evidence), "hit@5": float(bool(evidence & set(ids[:5])))}
         noun = next((k for k in fact_of if f"'s {k}" in q["question"]), None)
         if noun and q["kind"] in ("current", "as_of", "when", "ticket"):
             values = {s["value"] for s in timeline[q["code"]][fact_of[noun]]}

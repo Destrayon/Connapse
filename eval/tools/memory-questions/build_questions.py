@@ -114,7 +114,8 @@ def main() -> int:
                 taken = sum(1 for x in segments if x["value"] == s["value"])
                 prev = segments[segments.index(s) - 1]["value"]
                 effect = {"fact": fact, "from": prev, "to": s["value"], "date": s["from"]}
-                evidence = mentions(code, s["ticket"], s["value"])
+                # Dated on or after the change: a plan note names the ticket and the value before it happens.
+                evidence = mentions(code, s["ticket"], s["value"], since=s["from"])
                 add("ticket_effect", f"What did {s['ticket']} change in {name}?", effect, evidence)
                 # A value the fact took twice has two answers, so it isn't asked about by value.
                 if taken == 1:
@@ -127,8 +128,11 @@ def main() -> int:
             b = a + timedelta(rng.randint(21, 56))
             changes = [{"fact": f, "from": segs[i - 1]["value"], "to": s["value"], "date": s["from"], "ticket": s["ticket"]}
                        for f, segs in facts.items() for i, s in enumerate(segs) if i and a.isoformat() <= s["from"] <= b.isoformat()]
-            evidence = sorted({n for c in changes for n in mentions(code, c["to"], on=c["date"])})
-            covered = all(mentions(code, c["to"], on=c["date"]) for c in changes)
+            # Each change carries its own evidence; the question is kept only when every change has some.
+            for c in changes:
+                c["evidence"] = mentions(code, c["to"], on=c["date"])
+            evidence = sorted({n for c in changes for n in c["evidence"]})
+            covered = all(c["evidence"] for c in changes)
             add("changed", f"What changed in {name}'s setup between {a.isoformat()} and {b.isoformat()}?",
                 {"changes": sorted(changes, key=lambda c: c["date"])}, evidence if covered and changes else (["(none)"] if not changes else []))
 
