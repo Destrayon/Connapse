@@ -46,5 +46,15 @@
   "users_setRoles/invalid/ui": "absent: the User management page changes only the users it lists, so it can't name one that doesn't exist",
   "users_setRoles/preflight/ui": "absent: the User management page offers only the roles a user can be given, never Owner",
   "users_delete/invalid/ui": "absent: the User management page deletes only the users it lists, so it can't name one that doesn't exist",
-  "users_delete/preflight/ui": "absent: the User management page offers no Delete on your own row or the Owner's"
+  "users_delete/preflight/ui": "absent: the User management page offers no Delete on your own row or the Owner's",
+  "invites_list/valid/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_list/under-scoped/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_create/valid/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_create/invalid/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_create/under-scoped/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_create/preflight/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_revoke/valid/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_revoke/invalid/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_revoke/under-scoped/mcp": "absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "invites_revoke/invalid/ui": "absent: the User management page revokes only the invites it lists, so it can't name one that doesn't exist"
 }

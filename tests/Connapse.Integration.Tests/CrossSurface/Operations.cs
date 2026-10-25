@@ -93,7 +93,7 @@ public static partial class Operations
     private const string Query = "harness";
 
     /// <summary>Every operation: the container ones here, and the file and search ones in Operations.Files.cs.</summary>
-    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations, .. SourceOperations, .. UserOperations];
+    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations, .. SourceOperations, .. UserOperations, .. InviteOperations];
 
     private static readonly Operation[] ContainerOperations =
     [
@@ -277,6 +277,7 @@ public static partial class Operations
             await CleanupSourceAsync(fixture, source);
         if (c.User is { } user)
             await CleanupUserAsync(fixture, user);
+        await CleanupInvitesAsync(fixture, c);
         IReadOnlyList<Connapse.Core.Document> documents;
         foreach (string name in new[] { c.ContainerName, NewName(c, Case.Valid), NewName(c, Case.UnderScoped) })
         {
