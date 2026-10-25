@@ -90,12 +90,26 @@ class SmallWall(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("refresh", out)
 
-    def test_a_real_slowdown_on_a_fast_runner_fails_though_its_raw_wall_is_under(self):
-        # A fast runner (0.6x) whose run took 25 s: 41.7 s on a median runner. The raw check passed this.
-        with tier(scaled(0.6)):
-            code, out = run("--wall-seconds", "25", "--max-wall-seconds", "30", "--reference", "reference.json")
+    def test_a_fast_runner_is_read_on_its_raw_wall(self):
+        # #931's run 40215004273: 14 s on a 0.45x runner read as 31.2 s and failed (CON-90). About 4 s of
+        # the wall doesn't shrink on a fast runner, so dividing all of it by the factor inflates it.
+        with tier(scaled(0.45)):
+            code, out = run("--wall-seconds", "14", "--max-wall-seconds", "30", "--reference", "reference.json")
+        self.assertEqual(code, 0, out)
+        self.assertIn("14.0 s", out)
+
+    def test_a_fast_runner_under_the_limit_never_reads_as_over_it(self):
+        for factor in (0.3, 0.45, 0.6, 0.9, 0.99):
+            for wall in (14, 25, 30):
+                with self.subTest(factor=factor, wall=wall), tier(scaled(factor)):
+                    code, out = run("--wall-seconds", str(wall), "--max-wall-seconds", "30", "--reference", "reference.json")
+                    self.assertEqual(code, 0, out)
+
+    def test_a_fast_runner_over_the_limit_still_fails(self):
+        with tier(scaled(0.45)):
+            code, out = run("--wall-seconds", "31", "--max-wall-seconds", "30", "--reference", "reference.json")
         self.assertEqual(code, 1, out)
-        self.assertIn("41.7 s", out)
+        self.assertIn("31.0 s", out)
 
     def test_a_slower_start_on_a_median_runner_fails(self):
         with tier(scaled(1.0)):
