@@ -106,10 +106,10 @@ public static partial class Operations
                 IElement? Open() => page.FindAll("button.btn-primary").FirstOrDefault(b => b.TextContent.Contains("Container", StringComparison.Ordinal));
                 if (Open() is null)
                     return "error:forbidden";
-                await ClickAsync(() => Open()!);
+                await ClickAsync(page, () => Open()!);
                 page.Find("input[placeholder='my-project']").Input(NewName(c, k));
                 page.Find("input[placeholder='What is this container for?']").Change("made here");
-                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-primary"));
+                await ClickAsync(page, () => page.Find(".modal-footer-custom button.btn-primary"));
                 return DialogResult(page);
             },
             Project: (sp, c) => ContainerByNameAsync(sp, NewName(c, Case.Valid), NewName(c, Case.Invalid), NewName(c, Case.UnderScoped))),
@@ -153,8 +153,8 @@ public static partial class Operations
                     return "error:not_found";
                 if (Card()!.QuerySelector(".container-delete-btn") is null)
                     return "error:forbidden";
-                await ClickAsync(() => Card()!.QuerySelector(".container-delete-btn")!);
-                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-danger"));
+                await ClickAsync(page, () => Card()!.QuerySelector(".container-delete-btn")!);
+                await ClickAsync(page, () => page.Find(".modal-footer-custom button.btn-danger"));
                 return DialogResult(page);
             },
             Project: (sp, c) => ContainerByNameAsync(sp, c.ContainerName)),
@@ -287,25 +287,14 @@ public static partial class Operations
     // ── Surface helpers ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Clicks an element found afresh on each try. A page that re-renders by itself (the file
-    /// browser refreshes ingestion status) can drop the handler of an element found a moment
-    /// before, which bUnit reports as an unknown event handler.
+    /// Finds an element and clicks it in one step on the renderer's thread, so no render can come
+    /// between the two. A page that re-renders by itself (the file browser refreshes ingestion
+    /// status) otherwise drops the handler of an element found a moment before, which bUnit reports
+    /// as an unknown event handler; retrying lost that race too while files were still ingesting (#900).
     /// </summary>
-    internal static async Task ClickAsync(Func<IElement> find)
-    {
-        for (int attempt = 1; ; attempt++)
-        {
-            try
-            {
-                await find().ClickAsync(new());
-                return;
-            }
-            catch (Bunit.Rendering.UnknownEventHandlerIdException) when (attempt < 5)
-            {
-                // Re-rendered between finding and clicking: find it again.
-            }
-        }
-    }
+    internal static Task ClickAsync<T>(IRenderedComponent<T> page, Func<IElement> find)
+        where T : Microsoft.AspNetCore.Components.IComponent =>
+        page.InvokeAsync(() => find().ClickAsync(new()));
 
     private static async Task<string?> McpAsync(SharedWebAppFixture fixture, Principal principal, string tool,
         Dictionary<string, object?> arguments, Func<string, string>? payload = null)

@@ -88,7 +88,7 @@ public static partial class Operations
                 if (page.FindAll(".alert-danger").FirstOrDefault() is { } loadError)
                     return Surfaces.ErrorKind(loadError.TextContent.Trim());
                 page.Find("#source-name").Change(UpdateName(c, k));
-                await ClickAsync(() => page.Find("button.btn-primary"));
+                await ClickAsync(page, () => page.Find("button.btn-primary"));
                 // A blank name is refused beside the field, before anything is sent.
                 page.WaitForAssertion(() => page.FindAll(".alert-success, .alert-danger, #source-name-error").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 return page.FindAll(".alert-danger, #source-name-error").FirstOrDefault() is { } alert ? Surfaces.ErrorKind(alert.TextContent.Trim()) : "ok";
@@ -115,10 +115,10 @@ public static partial class Operations
                     return error;
                 if (page.FindAll("button.btn-primary").FirstOrDefault(b => b.TextContent.Contains("New source", StringComparison.Ordinal)) is null)
                     return "error:forbidden";
-                await ClickAsync(() => page.FindAll("button.btn-primary").First(b => b.TextContent.Contains("New source", StringComparison.Ordinal)));
+                await ClickAsync(page, () => page.FindAll("button.btn-primary").First(b => b.TextContent.Contains("New source", StringComparison.Ordinal)));
                 page.Find("#source-connection").Change(c.Source!.ConnectionId.ToString());
                 page.Find("#source-name").Change(NewSourceName(c, k));
-                await ClickAsync(() => page.FindAll("#new-source-dialog button.btn-primary").First(b => b.TextContent.Contains("Create source", StringComparison.Ordinal)));
+                await ClickAsync(page, () => page.FindAll("#new-source-dialog button.btn-primary").First(b => b.TextContent.Contains("Create source", StringComparison.Ordinal)));
                 page.WaitForAssertion(() => (page.FindAll("#new-source-dialog").Count == 0
                     || page.FindAll("#new-source-dialog .alert-danger").Count > 0).Should().BeTrue(), TimeSpan.FromSeconds(10));
                 return page.FindAll("#new-source-dialog .alert-danger").FirstOrDefault() is { } alert
@@ -150,11 +150,11 @@ public static partial class Operations
                     return SourcesPageError(page) ?? "error:not_found";
                 if (RowButton(page, c, "Delete") is null)
                     return "error:forbidden";
-                await ClickAsync(() => RowButton(page, c, "Delete")!);
+                await ClickAsync(page, () => RowButton(page, c, "Delete")!);
                 page.Find("#delete-source-confirm").Input(k == Case.Invalid ? "not-the-name" : c.Source!.Name);
                 if (page.Find("#delete-source-submit").HasAttribute("disabled"))
                     return "error:validation";
-                await ClickAsync(() => page.Find("#delete-source-submit"));
+                await ClickAsync(page, () => page.Find("#delete-source-submit"));
                 page.WaitForAssertion(() => page.FindAll("#delete-source-dialog").Should().BeEmpty(), TimeSpan.FromSeconds(10));
                 return SourcesPageError(page) ?? "ok";
             },
@@ -180,7 +180,7 @@ public static partial class Operations
                     return error;
                 if (RowButton(page, c, "Pause syncing") is null)
                     return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
-                await ClickAsync(() => RowButton(page, c, "Pause syncing")!);
+                await ClickAsync(page, () => RowButton(page, c, "Pause syncing")!);
                 page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 return SourcesPageError(page) ?? "ok";
             },
@@ -206,7 +206,7 @@ public static partial class Operations
                     return error;
                 if (RowButton(page, c, "Sync") is null)
                     return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
-                await ClickAsync(() => RowButton(page, c, "Sync")!);
+                await ClickAsync(page, () => RowButton(page, c, "Sync")!);
                 page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(30));
                 return SourcesPageError(page) ?? "ok";
             },
@@ -237,7 +237,7 @@ public static partial class Operations
                     return error;
                 if (RowButton(page, c, "Retry failed") is null)
                     return SourceRow(page, c) is null ? "error:not_found" : "error:forbidden";
-                await ClickAsync(() => RowButton(page, c, "Retry failed")!);
+                await ClickAsync(page, () => RowButton(page, c, "Retry failed")!);
                 page.WaitForAssertion(() => page.FindAll("div.alert-dismissible").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 return SourcesPageError(page) ?? "ok";
             },
