@@ -174,20 +174,12 @@ public class UploadService(
         StoreResult? storeResult;
         try
         {
-            if (folder is null)
-            {
-                await WriteFileAsync(ct);
-                storeResult = await documentStore.StoreAsync(document, ct);
-            }
-            else
-            {
-                storeResult = await documentStore.StoreInFolderAsync(document, Guid.Parse(folder.Id), WriteFileAsync, ct);
-            }
+            storeResult = await documentStore.StoreInFolderAsync(
+                document, folder is null ? null : Guid.Parse(folder.Id), WriteFileAsync, ct);
         }
-        catch when (existingDoc is null)
+        catch
         {
-            // The file may be in storage with no record pointing to it (CON-88). A record that already held this
-            // path still points to the file, so only a path no record held is cleaned up.
+            // The file may be in storage with no record pointing to it (CON-88).
             await RemoveUnrecordedFileAsync(connector, request.ContainerId, virtualFilePath, relativePath);
             throw;
         }
@@ -243,11 +235,9 @@ public class UploadService(
         // Not the request's token: a cancelled upload must still clean up after itself.
         try
         {
-            // Another upload to the same path may have stored its record since, and the file is then its file.
-            if (await documentStore.GetByPathAsync(containerId, virtualFilePath, CancellationToken.None) is not null)
-                return;
-
-            await connector.DeleteFileAsync(relativePath, CancellationToken.None);
+            // A record at the path, a replaced document's or a newer upload's, still points to the file, so it stays.
+            await documentStore.RemoveUnrecordedFileAsync(containerId, virtualFilePath,
+                token => connector.DeleteFileAsync(relativePath, token), CancellationToken.None);
         }
         catch (Exception ex)
         {

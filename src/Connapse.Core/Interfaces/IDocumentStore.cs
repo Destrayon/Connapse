@@ -10,7 +10,18 @@ public interface IDocumentStore
     /// The folder stays locked against a delete from before <paramref name="writeFile"/> runs until the document is
     /// stored, so a delete that comes after sees the document and removes it, file included.
     /// </summary>
-    Task<StoreResult?> StoreInFolderAsync(Document document, Guid folderId, Func<CancellationToken, Task> writeFile, CancellationToken ct = default);
+    /// <remarks>
+    /// A null <paramref name="folderId"/> is the container's root, which no delete removes. Either way the document's
+    /// path stays locked against <see cref="RemoveUnrecordedFileAsync"/> from before the write until it is stored.
+    /// </remarks>
+    Task<StoreResult?> StoreInFolderAsync(Document document, Guid? folderId, Func<CancellationToken, Task> writeFile, CancellationToken ct = default);
+
+    /// <summary>
+    /// Runs <paramref name="deleteFile"/> only when no document holds <paramref name="path"/>, and returns whether it
+    /// ran. The path is locked against <see cref="StoreInFolderAsync"/> meanwhile, so an upload to the same path
+    /// either lands first, and its file is kept, or writes after the delete (CON-88).
+    /// </summary>
+    Task<bool> RemoveUnrecordedFileAsync(Guid containerId, string path, Func<CancellationToken, Task> deleteFile, CancellationToken ct = default);
     Task<Document?> GetAsync(string documentId, CancellationToken ct = default);
     Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, int skip = 0, int take = 50, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);
