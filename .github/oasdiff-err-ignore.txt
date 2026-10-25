@@ -33,3 +33,5 @@ DELETE /api/v1/auth/cloud/{provider} removed the success response with the statu
 DELETE /api/v1/auth/custom/{providerId} removed the success response with the status `200`
 GET /api/v1/auth/custom/{providerId}/return removed the success response with the status `200`
 POST /oauth/register removed the success response with the status `200`
+POST /api/sources added the new required request property `scope/oneOf[#/components/schemas/SourceScope]/type`
+POST /api/sources removed `#/components/schemas/SourceScopeS3BucketScope, #/components/schemas/SourceScopeAzureBlobContainerScope, #/components/schemas/SourceScopeFilesystemFolderScope, #/components/schemas/SourceScopeSftpFolderScope, #/components/schemas/SourceScopeGitHubRepositoryScope, #/components/schemas/SourceScopeJiraProjectScope, #/components/schemas/SourceScopeConfluenceSpaceScope, #/components/schemas/SourceScopeCustomSourceScope` from the `scope/oneOf[#/components/schemas/SourceScope]/` request property `anyOf` list

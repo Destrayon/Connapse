@@ -180,7 +180,8 @@ builder.Services.AddOpenApi(options => options
     .AddSchemaTransformer<Connapse.Web.Problems.ProblemDetailsSchemaTransformer>()
     .AddSchemaTransformer<Connapse.Web.Endpoints.AuditDetailsSchemaTransformer>()
     .AddOperationTransformer<Connapse.Web.Problems.RateLimitResponseTransformer>()
-    .AddOperationTransformer<Connapse.Web.Endpoints.MultipartFormTransformer>());
+    .AddOperationTransformer<Connapse.Web.Endpoints.MultipartFormTransformer>()
+    .AddDocumentTransformer<Connapse.Web.Endpoints.DiscriminatedSubtypesTransformer>());
 
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed
