@@ -7,6 +7,8 @@ using Connapse.Core.Interfaces;
 using Connapse.Core.Tests.Mcp;
 using CsCheck;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -369,5 +371,201 @@ public class ContainerRandomInputTests
                 }
                 await world.Containers.Received(1).SaveSettingsOverridesAsync(id, new ContainerSettingsOverrides(), Arg.Any<CancellationToken>());
                 await world.Audit.Received(1).LogAsync("container.settings_reset", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
+    // ── containers.reindex ────────────────────────────────────────────────────────────────────────
+
+    private static readonly Gen<ContainerReindexQuery> AnyReindex = Gen.Select(
+        Gen.Bool.Nullable(), Gen.Bool.Nullable(), Gen.Enum<ChunkingStrategy>().Nullable(), Gen.Bool.Nullable(), Gen.Int[-2, 5].Nullable(),
+        Gen.OneOf(Gen.Const((string?)null), Gen.Const((string?)"page-2"), Gen.Guid.Select(g => (string?)g.ToString())),
+        (force, detect, strategy, dryRun, max, after) => new ContainerReindexQuery(force, detect, strategy, dryRun, max, after));
+
+    [Fact]
+    [RandomInputTestOf(typeof(ReindexContainer))]
+    public Task Reindex_AnyRequest_AsksForThisContainerOnlyWhenItsPageIsValid() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, AnyReindex)
+            .SampleAsync(async t =>
+            {
+                var (caller, writer, container, exists, query) = t;
+                var world = new World(reader: true, writer);
+                world.Holds(container, exists);
+                var id = Guid.Parse(container.Id);
+                var reindex = Substitute.For<IReindexService>();
+                reindex.ReindexAsync(Arg.Any<ReindexOptions>(), Arg.Any<CancellationToken>()).Returns(new ReindexResult { BatchId = "b" });
+
+                var ran = await new ReindexContainer(world.Containers, reindex, world.Authorizer).RunAsync(caller, id, query);
+
+                (ContainerStatus Status, string? Field) expected = !writer ? (ContainerStatus.Forbidden, null)
+                    : !exists ? (ContainerStatus.NotFound, null)
+                    : query.MaxDocuments is <= 0 ? (ContainerStatus.InvalidReindex, "maxDocuments")
+                    : query.ContinueAfter is not null && !Guid.TryParse(query.ContinueAfter, out _) ? (ContainerStatus.InvalidReindex, "continueAfter")
+                    : (ContainerStatus.Success, null);
+                ran.Status.Should().Be(expected.Status);
+                ran.Field.Should().Be(expected.Field);
+                if (expected.Status != ContainerStatus.Success)
+                {
+                    reindex.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                // What wasn't asked for takes the service's defaults: no force, settings changes detected, no dry run.
+                await reindex.Received(1).ReindexAsync(Arg.Is<ReindexOptions>(o =>
+                    o.ContainerId == container.Id
+                    && o.Force == (query.Force ?? false)
+                    && o.DetectSettingsChanges == (query.DetectSettingsChanges ?? true)
+                    && o.DryRun == (query.DryRun ?? false)
+                    && o.Strategy == query.Strategy
+                    && o.MaxDocuments == query.MaxDocuments
+                    && o.ContinueAfter == query.ContinueAfter), Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
+    // ── containers.retryFailed ────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    [RandomInputTestOf(typeof(RetryFailedContainerDocuments))]
+    public Task RetryFailed_AnyContainer_RetriesAndAuditsOnlyForAWriterOfAnExistingOne() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, Gen.Int[0, 6])
+            .SampleAsync(async t =>
+            {
+                var (caller, writer, container, exists, failed) = t;
+                var world = new World(reader: true, writer);
+                world.Holds(container, exists);
+                var id = Guid.Parse(container.Id);
+                var reindex = Substitute.For<IReindexService>();
+                reindex.RetryFailedAsync(id, Arg.Any<CancellationToken>()).Returns(failed);
+                var scopes = new ServiceCollection().AddSingleton(reindex).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+                var retried = await new RetryFailedContainerDocuments(world.Containers, scopes, world.Audit, world.Authorizer).RunAsync(caller, id);
+
+                ContainerStatus expected = !writer ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
+                retried.Status.Should().Be(expected);
+                if (expected != ContainerStatus.Success)
+                {
+                    reindex.ReceivedCalls().Should().BeEmpty();
+                    world.Audit.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                retried.Result.Should().Be(failed);
+                await world.Audit.Received(1).LogAsync("container.retry_failed", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
+    // ── containers.reconcile ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>A stored object: one of a few names, with or without its leading slash, and whether a document already has its path.</summary>
+    private static readonly Gen<(string Path, bool Known)[]> AnyStoredFiles =
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, Gen.Bool, Gen.Bool, Gen.Bool, (a, b, c, slashA, slashB, known) =>
+                new[] { (a, "notes.md", slashA), (b, "deck.pdf", slashB), (c, "raw.bin", !slashA) }
+                    .Where(f => f.Item1)
+                    .Select((f, i) => ((f.Item3 ? "/" : "") + f.Item2, known && i == 0))
+                    .ToArray());
+
+    /// <summary>The content type a reconcile gives each sample file's extension; an unknown one has none.</summary>
+    private static readonly Dictionary<string, string?> TypeOf = new() { [".md"] = "text/markdown", [".pdf"] = "application/pdf", [".bin"] = null };
+
+    [Fact]
+    [RandomInputTestOf(typeof(ReconcileContainer))]
+    public Task Reconcile_AnyStoredFiles_RegistersAndQueuesOnlyThoseWithNoDocument() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, AnyStoredFiles)
+            .SampleAsync(async t =>
+            {
+                var (caller, writer, container, exists, files) = t;
+                var world = new World(reader: true, writer);
+                world.Holds(container, exists);
+                var id = Guid.Parse(container.Id);
+                var connector = Substitute.For<IConnector>();
+                connector.ListFilesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                    .Returns(files.Select(f => new ConnectorFile(f.Path, 1, Epoch, null)).ToList());
+                var storage = Substitute.For<IManagedStorageProvider>();
+                storage.CreateConnector(container.Id).Returns(connector);
+                static string Rooted(string path) => path.StartsWith('/') ? path : "/" + path;
+                world.Documents.ListAsync(id, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                    .Returns(files.Where(f => f.Known).Select(f => new Document(Guid.NewGuid().ToString(), container.Id, "x", null, Rooted(f.Path), 1, Epoch, [])).ToList());
+                var queue = Substitute.For<IIngestionQueue>();
+                var chunking = Substitute.For<IOptionsMonitor<ChunkingSettings>>();
+                chunking.CurrentValue.Returns(new ChunkingSettings());
+
+                var synced = await new ReconcileContainer(world.Containers, storage, world.Documents, queue, chunking, world.Audit, world.Authorizer)
+                    .RunAsync(caller, id);
+
+                ContainerStatus expected = !writer ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
+                synced.Status.Should().Be(expected);
+                if (expected != ContainerStatus.Success)
+                {
+                    storage.ReceivedCalls().Should().BeEmpty();
+                    queue.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                var fresh = files.Where(f => !f.Known).Select(f => Rooted(f.Path)).ToList();
+                synced.Result.Should().BeEquivalentTo(new { TotalFiles = files.Length, EnqueuedCount = fresh.Count, SkippedCount = files.Length - fresh.Count });
+                // Each new object gets a document at its rooted path and one job in the reconcile's batch; a known one gets neither.
+                var stored = world.Documents.ReceivedCalls().Where(c => c.GetMethodInfo().Name == "StoreAsync")
+                    .Select(c => (Document)c.GetArguments()[0]!).ToList();
+                stored.Select(d => d.Path).Should().BeEquivalentTo(fresh);
+                // Its type from the extension, and marked as found by a reconcile rather than uploaded.
+                stored.Should().OnlyContain(d => d.ContentType == TypeOf[Path.GetExtension(d.Path)] && d.Metadata["Source"] == "ConnectorSync");
+                var jobs = queue.ReceivedCalls().Select(c => (IngestionJob)c.GetArguments()[0]!).ToList();
+                jobs.Should().OnlyContain(j => j.BatchId == synced.Result!.BatchId && j.Options.ContentType == TypeOf[Path.GetExtension(j.Options.Path)]
+                    && j.Options.Metadata!["OriginalFileName"] == Path.GetFileName(j.Options.Path) && j.Options.Metadata["Source"] == "ConnectorSync");
+                jobs.Select(j => j.Options.Path).Should().BeEquivalentTo(fresh);
+                await world.Audit.Received(1).LogAsync("container.synced", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
+            }, iter: 1000);
+
+    // ── containers.summaries.* ────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    [RandomInputTestOf(typeof(RegenerateContainerSummaries))]
+    public Task RegenerateSummaries_AnyCaller_QueuesARollupOnlyForAnAdministrator() =>
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (caller, admin, writer, container, exists) = t;
+                var world = new World(reader: true, writer);
+                world.Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
+                world.Holds(container, exists);
+                var id = Guid.Parse(container.Id);
+                var rollup = Substitute.For<ISummaryRollup>();
+                rollup.Enqueue(id).Returns("17");
+
+                var queued = await new RegenerateContainerSummaries(world.Containers, rollup, world.Audit, world.Authorizer).RunAsync(caller, id);
+
+                // An Editor may write containers but not regenerate: the Summary tab has always been for administrators.
+                ContainerStatus expected = !admin ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
+                queued.Status.Should().Be(expected);
+                if (expected != ContainerStatus.Success)
+                {
+                    rollup.ReceivedCalls().Should().BeEmpty();
+                    world.Audit.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                queued.Result.Should().Be(new SummaryRegeneration("17"));
+                await world.Audit.Received(1).LogAsync("container.summaries_regenerated", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ClearContainerSummaries))]
+    public Task ClearSummaries_AnyCaller_ClearsOnlyForAnAdministrator() =>
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool, Gen.Int[0, 9])
+            .SampleAsync(async t =>
+            {
+                var (caller, admin, writer, container, exists, summaries) = t;
+                var world = new World(reader: true, writer);
+                world.Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
+                world.Holds(container, exists);
+                var id = Guid.Parse(container.Id);
+                world.Documents.ClearDocumentSummariesAsync(id, Arg.Any<CancellationToken>()).Returns(summaries);
+
+                var cleared = await new ClearContainerSummaries(world.Containers, world.Documents, world.Audit, world.Authorizer).RunAsync(caller, id);
+
+                ContainerStatus expected = !admin ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
+                cleared.Status.Should().Be(expected);
+                if (expected != ContainerStatus.Success)
+                {
+                    world.Documents.ReceivedCalls().Should().BeEmpty();
+                    await world.Containers.DidNotReceiveWithAnyArgs().UpdateSummaryAsync(default, default, default, default);
+                    world.Audit.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                cleared.Result.Should().Be(summaries);
+                await world.Containers.Received(1).UpdateSummaryAsync(id, null, null, null, Arg.Any<CancellationToken>());
+                await world.Audit.Received(1).LogAsync("container.summaries_cleared", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 2000);
 }
