@@ -91,6 +91,21 @@
                             <label class="form-check-label" for="new-pat-approval">Ask me before it deletes anything over MCP</label>
                         </div>
                     </div>
+                    <div class="col-12">
+                        <label class="form-label mb-1">Scopes</label>
+                        <div>
+                            @foreach (var scope in TokenScopeChoices.PersonalToken)
+                            {
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="new-pat-scope-@scope"
+                                           checked="@newTokenScopes.Contains(scope)"
+                                           @onchange="e => newTokenScopes.SymmetricExceptWith([scope])" />
+                                    <label class="form-check-label" for="new-pat-scope-@scope"><code>@scope</code></label>
+                                </div>
+                            }
+                        </div>
+                        <div class="form-text">The token can do only what its scopes allow, and never more than your role does.</div>
+                    </div>
                     <div class="col-md-auto">
                         <button class="btn btn-primary" @onclick="CreateTokenAsync"
                                 disabled="@isProcessing">
@@ -209,6 +224,7 @@
     private string newTokenName = "";
     private DateTime? newTokenExpiry;
     private bool newTokenRequiresApproval = true;
+    private readonly HashSet<string> newTokenScopes = [TokenScopeChoices.Default];
     private bool isProcessing;
     private bool showCreateForm;
     private bool showRevoked;
@@ -263,6 +279,7 @@
         {
             var request = new PatCreateRequest(
                 newTokenName.Trim(),
+                Scopes: [.. TokenScopeChoices.PersonalToken.Where(newTokenScopes.Contains)],
                 ExpiresAt: newTokenExpiry.HasValue
                     ? DateTime.SpecifyKind(newTokenExpiry.Value, DateTimeKind.Utc)
                     : null,
@@ -272,6 +289,8 @@
             newTokenName = "";
             newTokenExpiry = null;
             newTokenRequiresApproval = true;
+            newTokenScopes.Clear();
+            newTokenScopes.Add(TokenScopeChoices.Default);
             showCreateForm = false;
             await LoadTokensAsync();
         }
