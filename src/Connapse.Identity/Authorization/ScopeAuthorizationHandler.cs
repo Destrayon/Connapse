@@ -33,7 +33,7 @@ public class ScopeAuthorizationHandler : AuthorizationHandler<ScopeRequirement>
             return Task.CompletedTask;
 
         // A token issued with no scopes has none: its owner's roles don't stand in for them (#932).
-        if (Connapse.Identity.Authentication.McpApprovalClaims.IsToken(context.User))
+        if (TokenScopes.IsToken(context.User))
             return Task.CompletedTask;
 
         // Check role-derived scopes (for cookie/JWT users)
