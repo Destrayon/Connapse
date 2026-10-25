@@ -11,7 +11,8 @@ public class UploadService(
     IIngestionQueue ingestionQueue,
     IDocumentStore documentStore,
     IFileTypeValidator fileTypeValidator,
-    IAuditLogger auditLogger) : IUploadService
+    IAuditLogger auditLogger,
+    ILogger<UploadService> logger) : IUploadService
 {
     private static readonly Dictionary<string, string> ContentTypeMap = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -171,14 +172,24 @@ public class UploadService(
         // anything (CON-86).
         Task WriteFileAsync(CancellationToken token) => connector.WriteFileAsync(relativePath, request.Content, contentType, token);
         StoreResult? storeResult;
-        if (folder is null)
+        try
         {
-            await WriteFileAsync(ct);
-            storeResult = await documentStore.StoreAsync(document, ct);
+            if (folder is null)
+            {
+                await WriteFileAsync(ct);
+                storeResult = await documentStore.StoreAsync(document, ct);
+            }
+            else
+            {
+                storeResult = await documentStore.StoreInFolderAsync(document, Guid.Parse(folder.Id), WriteFileAsync, ct);
+            }
         }
-        else
+        catch when (existingDoc is null)
         {
-            storeResult = await documentStore.StoreInFolderAsync(document, Guid.Parse(folder.Id), WriteFileAsync, ct);
+            // The file may be in storage with no record pointing to it (CON-88). A record that already held this
+            // path still points to the file, so only a path no record held is cleaned up.
+            await RemoveUnrecordedFileAsync(connector, request.ContainerId, virtualFilePath, relativePath);
+            throw;
         }
 
         if (storeResult is null)
@@ -225,6 +236,24 @@ public class UploadService(
             new { FileName = request.FileName, ContainerId = request.ContainerId, Via = request.IngestedVia }, ct);
 
         return new UploadResult(true, winnerDocId, jobId);
+    }
+
+    private async Task RemoveUnrecordedFileAsync(IWritableConnector connector, Guid containerId, string virtualFilePath, string relativePath)
+    {
+        // Not the request's token: a cancelled upload must still clean up after itself.
+        try
+        {
+            // Another upload to the same path may have stored its record since, and the file is then its file.
+            if (await documentStore.GetByPathAsync(containerId, virtualFilePath, CancellationToken.None) is not null)
+                return;
+
+            await connector.DeleteFileAsync(relativePath, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not remove the stored file {Path} in container {ContainerId} after its upload failed",
+                LogSanitizer.Sanitize(relativePath), containerId);
+        }
     }
 
     private static string InferContentType(string fileName)

@@ -48,7 +48,8 @@ public class UploadServiceTests
 
         _sut = new UploadService(
             _containerStore, _managedStorage, _folderStore,
-            _ingestionQueue, _documentStore, _fileTypeValidator, _auditLogger);
+            _ingestionQueue, _documentStore, _fileTypeValidator, _auditLogger,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<UploadService>.Instance);
     }
 
     private UploadRequest MakeRequest(
@@ -189,6 +190,99 @@ public class UploadServiceTests
         await _connector.DidNotReceive().WriteFileAsync(Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
         await _connector.DidNotReceive().DeleteFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _ingestionQueue.DidNotReceive().EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>());
+    }
+
+    // --- A failure after the file is written (CON-88) ---
+
+    [Fact]
+    public async Task UploadAsync_RecordFailsAfterTheWrite_RemovesTheStoredFile()
+    {
+        _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
+            .Returns<StoreResult>(_ => throw new InvalidOperationException("database down"));
+
+        var act = () => _sut.UploadAsync(MakeRequest());
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        await _connector.Received(1).DeleteFileAsync("test.txt", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UploadAsync_RecordFailsAfterTheWriteInAFolder_RemovesTheStoredFile()
+    {
+        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<StoreResult?>>(async ci =>
+            {
+                await ci.ArgAt<Func<CancellationToken, Task>>(2)(CancellationToken.None);
+                throw new InvalidOperationException("commit failed");
+            });
+
+        var act = () => _sut.UploadAsync(MakeRequest(path: "/docs/"));
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        await _connector.Received(1).DeleteFileAsync("docs/test.txt", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UploadAsync_CancelledAfterTheWrite_StillRemovesTheStoredFile()
+    {
+        using var cts = new CancellationTokenSource();
+        _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
+            .Returns<StoreResult>(_ =>
+            {
+                cts.Cancel();
+                throw new OperationCanceledException(cts.Token);
+            });
+
+        var act = () => _sut.UploadAsync(MakeRequest(), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        await _connector.Received(1).DeleteFileAsync("test.txt", Arg.Is<CancellationToken>(t => !t.IsCancellationRequested));
+    }
+
+    [Fact]
+    public async Task UploadAsync_ReplacingADocumentFails_KeepsTheFileItsRecordPointsTo()
+    {
+        var existing = new Document(Guid.NewGuid().ToString(), ContainerId.ToString(), "test.txt", "text/plain", "/test.txt", 5, DateTime.UtcNow, []);
+        _documentStore.GetByPathAsync(ContainerId, "/test.txt", Arg.Any<CancellationToken>()).Returns(existing);
+        _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
+            .Returns<StoreResult>(_ => throw new InvalidOperationException("database down"));
+
+        var act = () => _sut.UploadAsync(MakeRequest());
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        await _connector.DidNotReceive().DeleteFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UploadAsync_FailsWhileAnotherUploadToThePathLands_KeepsTheOtherUploadsFile()
+    {
+        var winner = new Document(Guid.NewGuid().ToString(), ContainerId.ToString(), "test.txt", "text/plain", "/test.txt", 5, DateTime.UtcNow, []);
+        _documentStore.GetByPathAsync(ContainerId, "/test.txt", Arg.Any<CancellationToken>()).Returns(null, winner);
+        _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
+            .Returns<StoreResult>(_ => throw new InvalidOperationException("database down"));
+
+        var act = () => _sut.UploadAsync(MakeRequest());
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        await _connector.DidNotReceive().DeleteFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BulkUploadAsync_OneFileFailsAfterItsWrite_RemovesOnlyThatFile()
+    {
+        _documentStore.StoreAsync(Arg.Is<Document>(d => d.FileName == "b.txt"), Arg.Any<CancellationToken>())
+            .Returns<StoreResult>(_ => throw new InvalidOperationException("database down"));
+        var request = new BulkUploadRequest(ContainerId, new[]
+        {
+            new UploadRequest(ContainerId, "a.txt", new MemoryStream("a"u8.ToArray()), UserId, IngestedVia: "MCP"),
+            new UploadRequest(ContainerId, "b.txt", new MemoryStream("b"u8.ToArray()), UserId, IngestedVia: "MCP"),
+        });
+
+        var result = await _sut.BulkUploadAsync(request);
+
+        result.SuccessCount.Should().Be(1);
+        await _connector.Received(1).DeleteFileAsync("b.txt", Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive().DeleteFileAsync("a.txt", Arg.Any<CancellationToken>());
     }
 
     [Theory]
