@@ -979,7 +979,13 @@ for an unknown category.
 
 **Endpoint**: `POST /api/settings/test-connection`
 
-**Categories**: `Embedding` | `Llm` | `CrossEncoder`
+**Categories**: `embedding` | `llm` | `crossencoder` | `minio`, in any case. Another category answers
+`200` with `success: false`.
+
+The settings are tested as sent and never stored. An API key left out is not filled in from the stored
+one, since the settings can name any address: send the key to test with. `timeoutSeconds`, when given,
+is 1 to 300; a missing category or settings, settings that don't fit the category, or a timeout out of
+range is `400` [`invalid-settings`](problems.md#invalid-settings).
 
 **Request Body**:
 ```json
@@ -1003,6 +1009,42 @@ for an unknown category.
   "duration": "00:00:00.4530000"
 }
 ```
+
+---
+
+### Embedding Models
+
+**Endpoint**: `GET /api/settings/embedding-models`
+
+The embedding models with vectors in any container. `currentModel` is the one the saved embedding
+settings name (configuration's when none are saved); `hasLegacyVectors` says whether another model has any.
+
+---
+
+### Re-Index
+
+**Endpoint**: `POST /api/settings/reindex`
+
+**Request Body** (optional): `{ "containerId": "<guid>", "force": false }`
+
+Starts re-embedding in the background and answers at once. Without `force`, only documents whose
+embedding or chunking settings changed are re-embedded, and cross-model search is turned on so
+documents still on the previous model stay findable; with `force`, every document is. `containerId`
+limits it to one container.
+
+**Endpoint**: `GET /api/settings/reindex/status` — the latest run (`Idle`, `Running`, `Completed` or
+`Failed`, with its error) and the ingestion queue's depth.
+
+---
+
+### Clear All Summaries
+
+**Endpoint**: `POST /api/v1/settings/summaries/clear`
+
+Clears every container's summary and every document summary; the next sweep writes them again.
+Embeddings, chunks and documents are kept.
+
+**Response** (200 OK): `{ "containers": 3, "documents": 41 }`
 
 ---
 

@@ -16,7 +16,7 @@ using NSubstitute;
 namespace Connapse.Core.Tests.Application;
 
 [Trait("Category", "Unit")]
-public class SettingsOperationTests
+public partial class SettingsOperationTests
 {
     private static readonly OperationContext Caller = new(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Rest);
 

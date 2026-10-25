@@ -705,6 +705,11 @@
       "risk": "credential",
       "scope": null
     },
+    "POST /api/v1/settings/summaries/clear": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
     "POST /mcp/": {
       "requires": "mcp",
       "risk": "write",

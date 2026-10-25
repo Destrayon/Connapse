@@ -1,9 +1,9 @@
-namespace Connapse.Web.Services;
+namespace Connapse.Application.Settings;
 
 /// <summary>
 /// Singleton that tracks the state of the most recent background reindex operation
-/// triggered via POST /api/settings/reindex.
-/// Exposed by GET /api/settings/reindex/status so admins can distinguish between
+/// started by settings.reindex.
+/// settings.reindexStatus reads it so admins can distinguish between
 /// "in progress", "completed", and "failed" states.
 /// </summary>
 public class ReindexStateService

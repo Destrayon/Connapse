@@ -1,6 +1,4 @@
 @using Connapse.Core
-@using Connapse.Core.Interfaces
-@using Connapse.Storage.ConnectionTesters
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -142,10 +140,8 @@
     </div>
 </EditForm>
 
-@inject OllamaConnectionTester OllamaTester
-@inject OpenAiLlmConnectionTester OpenAiLlmTester
-@inject AzureOpenAiLlmConnectionTester AzureOpenAiLlmTester
-@inject AnthropicConnectionTester AnthropicTester
+@inject Connapse.Application.Settings.TestConnection Test
+@inject AuthenticationStateProvider Authentication
 
 @code {
     [Parameter]
@@ -223,19 +219,7 @@
 
         try
         {
-            IConnectionTester tester = localSettings.Provider switch
-            {
-                "OpenAI" => OpenAiLlmTester,
-                "AzureOpenAI" => AzureOpenAiLlmTester,
-                "Anthropic" => AnthropicTester,
-                _ => OllamaTester
-            };
-
-            var result = await tester.TestConnectionAsync(
-                localSettings, TimeSpan.FromSeconds(10));
-
-            testSuccess = result.Success;
-            testMessage = result.Message;
+            (testSuccess, testMessage) = await Test.TestAsync(Authentication, "llm", localSettings, 10);
         }
         catch (Exception ex)
         {

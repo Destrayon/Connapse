@@ -43,6 +43,23 @@ public abstract class SettingsCategory(string name, string key)
             && (p.Name.EndsWith("ApiKey", StringComparison.Ordinal) || p.Name.EndsWith("Password", StringComparison.Ordinal)))
         .ToList();
 
+    /// <summary>
+    /// The settings.update body that saves <paramref name="edited"/> from a page that opened with
+    /// <paramref name="opened"/>: a secret the page didn't change is sent as null, which keeps the one in effect,
+    /// so a key changed elsewhere since the page opened isn't written back over; one the page emptied is sent
+    /// empty, which clears it; one it changed is sent.
+    /// </summary>
+    public JsonElement BodyFrom(object edited, object opened)
+    {
+        var body = JsonSerializer.SerializeToNode(edited, Type)!.AsObject();
+        foreach (var secret in Secrets)
+        {
+            var value = (string?)secret.GetValue(edited);
+            body[secret.Name] = Equals(value, secret.GetValue(opened)) ? null : value ?? "";
+        }
+        return JsonSerializer.SerializeToElement(body);
+    }
+
     internal abstract Task<object> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct);
 
     internal abstract Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent, CancellationToken ct);

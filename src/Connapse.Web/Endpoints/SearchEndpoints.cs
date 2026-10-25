@@ -1,5 +1,6 @@
 ﻿using Connapse.Application;
 using Connapse.Application.Search;
+using Connapse.Application.Settings;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Vectors;
@@ -146,11 +147,3 @@ public record SearchApiRequest(
 // Response DTOs
 public record ContainerEmbeddingModelsResponse(string CurrentModel, IReadOnlyList<EmbeddingModelUsage> Models);
 
-/// <summary>An embedding model with vectors stored, and whether it is the one configured now.</summary>
-public record EmbeddingModelUsage(string ModelId, int Dimensions, long VectorCount, bool IsCurrent)
-{
-    public static IReadOnlyList<EmbeddingModelUsage> From(IEnumerable<EmbeddingModelInfo> models, string currentModel) =>
-        models.Select(m => new EmbeddingModelUsage(
-            m.ModelId, m.Dimensions, m.VectorCount,
-            string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))).ToList();
-}

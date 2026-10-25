@@ -48,17 +48,31 @@ public static class OperationCallers
             new Connapse.Application.Sources.ListSourcesQuery(ConnectionId: connectionId))).Result?.Items ?? [];
 
     /// <summary>
-    /// Saves a settings category through settings.update, as PUT /api/settings/{category} does: the category's
-    /// rules, its stored key and the embedding index all apply. The page holds every value, keys included, so a
-    /// key it sends empty is one it cleared, as on a provider switch. Whether it saved, and what the page says.
+    /// Tests a connection through settings.testConnection with the settings on the page, keys included.
+    /// Whether it connected, and what the page says.
     /// </summary>
-    public static async Task<(bool Saved, string Message)> SaveAsync(
-        this Connapse.Application.Settings.UpdateSettings update, AuthenticationStateProvider authentication, string category, object settings)
+    public static async Task<(bool Success, string Message)> TestAsync(
+        this Connapse.Application.Settings.TestConnection test, AuthenticationStateProvider authentication, string category, object settings, int timeoutSeconds)
     {
-        var saved = await update.RunAsync(await authentication.OperationContextAsync(), category,
-            System.Text.Json.JsonSerializer.SerializeToElement(settings, settings.GetType()), Connapse.Application.Settings.UnsentSecrets.Clear);
-        return saved.Succeeded
-            ? (true, $"{category} settings saved successfully!")
-            : (false, $"Failed to save {category} settings: {saved.Detail}");
+        var tested = await test.RunAsync(await authentication.OperationContextAsync(), new Connapse.Application.Settings.ConnectionTestRequest(
+            category, System.Text.Json.JsonSerializer.SerializeToElement(settings, settings.GetType()), timeoutSeconds));
+        return tested.Succeeded ? (tested.Result!.Success, tested.Result.Message) : (false, $"Test failed: {tested.Detail}");
+    }
+
+    /// <summary>
+    /// Turns on cross-model search through settings.get and settings.update, leaving the rest of the search
+    /// settings, its key included, as stored. Whether it saved, and what failed when it didn't.
+    /// </summary>
+    public static async Task<(bool Saved, string? Detail)> EnableCrossModelSearchAsync(
+        this Connapse.Application.Settings.UpdateSettings update, Connapse.Application.Settings.GetSettings get, AuthenticationStateProvider authentication)
+    {
+        var context = await authentication.OperationContextAsync();
+        var read = await get.RunAsync(context, "search");
+        if (!read.Succeeded)
+            return (false, read.Detail);
+        var search = (Connapse.Core.SearchSettings)read.Result!.Settings;
+        search.EnableCrossModelSearch = true;
+        var saved = await update.RunAsync(context, "search", System.Text.Json.JsonSerializer.SerializeToElement(search));
+        return (saved.Succeeded, saved.Detail);
     }
 }

@@ -1,8 +1,6 @@
+@using Connapse.Application.Settings
 @using Connapse.Core
-@using Connapse.Core.Interfaces
-@using Connapse.Storage.ConnectionTesters
 @using Connapse.Storage.Vectors
-@using Microsoft.Extensions.Options
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -234,14 +232,13 @@
     </div>
 </EditForm>
 
-@inject OllamaConnectionTester OllamaTester
-@inject OpenAiConnectionTester OpenAiTester
-@inject AzureOpenAiConnectionTester AzureOpenAiTester
-@inject VectorModelDiscovery ModelDiscovery
-@inject IOptionsMonitor<EmbeddingSettings> EmbeddingSettingsMonitor
-@inject ISettingsStore SettingsStore
-@inject IIngestionQueue IngestionQueue
-@inject IServiceScopeFactory ScopeFactory
+@inject TestConnection Test
+@inject ListEmbeddingModels Models
+@inject StartReindex Reindex
+@inject GetReindexStatus ReindexStatus
+@inject GetSettings Get
+@inject UpdateSettings Update
+@inject AuthenticationStateProvider Authentication
 
 @code {
     [Parameter]
@@ -344,20 +341,10 @@
     {
         try
         {
-            string current = EmbeddingIdentity.For(localSettings);
-            var hasLegacy = await ModelDiscovery.HasLegacyVectorsAsync(current);
-            if (hasLegacy)
-            {
-                var models = await ModelDiscovery.GetModelsAsync();
-                legacyVectorCount = models
-                    .Where(m => !string.Equals(m.ModelId, current, StringComparison.OrdinalIgnoreCase))
-                    .Sum(m => m.VectorCount);
-                showLegacyBanner = legacyVectorCount > 0;
-            }
-            else
-            {
-                showLegacyBanner = false;
-            }
+            // settings.embeddingModels reads the embedding settings just saved, so the model they name is current.
+            var listed = await Models.RunAsync(await Authentication.OperationContextAsync());
+            legacyVectorCount = listed.Result?.LegacyVectorCount ?? 0;
+            showLegacyBanner = legacyVectorCount > 0;
         }
         catch
         {
@@ -367,71 +354,31 @@
         StateHasChanged();
     }
 
-    private async Task StartManualReEmbed()
+    private Task StartManualReEmbed() => StartReEmbedding(new ReindexRequest(Force: true));
+
+    // Re-embeds what changed; settings.reindex turns on cross-model search so documents remain findable.
+    private Task StartReEmbed() => StartReEmbedding(new ReindexRequest());
+
+    private async Task StartReEmbedding(ReindexRequest request)
     {
         isReEmbedding = true;
         StateHasChanged();
 
         try
         {
-            _ = Task.Run(async () =>
+            var context = await Authentication.OperationContextAsync();
+            var started = await Reindex.RunAsync(context, request);
+            if (started.Succeeded)
             {
-                try
-                {
-                    await using var scope = ScopeFactory.CreateAsyncScope();
-                    var reindexService = scope.ServiceProvider.GetRequiredService<IReindexService>();
-                    await reindexService.ReindexAsync(new ReindexOptions
-                    {
-                        Force = true
-                    }, CancellationToken.None);
-                }
-                catch { /* Reindex is best-effort; errors logged by ReindexService */ }
-            });
-
-            reEmbedStarted = true;
-            queueDepth = await IngestionQueue.GetQueueDepthAsync();
-        }
-        catch { /* Best-effort */ }
-        finally
-        {
-            isReEmbedding = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task StartReEmbed()
-    {
-        isReEmbedding = true;
-        StateHasChanged();
-
-        try
-        {
-            // Enable cross-model search during re-embedding so documents remain findable
-            var searchSettings = await SettingsStore.GetAsync<SearchSettings>("search") ?? new SearchSettings();
-            if (!searchSettings.EnableCrossModelSearch)
-            {
-                searchSettings.EnableCrossModelSearch = true;
-                await SettingsStore.SaveAsync("search", searchSettings);
+                showLegacyBanner = false;
+                reEmbedStarted = true;
+                queueDepth = (await ReindexStatus.RunAsync(context)).Result?.QueueDepth ?? 0;
             }
-
-            // Fire-and-forget reindex via IReindexService (same pattern as SettingsEndpoints)
-            _ = Task.Run(async () =>
+            else
             {
-                try
-                {
-                    await using var scope = ScopeFactory.CreateAsyncScope();
-                    var reindexService = scope.ServiceProvider.GetRequiredService<IReindexService>();
-                    await reindexService.ReindexAsync(new ReindexOptions
-                    {
-                        DetectSettingsChanges = true
-                    }, CancellationToken.None);
-                }
-                catch { /* Reindex is best-effort; errors logged by ReindexService */ }
-            });
-
-            showLegacyBanner = false;
-            reEmbedStarted = true;
-            queueDepth = await IngestionQueue.GetQueueDepthAsync();
+                testSuccess = false;
+                testMessage = started.Detail;
+            }
         }
         catch { /* Best-effort */ }
         finally
@@ -445,13 +392,13 @@
     {
         try
         {
-            var searchSettings = await SettingsStore.GetAsync<SearchSettings>("search") ?? new SearchSettings();
-            searchSettings.EnableCrossModelSearch = true;
-            await SettingsStore.SaveAsync("search", searchSettings);
-
-            showLegacyBanner = false;
-            testSuccess = true;
-            testMessage = "Cross-model search enabled. Legacy documents will appear in Hybrid search results.";
+            var (saved, detail) = await Update.EnableCrossModelSearchAsync(Get, Authentication);
+            if (saved)
+                showLegacyBanner = false;
+            testSuccess = saved;
+            testMessage = saved
+                ? "Cross-model search enabled. Legacy documents will appear in Hybrid search results."
+                : $"Failed to enable cross-model search: {detail}";
         }
         catch (Exception ex)
         {
@@ -477,18 +424,7 @@
 
         try
         {
-            IConnectionTester tester = localSettings.Provider switch
-            {
-                "OpenAI" => OpenAiTester,
-                "AzureOpenAI" => AzureOpenAiTester,
-                _ => OllamaTester
-            };
-
-            var result = await tester.TestConnectionAsync(
-                localSettings, TimeSpan.FromSeconds(10));
-
-            testSuccess = result.Success;
-            testMessage = result.Message;
+            (testSuccess, testMessage) = await Test.TestAsync(Authentication, "embedding", localSettings, 10);
         }
         catch (Exception ex)
         {

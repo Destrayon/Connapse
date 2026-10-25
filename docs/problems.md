@@ -20,7 +20,8 @@ with `knowledge:read` may read too), and changing them needs Editor (over MCP, a
 unlinking needs the person signed in themselves, never a personal access token or agent key.
 Search needs `knowledge:read`: the Viewer role or above, or an agent key or token with that scope.
 
-Settings: reading, changing and resetting them need Administrator, and a token needs `admin:settings`.
+Settings: reading, changing and resetting them, and the settings actions (re-indexing, listing embedding
+models, testing a connection, clearing all summaries), need Administrator, and a token needs `admin:settings`.
 
 ## invalid-link-provider
 
@@ -104,7 +105,9 @@ Connapse has no settings category by that name. The categories are `embedding`, 
 ## invalid-settings
 
 The settings were refused: the body isn't a JSON object, isn't valid JSON, or names a property the
-category doesn't have.
+category doesn't have. A connection test is refused the same way when it has no category or settings,
+its settings don't fit the category, or `timeoutSeconds` is outside 1 to 300; a re-index is refused
+when `containerId` isn't a container's id. `field` names the input at fault.
 
 ## invalid-page
 
