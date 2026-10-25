@@ -2282,7 +2282,7 @@
           "Containers"
         ],
         "description": "Rename a container or change its description. Its files stay where they are.",
-        "operationId": "UpdateContainer",
+        "operationId": "containers.rename",
         "parameters": [
           {
             "name": "containerId",
@@ -2750,7 +2750,7 @@
           "Containers"
         ],
         "description": "Clear per-container settings overrides, so the container follows the global settings",
-        "operationId": "ResetContainerSettings",
+        "operationId": "containers.settings.reset",
         "parameters": [
           {
             "name": "containerId",

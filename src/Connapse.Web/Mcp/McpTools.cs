@@ -825,7 +825,8 @@ public class McpTools
         {
             container = read.Result!.Container;
             stats = read.Result.Stats;
-            owner = ToOwner(container);
+            // The store keys containers by GUID, so a container it returned always has one.
+            owner = ToOwner(container) ?? throw new InvalidOperationException($"Container {container.Id} has no GUID id.");
         }
         else
         {

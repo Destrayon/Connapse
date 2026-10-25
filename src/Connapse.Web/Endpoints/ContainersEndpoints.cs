@@ -113,7 +113,7 @@ public static class ContainersEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
-        .WithName("UpdateContainer")
+        .WithName("containers.rename")
         .WithDescription("Rename a container or change its description. Its files stay where they are.")
         // The scope too, so an Editor's knowledge:read token can't write; known-authz-violations.json lists the older routes that don't check it yet.
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
@@ -197,7 +197,7 @@ public static class ContainersEndpoints
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("ResetContainerSettings")
+        .WithName("containers.settings.reset")
         .WithDescription("Clear per-container settings overrides, so the container follows the global settings")
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
