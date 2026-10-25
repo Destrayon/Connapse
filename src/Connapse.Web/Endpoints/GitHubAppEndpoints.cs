@@ -13,7 +13,9 @@ public static class GitHubAppEndpoints
 
     public static IEndpointRouteBuilder MapGitHubAppEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/providers/github").WithTags("Providers");
+        var group = app.MapGroup("/api/v1/providers/github").WithTags("Providers")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // GET /api/v1/providers/github/manifest/callback — GitHub's redirect after the
         // administrator confirms the App on github.com.
@@ -64,7 +66,8 @@ public static class GitHubAppEndpoints
                 logger.LogError(ex, "Creating the GitHub App from its manifest failed");
                 return Results.Redirect(ProviderPage + "?github_error=exchange_failed");
             }
-        }).RequireAuthorization("RequireAdmin");
+        }).RequireAuthorization("RequireAdmin")
+        .Produces(StatusCodes.Status302Found);
 
         // GET /api/v1/providers/github/installed — GitHub's redirect after the App is installed
         // (or an install is requested for an organisation's owners to approve). Installing is a
@@ -92,7 +95,8 @@ public static class GitHubAppEndpoints
             return Results.Redirect(installationId is > 0
                 ? $"/connections?github_installation={installationId}"
                 : "/connections?new=github");
-        }).RequireAuthorization("RequireAdmin");
+        }).RequireAuthorization("RequireAdmin")
+        .Produces(StatusCodes.Status302Found);
 
         return app;
     }

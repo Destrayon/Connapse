@@ -7,8 +7,8 @@ namespace Connapse.Web.Problems;
 /// <summary>
 /// Declares the members every API problem carries beyond RFC 9457's: <c>error</c>, which
 /// <see cref="ProblemDetailsExtensions"/> adds to each one, and <c>traceId</c>; and those some add:
-/// <c>message</c>, <c>field</c>, and an <c>errors</c> list. Without them a client generated from the spec
-/// can't read why a request failed.
+/// <c>message</c>, <c>field</c>, <c>troubleshootingUrl</c>, and an <c>errors</c> list. Without them a client
+/// generated from the spec can't read why a request failed.
 /// </summary>
 internal sealed class ProblemDetailsSchemaTransformer : IOpenApiSchemaTransformer
 {
@@ -28,6 +28,7 @@ internal sealed class ProblemDetailsSchemaTransformer : IOpenApiSchemaTransforme
             AnyOf = [reasons, new OpenApiSchema { Type = JsonSchemaType.Object, AdditionalProperties = reasons }],
             Description = "Every reason, when a request failed for several: a list, or each request field's messages.",
         };
+        schema.Properties["troubleshootingUrl"] = Text("The setup guide's entry for this failure, when there is one.");
         schema.Properties["traceId"] = Text("The request's trace, to find it in the server's log.");
         schema.Required ??= new HashSet<string>();
         schema.Required.Add("error");

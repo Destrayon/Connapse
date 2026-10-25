@@ -12,3 +12,8 @@ POST /api/v1/agents/{id}/keys removed the success response with the status `200`
 DELETE /api/v1/agents/{id}/keys/{keyId} removed the success response with the status `200`
 DELETE /api/v1/auth/pats/{id} removed the success response with the status `200`
 PUT /api/v1/auth/users/{id}/roles removed the success response with the status `200`
+DELETE /api/v1/atlassian/linking-app removed the success response with the status `200`
+POST /api/v1/atlassian/sites removed the success response with the status `200`
+DELETE /api/v1/atlassian/sites/{connectionId} removed the success response with the status `200`
+GET /api/v1/providers/github/installed removed the success response with the status `200`
+GET /api/v1/providers/github/manifest/callback removed the success response with the status `200`

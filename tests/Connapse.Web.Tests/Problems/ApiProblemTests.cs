@@ -39,6 +39,17 @@ public class ApiProblemTests
     }
 
     [Fact]
+    public void ApiProblem_ErrorAndField_IsTheBodyTheFilterMadeOfTheAnonymousObject()
+    {
+        Body(ApiProblem.BadRequest("product must be \"confluence\" or \"jira\".", field: "product"))
+            .Should().Be(Filtered(Results.BadRequest(new { error = "product must be \"confluence\" or \"jira\".", field = "product" })));
+        Body(ApiProblem.Conflict("A connection named 'x' already exists.", field: "name"))
+            .Should().Be(Filtered(Results.Conflict(new { error = "A connection named 'x' already exists.", field = "name" })));
+        Body(ApiProblem.BadGateway("Atlassian didn't answer."))
+            .Should().Be(Filtered(Results.Json(new { error = "Atlassian didn't answer." }, statusCode: 502)));
+    }
+
+    [Fact]
     public void ApiProblem_Errors_IsTheBodyTheFilterMadeOfTheAnonymousObject()
     {
         string[] reasons = ["Role 'Ghost' does not exist.", "Second reason."];

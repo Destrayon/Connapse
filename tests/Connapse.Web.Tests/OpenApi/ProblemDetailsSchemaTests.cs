@@ -23,7 +23,7 @@ public class ProblemDetailsSchemaTests
     {
         JsonElement properties = ProblemDetails().GetProperty("properties");
 
-        foreach (string name in new[] { "error", "message", "field", "traceId" })
+        foreach (string name in new[] { "error", "message", "field", "troubleshootingUrl", "traceId" })
             properties.TryGetProperty(name, out JsonElement member).Should().BeTrue($"API errors carry \"{name}\"");
         // A handler's list of reasons, or request validation's messages per field.
         properties.GetProperty("errors").GetProperty("anyOf").EnumerateArray()
