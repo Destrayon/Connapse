@@ -217,6 +217,17 @@
                                 <input class="form-check-input" type="checkbox" id="new-key-approval-@agent.Id" @bind="newKeyRequiresApproval" />
                                 <label class="form-check-label small" for="new-key-approval-@agent.Id">Ask before it deletes anything over MCP</label>
                             </div>
+                            <div class="mb-1">
+                                @foreach (var scope in TokenScopeChoices.AgentKey)
+                                {
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="new-key-scope-@agent.Id-@scope"
+                                               checked="@newKeyScopes.Contains(scope)"
+                                               @onchange="e => newKeyScopes.SymmetricExceptWith([scope])" />
+                                        <label class="form-check-label small" for="new-key-scope-@agent.Id-@scope"><code>@scope</code></label>
+                                    </div>
+                                }
+                            </div>
                             <button class="btn btn-sm btn-primary"
                                     @onclick="() => CreateKeyAsync(agent.Id)"
                                     disabled="@isProcessing">
@@ -235,6 +246,8 @@
     private string newAgentDescription = "";
     private string newKeyName = "";
     private bool newKeyRequiresApproval = true;
+    // A key can do only what its scopes allow over MCP; one issued with none can call no tool (#932).
+    private readonly HashSet<string> newKeyScopes = [TokenScopeChoices.Default];
     private bool isProcessing;
     private string processingAction = "";
     private Guid? selectedAgentId;
@@ -271,6 +284,8 @@
             selectedAgentId = agentId;
             newKeyName = "";
             newKeyRequiresApproval = true;
+            newKeyScopes.Clear();
+            newKeyScopes.Add(TokenScopeChoices.Default);
             newKeyResponse = null;
             newKeyAgentId = null;
         }
@@ -383,7 +398,8 @@
         statusMessage = null;
         try
         {
-            var key = await AgentService.CreateKeyAsync(agentId, new CreateAgentKeyRequest(newKeyName.Trim(), RequiresApproval: newKeyRequiresApproval));
+            var key = await AgentService.CreateKeyAsync(agentId, new CreateAgentKeyRequest(newKeyName.Trim(),
+                [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval));
             newKeyResponse = key;
             newKeyAgentId = agentId;
             newKeyName = "";

@@ -338,18 +338,15 @@ public static class IdentityServiceExtensions
             // its scopes, so it needs knowledge:read. A sign-in needs no role (#865).
             .AddPolicy("RequireAccount", policy =>
                 policy.RequireAuthenticatedUser().RequireAssertion(context =>
-                    !context.User.IsInRole("Agent")
-                    && (!context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "knowledge:read"))))
+                    !context.User.IsInRole("Agent") && TokenScopes.Allows(context.User, "knowledge:read")))
             // What users did is an administrator's to read. REST checks no token scopes elsewhere, but a
             // token of an administrator's reads the audit log only when issued with admin:audit (#880).
             .AddPolicy("RequireAuditReader", policy =>
-                policy.RequireRole("Owner", "Admin").RequireAssertion(context =>
-                    !context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "admin:audit")))
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:audit")))
             // Which OAuth clients hold grants, and revoking one, is an administrator's; a token of theirs
             // only with admin:oauth-clients (#881).
             .AddPolicy("RequireClientAdmin", policy =>
-                policy.RequireRole("Owner", "Admin").RequireAssertion(context =>
-                    !context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "admin:oauth-clients")))
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:oauth-clients")))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

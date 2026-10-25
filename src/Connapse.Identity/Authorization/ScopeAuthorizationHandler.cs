@@ -32,6 +32,10 @@ public class ScopeAuthorizationHandler : AuthorizationHandler<ScopeRequirement>
         if (scopeClaims.Count > 0)
             return Task.CompletedTask;
 
+        // A token issued with no scopes has none: its owner's roles don't stand in for them (#932).
+        if (TokenScopes.IsToken(context.User))
+            return Task.CompletedTask;
+
         // Check role-derived scopes (for cookie/JWT users)
         var roles = context.User.FindAll(ClaimTypes.Role).Select(c => c.Value);
         foreach (var role in roles)

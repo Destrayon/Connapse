@@ -106,6 +106,20 @@ public class ScopeAuthorizationHandlerTests
         granted.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("api_key", "Owner")]
+    [InlineData("agent_api_key", "Agent")]
+    public async Task HandleRequirement_TokenIssuedWithNoScopes_DeniesEveryScope(string authMethod, string role)
+    {
+        // A token issued with no scopes carries no scope claim; its owner's roles still don't imply any (#932).
+        var granted = await IsGrantedAsync("knowledge:read",
+        [
+            new Claim(ClaimTypes.Role, role),
+            new Claim("auth_method", authMethod),
+        ]);
+        granted.Should().BeFalse();
+    }
+
     // ── No claims ────────────────────────────────────────────────────────
 
     [Fact]

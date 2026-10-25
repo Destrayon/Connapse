@@ -171,6 +171,9 @@ Exchange a valid refresh token for a new access/refresh token pair.
 **Fields**:
 - `name` (required): Display label
 - `expiresAt` (optional): ISO 8601 datetime; if omitted, token never expires
+- `scopes` (optional): what the token may do, such as `knowledge:read`. A token passes a scope check only
+  with that scope: one issued with none passes none, whatever its owner's role allows. It still reaches the
+  REST routes that check only the owner's role.
 
 **Response** (200 OK):
 ```json
@@ -485,9 +488,10 @@ Agents are **MCP-only identities**. They authenticate with `cnp_`-prefixed API k
 
 This is by design. Agents interact exclusively through the MCP protocol, which provides a structured tool interface suited to non-human consumers. REST API endpoints use role-based policies (Viewer, Editor, Admin) that do not include the Agent role.
 
-#### Implicit scopes
+#### Scopes
 
-When an agent authenticates via API key, it receives two implicit scopes. These scopes govern **MCP tool behavior only** — they do not grant REST API access.
+An agent key holds the scopes it was issued with, and nothing else: one issued with none can call no MCP
+tool. These scopes govern **MCP tool behavior only** — they do not grant REST API access.
 
 | Scope | Grants |
 |-------|--------|
