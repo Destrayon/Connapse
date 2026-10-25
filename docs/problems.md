@@ -14,7 +14,7 @@ declared slug has an entry here.
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
 changing needs Administrator. Containers: reading needs the Viewer role (over MCP, an agent key
 with `knowledge:read` may read too), and changing them needs Editor (over MCP, an agent key granted
-`knowledge:write` may change them too). The audit log: reading needs Administrator, and a token needs
+`knowledge:write` may change them too); a container's files follow the same rules. The audit log: reading needs Administrator, and a token needs
 `admin:audit`. OAuth clients: listing and revoking need Administrator, and a token needs
 `admin:oauth-clients`. Account links: reading needs a person or their own token with `knowledge:read`;
 unlinking needs the person signed in themselves, never a personal access token or agent key.
@@ -143,3 +143,41 @@ first; the detail says how many documents remain.
 A container reindex asked for something it can't do: `maxDocuments` must be a positive number, and
 `continueAfter` must be the document id a previous paged reindex returned. The `field` member names
 the input at fault.
+
+## file-not-found
+
+No document has that id or path in this container, or the caller may not read it. A document the caller may
+not read is answered exactly as a missing one, so a request can't learn that it exists.
+
+## invalid-file-request
+
+A file request asked for something it can't do: a bulk delete names between 1 and 100 file ids, and a bulk
+upload between 1 and 100 files. An uploaded file needs a name of at most 255 characters with no folder in it, a
+folder path with no `..` and at most 50 levels, and some content. The `field` member names the input at fault.
+
+## file-not-ready
+
+The document is still being ingested, so it has no text to read yet; the detail gives its status. Try again
+once ingestion finishes.
+
+## file-ingestion-failed
+
+The document's ingestion failed, so it has no text to read; the detail says why. Retry the file, or upload it
+again once the cause is fixed.
+
+## no-parser
+
+No parser reads this file type, so its text can't be extracted.
+
+## file-not-readable
+
+The document is recorded, but its stored file can't be read from storage.
+
+## unsupported-file-type
+
+No parser reads files of this type, so it can't be uploaded. The detail lists the types that can be. In a bulk
+upload, each such file is reported in its place and the rest are still uploaded.
+
+## container-not-writable
+
+The container's storage doesn't take uploads.

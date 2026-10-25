@@ -160,6 +160,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "POST /api/containers/{containerId:guid}/files/{fileId}/retry": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "GET /api/containers/{containerId:guid}/search/": {
       "requires": "viewer",
       "risk": "read",
@@ -528,6 +533,11 @@
     "POST /api/containers/{containerId:guid}/files/": {
       "requires": "editor",
       "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/files/bulk-delete": {
+      "requires": "editor",
+      "risk": "destructive",
       "scope": "knowledge:write"
     },
     "POST /api/containers/{containerId:guid}/folders/": {

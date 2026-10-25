@@ -132,7 +132,8 @@ public static partial class Operations
             {
                 using var rest = await Surfaces.RestAsync(f, p);
                 using var form = Upload(BulkFiles(k).Select(n => (n, Body)).ToArray());
-                return await Surfaces.ResultAsync(await rest.PostAsync($"/api/containers/{Target(c, k)}/files", form));
+                var response = await rest.PostAsync($"/api/containers/{Target(c, k)}/files", form);
+                return response.IsSuccessStatusCode ? BulkUploadResult(await response.Content.ReadAsStringAsync()) : await Surfaces.ResultAsync(response);
             },
             Mcp: (f, c, p, k) => McpAsync(f, p, "bulk_upload", new()
             {
@@ -146,7 +147,13 @@ public static partial class Operations
         },
 
         new("bulk_delete", [Case.Valid, Case.Invalid, Case.UnderScoped, Case.Preflight], Writes: true, 2, false,
-            Rest: null,
+            Rest: async (f, c, p, k) =>
+            {
+                using var rest = await Surfaces.RestAsync(f, p);
+                var response = await rest.PostAsJsonAsync($"/api/containers/{Target(c, k)}/files/bulk-delete",
+                    new { fileIds = k == Case.Invalid ? [c.Files[0].Id, c.Unknown] : c.Files.Select(x => x.Id).ToArray() });
+                return response.IsSuccessStatusCode ? BulkDeleteResult(await response.Content.ReadAsStringAsync()) : await Surfaces.ResultAsync(response);
+            },
             Mcp: (f, c, p, k) => McpAsync(f, p, "bulk_delete", new()
             {
                 ["containerId"] = Target(c, k),
@@ -170,10 +177,7 @@ public static partial class Operations
                 await ClickAsync(page, () => page.Find(".modal-footer-custom button.btn-danger"));
                 return DialogResult(page);
             },
-            Project: (sp, c) => DocumentsAsync(sp, c))
-        {
-            AbsentReasons = new Dictionary<string, string> { ["rest"] = "REST has no bulk delete route" },
-        },
+            Project: (sp, c) => DocumentsAsync(sp, c)),
 
         new("get_document", [Case.Valid, Case.Invalid, Case.UnderScoped, Case.Preflight], Writes: false, 1, true,
             Rest: async (f, c, p, k) =>
@@ -202,4 +206,34 @@ public static partial class Operations
             },
             Project: (sp, c) => DocumentsAsync(sp, c)),
     ];
+
+    /// <summary>
+    /// REST's bulk delete answer in the words Surfaces.Result reads MCP's summary into: ok, all_failed or partial
+    /// by how many were deleted, each failure as "{id}: {why}", and the files whose stored copy wasn't removed.
+    /// </summary>
+    /// <summary>A multi-file upload's per-file results, in the words MCP bulk_upload's summary gives them.</summary>
+    private static string BulkUploadResult(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var files = document.RootElement.GetProperty("documents").EnumerateArray().ToList();
+        var failed = files.Where(d => d.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String)
+            .Select(d => d.GetProperty("error").GetString()).ToList();
+        int done = files.Count - failed.Count;
+        return (done == files.Count ? "ok" : done == 0 ? "error:all_failed" : $"partial:{done}/{files.Count}")
+            + (failed.Count > 0 ? $" failed=[{string.Join(" | ", failed)}]" : "");
+    }
+
+    private static string BulkDeleteResult(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var results = document.RootElement.GetProperty("results").EnumerateArray().ToList();
+        int done = results.Count(r => r.GetProperty("deleted").GetBoolean());
+        var failed = results.Where(r => !r.GetProperty("deleted").GetBoolean())
+            .Select(r => $"{r.GetProperty("fileId").GetString()}: {r.GetProperty("error").GetString()}").ToList();
+        var cleanup = results.Where(r => r.GetProperty("deleted").GetBoolean() && r.GetProperty("storageCleanupFailed").GetBoolean())
+            .Select(r => r.GetProperty("fileId").GetString()).ToList();
+        return (done == results.Count ? "ok" : done == 0 ? "error:all_failed" : $"partial:{done}/{results.Count}")
+            + (failed.Count > 0 ? $" failed=[{string.Join(" | ", failed)}]" : "")
+            + (cleanup.Count > 0 ? $";storage_cleanup_failed=[{string.Join(",", cleanup)}]" : "");
+    }
 }

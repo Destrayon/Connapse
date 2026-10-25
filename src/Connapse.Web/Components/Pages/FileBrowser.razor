@@ -10,8 +10,7 @@
 @inject IOptionsMonitor<LlmSettings> LlmOptions
 @inject IDocumentStore DocumentStore
 @inject IFolderStore FolderStore
-@inject IKnowledgeFileSystem FileSystem
-@inject IIngestionQueue IngestionQueue
+@inject Connapse.Application.Files.FileOperations FileOps
 @inject IContainerSettingsResolver SettingsResolver
 @using Connapse.Web.Services
 @inject IngestionProgressNotifier ProgressNotifier
@@ -657,23 +656,14 @@
     private async Task RetryIngestion(BrowseEntryDto entry)
     {
         if (entry.Id is null) return;
-        if (!Guid.TryParse(ContainerId, out _)) return;
-
-        var job = new IngestionJob(
-            DocumentId: entry.Id,
-            Options: new IngestionOptions(
-                DocumentId: entry.Id,
-                FileName: entry.Name,
-                ContentType: entry.ContentType,
-                ContainerId: ContainerId,
-                Path: entry.Path));
+        if (!Guid.TryParse(ContainerId, out var containerId)) return;
 
         // Optimistic local flip so the spinner shows immediately.
         var idx = entries.FindIndex(e => e.Id == entry.Id);
         if (idx >= 0) entries[idx] = entries[idx] with { IngestionStatus = DocumentStatus.Queued };
         StateHasChanged();
 
-        await IngestionQueue.EnqueueAsync(job);
+        errorMessage = (await FileOps.Retry.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, entry.Id)).Detail;
     }
 
     private async Task RetryAllFailed()
@@ -857,36 +847,12 @@
         if (!Guid.TryParse(ContainerId, out var containerId))
             return new();
 
-        var browsePath = PathUtilities.NormalizeFolderPath(currentPath);
-        var result = new List<BrowseEntryDto>();
-
-        var folders = await FolderStore.ListAsync(containerId, parentPath: browsePath);
-        foreach (var folder in folders)
-        {
-            var folderName = PathUtilities.GetFileName(folder.Path.TrimEnd('/'));
-            result.Add(new BrowseEntryDto(folderName, folder.Path, IsFolder: true, SizeBytes: null, LastModified: folder.CreatedAt, Status: null, Id: folder.Id));
-        }
-
-        var documents = await DocumentStore.ListAsync(containerId, pathPrefix: browsePath);
-        foreach (var doc in documents)
-        {
-            var docParent = PathUtilities.GetParentPath(doc.Path);
-            if (!string.Equals(docParent, browsePath, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            result.Add(new BrowseEntryDto(
-                doc.FileName, doc.Path, IsFolder: false, SizeBytes: doc.SizeBytes,
-                LastModified: doc.CreatedAt, Status: doc.Metadata.GetValueOrDefault("Status"),
-                Id: doc.Id, IngestionStatus: doc.Status, ContentType: doc.ContentType));
-        }
-
-        result.Sort((a, b) =>
-        {
-            if (a.IsFolder != b.IsFolder) return a.IsFolder ? -1 : 1;
-            return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-        });
-
-        return result;
+        var listed = await FileOps.List.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId,
+            new Connapse.Application.Files.ListFilesQuery(currentPath));
+        // Folders first, then by name, as the operation answers.
+        return [.. listed.ResultOr(failed => errorMessage = failed, new([], 0, false)).Entries.Select(e => new BrowseEntryDto(
+            e.Name, e.Path, e.IsFolder, e.SizeBytes, e.LastModified, e.Document?.Metadata.GetValueOrDefault("Status"), e.Id,
+            IngestionStatus: e.Document?.Status, ContentType: e.Document?.ContentType))];
     }
 
     private void NavigateToRoot() => NavigateToPath("/");
@@ -921,7 +887,7 @@
     {
         try
         {
-            selectedFile = await DocumentStore.GetAsync(fileId);
+            selectedFile = (await FileOps.Get.RunAsync(await AuthStateProvider.OperationContextAsync(), Guid.Parse(ContainerId), fileId)).Result;
         }
         catch
         {
@@ -1173,20 +1139,7 @@
     {
         if (entry.Id is null) return;
 
-        await IngestionQueue.CancelJobForDocumentAsync(entry.Id);
-        await DocumentStore.DeleteAsync(entry.Id);
-
-        try
-        {
-            if (!string.IsNullOrEmpty(entry.Path))
-            {
-                // The Filesystem branch that used to live here is gone with #351: external
-                // storage is a source now, so a container can only be managed storage and
-                // this condition could never be true again.
-                await FileSystem.DeleteAsync(entry.Path);
-            }
-        }
-        catch { /* File already deleted or not found */ }
+        await DeleteDocumentAsync(Guid.Parse(ContainerId), entry.Id);
 
         if (selectedBrowseEntry?.Id == entry.Id)
         {
@@ -1199,24 +1152,19 @@
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(entry.Path);
 
-        {
-            var docs = await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath);
+        // Each document under it as files.delete deletes one, then the folder's own record.
+        foreach (var doc in await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath, take: int.MaxValue))
+            await DeleteDocumentAsync(containerId, doc.Id);
 
-            foreach (var doc in docs)
-                await IngestionQueue.CancelJobForDocumentAsync(doc.Id);
+        await FolderStore.DeleteAsync(containerId, normalizedPath);
+    }
 
-            await FolderStore.DeleteAsync(containerId, normalizedPath);
-
-            foreach (var doc in docs)
-            {
-                try
-                {
-                    if (!string.IsNullOrEmpty(doc.Path))
-                        await FileSystem.DeleteAsync(doc.Path);
-                }
-                catch { /* File already deleted or not found */ }
-            }
-        }
+    /// <summary>Deletes one document through files.delete; a refusal throws, for the delete's error handling to show.</summary>
+    private async Task DeleteDocumentAsync(Guid containerId, string fileId)
+    {
+        var deleted = await FileOps.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, fileId);
+        if (!deleted.Succeeded && deleted.Status != Connapse.Application.Files.FileStatus.NotFound)
+            throw new InvalidOperationException(deleted.Detail);
     }
 
     // Multi-select helpers
