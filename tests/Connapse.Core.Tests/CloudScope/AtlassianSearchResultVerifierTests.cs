@@ -326,12 +326,45 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         List<SearchHit> hits = [.. Enumerable.Range(0, 10).Select(i => new SearchHit($"c{i}", "p1", "", 1f, []))];
         hits.AddRange([Hit("p2", AtlassianUri.ForPage(CloudId, "2")), Hit("p3", AtlassianUri.ForPage(CloudId, "3")),
             Hit("p4", AtlassianUri.ForPage(CloudId, "4"))]);
-        // Every check takes two seconds against the default three-second budget and ten slots.
-        var slow = new DelayingHandler(_api, TimeSpan.FromSeconds(2));
+        // Every check takes 3 s, with four slots and a 5.5 s budget. The four distinct pages fill the
+        // slots once: about 3 s, leaving 2.5 s for a loaded machine. Checked once per chunk, page 1's
+        // chunks take the first round and pages 2 to 4 a second (the cache answers page 1's other
+        // chunks), and one page at a time takes four rounds: at least 6 s either way, past the budget
+        // however fast the machine. Load only makes those slower (CON-83).
+        var slow = new DelayingHandler(_api, TimeSpan.FromSeconds(3));
 
-        var result = await NewVerifier(slow).VerifyAsync(hits, _user, 10);
+        var result = await NewVerifier(slow, new AtlassianVerifierSettings { MaxParallelism = 4, BudgetMs = 5500 })
+            .VerifyAsync(hits, _user, 10);
 
         result.Select(h => h.ChunkId).Should().Equal(hits.Select(h => h.ChunkId));
+    }
+
+    [Fact]
+    public async Task Verify_MorePagesThanSlots_NeverHasMoreChecksInFlightThanSlots()
+    {
+        SearchHit[] hits = [.. Enumerable.Range(1, 9).Select(i =>
+        {
+            Allow(i.ToString(), true);
+            return Hit("p" + i, AtlassianUri.ForPage(CloudId, i.ToString()));
+        })];
+        // Each check holds its slot for 100 ms, so nine pages ignoring the limit would all be in flight at once.
+        // The limit itself keeps a correct verifier at three however slow the machine.
+        var counting = new InFlightHandler(new DelayingHandler(_api, TimeSpan.FromMilliseconds(100)));
+
+        var result = await NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3 }).VerifyAsync(hits, _user, 10);
+
+        result.Should().HaveCount(9);
+        counting.Peak.Should().Be(3, "three slots run three checks at once, never more");
+    }
+
+    [Fact]
+    public void Settings_Defaults_AreTenSlotsAndAThreeSecondBudget()
+    {
+        // The budget tests pin their own settings, so the defaults a search really runs with are pinned here.
+        var defaults = new AtlassianVerifierSettings();
+
+        defaults.MaxParallelism.Should().Be(10);
+        defaults.BudgetMs.Should().Be(3000);
     }
 
     [Fact]
@@ -510,6 +543,27 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     /// <summary>Passes token requests through; answers every other request after a fixed delay.</summary>
+    /// <summary>Records the most permission checks in flight at once; the inner handler decides how long each takes.</summary>
+    private sealed class InFlightHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        private int _inFlight;
+        private int _peak;
+
+        public int Peak => Volatile.Read(ref _peak);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (!request.RequestUri!.AbsolutePath.EndsWith("/permission/check", StringComparison.Ordinal))
+                return await base.SendAsync(request, ct);
+            int now = Interlocked.Increment(ref _inFlight);
+            for (int seen = Volatile.Read(ref _peak); now > seen; seen = Volatile.Read(ref _peak))
+                if (Interlocked.CompareExchange(ref _peak, now, seen) == seen)
+                    break;
+            try { return await base.SendAsync(request, ct); }
+            finally { Interlocked.Decrement(ref _inFlight); }
+        }
+    }
+
     private sealed class DelayingHandler(HttpMessageHandler inner, TimeSpan delay) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
