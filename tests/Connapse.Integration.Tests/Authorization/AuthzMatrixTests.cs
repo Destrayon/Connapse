@@ -30,8 +30,10 @@ public partial class AuthzMatrixTests(SharedWebAppFixture fixture)
 
         var violations = new List<string>();
         var undecided = new List<string>();
+        var agentReadAnswers = new Dictionary<string, bool>(StringComparer.Ordinal);
         foreach (var principal in AuthzPrincipal.All)
         {
+            bool adminAgent = AuthzPrincipal.AgentAdmins.Contains(principal);
             using var http = await AuthzPrincipals.ClientAsync(fixture, principal);
             foreach (var (key, endpoint) in probed)
             {
@@ -43,12 +45,25 @@ public partial class AuthzMatrixTests(SharedWebAppFixture fixture)
                     var (allowed, status) = await ProbeAsync(http, endpoint, method);
                     if (allowed is null)
                         undecided.Add($"{row} as {principal}: {status}");
-                    else if (allowed != expected)
-                        violations.Add($"matrix {row} as {principal}: expects {(expected ? "allowed" : "refused")}, got {(allowed.Value ? "allowed" : "refused")}");
+                    else if (principal == AuthzPrincipal.AgentRead)
+                        agentReadAnswers[row] = allowed.Value;
+
+                    // An agent's expectation doesn't depend on its scopes, so an admin-scoped key must
+                    // answer as agent-read does. Where both are wrong, agent-read's listed entry covers
+                    // it; the key reports only what its admin scope changed.
+                    if (allowed is null || allowed == expected
+                        || (adminAgent && agentReadAnswers.TryGetValue(row, out bool baseline) && baseline == allowed))
+                        continue;
+                    violations.Add($"matrix {row} as {principal}: expects {(expected ? "allowed" : "refused")}, got {(allowed.Value ? "allowed" : "refused")}");
                 }
             }
         }
 
+        var namedAdminScopes = table.Values.Select(e => e.Scope).OfType<string>()
+            .Concat(probed.SelectMany(e => AuthzExpectations.DeclaredScopes(e.Value)))
+            .Concat(Connapse.Core.TokenScopeChoices.PersonalToken)
+            .Where(s => s.StartsWith("admin:", StringComparison.Ordinal));
+        AuthzPrincipal.AdminScopes.Should().Contain(namedAdminScopes, "every admin scope needs an agent key in the matrix");
         undecided.Should().BeEmpty("every probe must end in the probe's answer or an authorization refusal; any other status means authorization never decided");
         AuthzExpectations.ShouldMatchKnown(violations, "matrix ");
     }
