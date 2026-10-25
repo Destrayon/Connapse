@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Connapse.Application.Ports;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 
 namespace Connapse.Web.Services;
 
