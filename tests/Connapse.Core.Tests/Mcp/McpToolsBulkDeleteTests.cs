@@ -15,7 +15,7 @@ public class McpToolsBulkDeleteTests
 
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _documentStore;
-    private readonly IKnowledgeFileSystem _fileSystem;
+    private readonly IWritableConnector _fileSystem;
     private readonly ILogger<McpTools> _logger;
     private readonly IFolderStore _folderStore;
     private readonly IIngestionQueue _ingestionQueue;
@@ -25,7 +25,7 @@ public class McpToolsBulkDeleteTests
     {
         _containerStore = Substitute.For<IContainerStore>();
         _documentStore = Substitute.For<IDocumentStore>();
-        _fileSystem = Substitute.For<IKnowledgeFileSystem>();
+        _fileSystem = Substitute.For<IWritableConnector>();
         _logger = Substitute.For<ILogger<McpTools>>();
         _folderStore = Substitute.For<IFolderStore>();
         _ingestionQueue = Substitute.For<IIngestionQueue>();
@@ -37,7 +37,9 @@ public class McpToolsBulkDeleteTests
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
-        services.GetService(typeof(IKnowledgeFileSystem)).Returns(_fileSystem);
+        var storage = Substitute.For<IManagedStorageProvider>();
+        storage.CreateConnector(Arg.Any<string>()).Returns(_fileSystem);
+        services.GetService(typeof(IManagedStorageProvider)).Returns(storage);
         services.GetService(typeof(ILogger<McpTools>)).Returns(_logger);
         services.GetService(typeof(IFolderStore)).Returns(_folderStore);
         services.GetService(typeof(IIngestionQueue)).Returns(_ingestionQueue);
@@ -82,7 +84,7 @@ public class McpToolsBulkDeleteTests
         var doc1 = MakeDocument("file-1", "a.txt", "/a.txt");
         _documentStore.GetAsync("file-1", Arg.Any<CancellationToken>()).Returns(doc1);
         _fileSystem
-            .DeleteAsync("/a.txt", Arg.Any<CancellationToken>())
+            .DeleteFileAsync("/a.txt", Arg.Any<CancellationToken>())
             .ThrowsAsync(new IOException("disk error"));
 
         var json = """["file-1"]""";

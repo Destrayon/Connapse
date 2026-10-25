@@ -262,7 +262,7 @@ public sealed class DeleteFile(
     IContainerStore containers,
     IDocumentStore documents,
     IFolderStore folders,
-    IKnowledgeFileSystem files,
+    IManagedStorageProvider storage,
     IIngestionQueue queue,
     IAuditLogger audit,
     IOperationAuthorizer authorizer,
@@ -292,8 +292,18 @@ public sealed class DeleteFile(
         bool cleanupFailed = false;
         try
         {
-            if (!string.IsNullOrEmpty(document.Path))
-                await files.DeleteAsync(document.Path, ct);
+            // Through the container's own storage, which keeps each container's files under its own prefix.
+            if (!string.IsNullOrEmpty(document.Path) && storage.CreateConnector(containerId.ToString()) is IWritableConnector connector)
+            {
+                try
+                {
+                    await connector.DeleteFileAsync(document.Path, ct);
+                }
+                finally
+                {
+                    (connector as IDisposable)?.Dispose();
+                }
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

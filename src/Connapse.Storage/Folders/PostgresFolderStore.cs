@@ -11,6 +11,7 @@ namespace Connapse.Storage.Folders;
 public class PostgresFolderStore(
     IDbContextFactory<KnowledgeDbContext> factory,
     IContainerStore containerStore,
+    IManagedStorageProvider storage,
     ILogger<PostgresFolderStore> logger) : IFolderStore
 {
     public async Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default)
@@ -97,14 +98,46 @@ public class PostgresFolderStore(
             new Folder(e.Id.ToString(), e.ContainerId.ToString(), e.Path, e.CreatedAt)).ToList();
     }
 
+    public async Task<Folder> EnsureAsync(Guid containerId, string path, CancellationToken ct = default)
+    {
+        var normalizedPath = PathUtilities.NormalizeFolderPath(path);
+        var segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        // ON CONFLICT DO NOTHING, so two uploads creating the same folder at once both get it. A folder delete may
+        // remove it before it is read back, so this tries again rather than hand back a folder that is gone.
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            for (int i = 1; i <= segments.Length; i++)
+            {
+                string ancestor = "/" + string.Join("/", segments.Take(i)) + "/";
+                await context.Database.ExecuteSqlAsync(
+                    $"INSERT INTO folders (id, container_id, path, created_at) VALUES (gen_random_uuid(), {containerId}, {ancestor}, now()) ON CONFLICT (container_id, path) DO NOTHING",
+                    ct);
+            }
+
+            var entity = await context.Folders.AsNoTracking()
+                .FirstOrDefaultAsync(f => f.ContainerId == containerId && f.Path == normalizedPath, ct);
+            if (entity is not null)
+                return new Folder(entity.Id.ToString(), entity.ContainerId.ToString(), entity.Path, entity.CreatedAt);
+        }
+
+        throw new InvalidOperationException($"Folder '{normalizedPath}' kept being deleted while it was being created.");
+    }
+
     public async Task<bool> DeleteAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
 
         await using var context = await factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
+        // Locking the folders first is what keeps an upload whole: one storing a document into any of them holds
+        // FOR KEY SHARE until it has, so this waits for it and the documents read below include it; one that comes
+        // after finds its folder gone and removes its own stored file.
         var foldersToDelete = await context.Folders
-            .Where(f => f.ContainerId == containerId && f.Path.StartsWith(normalizedPath))
+            .FromSql($"SELECT * FROM folders WHERE container_id = {containerId} AND starts_with(path, {normalizedPath}) FOR UPDATE")
             .ToListAsync(ct);
 
         if (foldersToDelete.Count == 0)
@@ -127,18 +160,43 @@ public class PostgresFolderStore(
         context.Folders.RemoveRange(foldersToDelete);
         await context.SaveChangesAsync(ct);
 
+        // Stored files go before the commit, while the folders are still locked: a file removed after it could be
+        // one a new upload to the same path had just written. A file that can't be removed throws, rolling the
+        // records back rather than leaving a file nothing points to; the folder then still holds everything not yet
+        // removed, and deleting it again finishes the job. Past this point the delete isn't cancelled, since stopping
+        // halfway would leave records whose files are gone.
+        await DeleteStoredFilesAsync(containerId, documentsToDelete.Select(d => d.Path));
+        await transaction.CommitAsync(CancellationToken.None);
+
         // If any cascade-deleted doc contributed to the container summary, mark stale so the
         // next sweep tick triggers a re-rollup. Same reason as PostgresDocumentStore.DeleteAsync
         // (pure deletes don't otherwise show up in the sweep's "newer doc timestamp" query).
         if (anyDeletedHadSummary)
         {
-            await containerStore.MarkSummaryStaleAsync(containerId, ct);
+            await containerStore.MarkSummaryStaleAsync(containerId, CancellationToken.None);
         }
 
         logger.LogInformation("Deleted folder {Path} and {SubCount} sub-folders in container {ContainerId}",
             normalizedPath, foldersToDelete.Count - 1, containerId);
 
         return true;
+    }
+
+    private async Task DeleteStoredFilesAsync(Guid containerId, IEnumerable<string> paths)
+    {
+        var connector = storage.CreateConnector(containerId.ToString());
+        try
+        {
+            if (connector is not IWritableConnector writable)
+                return;
+
+            foreach (string path in paths)
+                await writable.DeleteFileAsync(path, CancellationToken.None);
+        }
+        finally
+        {
+            (connector as IDisposable)?.Dispose();
+        }
     }
 
     public async Task<bool> ExistsAsync(Guid containerId, string path, CancellationToken ct = default)

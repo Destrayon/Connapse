@@ -25,7 +25,7 @@ public class McpToolsDeleteFileTests
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _documentStore;
     private readonly IFolderStore _folderStore;
-    private readonly IKnowledgeFileSystem _fileSystem;
+    private readonly IWritableConnector _fileSystem;
     private readonly ILogger<Connapse.Application.Files.DeleteFile> _logger;
     private readonly IIngestionQueue _ingestionQueue;
     private readonly IServiceProvider _services;
@@ -35,7 +35,7 @@ public class McpToolsDeleteFileTests
         _containerStore = Substitute.For<IContainerStore>();
         _documentStore = Substitute.For<IDocumentStore>();
         _folderStore = Substitute.For<IFolderStore>();
-        _fileSystem = Substitute.For<IKnowledgeFileSystem>();
+        _fileSystem = Substitute.For<IWritableConnector>();
         _logger = Substitute.For<ILogger<Connapse.Application.Files.DeleteFile>>();
         _ingestionQueue = Substitute.For<IIngestionQueue>();
 
@@ -51,7 +51,9 @@ public class McpToolsDeleteFileTests
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
         services.GetService(typeof(IFolderStore)).Returns(_folderStore);
-        services.GetService(typeof(IKnowledgeFileSystem)).Returns(_fileSystem);
+        var storage = Substitute.For<IManagedStorageProvider>();
+        storage.CreateConnector(Arg.Any<string>()).Returns(_fileSystem);
+        services.GetService(typeof(IManagedStorageProvider)).Returns(storage);
         services.GetService(typeof(ILogger<Connapse.Application.Files.DeleteFile>)).Returns(_logger);
         services.GetService(typeof(IIngestionQueue)).Returns(_ingestionQueue);
         _services = services;
@@ -64,14 +66,14 @@ public class McpToolsDeleteFileTests
 
         result.Should().Be($"File '{FileName}' (ID: {FileId}) deleted.");
         await _documentStore.Received(1).DeleteAsync(FileId, Arg.Any<CancellationToken>());
-        await _fileSystem.Received(1).DeleteAsync(FilePath, Arg.Any<CancellationToken>());
+        await _fileSystem.Received(1).DeleteFileAsync(FilePath, Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task DeleteFile_StorageFails_ReturnsPartialFailureAndLogsWarning()
     {
         _fileSystem
-            .DeleteAsync(FilePath, Arg.Any<CancellationToken>())
+            .DeleteFileAsync(FilePath, Arg.Any<CancellationToken>())
             .ThrowsAsync(new IOException("disk error"));
 
         var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
