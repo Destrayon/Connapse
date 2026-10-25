@@ -9662,9 +9662,43 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/SourceScope"
+                "$ref": "#/components/schemas/SourceScopeS3BucketScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeAzureBlobContainerScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeFilesystemFolderScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeSftpFolderScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeGitHubRepositoryScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeJiraProjectScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeConfluenceSpaceScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeCustomSourceScope"
               }
-            ]
+            ],
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "s3": "#/components/schemas/SourceScopeS3BucketScope",
+                "azureBlob": "#/components/schemas/SourceScopeAzureBlobContainerScope",
+                "filesystem": "#/components/schemas/SourceScopeFilesystemFolderScope",
+                "sftp": "#/components/schemas/SourceScopeSftpFolderScope",
+                "github": "#/components/schemas/SourceScopeGitHubRepositoryScope",
+                "jira": "#/components/schemas/SourceScopeJiraProjectScope",
+                "confluence": "#/components/schemas/SourceScopeConfluenceSpaceScope",
+                "custom": "#/components/schemas/SourceScopeCustomSourceScope"
+              }
+            }
           }
         }
       },
@@ -11785,6 +11819,12 @@
               "containerName"
             ],
             "properties": {
+              "type": {
+                "enum": [
+                  "azureBlob"
+                ],
+                "type": "string"
+              },
               "containerName": {
                 "type": "string"
               },
@@ -11808,6 +11848,12 @@
               "spaceId"
             ],
             "properties": {
+              "type": {
+                "enum": [
+                  "confluence"
+                ],
+                "type": "string"
+              },
               "spaceId": {
                 "type": "string"
               },
@@ -11853,6 +11899,12 @@
               "scopeId"
             ],
             "properties": {
+              "type": {
+                "enum": [
+                  "custom"
+                ],
+                "type": "string"
+              },
               "baseUrl": {
                 "type": "string"
               },
@@ -11870,6 +11922,12 @@
           },
           {
             "properties": {
+              "type": {
+                "enum": [
+                  "filesystem"
+                ],
+                "type": "string"
+              },
               "subPath": {
                 "type": [
                   "null",
@@ -11910,6 +11968,12 @@
               "kind"
             ],
             "properties": {
+              "type": {
+                "enum": [
+                  "github"
+                ],
+                "type": "string"
+              },
               "owner": {
                 "type": "string"
               },
@@ -11988,6 +12052,12 @@
               "projectId"
             ],
             "properties": {
+              "type": {
+                "enum": [
+                  "jira"
+                ],
+                "type": "string"
+              },
               "projectId": {
                 "type": "string"
               },
@@ -12032,6 +12102,12 @@
               "bucketName"
             ],
             "properties": {
+              "type": {
+                "enum": [
+                  "s3"
+                ],
+                "type": "string"
+              },
               "bucketName": {
                 "type": "string"
               },
@@ -12052,6 +12128,12 @@
           },
           {
             "properties": {
+              "type": {
+                "enum": [
+                  "sftp"
+                ],
+                "type": "string"
+              },
               "subPath": {
                 "type": [
                   "null",
