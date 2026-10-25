@@ -76,8 +76,10 @@ public static class AuthzExpectations
         // A scope policy narrows a token, not the role; DeclaredScopes compares it with the table's scope.
         var named = data.Select(d => d.Policy).OfType<string>().Where(p => !p.StartsWith("Scope:", StringComparison.Ordinal))
             .Distinct().Order().ToList();
+        // A scope alone admits any principal holding it, an agent key included, so it isn't a person's
+        // route: it reads as its scopes, which no expectation's requirement names.
         if (named.Count == 0 && data.Any(d => d.Policy?.StartsWith("Scope:", StringComparison.Ordinal) == true) && policies.Count == 0)
-            return "user";
+            return string.Join("+", DeclaredScopes(endpoint).Select(s => $"scope:{s}"));
         if (named.Count == 0 && policies.Count == 0 && data.All(d => string.IsNullOrEmpty(d.Roles)))
             return "user";
 
