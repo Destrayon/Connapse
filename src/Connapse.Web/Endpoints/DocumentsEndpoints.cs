@@ -76,7 +76,7 @@ public static class DocumentsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("UploadFiles")
         .WithDescription("Upload one or more files to a container")
-        .RequireAuthorization("RequireEditor");
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         // GET /api/containers/{containerId}/files - List files and folders at path (paginated)
         group.MapGet("/", async (

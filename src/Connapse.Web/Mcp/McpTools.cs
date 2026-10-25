@@ -490,9 +490,16 @@ public class McpTools
             return summary;
         }
 
-        var uploaded = await bulkUpload.RunAsync(Mcp(http), resolvedId, uploadRequests, ct);
-        foreach (var request in uploadRequests)
-            await request.Content.DisposeAsync();
+        Attempt<BulkUpload, FileStatus> uploaded;
+        try
+        {
+            uploaded = await bulkUpload.RunAsync(Mcp(http), resolvedId, uploadRequests, ct);
+        }
+        finally
+        {
+            foreach (var request in uploadRequests)
+                await request.Content.DisposeAsync();
+        }
         if (!uploaded.Succeeded)
             return Refused(uploaded);
 
