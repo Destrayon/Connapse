@@ -37,7 +37,11 @@ public static class AuditEndpoints
             var page = read.Result!;
             return Results.Ok(new AuditLogResponse(page.Items, page.Next is not null, page.Next?.ToString()));
         })
-        .WithName("ListAuditLog")
+        .Produces<AuditLogResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .WithName("audit.list")
         .WithDescription("Read the audit log, newest first (?take=50, up to 200); pass a page's nextBefore as ?before= for the next. Filter by action, userId, resourceType, resourceId, and a since (inclusive) to until (exclusive) range in UTC. Administrators only.")
         .RequireAuthorization(Policies.AuditReader);
 
