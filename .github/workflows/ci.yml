@@ -165,11 +165,13 @@ jobs:
       id: base
       if: github.event_name == 'pull_request'
       run: |
-        # In the workspace: oasdiff runs in a Docker container that sees only the workspace.
-        if git show "origin/${{ github.base_ref }}:docs/api/openapi.json" > base-openapi.json 2>/dev/null; then
+        # The spec as it is without this PR: the first parent of the merge commit a PR run checks out. For a
+        # PR in a GitHub stack that is every PR below it merged onto the trunk, which base_ref (the trunk)
+        # isn't. In the workspace, since oasdiff runs in a Docker container that sees only the workspace.
+        if git show "HEAD^1:docs/api/openapi.json" > base-openapi.json 2>/dev/null; then
           echo "path=base-openapi.json" >> "$GITHUB_OUTPUT"
         else
-          echo "::notice::${{ github.base_ref }} has no committed spec yet, so there is nothing to break"
+          echo "::notice::the base has no committed spec yet, so there is nothing to break"
         fi
 
     # review: false keeps both specs in CI; the action otherwise uploads them to oasdiff.com.
