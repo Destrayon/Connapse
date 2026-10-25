@@ -69,11 +69,26 @@ class RunnerFactor(unittest.TestCase):
 
 class SmallWall(unittest.TestCase):
     def test_a_slow_runner_passes_where_the_raw_wall_is_over(self):
-        # The run #925, #928 and #921 failed on: every test about twice as slow, 31 s wall.
-        with tier(scaled(2.0)):
+        # The run that failed at 31 s, as #925, #928 and #921 did: every test 1.25x as slow as the reference.
+        with tier(scaled(1.25)):
             code, out = run("--wall-seconds", "31", "--max-wall-seconds", "30", "--reference", "reference.json")
         self.assertEqual(code, 0, out)
-        self.assertIn("15.5 s", out)
+        self.assertIn("24.8 s", out)
+
+    def test_a_slowdown_of_every_test_cant_pass_as_a_slow_runner(self):
+        # Every test twice as slow on a median runner, 50 s wall: the factor is capped at the slowest
+        # runner seen, so this reads as 33.3 s, not the 25 s a factor of 2 would make it.
+        with tier(scaled(2.0)):
+            code, out = run("--wall-seconds", "50", "--max-wall-seconds", "30", "--reference", "reference.json")
+        self.assertEqual(code, 1, out)
+        self.assertIn("33.3 s", out)
+
+    def test_a_reference_most_of_whose_tests_no_longer_run_fails_and_says_to_refresh(self):
+        # 150 of the 200 reference tests ran: enough for a median, but the reference has drifted.
+        with tier({name: seconds for name, seconds in list(REFERENCE.items())[:150]}):
+            code, out = run("--wall-seconds", "10", "--max-wall-seconds", "30", "--reference", "reference.json")
+        self.assertEqual(code, 1, out)
+        self.assertIn("refresh", out)
 
     def test_a_real_slowdown_on_a_fast_runner_fails_though_its_raw_wall_is_under(self):
         # A fast runner (0.6x) whose run took 25 s: 41.7 s on a median runner. The raw check passed this.
@@ -100,25 +115,47 @@ class SmallWall(unittest.TestCase):
 
 
 class WriteReference(unittest.TestCase):
+    @staticmethod
+    def runs(root: str, factors: list[float]) -> list[str]:
+        dirs = []
+        for i, factor in enumerate(factors):
+            d = pathlib.Path(root, f"run{i}", "tests", "P", "TestResults")
+            d.mkdir(parents=True)
+            durations = {"A": 0.1 * factor, "Tiny": 0.001, "B": 0.2 * factor}
+            if i != 1:
+                durations["Sometimes"] = 0.5
+            (d / "small-tests.trx").write_text(trx(durations))
+            dirs.append(str(pathlib.Path(root, f"run{i}")))
+        return dirs
+
     def test_keeps_each_tests_median_over_runs_for_tests_every_run_timed_at_10_ms_or_more(self):
         with tempfile.TemporaryDirectory() as root:
-            runs = []
-            for i, factor in enumerate([1.0, 2.0, 3.0]):
-                d = pathlib.Path(root, f"run{i}", "tests", "P", "TestResults")
-                d.mkdir(parents=True)
-                durations = {"A": 0.1 * factor, "Tiny": 0.001, "B": 0.2 * factor}
-                if i != 1:
-                    durations["Sometimes"] = 0.5
-                (d / "small-tests.trx").write_text(trx(durations))
-                runs.append(str(pathlib.Path(root, f"run{i}")))
             out = pathlib.Path(root, "reference.json")
 
-            reference = b.write_reference(str(out), "small-tests.trx", runs)
+            reference = b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 2.0, 3.0, 4.0, 5.0]))
 
             self.assertEqual(set(reference), {"A", "B"})
-            self.assertAlmostEqual(reference["A"], 0.2)
-            self.assertAlmostEqual(reference["B"], 0.4)
+            self.assertAlmostEqual(reference["A"], 0.3)
+            self.assertAlmostEqual(reference["B"], 0.6)
             self.assertEqual(json.loads(out.read_text()), reference)
+
+    def test_from_fewer_than_five_runs_writes_nothing(self):
+        # One run is one runner's speed, not a median runner's.
+        with tempfile.TemporaryDirectory() as root:
+            out = pathlib.Path(root, "reference.json")
+
+            with self.assertRaises(ValueError):
+                b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 2.0, 3.0, 4.0]))
+            self.assertFalse(out.exists())
+
+    def test_a_run_with_no_results_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            dirs = self.runs(root, [1.0, 2.0, 3.0, 4.0]) + [str(pathlib.Path(root, "empty"))]
+            out = pathlib.Path(root, "reference.json")
+
+            with self.assertRaises(ValueError):
+                b.write_reference(str(out), "small-tests.trx", dirs)
+            self.assertFalse(out.exists())
 
 
 if __name__ == "__main__":
