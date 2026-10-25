@@ -31,6 +31,17 @@ public class SettingsIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task UpdateSettings_AnotherCategorysBody_Returns400AndLeavesTheSettingsAsTheyWere()
+    {
+        var before = await fixture.AdminClient.GetStringAsync("/api/settings/embedding");
+
+        var response = await fixture.AdminClient.PutAsJsonAsync("/api/settings/embedding", new { parallelWorkers = 2, parseTimeoutSeconds = 60 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await fixture.AdminClient.GetStringAsync("/api/settings/embedding")).Should().Be(before);
+    }
+
+    [Fact]
     public async Task UpdateSettings_ChunkingSettings_LiveReloadWorks()
     {
         // Arrange: Get current chunking settings
