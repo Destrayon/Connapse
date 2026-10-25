@@ -35,7 +35,7 @@ public static class SearchEndpoints
                 : SearchMode.Hybrid;
             var searched = await search.RunAsync(Rest(http), containerId,
                 new SearchRequest(q, searchMode, topK, minScore, path), ct);
-            return searched.Succeeded ? Results.Ok(searched.Result) : OperationProblems.Result(searched);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, q);
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -52,7 +52,7 @@ public static class SearchEndpoints
             CancellationToken ct) =>
         {
             var searched = await search.RunAsync(Rest(http), containerId, request.ToSearch(), ct);
-            return searched.Succeeded ? Results.Ok(searched.Result) : OperationProblems.Result(searched);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, request.Query);
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -91,7 +91,7 @@ public static class SearchEndpoints
             CancellationToken ct) =>
         {
             var searched = await search.RunAsync(Rest(http), sourceId, request.ToSearch(), ct);
-            return searched.Succeeded ? Results.Ok(searched.Result) : OperationProblems.Result(searched);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, request.Query);
         })
         .WithTags("Search")
         .RequireAuthorization("RequireViewer")
@@ -107,6 +107,28 @@ public static class SearchEndpoints
     }
 
     private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
+
+    /// <summary>
+    /// A failed search's problem. Before search moved onto its operation (#916), a bad topK or minScore or an
+    /// over-long query was answered with these codes in <c>error</c>, which scripts branch on, so they keep them.
+    /// </summary>
+    private static IResult Problem(Attempt<SearchResult, SearchStatus> failed, string? query)
+    {
+        var problem = OperationProblems.For(failed.Status, failed.Detail);
+        if (failed.Field is { } field)
+            problem.Extensions["field"] = field;
+        if (failed.Status == SearchStatus.Invalid && ErrorCode(failed.Field, query) is { } code)
+            problem.Extensions["error"] = code;
+        return Results.Problem(problem);
+    }
+
+    private static string? ErrorCode(string? field, string? query) => field switch
+    {
+        "topK" => "topk_out_of_range",
+        "minScore" => "minscore_out_of_range",
+        "query" when !string.IsNullOrWhiteSpace(query) => "query_too_long",
+        _ => null,
+    };
 }
 
 /// <summary>A search's body, for a container or a source.</summary>

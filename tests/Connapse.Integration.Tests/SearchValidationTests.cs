@@ -32,6 +32,7 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
             body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
             body.GetProperty("field").GetString().Should().Be("topK");
+            body.GetProperty("error").GetString().Should().Be("topk_out_of_range", "scripts branch on the code");
         }
         finally
         {
@@ -74,6 +75,7 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
             body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
             body.GetProperty("field").GetString().Should().Be("minScore");
+            body.GetProperty("error").GetString().Should().Be("minscore_out_of_range", "scripts branch on the code");
         }
         finally
         {
@@ -115,6 +117,7 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
             body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
             body.GetProperty("field").GetString().Should().Be("query");
+            body.GetProperty("error").GetString().Should().Be("query_too_long", "scripts branch on the code");
         }
         finally
         {
@@ -155,6 +158,7 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
             body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
             body.GetProperty("field").GetString().Should().Be("topK");
+            body.GetProperty("error").GetString().Should().Be("topk_out_of_range", "scripts branch on the code");
         }
         finally
         {

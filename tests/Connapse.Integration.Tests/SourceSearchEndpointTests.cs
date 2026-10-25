@@ -84,6 +84,17 @@ public class SourceSearchEndpointTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task SearchSource_TopKOutOfRange_AnswersWithTheContainerRoutesErrorCode()
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync($"/api/sources/{Guid.NewGuid()}/search", new { query = "anything", topK = 0 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().Be("topk_out_of_range");
+        body.GetProperty("field").GetString().Should().Be("topK");
+    }
+
+    [Fact]
     public async Task SearchSource_Unauthenticated_Returns401()
     {
         using var anonymous = fixture.Factory.CreateClient();
