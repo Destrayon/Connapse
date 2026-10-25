@@ -44,6 +44,17 @@ public abstract class SettingsCategory(string name, string key)
         .ToList();
 
     /// <summary>
+    /// The string properties saying where a secret is sent: the provider and every address (a URL or an
+    /// endpoint), by name. Each provider falls back on the others' keys and addresses, so any of them can
+    /// decide where any key goes.
+    /// </summary>
+    public IReadOnlyList<PropertyInfo> Destinations => Type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        .Where(p => p.PropertyType == typeof(string) && p.CanWrite
+            && (p.Name.EndsWith("Provider", StringComparison.Ordinal) || p.Name.EndsWith("Url", StringComparison.Ordinal)
+                || p.Name.EndsWith("Endpoint", StringComparison.Ordinal)))
+        .ToList();
+
+    /// <summary>
     /// The settings.update body that saves <paramref name="edited"/> from a page that opened with
     /// <paramref name="opened"/>: a secret the page didn't change is sent as null, which keeps the one in effect,
     /// so a key changed elsewhere since the page opened isn't written back over; one the page emptied is sent

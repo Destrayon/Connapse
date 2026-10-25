@@ -247,6 +247,10 @@
     [Parameter]
     public EventCallback<EmbeddingSettings> OnSave { get; set; }
 
+    /// <summary>The keys saved for these settings, by property name; the page never holds their values.</summary>
+    [Parameter]
+    public IReadOnlySet<string> SavedKeys { get; set; } = new HashSet<string>();
+
     private EmbeddingSettings localSettings = new();
     private bool isTestingConnection;
     private string? testMessage;

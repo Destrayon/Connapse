@@ -150,6 +150,10 @@
     [Parameter]
     public EventCallback<LlmSettings> OnSave { get; set; }
 
+    /// <summary>The keys saved for these settings, by property name; the page never holds their values.</summary>
+    [Parameter]
+    public IReadOnlySet<string> SavedKeys { get; set; } = new HashSet<string>();
+
     private LlmSettings localSettings = new();
     private bool isTestingConnection;
     private string? testMessage;

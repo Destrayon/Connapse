@@ -21,17 +21,19 @@ public sealed class SettingsPageSaves(UpdateSettings update, IConfiguredSettings
         return current;
     }
 
+    public IReadOnlySet<string> SavedKeys(string category) => new HashSet<string>();
+
     /// <summary>
     /// Saves a category through settings.update, as PUT /api/settings/{category} does: the category's rules, its
     /// stored keys and the embedding index all apply. Whether it saved, and what the page says.
     /// </summary>
-    public async Task<(bool Saved, string Message)> SaveAsync(string category, object settings)
+    public async Task<(bool Saved, string Message, T Kept)> SaveAsync<T>(string category, T settings) where T : class
     {
         var body = SettingsCategories.Find(category)!.BodyFrom(settings, saved[category]);
         var result = await update.RunAsync(await authentication.OperationContextAsync(), category, body, UnsentSecrets.Keep);
         if (!result.Succeeded)
-            return (false, $"Failed to save {category} settings: {result.Detail}");
+            return (false, $"Failed to save {category} settings: {result.Detail}", settings);
         saved[category] = settings;
-        return (true, $"{category} settings saved successfully!");
+        return (true, $"{category} settings saved successfully!", settings);
     }
 }

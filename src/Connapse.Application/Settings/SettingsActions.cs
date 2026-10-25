@@ -147,7 +147,7 @@ public sealed class ClearAllSummaries(IContainerStore containers, IDocumentStore
 /// address, and a stored key must never be sent to one the caller chose.
 /// </summary>
 [Operation("settings.testConnection", Scope = SettingsScope.Name, Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
-public sealed class TestConnection(IConnectionTests tests, IOperationAuthorizer authorizer)
+public sealed class TestConnection(IConnectionTests tests, ISettingsStore store, IConfiguredSettings configured, IOperationAuthorizer authorizer)
 {
     /// <summary>The longest a test may be given, in seconds.</summary>
     public const int MaxTimeoutSeconds = 300;

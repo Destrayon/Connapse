@@ -74,7 +74,7 @@
     <div class="tab-content">
         @if (activeTab == "embedding")
         {
-            <EmbeddingSettingsTab Settings="embeddingSettings" OnSave="SaveEmbeddingSettings" />
+            <EmbeddingSettingsTab Settings="embeddingSettings" SavedKeys='@Saves.SavedKeys("embedding")' OnSave="SaveEmbeddingSettings" />
         }
         else if (activeTab == "chunking")
         {
@@ -82,11 +82,11 @@
         }
         else if (activeTab == "search")
         {
-            <SearchSettingsTab Settings="searchSettings" OnSave="SaveSearchSettings" />
+            <SearchSettingsTab Settings="searchSettings" SavedKeys='@Saves.SavedKeys("search")' OnSave="SaveSearchSettings" />
         }
         else if (activeTab == "llm")
         {
-            <LlmSettingsTab Settings="llmSettings" OnSave="SaveLlmSettings" />
+            <LlmSettingsTab Settings="llmSettings" SavedKeys='@Saves.SavedKeys("llm")' OnSave="SaveLlmSettings" />
         }
         else if (activeTab == "upload")
         {
@@ -128,32 +128,27 @@
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
     {
-        await SaveSettings("embedding", settings);
-        embeddingSettings = settings;
+        embeddingSettings = await SaveSettings("embedding", settings);
     }
 
     private async Task SaveChunkingSettings(ChunkingSettings settings)
     {
-        await SaveSettings("chunking", settings);
-        chunkingSettings = settings;
+        chunkingSettings = await SaveSettings("chunking", settings);
     }
 
     private async Task SaveSearchSettings(SearchSettings settings)
     {
-        await SaveSettings("search", settings);
-        searchSettings = settings;
+        searchSettings = await SaveSettings("search", settings);
     }
 
     private async Task SaveLlmSettings(LlmSettings settings)
     {
-        await SaveSettings("llm", settings);
-        llmSettings = settings;
+        llmSettings = await SaveSettings("llm", settings);
     }
 
     private async Task SaveUploadSettings(UploadSettings settings)
     {
-        await SaveSettings("upload", settings);
-        uploadSettings = settings;
+        uploadSettings = await SaveSettings("upload", settings);
     }
 
     private async Task SaveSummarySettings()
@@ -161,20 +156,22 @@
         if (summaryTabRef is null) return;
         // settings.update stores it under "Summary", the key ContainerSettingsResolver reads.
         var toSave = summaryTabRef.GetCurrentSettings();
-        await SaveSettings("summary", toSave);
-        summarySettings = toSave;
+        summarySettings = await SaveSettings("summary", toSave);
     }
 
-    private async Task SaveSettings<T>(string category, T settings) where T : class
+    /// <summary>Saves a category; the settings the page keeps afterwards, which hold no saved key.</summary>
+    private async Task<T> SaveSettings<T>(string category, T settings) where T : class
     {
         try
         {
-            (saveSuccess, saveMessage) = await Saves.SaveAsync(category, settings);
+            (saveSuccess, saveMessage, var kept) = await Saves.SaveAsync(category, settings);
+            return kept;
         }
         catch (Exception ex)
         {
             saveMessage = $"Failed to save {category} settings: {ex.Message}";
             saveSuccess = false;
+            return settings;
         }
     }
 }
