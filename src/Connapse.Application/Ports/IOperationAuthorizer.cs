@@ -27,6 +27,12 @@ public static class Policies
 
     public const string Admin = "RequireAdmin";
 
+    /// <summary>
+    /// The knowledge:read scope: a person's roles imply it from Viewer up, and an agent key or token carries
+    /// it, so it is the one check a read can make on every surface, MCP included.
+    /// </summary>
+    public const string KnowledgeRead = "Scope:KnowledgeRead";
+
     /// <summary>A person's own account, through any sign-in or their own token; never an agent key.</summary>
     public const string Account = "RequireAccount";
 

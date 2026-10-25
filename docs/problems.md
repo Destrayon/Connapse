@@ -18,6 +18,7 @@ with `knowledge:read` may read too), and changing them needs Editor (over MCP, a
 `admin:audit`. OAuth clients: listing and revoking need Administrator, and a token needs
 `admin:oauth-clients`. Account links: reading needs a person or their own token with `knowledge:read`;
 unlinking needs the person signed in themselves, never a personal access token or agent key.
+Search needs `knowledge:read`: the Viewer role or above, or an agent key or token with that scope.
 
 ## invalid-link-provider
 
@@ -80,6 +81,18 @@ without a zone is read as UTC.
 
 No OAuth client with that id has access: it isn't registered and holds no refresh tokens or pending
 authorization codes. It may already have been revoked.
+
+## search-scope-not-found
+
+No container or source has that id or name, or it is a source the caller may not know exists. A
+source listed only to administrators (a Confluence space, a Jira project, a permission-checked
+custom source) can still be searched by its id, and reads as not found when the caller can read
+nothing in it, so naming one doesn't confirm it exists.
+
+## invalid-search
+
+The search was refused: the query is missing or over 10,000 characters, `topK` is outside 1 to 100,
+or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
 
 ## invalid-page
 
