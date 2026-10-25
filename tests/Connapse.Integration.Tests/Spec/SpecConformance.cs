@@ -91,8 +91,10 @@ internal static class SpecConformance
                     await buffer.CopyToAsync(original);
                 }
 
-                // Only routes the app maps: an unknown path has no operation to compare with.
-                if (context.GetEndpoint() is RouteEndpoint { RoutePattern.RawText: { } route })
+                // Only routes the app maps: an unknown path has no operation to compare with. Not the
+                // authorization matrix's allowed probes either: AuthzProbe answered those, not the endpoint.
+                if (context.GetEndpoint() is RouteEndpoint { RoutePattern.RawText: { } route }
+                    && !context.Response.Headers.ContainsKey(Authorization.AuthzProbe.AllowedHeader))
                     Record(CommittedSpec.Key(context.Request.Method, route), context.Response.StatusCode, context.Response.ContentType, buffer.ToArray());
             });
             next(app);
