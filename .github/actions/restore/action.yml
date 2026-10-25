@@ -1,0 +1,31 @@
+name: Restore
+description: Restore the whole solution's NuGet packages, from the Actions cache when it has them.
+runs:
+  using: composite
+  steps:
+  # Downloading every package from nuget.org on every job stalled about one job in twenty: a download
+  # that stops sending data waits out NuGet's 60 s or 100 s timeout, which put PRs over the 6-minute
+  # pipeline budget with every test passing (CON-82). A job can read a cache saved on its own branch,
+  # its PR's base branch, or main; nightly.yml runs this on every epic merge, which saves it there.
+  - name: Restore NuGet cache
+    id: nuget
+    uses: actions/cache/restore@v4
+    with:
+      path: ~/.nuget/packages
+      key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.props', 'global.json') }}
+      restore-keys: nuget-${{ runner.os }}-
+
+  # The whole solution even for a job that builds one project, so every job reads and saves the same
+  # set. A full restore from nuget.org takes 15-60 s, so one still running at 60 s is stalled on a
+  # download; the second try keeps every package the first one finished.
+  - name: Restore dependencies
+    shell: bash
+    run: timeout 60 dotnet restore || dotnet restore
+
+  # Saved straight after the restore rather than when the job ends, so a failing test still leaves it.
+  - name: Save NuGet cache
+    if: steps.nuget.outputs.cache-hit != 'true'
+    uses: actions/cache/save@v4
+    with:
+      path: ~/.nuget/packages
+      key: ${{ steps.nuget.outputs.cache-primary-key }}

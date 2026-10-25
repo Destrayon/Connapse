@@ -20,9 +20,7 @@ runs:
       path: .models
       key: pdf-models-250dbad1-d57a942a
 
-  - name: Restore dependencies
-    shell: bash
-    run: dotnet restore ${{ inputs.project }}
+  - uses: ./.github/actions/restore
 
   - name: Build
     shell: bash
