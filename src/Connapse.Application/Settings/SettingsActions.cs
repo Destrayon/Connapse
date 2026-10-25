@@ -61,8 +61,8 @@ public sealed class ListEmbeddingModels(ISettingsStore store, IConfiguredSetting
 }
 
 /// <summary>
-/// Starts re-embedding in the background. Re-embedding only what changed also turns on cross-model search,
-/// so documents still embedded with the previous model stay findable until their turn comes.
+/// Starts re-embedding in the background, and turns on cross-model search so documents still embedded with
+/// a previous model stay findable until their turn comes.
 /// </summary>
 [Operation("settings.reindex", Scope = SettingsScope.Name, Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
 public sealed class StartReindex(
@@ -77,14 +77,11 @@ public sealed class StartReindex(
         if (request.ContainerId is not null && !Guid.TryParse(request.ContainerId, out _))
             return Attempt<ReindexRequest, SettingsStatus>.Fail(SettingsStatus.Invalid, "containerId must be a container's id.", "containerId");
 
-        if (!request.Force)
-        {
-            var search = await store.GetAsync<SearchSettings>("search", ct) ?? configured.Current<SearchSettings>();
-            if (!search.EnableCrossModelSearch)
-                // A copy, so the configured value other readers share is never changed.
-                await store.UpdateAsync<SearchSettings>("search",
-                    stored => (stored ?? configured.Current<SearchSettings>()) with { EnableCrossModelSearch = true }, ct);
-        }
+        var search = await store.GetAsync<SearchSettings>("search", ct) ?? configured.Current<SearchSettings>();
+        if (!search.EnableCrossModelSearch)
+            // A copy, so the configured value other readers share is never changed.
+            await store.UpdateAsync<SearchSettings>("search",
+                stored => (stored ?? configured.Current<SearchSettings>()) with { EnableCrossModelSearch = true }, ct);
 
         reindex.Start(new ReindexOptions { ContainerId = request.ContainerId, Force = request.Force, DetectSettingsChanges = true });
         await audit.LogAsync(StartedEvent, "settings", "reindex", new { request.ContainerId, request.Force }, ct);

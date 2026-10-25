@@ -1028,8 +1028,8 @@ settings name (configuration's when none are saved); `hasLegacyVectors` says whe
 **Request Body** (optional): `{ "containerId": "<guid>", "force": false }`
 
 Starts re-embedding in the background and answers at once. Without `force`, only documents whose
-embedding or chunking settings changed are re-embedded, and cross-model search is turned on so
-documents still on the previous model stay findable; with `force`, every document is. `containerId`
+embedding or chunking settings changed are re-embedded; with `force`, every document is. Either way
+cross-model search is turned on, so documents still on a previous model stay findable. `containerId`
 limits it to one container.
 
 **Endpoint**: `GET /api/settings/reindex/status` — the latest run (`Idle`, `Running`, `Completed` or

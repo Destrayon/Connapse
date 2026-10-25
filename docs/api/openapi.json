@@ -6130,7 +6130,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Start re-embedding in the background. Without force, only documents whose embedding or chunking settings changed are re-embedded, and cross-model search is turned on meanwhile; with force, every document is.",
+        "description": "Start re-embedding in the background: without force, only documents whose embedding or chunking settings changed; with force, every document. Cross-model search is turned on meanwhile.",
         "operationId": "TriggerReindex",
         "requestBody": {
           "content": {

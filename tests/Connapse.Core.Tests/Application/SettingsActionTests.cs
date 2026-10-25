@@ -176,14 +176,15 @@ public partial class SettingsOperationTests
     }
 
     [Fact]
-    public async Task Reindex_Force_ReembedsEverythingWithoutChangingSearch()
+    public async Task Reindex_Force_ReembedsEverythingAndTurnsOnCrossModelSearch()
     {
         var actions = new Actions();
 
         var started = await actions.Start().RunAsync(Caller, new ReindexRequest(Force: true));
 
         started.Status.Should().Be(SettingsStatus.Success);
-        actions.World.Store.Rows.Should().BeEmpty("re-embedding everything with the same model leaves no vectors behind to find");
+        actions.World.Store.Stored<SearchSettings>("search")!.EnableCrossModelSearch.Should()
+            .BeTrue("after a model change, documents not yet re-embedded are findable only across models");
         actions.Reindex.Received(1).Start(new ReindexOptions { ContainerId = null, Force = true, DetectSettingsChanges = true });
     }
 
@@ -517,10 +518,9 @@ public partial class SettingsOperationTests
                 return;
             }
             actions.Reindex.Received(1).Start(new ReindexOptions { ContainerId = container, Force = force, DetectSettingsChanges = true });
-            actions.World.Store.Rows.ContainsKey("search").Should().Be(!force && !crossModelOn);
-            if (!force)
-                (actions.World.Store.Stored<SearchSettings>("search") ?? new SearchSettings { EnableCrossModelSearch = crossModelOn })
-                    .EnableCrossModelSearch.Should().BeTrue();
+            actions.World.Store.Rows.ContainsKey("search").Should().Be(!crossModelOn);
+            (actions.World.Store.Stored<SearchSettings>("search") ?? new SearchSettings { EnableCrossModelSearch = crossModelOn })
+                .EnableCrossModelSearch.Should().BeTrue();
         }, iter: 300);
 
     [Fact]

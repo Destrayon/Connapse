@@ -134,7 +134,7 @@ public static class SettingsEndpoints
         .Produces<ReindexStartedResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .WithName("TriggerReindex")
-        .WithDescription("Start re-embedding in the background. Without force, only documents whose embedding or chunking settings changed are re-embedded, and cross-model search is turned on meanwhile; with force, every document is.");
+        .WithDescription("Start re-embedding in the background: without force, only documents whose embedding or chunking settings changed; with force, every document. Cross-model search is turned on meanwhile.");
 
         // GET /api/settings/reindex/status - Get queue depth as a proxy for re-embedding progress
         group.MapGet("/reindex/status", async (
