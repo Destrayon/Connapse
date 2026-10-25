@@ -366,8 +366,7 @@ public static class DocumentsEndpoints
             }
 
             // Content negotiation
-            var acceptHeader = httpContext.Request.Headers.Accept.ToString();
-            if (acceptHeader.Contains("text/plain"))
+            if (PrefersPlainText(httpContext.Request.Headers.Accept.ToString()))
             {
                 return Results.Text(content, "text/plain");
             }
@@ -436,6 +435,9 @@ public static class DocumentsEndpoints
     };
 
     private static bool IsTextExtension(string extension) => TextExtensions.Contains(extension);
+
+    /// <summary>Whether a file's content goes back as plain text rather than JSON, for this Accept header.</summary>
+    public static bool PrefersPlainText(string? accept) => accept?.Contains("text/plain") == true;
 
     private static IResult MapUploadError(string error)
     {
