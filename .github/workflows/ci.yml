@@ -341,8 +341,7 @@ jobs:
         path: .models
         key: pdf-models-250dbad1-d57a942a
 
-    - name: Restore dependencies
-      run: dotnet restore
+    - uses: ./.github/actions/restore
 
     # Both checks block (epic #783, #786). Analysis runs even when formatting fails, so one run
     # reports both. The analysis build also checks each project's SquiggleCop.Baseline.yaml.
