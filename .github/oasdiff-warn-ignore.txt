@@ -1,0 +1,1 @@
+POST /api/containers/{containerId}/files added the new required request property `files`
