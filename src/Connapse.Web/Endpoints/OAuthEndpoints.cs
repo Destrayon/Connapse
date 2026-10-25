@@ -272,8 +272,11 @@ public static class OAuthEndpoints
         var oldTokenHash = ComputeSha256Hex(refreshToken);
         var oldRefreshEntity = await dbContext.RefreshTokens
             .FirstOrDefaultAsync(r => r.TokenHash == oldTokenHash, ct);
-        if (oldRefreshEntity?.ClientId is { } boundClient &&
-            (!string.Equals(boundClient, clientId, StringComparison.Ordinal) || !await ClientMayHoldGrantsAsync(dbContext, boundClient, ct)))
+        // Only a refresh token issued to an OAuth client refreshes here. A sign-in's belongs to
+        // /api/v1/auth/token/refresh: rotating it here would bind its replacement to this client with no granted
+        // scope, which no refresh accepts afterwards (#934).
+        if (oldRefreshEntity?.ClientId is not { } boundClient
+            || !string.Equals(boundClient, clientId, StringComparison.Ordinal) || !await ClientMayHoldGrantsAsync(dbContext, boundClient, ct))
         {
             return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
         }
