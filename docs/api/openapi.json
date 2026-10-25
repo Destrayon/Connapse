@@ -4145,32 +4145,17 @@
                   "files"
                 ],
                 "type": "object",
-                "allOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "files": {
-                        "$ref": "#/components/schemas/IFormFileCollection"
-                      }
-                    }
+                "properties": {
+                  "files": {
+                    "$ref": "#/components/schemas/IFormFileCollection"
                   },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "path": {
-                        "type": "string"
-                      }
-                    }
+                  "path": {
+                    "type": "string"
                   },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "strategy": {
-                        "$ref": "#/components/schemas/ChunkingStrategy"
-                      }
-                    }
+                  "strategy": {
+                    "$ref": "#/components/schemas/ChunkingStrategy"
                   }
-                ]
+                }
               }
             }
           },

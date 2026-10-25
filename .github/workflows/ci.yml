@@ -187,6 +187,8 @@ jobs:
         # One line per intended change, "<METHOD> <path> <oasdiff's message>"; each matches only that
         # operation's change. Every line is explained in the PR that adds it.
         err-ignore: .github/oasdiff-err-ignore.txt
+        # The same for the warnings fail-on WARN turns into failures; oasdiff keeps the two lists apart.
+        warn-ignore: .github/oasdiff-warn-ignore.txt
         review: 'false'
         github-token: ''
 
