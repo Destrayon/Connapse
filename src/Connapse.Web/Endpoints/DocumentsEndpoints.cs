@@ -6,6 +6,7 @@ using Connapse.Core.Utilities;
 using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi;
 
 namespace Connapse.Web.Endpoints;
@@ -436,8 +437,40 @@ public static class DocumentsEndpoints
 
     private static bool IsTextExtension(string extension) => TextExtensions.Contains(extension);
 
-    /// <summary>Whether a file's content goes back as plain text rather than JSON, for this Accept header.</summary>
-    public static bool PrefersPlainText(string? accept) => accept?.Contains("text/plain") == true;
+    /// <summary>
+    /// Whether a file's content goes back as plain text rather than JSON, for this Accept header: when the
+    /// client rates text/plain above application/json, or as high but by a more specific range, such as
+    /// <c>text/plain, */*</c>. A tie, or no header, is JSON.
+    /// </summary>
+    public static bool PrefersPlainText(string? accept)
+    {
+        if (string.IsNullOrWhiteSpace(accept)
+            || !MediaTypeHeaderValue.TryParseList([accept], out var ranges))
+            return false;
+
+        var text = Preference(ranges, "text", "plain");
+        var json = Preference(ranges, "application", "json");
+        return text.Quality > 0
+            && (text.Quality > json.Quality || (text.Quality == json.Quality && text.Specificity > json.Specificity));
+    }
+
+    /// <summary>The quality the most specific matching range gives a media type, and how specific that range is.</summary>
+    private static (double Quality, int Specificity) Preference(
+        IList<MediaTypeHeaderValue> ranges, string type, string subType)
+    {
+        (double Quality, int Specificity) best = (0, -1);
+        foreach (var range in ranges)
+        {
+            int specificity = range.MatchesAllTypes ? 0
+                : !range.Type.Equals(type, StringComparison.OrdinalIgnoreCase) ? -1
+                : range.MatchesAllSubTypes ? 1
+                : range.SubType.Equals(subType, StringComparison.OrdinalIgnoreCase) ? 2
+                : -1;
+            if (specificity > best.Specificity)
+                best = (range.Quality ?? 1, specificity);
+        }
+        return best;
+    }
 
     private static IResult MapUploadError(string error)
     {
