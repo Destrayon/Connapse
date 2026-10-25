@@ -104,6 +104,34 @@ public class OAuthEndpointTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Register_NoRedirectUris_Returns400()
+    {
+        using var client = fixture.Factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/oauth/register", new
+        {
+            client_name = "No Redirects",
+            application_type = "native",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Register_NoClientName_Returns400()
+    {
+        using var client = fixture.Factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/oauth/register", new
+        {
+            redirect_uris = new[] { "http://127.0.0.1:3000/callback" },
+            application_type = "native",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task TokenEndpoint_InvalidGrant_Returns400()
     {
         using var client = fixture.Factory.CreateClient();
