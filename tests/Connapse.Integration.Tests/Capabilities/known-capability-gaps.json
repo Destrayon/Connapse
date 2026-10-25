@@ -166,13 +166,10 @@
   "operation search.models: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation server.info: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation settings.embeddingModels: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation settings.get: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation settings.reindex: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation settings.reindexStatus: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation settings.reset: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation settings.summaries.clear: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation settings.testConnection: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation settings.update: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation sources.unlocated: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "route connections.create: missing POST /api/v1/connections/": "No REST route: the capability exists only in the web UI.",
   "route connections.delete: missing DELETE /api/v1/connections/{connectionId:guid}": "No REST route: the capability exists only in the web UI.",
@@ -205,7 +202,6 @@
   "route providers.github.app: missing PUT /api/v1/providers/github/app": "No REST route: the capability exists only in the web UI.",
   "route providers.github.createApp: missing POST /api/v1/providers/github/manifest": "No REST route: the capability exists only in the web UI. The flow starts with a form post from the page; the route would return the manifest and GitHub URL.",
   "route providers.status: missing GET /api/v1/providers/": "No REST route: the capability exists only in the web UI. Status comes from IProviderSetupReader, which no endpoint calls.",
-  "route settings.reset: missing DELETE /api/v1/settings/{category}": "No REST route: the capability exists only in the web UI.",
   "route settings.summaries.clear: missing POST /api/v1/settings/summaries/clear": "No REST route: the capability exists only in the web UI.",
   "route sources.unlocated: missing GET /api/sources/{sourceId:guid}/unlocated": "No REST route: the capability exists only in the web UI."
 }
