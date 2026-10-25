@@ -51,10 +51,10 @@ jobs:
       if: github.event_name == 'pull_request'
       run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
 
-    # Every full run saves its report as the baseline for PRs into its branch; a PR restores the one saved
-    # at its base commit, or the newest on its base branch (a PR can read its base branch's caches).
+    # Every full run saves its report and commit as the baseline for PRs into its branch; a PR restores the
+    # one saved at its base commit, or else the newest on its base branch (a PR can read its base branch's
+    # caches), and diffs against the commit that baseline was made at, whichever it is.
     - name: Restore mutation baseline
-      id: baseline
       if: github.event_name == 'pull_request'
       uses: actions/cache/restore@v4
       with:
@@ -63,21 +63,35 @@ jobs:
         restore-keys: mutation-baseline-${{ github.base_ref }}-
 
     # A full run tests all of Connapse.Application's mutants, which doubled to about 11 minutes as epic #783
-    # moved endpoints in (CON-91). A PR with a baseline re-tests only the mutants in the files it changes and
-    # those its changed test files cover (--since), and the score step below takes every other mutant's
-    # result from the baseline, so the PR is still held to the whole project's score; Stryker's own break is
-    # off for it because Stryker would score the re-tested mutants alone. Without a baseline it runs in full.
-    # All the runner's CPUs run mutants (Stryker defaults to half), and Release reuses the build above.
+    # moved endpoints in (CON-91). A PR with a baseline re-tests only the mutants in the files changed since
+    # the baseline's commit and those its changed test files cover (--since), and mutation_score.py takes
+    # every other mutant's result from the baseline, so the PR is still held to the whole project's score;
+    # Stryker's own break is off for that run because Stryker would score the re-tested mutants alone. When
+    # the baseline can't settle it (exit 3), or there is none, Stryker runs in full. All the runner's CPUs
+    # run mutants (Stryker defaults to half), and Release reuses the build above.
     - name: Mutation test Connapse.Application
       id: stryker
       working-directory: tests/Connapse.Core.Tests
+      shell: bash  # -o pipefail, so the score's exit code survives the tee
       run: |
-        since=()
-        if [ -f ../../mutation-baseline/mutation-report.json ]; then
-          since=("--since:${{ steps.base.outputs.sha }}" --break-at 0)
-          echo "since=true" >> "$GITHUB_OUTPUT"
+        stryker=(dotnet tool run dotnet-stryker --concurrency "$(nproc)" --configuration Release)
+        baseline=../../mutation-baseline
+        if [ -f "$baseline/commit" ] && commit=$(cat "$baseline/commit") \
+            && git fetch --no-tags --depth=1 origin "$commit"; then
+          "${stryker[@]}" "--since:$commit" --break-at 0
+          git diff --name-status --no-renames "$commit" > "$RUNNER_TEMP/changed-files.txt"
+          reports=$(ls -d StrykerOutput/*/reports | tail -1)
+          status=0
+          python3 ../../.github/scripts/mutation_score.py --report "$reports/mutation-report.json" \
+            --baseline "$baseline/mutation-report.json" --config stryker-config.json \
+            --changed "$RUNNER_TEMP/changed-files.txt" --repo-root "$GITHUB_WORKSPACE" \
+            | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          if [ "$status" -ne 3 ]; then
+            exit "$status"
+          fi
+          echo "Running every mutant" | tee -a "$GITHUB_STEP_SUMMARY"
         fi
-        dotnet tool run dotnet-stryker --concurrency "$(nproc)" --configuration Release "${since[@]}"
+        "${stryker[@]}"
 
     # Stryker writes its reports under StrykerOutput/<date-time>/reports. A run that got as far as
     # scoring always writes them, so a missing report fails this step rather than hiding the score.
@@ -92,17 +106,12 @@ jobs:
         cat "$reports/mutation-report.md" >> "$GITHUB_STEP_SUMMARY"
         mkdir -p mutation-report && cp "$reports"/mutation-report.* mutation-report/
 
-    - name: Whole-project mutation score
-      if: steps.stryker.outputs.since == 'true' && steps.stryker.outcome == 'success'
-      shell: bash  # -o pipefail, so the script's exit code survives the tee
-      run: |
-        python3 .github/scripts/mutation_score.py --report mutation-report/mutation-report.json \
-          --baseline mutation-baseline/mutation-report.json \
-          --config tests/Connapse.Core.Tests/stryker-config.json | tee -a "$GITHUB_STEP_SUMMARY"
-
     - name: Save mutation baseline
       if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
-      run: mkdir -p mutation-baseline && cp mutation-report/mutation-report.json mutation-baseline/
+      run: |
+        mkdir -p mutation-baseline
+        cp mutation-report/mutation-report.json mutation-baseline/
+        echo "${{ github.sha }}" > mutation-baseline/commit
 
     - uses: actions/cache/save@v4
       if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
