@@ -91,7 +91,7 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
 
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
             var body = await response.Content.ReadAsStringAsync();
-            body.Should().Contain("unsupported_file_type");
+            body.Should().Contain("problems.md#unsupported-file-type");
         }
         finally
         {
@@ -126,7 +126,7 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task UploadFile_BatchWithUnsupportedExtension_RejectsEntireBatch()
+    public async Task UploadFile_BatchWithUnsupportedExtension_UploadsTheRestAndReportsIt()
     {
         var createResp = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = $"ext-batch-{Guid.NewGuid():N}"[..20] });
@@ -148,9 +148,13 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
             var response = await fixture.AdminClient.PostAsync(
                 $"/api/containers/{container!.Id}/files", content);
 
-            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-            var body = await response.Content.ReadAsStringAsync();
-            body.Should().Contain("unsupported_file_type");
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            result.RootElement.GetProperty("successCount").GetInt32().Should().Be(1);
+            var documents = result.RootElement.GetProperty("documents").EnumerateArray().ToList();
+            documents.Select(d => d.GetProperty("fileName").GetString()).Should().Equal("good.txt", "bad.exe");
+            (documents[0].TryGetProperty("error", out var error) ? error.ValueKind : JsonValueKind.Null).Should().Be(JsonValueKind.Null);
+            documents[1].GetProperty("error").GetString().Should().StartWith("Unsupported file extension.");
         }
         finally
         {
@@ -179,7 +183,7 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
 
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
             var body = await response.Content.ReadAsStringAsync();
-            body.Should().Contain("filename_too_long");
+            body.Should().Contain("problems.md#invalid-file-request").And.Contain("Filename exceeds 255 characters.");
         }
         finally
         {
