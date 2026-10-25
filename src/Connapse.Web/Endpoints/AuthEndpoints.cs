@@ -32,7 +32,7 @@ public static class AuthEndpoints
             CancellationToken ct) =>
         {
             if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
-                return Results.BadRequest(new { error = "email and password are required." });
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "email and password are required.");
 
             var user = await userManager.FindByEmailAsync(request.Email);
             if (user is null)
@@ -73,7 +73,7 @@ public static class AuthEndpoints
             CancellationToken ct) =>
         {
             if (string.IsNullOrEmpty(request.RefreshToken))
-                return Results.BadRequest(new { error = "refreshToken is required." });
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "refreshToken is required.");
 
             // Reject OAuth-issued refresh tokens — they must go through /oauth/token
             var tokenHash = OAuthEndpoints.ComputeSha256Hex(request.RefreshToken);
