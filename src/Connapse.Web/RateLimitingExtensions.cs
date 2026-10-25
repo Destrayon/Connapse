@@ -24,8 +24,9 @@ public static class RateLimitingExtensions
     public const string McpPolicy = "mcp";
 
     /// <summary>
-    /// The 429 body: a problem under /api, and the JSON error the OAuth and MCP endpoints have
-    /// always returned anywhere else, since those keep their protocols' error shapes.
+    /// The 429 body: a problem under /api, RFC 6749's <c>temporarily_unavailable</c> on the OAuth
+    /// endpoints, and the JSON error MCP has always returned anywhere else, since those keep their
+    /// protocols' error shapes.
     /// </summary>
     public static async Task WriteRejectionAsync(HttpContext http, CancellationToken cancellationToken)
     {
@@ -38,6 +39,13 @@ public static class RateLimitingExtensions
                 HttpContext = http,
                 ProblemDetails = { Status = StatusCodes.Status429TooManyRequests, Detail = detail },
             });
+            return;
+        }
+
+        // RFC 6749 §5.2: an OAuth error is a code a client can act on, with the text beside it.
+        if (http.Request.Path.StartsWithSegments("/oauth"))
+        {
+            await http.Response.WriteAsJsonAsync(new Endpoints.OAuthError("temporarily_unavailable", detail), cancellationToken);
             return;
         }
 
