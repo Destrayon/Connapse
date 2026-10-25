@@ -136,6 +136,21 @@ public class UserOperationRandomInputTests
     // ── users.delete ────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    public async Task Delete_LosesToAnotherDeleteOfTheSameUser_LeavesTheUnlinksQueued()
+    {
+        // Both requests queued the user's unlinks; the other one deleted the user first, so this one's
+        // delete fails. Cancelling now would drop the unlinks the winner is about to release.
+        var world = new World(admin: true, scope: true, owner: true, OperationSurface.Rest);
+        var target = world.Target(self: false, ["Viewer"]);
+        world.Directory.GetAsync(target.Id, Arg.Any<CancellationToken>()).Returns(target, (UserAccount?)null);
+        world.Directory.DeleteAsync(target.Id, Arg.Any<CancellationToken>()).Returns(false);
+
+        await new DeleteUser(world.Directory, world.Removals, world.Authorizer, world.Audit).RunAsync(world.Caller, target.Id);
+
+        await world.Removals.DidNotReceive().CancelForUserAsync(target.Id, Arg.Any<DateTime?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     [RandomInputTestOf(typeof(DeleteUser))]
     public Task Delete_AnyTarget_FollowsTheRules_AndHoldsTheUnlinksUntilTheDeleteSucceeds() =>
         Gen.Select(Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<OperationSurface>()), Gen.Bool, Gen.Bool, TargetRoles, Gen.Bool)
