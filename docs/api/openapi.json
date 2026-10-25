@@ -3569,6 +3569,133 @@
         }
       }
     },
+    "/api/v1/audit": {
+      "get": {
+        "tags": [
+          "Audit"
+        ],
+        "description": "Read the audit log, newest first (?take=50, up to 200); pass a page's nextBefore as ?before= for the next. Filter by action, userId, resourceType, resourceId, and a since (inclusive) to until (exclusive) range in UTC. Administrators only.",
+        "operationId": "audit.list",
+        "parameters": [
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "take",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/containers/{containerId}/files": {
       "post": {
         "tags": [
@@ -7823,6 +7950,97 @@
           }
         }
       },
+      "AuditEntry": {
+        "required": [
+          "id",
+          "createdAt",
+          "action",
+          "userId",
+          "userEmail",
+          "resourceType",
+          "resourceId",
+          "details",
+          "ipAddress"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "action": {
+            "type": "string"
+          },
+          "userId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "userEmail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resourceType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resourceId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "details": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": { },
+            "description": "What the action changed, as the action records it; null when it records nothing."
+          },
+          "ipAddress": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AuditLogResponse": {
+        "required": [
+          "items",
+          "hasMore",
+          "nextBefore"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextBefore": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "AuthorizationServerMetadata": {
         "required": [
           "issuer",
@@ -11879,6 +12097,9 @@
     },
     {
       "name": "Sources"
+    },
+    {
+      "name": "Audit"
     },
     {
       "name": "Files"
