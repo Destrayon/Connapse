@@ -10,7 +10,7 @@ on:
     - cron: '0 7 * * *'
   workflow_dispatch:
   push:
-    branches: [ 'epic/**' ]
+    branches: [ 'epic/**', 'pm/con-53-contract-gates' ]
   pull_request:
     branches: [ main, 'epic/**' ]
     paths:

@@ -1364,37 +1364,6 @@
         }
       }
     },
-    "/api/v1/sources/scope-schema/{provider}": {
-      "get": {
-        "tags": [
-          "Sources"
-        ],
-        "description": "The JSON schema of each kind of scope a provider's sources take: the \"scope\" a create or update sends, with its \"type\".",
-        "operationId": "GetSourceScopeSchema",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScopeSchema"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/containers/{containerId}/files": {
       "post": {
         "tags": [
@@ -3556,8 +3525,8 @@
           }
         }
       },
-      "JsonElement": { },
-      "JsonNode": { },
+      "JsonElement": {},
+      "JsonNode": {},
       "LoginRequest": {
         "required": [
           "email",
@@ -4624,6 +4593,9 @@
             "type": "boolean"
           }
         }
+      },
+      "DemoBareObject": {
+        "type": "object"
       }
     }
   },
