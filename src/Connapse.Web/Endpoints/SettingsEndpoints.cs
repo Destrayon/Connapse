@@ -20,6 +20,13 @@ public static class SettingsEndpoints
         PropertyNameCaseInsensitive = true
     };
 
+    // A save also refuses a property its category doesn't have, so another category's settings, which would
+    // otherwise read as all defaults, can't overwrite this one's.
+    private static readonly JsonSerializerOptions SaveJsonOptions = new(JsonOptions)
+    {
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
+    };
+
     /// <summary>
     /// Maps and configures settings-related HTTP endpoints under "/api/settings" and applies the "RequireAdmin" authorization policy.
     /// </summary>
@@ -85,23 +92,23 @@ public static class SettingsEndpoints
                 switch (categoryLower)
                 {
                     case "embedding":
-                        embeddingSettings = JsonSerializer.Deserialize<EmbeddingSettings>(rawJson, JsonOptions);
+                        embeddingSettings = JsonSerializer.Deserialize<EmbeddingSettings>(rawJson, SaveJsonOptions);
                         if (embeddingSettings != null) await settingsStore.SaveAsync(categoryLower, embeddingSettings, ct);
                         break;
                     case "chunking":
-                        var chunking = JsonSerializer.Deserialize<ChunkingSettings>(rawJson, JsonOptions);
+                        var chunking = JsonSerializer.Deserialize<ChunkingSettings>(rawJson, SaveJsonOptions);
                         if (chunking != null) await settingsStore.SaveAsync(categoryLower, chunking, ct);
                         break;
                     case "search":
-                        var search = JsonSerializer.Deserialize<SearchSettings>(rawJson, JsonOptions);
+                        var search = JsonSerializer.Deserialize<SearchSettings>(rawJson, SaveJsonOptions);
                         if (search != null) await settingsStore.SaveAsync(categoryLower, search, ct);
                         break;
                     case "llm":
-                        var llm = JsonSerializer.Deserialize<LlmSettings>(rawJson, JsonOptions);
+                        var llm = JsonSerializer.Deserialize<LlmSettings>(rawJson, SaveJsonOptions);
                         if (llm != null) await settingsStore.SaveAsync(categoryLower, llm, ct);
                         break;
                     case "upload":
-                        var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, JsonOptions);
+                        var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, SaveJsonOptions);
                         if (upload != null) await settingsStore.SaveAsync(categoryLower, upload, ct);
                         break;
                     default:
