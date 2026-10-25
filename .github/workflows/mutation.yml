@@ -76,16 +76,22 @@ jobs:
       run: |
         stryker=(dotnet tool run dotnet-stryker --concurrency "$(nproc)" --configuration Release)
         baseline=../../mutation-baseline
+        score() {
+          python3 ../../.github/scripts/mutation_score.py "$@" --baseline "$baseline/mutation-report.json" \
+            --config stryker-config.json --changed "$RUNNER_TEMP/changed-files.txt" --repo-root "$GITHUB_WORKSPACE" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+        }
         if [ -f "$baseline/commit" ] && commit=$(cat "$baseline/commit") \
             && git fetch --no-tags --depth=1 origin "$commit"; then
-          "${stryker[@]}" "--since:$commit" --break-at 0
           git diff --name-status --no-renames "$commit" > "$RUNNER_TEMP/changed-files.txt"
-          reports=$(ls -d StrykerOutput/*/reports | tail -1)
           status=0
-          python3 ../../.github/scripts/mutation_score.py --report "$reports/mutation-report.json" \
-            --baseline "$baseline/mutation-report.json" --config stryker-config.json \
-            --changed "$RUNNER_TEMP/changed-files.txt" --repo-root "$GITHUB_WORKSPACE" \
-            | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          # Changes whose effect can't be bounded go straight to a full run, before the partial one.
+          score || status=$?
+          if [ "$status" -eq 0 ]; then
+            "${stryker[@]}" "--since:$commit" --break-at 0
+            reports=$(ls -d StrykerOutput/*/reports | tail -1)
+            score --report "$reports/mutation-report.json" || status=$?
+          fi
           if [ "$status" -ne 3 ]; then
             exit "$status"
           fi

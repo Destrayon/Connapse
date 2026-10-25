@@ -21,6 +21,7 @@ Usage:
       --config tests/Connapse.Core.Tests/stryker-config.json --changed changed-files.txt --repo-root "$PWD"
 
 changed-files.txt is `git diff --name-status --no-renames <baseline commit>`: a status letter, a tab, a path.
+Without --report it only checks for changes that need a full run, so a full run doesn't wait on a partial one.
 """
 import argparse
 import json
@@ -120,7 +121,7 @@ def score(counts: dict[str, int]) -> float | None:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--report", required=True)
+    p.add_argument("--report", help="omitted, only checks for changes that need a full run, before Stryker runs")
     p.add_argument("--baseline", required=True)
     p.add_argument("--config", required=True)
     p.add_argument("--changed", required=True, help="file listing the paths changed since the baseline's commit")
@@ -129,8 +130,6 @@ def main() -> int:
     p.add_argument("--test-dir", default="tests/Connapse.Core.Tests")
     a = p.parse_args()
 
-    with open(a.report, encoding="utf-8-sig") as f:
-        report = json.load(f)
     with open(a.baseline, encoding="utf-8-sig") as f:
         baseline = json.load(f)
     with open(a.config, encoding="utf-8-sig") as f:
@@ -143,6 +142,10 @@ def main() -> int:
     if build:
         print(f"Changed files whose effect Stryker doesn't re-test ({', '.join(build)}); every mutant needs a full run")
         return FULL_RUN
+    if a.report is None:
+        return 0
+    with open(a.report, encoding="utf-8-sig") as f:
+        report = json.load(f)
     counts, unmatched, suspect = merge(report, baseline, set(changed), a.repo_root)
     tested = sum(1 for m in mutants(report).values() if m["status"] in DETECTED | UNDETECTED)
     print(f"{tested} mutant(s) tested in this PR, the rest from the base branch's last full run: "
