@@ -115,6 +115,10 @@ public sealed class UnlinkAccount(
         {
             await custom.UnlinkAsync(providerId, userId, ct);
         }
+        catch (CustomProviderNotFoundException)
+        {
+            return Fail(AccountUnlinkStatus.NotFound, "No custom provider has that id.");
+        }
         catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
         {
             return Fail(AccountUnlinkStatus.Unavailable, "The custom provider's source server did not remove the link, so you are still linked. Try again later.");

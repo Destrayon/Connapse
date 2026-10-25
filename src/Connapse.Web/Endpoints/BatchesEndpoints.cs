@@ -21,7 +21,7 @@ public static class BatchesEndpoints
         {
             // The id is the job id an upload returned. The job names its document; the document
             // row holds the status, which outlives the job and any retries that replaced it.
-            string? documentId = jobStorage.GetMonitoringApi().JobDetails(id)?.Job?.Args.FirstOrDefault() as string;
+            string? documentId = JobDocumentId(jobStorage, id);
             Document? document = documentId is null ? null : await documentStore.GetAsync(documentId, ct);
             if (document is null)
                 return Results.NotFound(new { error = $"Batch {id} not found" });
@@ -46,5 +46,21 @@ public static class BatchesEndpoints
         .WithDescription("Get the status of a batch upload operation");
 
         return app;
+    }
+
+    /// <summary>
+    /// The document an upload's job names, or null when there is no such job. The job storage refuses an
+    /// id it couldn't have issued, such as a word for the PostgreSQL storage's numbers, with a FormatException.
+    /// </summary>
+    private static string? JobDocumentId(JobStorage jobStorage, string id)
+    {
+        try
+        {
+            return jobStorage.GetMonitoringApi().JobDetails(id)?.Job?.Args.FirstOrDefault() as string;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 }

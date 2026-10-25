@@ -31,6 +31,9 @@ public static class AuthEndpoints
             [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
+            if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
+                return Results.BadRequest(new { error = "email and password are required." });
+
             var user = await userManager.FindByEmailAsync(request.Email);
             if (user is null)
                 return Results.Unauthorized();
@@ -69,6 +72,9 @@ public static class AuthEndpoints
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
+            if (string.IsNullOrEmpty(request.RefreshToken))
+                return Results.BadRequest(new { error = "refreshToken is required." });
+
             // Reject OAuth-issued refresh tokens — they must go through /oauth/token
             var tokenHash = OAuthEndpoints.ComputeSha256Hex(request.RefreshToken);
             var existingToken = await dbContext.RefreshTokens

@@ -122,7 +122,7 @@ public sealed class CustomLinkService(
     private async Task<CustomSourceClient> ClientAsync(Guid providerId, CancellationToken ct)
     {
         CustomProvider provider = await providers.GetAsync(providerId, ct)
-            ?? throw new CustomSourceException("This custom provider no longer exists.");
+            ?? throw new CustomProviderNotFoundException("This custom provider no longer exists.");
         if (!CustomSourceEndpoint.TryNormalize(provider.BaseUrl, settings.CurrentValue.AllowedHttpHosts, out string baseUrl, out string? error))
             throw new CustomSourceException(error ?? "The custom provider's address is not allowed.");
         string? token = await providers.GetTokenAsync(providerId, ct);
