@@ -143,7 +143,7 @@ public sealed class ListFiles(IContainerStore containers, IDocumentStore documen
 
             // A document deeper down implies the folder it sits under at this level, recorded or not.
             string below = document.Path[level.Length..];
-            int slash = below.IndexOf('/');
+            int slash = below.IndexOf('/', StringComparison.Ordinal);
             if (slash > 0 && named.Add(below[..slash]))
                 entries.Add(new FileEntry(below[..slash], $"{level}{below[..slash]}/", IsFolder: true, null, null, null, null));
         }

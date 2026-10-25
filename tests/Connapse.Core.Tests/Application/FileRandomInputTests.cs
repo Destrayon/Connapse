@@ -286,7 +286,7 @@ public class FileRandomInputTests
                     return;
                 }
                 deleted.Result!.Select(i => (i.FileId, i.Deleted)).Should().Equal(ids.Select((id, i) => (id, ownFlags[i])));
-                deleted.Result.Where(i => !i.Deleted).Should().OnlyContain(i => i.Error == $"File '{i.FileId}' not found in this container.");
+                deleted.Result!.Where(i => !i.Deleted).Should().OnlyContain(i => i.Error == $"File '{i.FileId}' not found in this container.");
                 await world.Documents.Received(ownFlags.Count(f => f)).DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
                 await world.Documents.DidNotReceive().DeleteAsync(Other.Id, Arg.Any<CancellationToken>());
             }, iter: 2000);
