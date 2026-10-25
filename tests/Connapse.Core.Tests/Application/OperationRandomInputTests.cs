@@ -342,6 +342,46 @@ public class OperationRandomInputTests
                     read.Result!.Provider.ToString().Should().BeEquivalentTo(provider);
             });
 
+    /// <summary>
+    /// The seed CI found " S3" with (CON-75): Enum.TryParse trims, so a padded name read as S3. The same
+    /// property as the test above, pinned so the case that found it always runs.
+    /// </summary>
+    [Fact]
+    public Task ScopeSchema_TheSeedThatFoundAPaddedName_AnswersOnlyForAProviderName() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnyProviderText).SampleAsync(ScopeSchemaAnswersOnlyForAName, seed: "5lVM0oQMaFF3");
+
+    [Theory]
+    [InlineData(" S3")]
+    [InlineData("S3 ")]
+    [InlineData("S3, AzureBlob")]
+    [InlineData("S3,S3")]
+    public async Task ScopeSchema_ANameWithAnythingMore_IsAnUnknownProvider(string provider)
+    {
+        var world = new World(viewer: true, admin: false);
+
+        var read = await new GetScopeSchema(world.Authorizer).RunAsync(new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Rest), provider);
+
+        read.Status.Should().Be(ScopeSchemaStatus.UnknownProvider);
+    }
+
+    private static async Task ScopeSchemaAnswersOnlyForAName((OperationContext Caller, bool Viewer, string Provider) t)
+    {
+        var (caller, viewer, provider) = t;
+        var world = new World(viewer, admin: false);
+
+        var read = await new GetScopeSchema(world.Authorizer).RunAsync(caller, provider);
+
+        // A name only, never a number: "3" would otherwise parse as the provider numbered 3.
+        bool named = !int.TryParse(provider, out _)
+            && Enum.GetNames<ConnectionProvider>().Contains(provider, StringComparer.OrdinalIgnoreCase);
+        ScopeSchemaStatus expected = !viewer ? ScopeSchemaStatus.Forbidden
+            : named ? ScopeSchemaStatus.Success
+            : ScopeSchemaStatus.UnknownProvider;
+        read.Status.Should().Be(expected);
+        if (expected == ScopeSchemaStatus.Success)
+            read.Result!.Provider.ToString().Should().BeEquivalentTo(provider);
+    }
+
     // ── sources.update ──────────────────────────────────────────────────────────────────────────
 
     private static readonly Gen<UpdateSourceRequest> AnyUpdate = Gen.Select(
