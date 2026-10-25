@@ -192,4 +192,14 @@ public sealed class CustomLinkEndpointsTests(SharedWebAppFixture fixture) : IAsy
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
         Remote.Links.Should().NotContainKey(adminId);
     }
+
+    [Fact]
+    public async Task Unlink_ProviderThatDoesNotExist_Returns404()
+    {
+        using HttpClient admin = NoRedirects(fixture.AdminToken);
+
+        HttpResponseMessage response = await admin.DeleteAsync($"/api/v1/auth/custom/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }
