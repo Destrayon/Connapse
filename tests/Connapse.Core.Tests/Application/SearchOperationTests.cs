@@ -60,8 +60,8 @@ public class SearchOperationTests
         public Source Source(string name = "wiki", bool visible = true, bool searchableWhenHidden = false)
         {
             var source = new Source(Guid.NewGuid(), name, null, null, "{}", Epoch, Epoch);
-            Sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
-            Sources.GetByNameAsync(name, Arg.Any<CancellationToken>()).Returns(source);
+            Sources.FindAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+            Sources.FindByNameAsync(name, Arg.Any<CancellationToken>()).Returns(source);
             if (!visible)
                 Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => s => s.Id != source.Id);
             Visibility.IsSearchableWhenHidden(source).Returns(searchableWhenHidden);
@@ -403,6 +403,36 @@ public class SearchOperationTests
         hiddenWorld.Work().Should().Equal(unknownWorld.Work());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Search_FailingSearchOfAHiddenOrUnknownScope_StillReadsAsMissing(bool exists)
+    {
+        var world = new World();
+        var hidden = world.Source(visible: false, searchableWhenHidden: true);
+        world.Search.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new InvalidOperationException("embedding service down"));
+        string id = exists ? hidden.Id.ToString() : Guid.NewGuid().ToString();
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope(id), Query());
+
+        searched.Status.Should().Be(SearchStatus.NotFound);
+        searched.Detail.Should().Be($"Container or source '{id}' not found");
+    }
+
+    [Fact]
+    public async Task Search_FailingSearchOfAVisibleSource_Throws()
+    {
+        var world = new World();
+        var source = world.Source();
+        world.Search.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new InvalidOperationException("embedding service down"));
+
+        var searching = () => world.Operation().RunAsync(Caller, new SearchScope(source.Id.ToString()), Query());
+
+        await searching.Should().ThrowAsync<InvalidOperationException>();
+    }
+
     [Fact]
     public async Task SearchContainer_SourceId_ReadsAsMissingWithoutAskingAboutSources()
     {
@@ -503,8 +533,8 @@ public class SearchOperationTests
                     if (Guid.TryParse(container.Id, out var containerGuid))
                         world.Containers.GetAsync(containerGuid, Arg.Any<CancellationToken>()).Returns(container);
                     world.Containers.GetByNameAsync("docs", Arg.Any<CancellationToken>()).Returns(container);
-                    world.Sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
-                    world.Sources.GetByNameAsync("wiki", Arg.Any<CancellationToken>()).Returns(source);
+                    world.Sources.FindAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+                    world.Sources.FindByNameAsync("wiki", Arg.Any<CancellationToken>()).Returns(source);
                 }
                 world.Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => _ => visible);
                 world.Visibility.IsSearchableWhenHidden(source).Returns(searchableWhenHidden);
@@ -579,7 +609,7 @@ public class SearchOperationTests
             if (exists && isContainer)
                 world.Containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Container(id.ToString(), "docs", null, Epoch, Epoch));
             if (exists && !isContainer)
-                world.Sources.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Source(id, "wiki", null, null, "{}", Epoch, Epoch));
+                world.Sources.FindAsync(id, Arg.Any<CancellationToken>()).Returns(new Source(id, "wiki", null, null, "{}", Epoch, Epoch));
 
             var searched = await new SearchContainer(world.Operation()).RunAsync(Caller, id, request);
 
@@ -599,7 +629,7 @@ public class SearchOperationTests
             if (exists && !isSource)
                 world.Containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Container(id.ToString(), "docs", null, Epoch, Epoch));
             if (exists && isSource)
-                world.Sources.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Source(id, "wiki", null, null, "{}", Epoch, Epoch));
+                world.Sources.FindAsync(id, Arg.Any<CancellationToken>()).Returns(new Source(id, "wiki", null, null, "{}", Epoch, Epoch));
 
             var searched = await new SearchSource(world.Operation()).RunAsync(Caller, id, request);
 

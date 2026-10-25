@@ -66,6 +66,7 @@ public class SearchPageHiddenSourceTests : IDisposable
             scopeJson, DateTime.UtcNow, DateTime.UtcNow);
         sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([source]);
         sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        sources.FindAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
         return source;
     }
 
