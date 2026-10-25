@@ -11,7 +11,7 @@ public static class TokenScopeChoices
 
     /// <summary>What a person may give their own personal access token.</summary>
     public static readonly IReadOnlyList<string> PersonalToken =
-        ["knowledge:read", "knowledge:write", "agent:ingest", "admin:users", "admin:audit", "admin:oauth-clients"];
+        ["knowledge:read", "knowledge:write", "agent:ingest", "admin:users", "admin:audit", "admin:oauth-clients", "admin:settings"];
 
     /// <summary>What an agent key may hold: an agent reaches Connapse over MCP only.</summary>
     public static readonly IReadOnlyList<string> AgentKey = ["knowledge:read", "knowledge:write", "agent:ingest"];
