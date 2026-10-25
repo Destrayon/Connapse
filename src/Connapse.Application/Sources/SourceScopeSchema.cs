@@ -62,11 +62,13 @@ public sealed class GetScopeSchema(IOperationAuthorizer authorizer)
         if (!await authorizer.AllowsAsync(context.User, Policies.Viewer))
             return Attempt<ScopeSchema, ScopeSchemaStatus>.Fail(ScopeSchemaStatus.Forbidden, "You don't have permission to view sources.");
 
-        // Names only: a number would parse as the enum's value with that number.
-        if (int.TryParse(provider, out _) || !Enum.TryParse(provider, ignoreCase: true, out ConnectionProvider named) || !Enum.IsDefined(named))
+        // A provider's name and nothing more, in any case. Enum.TryParse would also take a number (the value
+        // with that number), a padded name (it trims) and a comma-separated list of names.
+        if (Enum.GetNames<ConnectionProvider>().FirstOrDefault(n => n.Equals(provider, StringComparison.OrdinalIgnoreCase)) is not { } name)
             return Attempt<ScopeSchema, ScopeSchemaStatus>.Fail(ScopeSchemaStatus.UnknownProvider,
                 $"No provider '{provider}'. Providers are {string.Join(", ", Enum.GetNames<ConnectionProvider>())}.");
 
+        var named = Enum.Parse<ConnectionProvider>(name);
         var kinds = SourceScopeCodec.KindsFor(named)
             .Select(k => new ScopeKindSchema(k.Type, JsonSchemaExporter.GetJsonSchemaAsNode(Api, k.Record)))
             .ToList();
