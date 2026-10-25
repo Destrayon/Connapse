@@ -294,7 +294,7 @@
     "IsEmpty": false
   },
   "Settings/SearchSettingsTab.razor": {
-    "CodeLines": 95,
+    "CodeLines": 96,
     "Injects": 3,
     "Complexity": 22,
     "MarkupLogic": 14,

@@ -129,6 +129,24 @@ public class SettingsPageKeysTests : IDisposable
     }
 
     [Fact]
+    public void ProviderSwitch_KeySavedForTheOldProvider_IsClearedOnSave()
+    {
+        configured.Values[typeof(SearchSettings)] = new SearchSettings { Reranker = "CrossEncoder", CrossEncoderProvider = "Cohere", CrossEncoderApiKey = Saved };
+        var saves = ctx.Services.GetRequiredService<SettingsPageSaves>();
+        var search = saves.Open<SearchSettings>("search");
+        SearchSettings? submitted = null;
+        var cut = ctx.Render<SearchSettingsTab>(p => p.Add(x => x.Settings, search).Add(x => x.SavedKeys, saves.SavedKeys("search"))
+            .Add(x => x.OnSave, (SearchSettings s) => submitted = s));
+
+        cut.FindAll("select").Single(s => s.QuerySelector("option[value=Jina]") is not null).Change("Jina");
+        cut.Find("form").Submit();
+
+        cut.Find("input[type=password]").GetAttribute("placeholder").Should().BeNull("the Cohere key is not Jina's");
+        submitted!.CrossEncoderApiKey.Should().Be("", "empty clears the saved key; null would keep it for Jina");
+        SettingsCategories.Find("search")!.BodyFrom(submitted, search).GetProperty("CrossEncoderApiKey").GetString().Should().Be("");
+    }
+
+    [Fact]
     public async Task Save_KeyTyped_SendsItAndForgetsItAfterwards()
     {
         configured.Values[typeof(LlmSettings)] = new LlmSettings { Provider = "OpenAI", OpenAiApiKey = Saved, AnthropicApiKey = Saved };

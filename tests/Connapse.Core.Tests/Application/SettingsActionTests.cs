@@ -457,9 +457,22 @@ public partial class SettingsOperationTests
         actions.World.Configured.Values[typeof(SearchSettings)] = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderBaseUrl = null, CrossEncoderApiKey = "configured" };
         var given = Given(actions, ConnectionTesterKind.Cohere);
 
-        await actions.Test().RunAsync(Caller, TestOf("crossencoder", new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderBaseUrl = "" }));
+        await actions.Test().RunAsync(Caller, TestOf("crossencoder", new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderBaseUrl = null }));
 
-        given().Should().BeOfType<SearchSettings>().Which.CrossEncoderApiKey.Should().Be("configured", "an empty address and none are the same");
+        given().Should().BeOfType<SearchSettings>().Which.CrossEncoderApiKey.Should().Be("configured");
+    }
+
+    [Fact]
+    public async Task Test_KeyLeftOutWithAnEmptyOverrideForAMissingOne_SendsNoKey()
+    {
+        // The tester reads OpenAiBaseUrl ?? BaseUrl: saved, that is the proxy; tested, "" is the default endpoint.
+        var actions = new Actions();
+        await actions.World.Store.SaveAsync("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = null, BaseUrl = "https://proxy.internal/v1", OpenAiApiKey = "saved" });
+        var given = Given(actions, ConnectionTesterKind.OpenAiLlm);
+
+        await actions.Test().RunAsync(Caller, TestOf("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "", BaseUrl = "https://proxy.internal/v1" }));
+
+        given().Should().BeOfType<LlmSettings>().Which.OpenAiApiKey.Should().BeNull("an empty override sends the request somewhere other than the saved proxy");
     }
 
     [Theory]

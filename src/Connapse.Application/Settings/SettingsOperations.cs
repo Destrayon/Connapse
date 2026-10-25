@@ -88,8 +88,9 @@ public abstract class SettingsCategory(string name, string key)
     internal async Task<object> WithSavedSecretsAsync(ISettingsStore store, IConfiguredSettings configured, object tested, CancellationToken ct)
     {
         var inEffect = await InEffectAsync(store, configured, ct);
-        // Saved settings turn null into "", so the two are the same address.
-        if (Destinations.Any(d => !string.Equals((string?)d.GetValue(tested) ?? "", (string?)d.GetValue(inEffect) ?? "", StringComparison.Ordinal)))
+        // Exactly equal: providers read an empty override as set and a missing one as falling back, so null
+        // and "" can be different addresses.
+        if (Destinations.Any(d => !string.Equals((string?)d.GetValue(tested), (string?)d.GetValue(inEffect), StringComparison.Ordinal)))
             return tested;
         foreach (var secret in Secrets)
             if (secret.GetValue(tested) is null)
