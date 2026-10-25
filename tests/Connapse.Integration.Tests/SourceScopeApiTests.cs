@@ -132,6 +132,17 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Theory]
+    [InlineData("%20S3")]
+    [InlineData("S3%2C%20AzureBlob")]
+    public async Task ScopeSchema_ANameWithAnythingMore_IsNotFound(string provider)
+    {
+        var response = await Admin.GetAsync($"/api/v1/sources/scope-schema/{provider}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("type").GetString().Should().EndWith("provider-not-found");
+    }
+
     private static string ShortName(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20];
 
     private async Task<Guid> SeedConnectionAsync(ConnectionProvider provider, string configJson)
