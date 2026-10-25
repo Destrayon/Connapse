@@ -1,8 +1,9 @@
 @page "/settings/tokens"
-@attribute [Authorize]
+@attribute [Authorize(Policy = "RequirePerson")]
+@using Connapse.Application
+@using Connapse.Application.Tokens
 @using Connapse.Core
-@using Connapse.Identity.Services
-@inject PatService PatService
+@inject PersonalTokenOperations Tokens
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -232,9 +233,9 @@
     private string? statusMessage;
     private bool statusSuccess;
     private PatCreateResponse? newTokenResponse;
-    private Guid currentUserId;
+    private OperationContext context = null!;
 
-    private List<PatListItem> tokens = new();
+    private IReadOnlyList<PatListItem> tokens = [];
 
     private IEnumerable<PatListItem> DisplayedTokens =>
         showRevoked ? tokens : tokens.Where(t => !t.IsRevoked);
@@ -254,38 +255,44 @@
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        Guid.TryParse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out currentUserId);
+        context = new OperationContext(authState.User, OperationSurface.Ui);
 
         await LoadTokensAsync();
     }
 
     private async Task LoadTokensAsync()
     {
-        tokens = (await PatService.ListAsync(currentUserId)).ToList();
+        var listed = await Tokens.List.RunAsync(context);
+        if (!listed.Succeeded)
+            Say(listed.Detail, false);
+        tokens = listed.Result ?? [];
+    }
+
+    private void Say(string? message, bool success)
+    {
+        statusMessage = message;
+        statusSuccess = success;
     }
 
     private async Task CreateTokenAsync()
     {
-        if (string.IsNullOrWhiteSpace(newTokenName))
-        {
-            statusMessage = "Token name is required.";
-            statusSuccess = false;
-            return;
-        }
-
         isProcessing = true;
         statusMessage = null;
         try
         {
-            var request = new PatCreateRequest(
-                newTokenName.Trim(),
+            var created = await Tokens.Create.RunAsync(context, new PatCreateRequest(
+                newTokenName,
                 Scopes: [.. TokenScopeChoices.PersonalToken.Where(newTokenScopes.Contains)],
-                ExpiresAt: newTokenExpiry.HasValue
-                    ? DateTime.SpecifyKind(newTokenExpiry.Value, DateTimeKind.Utc)
-                    : null,
-                RequiresApproval: newTokenRequiresApproval);
+                // The date picker's midnight has no time zone, which the operation reads as UTC.
+                ExpiresAt: newTokenExpiry,
+                RequiresApproval: newTokenRequiresApproval));
+            if (!created.Succeeded)
+            {
+                Say(created.Detail, false);
+                return;
+            }
 
-            newTokenResponse = await PatService.CreateAsync(currentUserId, request);
+            newTokenResponse = created.Result;
             newTokenName = "";
             newTokenExpiry = null;
             newTokenRequiresApproval = true;
@@ -293,11 +300,6 @@
             newTokenScopes.Add(TokenScopeChoices.Default);
             showCreateForm = false;
             await LoadTokensAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to create token: {ex.Message}";
-            statusSuccess = false;
         }
         finally
         {
@@ -312,21 +314,16 @@
         confirmRevokeId = null;
         try
         {
-            var revoked = await PatService.RevokeAsync(currentUserId, tokenId);
-            if (!revoked)
+            var revoked = await Tokens.Revoke.RunAsync(context, tokenId);
+            if (!revoked.Succeeded)
             {
-                statusMessage = "Token not found or already revoked.";
-                statusSuccess = false;
+                Say(revoked.Detail, false);
                 return;
             }
+            Say("Token revoked.", true);
             if (newTokenResponse?.Id == tokenId)
                 newTokenResponse = null;
             await LoadTokensAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to revoke token: {ex.Message}";
-            statusSuccess = false;
         }
         finally
         {

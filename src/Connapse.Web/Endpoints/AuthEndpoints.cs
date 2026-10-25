@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Connapse.Application;
 using Connapse.Application.Links;
 using Connapse.Application.Ports;
+using Connapse.Application.Tokens;
 using Connapse.Application.Users;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -146,75 +147,57 @@ public static class AuthEndpoints
         .WithDescription("List the caller's linked accounts (AWS, Entra ID, GitHub, Atlassian, custom providers): whether each is linked, as whom, since when, and whether this server offers linking. Search hides documents that only an unlinked account may read. Linking itself happens in a browser at /profile/integrations.")
         .RequireAuthorization(Policies.Account);
 
-        // GET /api/v1/auth/pats — list the authenticated user's PATs
+        // GET /api/v1/auth/pats — list the caller's own personal access tokens
         group.MapGet("/pats", async (
-            HttpContext httpContext,
-            [FromServices] PatService patService,
+            HttpContext http,
+            [FromServices] ListPersonalTokens list,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null)
-                return Results.Unauthorized();
-
-            var pats = await patService.ListAsync(userId.Value, ct);
-            return Results.Ok(pats);
+            var listed = await list.RunAsync(Rest(http), ct);
+            return listed.Succeeded ? Results.Ok(listed.Result) : OperationProblems.Result(listed);
         })
         .Produces<IReadOnlyList<PatListItem>>()
         .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .WithName("ListPats")
-        .WithDescription("List personal access tokens for the authenticated user")
-        .RequireAuthorization();
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .WithName("pats.list")
+        .WithDescription("List your personal access tokens, newest first, revoked ones included. Only a person signed in themselves may: not a personal access token or agent key.")
+        .RequireAuthorization(Policies.Person);
 
-        // POST /api/v1/auth/pats — create a PAT (token shown only once)
+        // POST /api/v1/auth/pats — create a personal access token (its value is shown only once)
         group.MapPost("/pats", async (
             [FromBody] PatCreateRequest request,
-            HttpContext httpContext,
-            [FromServices] PatService patService,
-            [FromServices] IAuditLogger auditLogger,
+            HttpContext http,
+            [FromServices] CreatePersonalToken create,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null)
-                return Results.Unauthorized();
-
-            var pat = await patService.CreateAsync(userId.Value, request, ct);
-            await auditLogger.LogAsync("pat.created", "pat", pat.Id.ToString(),
-                new { pat.Name, pat.Scopes }, ct);
-
-            return Results.Ok(pat);
+            var created = await create.RunAsync(Rest(http), request, ct);
+            return created.Succeeded ? Results.Ok(created.Result) : OperationProblems.Result(created);
         })
         .Produces<PatCreateResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .WithName("CreatePat")
-        .WithDescription("Create a personal access token (the raw token is returned only on creation)")
-        .RequireAuthorization();
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .WithName("pats.create")
+        .WithDescription("Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, agent:ingest, admin:users, admin:audit, admin:oauth-clients and admin:settings, and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.")
+        .RequireAuthorization(Policies.Person);
 
-        // DELETE /api/v1/auth/pats/{id} — revoke a PAT
+        // DELETE /api/v1/auth/pats/{id} — revoke one of the caller's own personal access tokens
         group.MapDelete("/pats/{id:guid}", async (
             Guid id,
-            HttpContext httpContext,
-            [FromServices] PatService patService,
-            [FromServices] IAuditLogger auditLogger,
+            HttpContext http,
+            [FromServices] RevokePersonalToken revoke,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null)
-                return Results.Unauthorized();
-
-            var revoked = await patService.RevokeAsync(userId.Value, id, ct);
-            if (!revoked)
-                return ApiProblem.NotFound("PAT not found or already revoked");
-
-            await auditLogger.LogAsync("pat.revoked", "pat", id.ToString(), null, ct);
-            return Results.NoContent();
+            var revoked = await revoke.RunAsync(Rest(http), id, ct);
+            return revoked.Succeeded ? Results.NoContent() : OperationProblems.Result(revoked);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("RevokePat")
-        .WithDescription("Revoke a personal access token by ID")
-        .RequireAuthorization();
+        .WithName("pats.revoke")
+        .WithDescription("Revoke one of your personal access tokens by id. Only a person signed in themselves may: not a personal access token or agent key.")
+        .RequireAuthorization(Policies.Person);
 
         // GET /api/v1/auth/users — list users (Admin only, paginated)
         group.MapGet("/users", async (

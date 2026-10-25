@@ -12,7 +12,7 @@ namespace Connapse.Identity.Services;
 
 public class PatService(
     ConnapseIdentityDbContext dbContext,
-    ILogger<PatService> logger)
+    ILogger<PatService> logger) : IPatService
 {
     public async Task<PatCreateResponse> CreateAsync(
         Guid userId,

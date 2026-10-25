@@ -258,3 +258,16 @@ isn't one an agent key can hold. The scopes are `knowledge:read`, `knowledge:wri
 ## agent-exists
 
 A live agent already has that name. `field` is `name`.
+
+## pat-not-found
+
+You have no active personal access token with that id. It may have been revoked already, or it is
+someone else's: each person sees and revokes only their own.
+
+## invalid-pat
+
+The token can't be made as asked: the name is blank or longer than 256 characters (`field` is
+`name`), a scope isn't one a personal access token can hold (`field` is `scopes`), or the expiry
+isn't in the future (`field` is `expiresAt`). The scopes are `knowledge:read`, `knowledge:write`,
+`agent:ingest`, `admin:users`, `admin:audit`, `admin:oauth-clients` and `admin:settings`. An expiry
+that names no time zone is read as UTC.

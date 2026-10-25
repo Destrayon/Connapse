@@ -301,7 +301,7 @@ public class AuthEndpointTests : IAsyncLifetime
         using var patClient = _fixture.Factory.CreateClient();
         patClient.DefaultRequestHeaders.Add("X-Api-Key", created!.Token);
 
-        var listResponse = await patClient.GetAsync("/api/v1/auth/pats");
+        var listResponse = await patClient.GetAsync("/api/v1/auth/me");
         listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
@@ -369,14 +369,14 @@ public class AuthEndpointTests : IAsyncLifetime
         // Confirm it works before revocation
         using var patClient = _fixture.Factory.CreateClient();
         patClient.DefaultRequestHeaders.Add("X-Api-Key", created!.Token);
-        var before = await patClient.GetAsync("/api/v1/auth/pats");
+        var before = await patClient.GetAsync("/api/v1/auth/me");
         before.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Revoke
         await jwtClient.DeleteAsync($"/api/v1/auth/pats/{created.Id}");
 
         // Should no longer authenticate
-        var after = await patClient.GetAsync("/api/v1/auth/pats");
+        var after = await patClient.GetAsync("/api/v1/auth/me");
         after.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
