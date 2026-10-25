@@ -348,7 +348,8 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
             return Hit("p" + i, AtlassianUri.ForPage(CloudId, i.ToString()));
         })];
         // Each check holds its slot for 100 ms, so nine pages ignoring the limit would all be in flight at once.
-        var counting = new InFlightHandler(_api, TimeSpan.FromMilliseconds(100));
+        // The limit itself keeps a correct verifier at three however slow the machine.
+        var counting = new InFlightHandler(new DelayingHandler(_api, TimeSpan.FromMilliseconds(100)));
 
         var result = await NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3 }).VerifyAsync(hits, _user, 10);
 
@@ -542,8 +543,8 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     /// <summary>Passes token requests through; answers every other request after a fixed delay.</summary>
-    /// <summary>Holds each permission check for a while and records the most that were in flight at once.</summary>
-    private sealed class InFlightHandler(HttpMessageHandler inner, TimeSpan hold) : DelegatingHandler(inner)
+    /// <summary>Records the most permission checks in flight at once; the inner handler decides how long each takes.</summary>
+    private sealed class InFlightHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
     {
         private int _inFlight;
         private int _peak;
@@ -558,11 +559,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
             for (int seen = Volatile.Read(ref _peak); now > seen; seen = Volatile.Read(ref _peak))
                 if (Interlocked.CompareExchange(ref _peak, now, seen) == seen)
                     break;
-            try
-            {
-                await Task.Delay(hold, ct);
-                return await base.SendAsync(request, ct);
-            }
+            try { return await base.SendAsync(request, ct); }
             finally { Interlocked.Decrement(ref _inFlight); }
         }
     }
