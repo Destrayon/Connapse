@@ -1,9 +1,0 @@
-﻿{
-  Reason: for a missing container, REST's multi-file upload answers ok with nothing uploaded; MCP bulk_upload says not found,
-  Reference: {
-    Result: ok
-  },
-  Surface: {
-    Result: error:not_found
-  }
-}

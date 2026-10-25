@@ -1,7 +1,7 @@
 ﻿{
   Reason: absent: the page uploads from browser JavaScript straight to the REST route,
   Reference: {
-    Result: ok
+    Result: error:not_found
   },
   Surface: {
     Result: absent: the page uploads from browser JavaScript straight to the REST route

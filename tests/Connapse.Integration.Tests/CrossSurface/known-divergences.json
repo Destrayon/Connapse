@@ -7,8 +7,6 @@
   "bulk_upload/invalid/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
   "bulk_upload/under-scoped/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
   "bulk_upload/preflight/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
-  "bulk_upload/invalid/mcp": "with one unsupported file, REST rejects the whole upload and MCP bulk_upload uploads the rest and reports a partial result",
-  "bulk_upload/preflight/mcp": "for a missing container, REST's multi-file upload answers ok with nothing uploaded; MCP bulk_upload says not found",
   "bulk_delete/invalid/ui": "the file browser can only select files it lists, so an unknown file id can't be part of a bulk delete there",
   "get_document/valid/ui": "the file browser's detail panel shows a document's details but not its text, which REST's content route and MCP get_document return",
   "sources_list/valid/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
