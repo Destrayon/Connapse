@@ -68,7 +68,9 @@ public sealed class UnlinkAccount(
         if (string.Equals(request.Provider, "custom", StringComparison.OrdinalIgnoreCase) && request.CustomProviderId is Guid providerId)
             return await UnlinkCustomAsync(request, providerId, userId, ct);
 
-        if (!Enum.TryParse<CloudProvider>(request.Provider, ignoreCase: true, out var provider)
+        // A name only: Enum.TryParse would read "0" as AWS and "Azure,GitHub" as their flags, Atlassian.
+        if (!Enum.GetNames<CloudProvider>().Any(n => string.Equals(n, request.Provider, StringComparison.OrdinalIgnoreCase))
+            || !Enum.TryParse<CloudProvider>(request.Provider, ignoreCase: true, out var provider)
             || provider is not (CloudProvider.AWS or CloudProvider.Azure or CloudProvider.GitHub or CloudProvider.Atlassian))
             return Fail(AccountUnlinkStatus.InvalidProvider, $"Unknown provider: {request.Provider}. Valid values: AWS, Azure, GitHub, Atlassian.");
 

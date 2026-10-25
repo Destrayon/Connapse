@@ -1,0 +1,61 @@
+name: Mutation
+
+# How many deliberate bugs the operations' tests catch (epic #783 Phase 2.5, CON-55). Stryker.NET plants
+# small bugs (mutants) in Connapse.Application, runs Core.Tests' Small unit tests against each one, and
+# fails when the share it catches, the mutation score, is under the break threshold in
+# tests/Connapse.Core.Tests/stryker-config.json. A workflow of its own, so its time doesn't count against
+# ci.yml's six-minute pipeline budget. It runs on every PR into main or an epic branch, after every merge
+# into an epic branch, every night on main (GitHub runs schedules only from the default branch), and on
+# demand.
+on:
+  pull_request:
+    branches: [ main, 'epic/**' ]
+  push:
+    branches: [ 'epic/**' ]
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: ./.github/actions/build
+      with:
+        project: tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj
+
+    - name: Restore tools
+      run: dotnet tool restore
+
+    - name: Mutation test Connapse.Application
+      id: stryker
+      working-directory: tests/Connapse.Core.Tests
+      run: dotnet tool run dotnet-stryker
+
+    # Stryker writes its reports under StrykerOutput/<date-time>/reports. A run that got as far as
+    # scoring always writes them, so a missing report fails this step rather than hiding the score.
+    - name: Mutation report summary
+      if: steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure'
+      run: |
+        reports=$(ls -d tests/Connapse.Core.Tests/StrykerOutput/*/reports 2>/dev/null | tail -1)
+        if [ -z "$reports" ] || [ ! -f "$reports/mutation-report.md" ]; then
+          echo "::error::Stryker wrote no mutation report"
+          exit 1
+        fi
+        cat "$reports/mutation-report.md" >> "$GITHUB_STEP_SUMMARY"
+        mkdir -p mutation-report && cp "$reports"/mutation-report.* mutation-report/
+
+    - name: Upload mutation report
+      uses: actions/upload-artifact@v4
+      if: steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure'
+      with:
+        name: mutation-report
+        path: mutation-report/
+        if-no-files-found: error

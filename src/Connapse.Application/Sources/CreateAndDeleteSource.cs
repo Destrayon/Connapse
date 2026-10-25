@@ -101,7 +101,7 @@ public sealed class CreateSource(
             scopeJson = check.ScopeJson;
             warning = check.Warning;
             if (name.Length == 0)
-                name = check.DefaultName ?? "";
+                name = check.DefaultName?.Trim() ?? "";
             if (name.Length == 0)
                 return Fail(SourceWriteStatus.Invalid, "Source name is required", "name");
         }
