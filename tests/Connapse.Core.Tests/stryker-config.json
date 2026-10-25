@@ -2,7 +2,7 @@
   "stryker-config": {
     "project": "Connapse.Application.csproj",
     "test-projects": [ "Connapse.Core.Tests.csproj" ],
-    "test-case-filter": "Category=Unit&Size!=Medium&Size!=Large",
+    "test-case-filter": "Category=Unit&Size!=Large&(Size!=Medium|FullyQualifiedName~Connapse.Core.Tests.Application.)",
     "coverage-analysis": "perTest",
     "mutation-level": "Standard",
     "reporters": [ "progress", "html", "json", "markdown" ],

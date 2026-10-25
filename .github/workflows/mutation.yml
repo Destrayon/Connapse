@@ -1,7 +1,8 @@
 name: Mutation
 
 # How many deliberate bugs the operations' tests catch (epic #783 Phase 2.5, CON-55). Stryker.NET plants
-# small bugs (mutants) in Connapse.Application, runs Core.Tests' Small unit tests against each one, and
+# small bugs (mutants) in Connapse.Application, runs Core.Tests' Small unit tests and the operations'
+# Medium ones (the random-input tests under Application/, CON-89) against each one, and
 # fails when the share it catches, the mutation score, is under the break threshold in
 # tests/Connapse.Core.Tests/stryker-config.json. A workflow of its own, so its time doesn't count against
 # ci.yml's six-minute pipeline budget. It runs on every PR into main or an epic branch, after every merge
