@@ -354,6 +354,10 @@ public static class IdentityServiceExtensions
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor", "Viewer"))
+            // Reading knowledge from any surface that admits agent keys: MCP lets an agent with
+            // knowledge:read list and describe containers, so an operation's read check must too.
+            .AddPolicy("RequireReader", policy =>
+                policy.RequireRole("Owner", "Admin", "Editor", "Viewer", "Agent"))
             .AddPolicy("RequireAgent", policy =>
                 policy.RequireRole("Owner", "Admin", "Agent"))
             .AddPolicy("Scope:KnowledgeRead", policy =>

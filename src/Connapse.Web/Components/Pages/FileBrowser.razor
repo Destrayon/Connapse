@@ -6,7 +6,7 @@
 @using Connapse.Core.Utilities
 @using Connapse.Storage.Connectors
 @using Microsoft.Extensions.Options
-@inject IContainerStore ContainerStore
+@inject Connapse.Application.Containers.ContainerOperations ContainerOps
 @inject IOptionsMonitor<LlmSettings> LlmOptions
 @inject IDocumentStore DocumentStore
 @inject IFolderStore FolderStore
@@ -46,6 +46,7 @@
                 <button class="breadcrumb-link" @onclick="() => NavigateToPath(crumb.Path)">@crumb.Name</button>
             }
         </nav>
+        <ContainerStatsLine Stats="containerStats" />
     </div>
     <div class="d-flex align-items-center gap-2">
         <ul class="nav nav-tabs border-0 me-2">
@@ -593,6 +594,8 @@
 
     // Container-wide, not just the folder on screen, so failures elsewhere are not hidden.
     private int failedCount;
+    private ContainerStats? containerStats;
+    private string? containerError;
     private List<BrowseEntryDto> entries = new();
     private string currentPath = "/";
     private bool isLoading = true;
@@ -640,7 +643,11 @@
         ProgressNotifier.StatusChanged += OnStatusChanged;
 
         await LoadContainer();
-        await LoadEntries();
+        // A container that didn't load (missing, or the caller may not see it) has no files to list.
+        if (container is null)
+            errorMessage = containerError;
+        else
+            await LoadEntries();
 
         // Drive the rollup-in-progress pill from a low-frequency poll (see RunRollupPollLoopAsync).
         _rollupPollCts = new CancellationTokenSource();
@@ -802,17 +809,10 @@
     {
         try
         {
-            if (Guid.TryParse(ContainerId, out var containerId))
-            {
-                container = await ContainerStore.GetAsync(containerId);
-                failedCount = (await DocumentStore.GetContainerStatsAsync(containerId)).FailedCount;
-                // A source id simply does not resolve here any more: sources live in their own
-                // table and this store only reads containers. The guard that used to catch an
-                // un-migrated external container went with the column it read (#353).
-                errorMessage = container is null ? "Container not found." : null;
-            }
-            else
-                errorMessage = "Invalid container ID.";
+            var read = await ContainerOps.Stats.RunAsync(await AuthStateProvider.OperationContextAsync(),
+                Connapse.Application.Containers.ContainerKey.Parse(ContainerId));
+            (container, containerStats, containerError) = (read.Result?.Container, read.Result?.Stats, read.Detail);
+            failedCount = containerStats?.FailedCount ?? 0;
         }
         catch
         {
@@ -1387,7 +1387,7 @@
             globalMinScore = globalSearch.MinimumScore;
 
             // Load current container overrides
-            var overrides = await ContainerStore.GetSettingsOverridesAsync(containerId);
+            var overrides = (await ContainerOps.GetSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId)).Result;
             settingsChunkingStrategy = overrides?.Chunking?.Strategy ?? "";
             settingsMaxChunkSize = overrides?.Chunking?.MaxChunkSize;
             settingsOverlap = overrides?.Chunking?.Overlap;
@@ -1452,9 +1452,8 @@
                 Summary = HasSummaryOverride(summaryToSave) ? summaryToSave : null
             };
 
-            await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides);
-
-            settingsSaved = true;
+            var saved = await ContainerOps.UpdateSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, overrides);
+            (settingsSaved, settingsError) = (saved.Succeeded, saved.Detail);
         }
         catch (Exception ex)
         {
@@ -1476,19 +1475,10 @@
 
         try
         {
-            await ContainerStore.SaveSettingsOverridesAsync(containerId, new ContainerSettingsOverrides());
-            settingsChunkingStrategy = "";
-            settingsMaxChunkSize = null;
-            settingsOverlap = null;
-            settingsEmbeddingProvider = "";
-            settingsEmbeddingModel = "";
-            settingsEmbeddingDimensions = null;
-            settingsSearchMode = "";
-            settingsTopK = null;
-            settingsMinScore = null;
-            // Reset summary to resolved (global) value after clearing per-container override
-            summarySettings = await SettingsResolver.GetSummarySettingsAsync(containerId);
-            settingsSaved = true;
+            var cleared = await ContainerOps.ResetSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId);
+            (settingsSaved, settingsError) = (cleared.Succeeded, cleared.Detail);
+            // Reading the settings back shows the global values the container follows now.
+            await LoadSettings();
         }
         catch (Exception ex)
         {

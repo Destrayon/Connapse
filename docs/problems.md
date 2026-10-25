@@ -12,11 +12,12 @@ declared slug has an entry here.
 ## forbidden
 
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
-changing needs Administrator. The audit log: reading needs Administrator, and a token needs
-`admin:audit`. OAuth clients: listing and revoking need Administrator, and a token needs
-`admin:oauth-clients`. Account links: reading needs a person or their own token with
-`knowledge:read`; unlinking needs the person signed in themselves, never a personal access token or
-agent key.
+changing needs Administrator. Containers: reading needs the Viewer role (over MCP, an agent key
+with `knowledge:read` may read too), creating, renaming and deleting need Editor. The audit log:
+reading needs Administrator, and a token needs `admin:audit`. OAuth clients: listing and revoking need
+Administrator, and a token needs `admin:oauth-clients`. Account links: reading needs a person or their
+own token with `knowledge:read`; unlinking needs the person signed in themselves, never a personal
+access token or agent key.
 
 ## invalid-link-provider
 
@@ -104,3 +105,22 @@ acts for, or an administrator, can see and decide its requests.
 
 The approval request was already approved or denied, or it expired. A request waits a day; an
 approval can be used once, within 15 minutes.
+
+## container-not-found
+
+No container has that id or name.
+
+## invalid-container
+
+The container's name or the change asked for isn't valid. A name is 2 to 128 characters of lowercase
+letters, digits and hyphens, and can't start or end with a hyphen. A rename names a new name, a new
+description, or both. The `field` member names the input at fault.
+
+## container-conflict
+
+Another container already has that name. Names are unique across Connapse.
+
+## container-not-empty
+
+The container still has files. Deleting a container deletes what it stores, so it must be emptied
+first; the detail says how many documents remain.

@@ -119,16 +119,16 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 863,
+    "CodeLines": 853,
     "Injects": 12,
     "Complexity": 200,
     "MarkupLogic": 80,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
-    "CodeLines": 154,
+    "CodeLines": 138,
     "Injects": 3,
-    "Complexity": 22,
+    "Complexity": 18,
     "MarkupLogic": 21,
     "IsEmpty": false
   },
@@ -326,6 +326,13 @@
     "Injects": 0,
     "Complexity": 37,
     "MarkupLogic": 14,
+    "IsEmpty": false
+  },
+  "Shared/ContainerStatsLine.razor": {
+    "CodeLines": 1,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 2,
     "IsEmpty": false
   },
   "Shared/CustomProviderLinkCard.razor": {

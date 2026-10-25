@@ -1,13 +1,4 @@
 {
-  "container_create/valid/mcp": "MCP container_create writes no container.created audit row; REST does",
-  "container_create/valid/ui": "the Home page's create writes no container.created audit row; REST does",
-  "container_list/under-scoped/ui": "the Home page lists containers to a user with no role; REST and MCP refuse them",
-  "container_delete/valid/ui": "the Home page's delete writes no container.deleted audit row; REST and MCP do",
-  "container_delete/preflight/mcp": "MCP container_delete throws on a non-empty container (an unknown error) instead of REST's validation error",
-  "container_describe/invalid/ui": "the file browser shows a missing container as an empty folder instead of not found",
-  "container_describe/under-scoped/ui": "the file browser shows a container to a user with no role; REST and MCP refuse them",
-  "container_stats/under-scoped/ui": "the Home page shows a container's file count to a user with no role; REST and MCP refuse them",
-  "container_stats/valid/ui": "the Home page shows only a container's file count, not the status breakdown or chunk count REST and MCP give",
   "search_knowledge/invalid/mcp": "MCP search_knowledge accepts an empty query and returns no results; REST and the page refuse it",
   "search_knowledge/under-scoped/ui": "the Search page searches for a user with no role; REST and MCP refuse them",
   "list_files/invalid/ui": "the file browser shows a missing container as an empty folder instead of not found",
