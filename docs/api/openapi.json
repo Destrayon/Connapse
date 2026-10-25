@@ -5877,7 +5877,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Update settings for a specific category. An API key left out keeps its stored value.",
+        "description": "Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it.",
         "operationId": "UpdateSettings",
         "parameters": [
           {

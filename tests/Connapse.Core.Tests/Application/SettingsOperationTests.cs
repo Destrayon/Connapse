@@ -322,6 +322,39 @@ public class SettingsOperationTests
     }
 
     [Fact]
+    public async Task Update_EmptySecret_ClearsIt()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("search", new SearchSettings { CrossEncoderApiKey = "old" });
+
+        await world.Update().RunAsync(Caller, "search", Body(new { crossEncoderApiKey = "" }));
+
+        world.Store.Stored<SearchSettings>("search")!.CrossEncoderApiKey.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Update_UnsentSecretsClear_NullClearsTheStoredOne()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("search", new SearchSettings { CrossEncoderApiKey = "old" });
+
+        // The page, which holds every value: a key it sends null is one it cleared, as on a provider switch.
+        await world.Update().RunAsync(Caller, "search", Body(new SearchSettings { CrossEncoderApiKey = null }), UnsentSecrets.Clear);
+
+        world.Store.Stored<SearchSettings>("search")!.CrossEncoderApiKey.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Update_UnsentSecretsClear_StillSavesASentOne()
+    {
+        var world = new World();
+
+        await world.Update().RunAsync(Caller, "search", Body(new SearchSettings { CrossEncoderApiKey = "new" }), UnsentSecrets.Clear);
+
+        world.Store.Stored<SearchSettings>("search")!.CrossEncoderApiKey.Should().Be("new");
+    }
+
+    [Fact]
     public async Task Update_Embedding_SchedulesTheIndexAndListsTheOtherModels()
     {
         var world = new World();
@@ -424,9 +457,9 @@ public class SettingsOperationTests
     [Fact]
     [RandomInputTestOf(typeof(UpdateSettings))]
     public Task Update_AnyCategoryAndBody_SavesOnlyValidChangesKeepingUnsentSecrets() =>
-        Gen.Select(Gen.Bool, AnyCategory, Gen.Int[0, 3], Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        Gen.Select(Gen.Bool, AnyCategory, Gen.Int[0, 3], Gen.Bool, Gen.Int[0, 2], Gen.Enum<UnsentSecrets>()).SampleAsync(async t =>
         {
-            var (admin, category, bodyKind, storedSecret, sendSecret) = t;
+            var (admin, category, bodyKind, storedSecret, send, unsent) = t;
             var world = new World(admin);
             var found = SettingsCategories.Find(category);
             var secret = found?.Secrets.FirstOrDefault();
@@ -440,12 +473,12 @@ public class SettingsOperationTests
             {
                 0 => Raw("null"),
                 1 => Raw("""{"noSuchProperty":1}"""),
-                _ => secret is not null && sendSecret ? Raw($$"""{"{{secret.Name}}":"sent"}""") : Raw("{}"),
+                _ => secret is not null && send > 0 ? Raw($$"""{"{{secret.Name}}":"{{(send == 1 ? "sent" : "")}}"}""") : Raw("{}"),
             };
             int rowsBefore = world.Store.Rows.Count;
 
             var updated = await new UpdateSettings(world.Store, world.Configured, world.Indexes, world.Models, world.Audit, world.Authorizer)
-                .RunAsync(Caller, category!, body);
+                .RunAsync(Caller, category!, body, unsent);
 
             var expected = !admin ? SettingsStatus.Forbidden : found is null ? SettingsStatus.NotFound
                 : bodyKind < 2 ? SettingsStatus.Invalid : SettingsStatus.Success;
@@ -459,7 +492,12 @@ public class SettingsOperationTests
             }
             var saved = JsonSerializer.Deserialize(world.Store.Rows[found!.Key], found.Type)!;
             if (secret is not null)
-                secret.GetValue(saved).Should().Be(sendSecret ? "sent" : storedSecret ? "stored" : null);
+                secret.GetValue(saved).Should().Be(send switch
+                {
+                    1 => "sent",
+                    2 => null,
+                    _ => unsent == UnsentSecrets.Keep && storedSecret ? "stored" : null,
+                });
             world.Indexes.ReceivedCalls().Should().HaveCount(found.Name == "embedding" ? 1 : 0);
             await world.Audit.Received(1).LogAsync("settings.updated", "settings", found.Name, null, Arg.Any<CancellationToken>());
         }, iter: 1000);

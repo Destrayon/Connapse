@@ -64,7 +64,7 @@ public static class SettingsEndpoints
             HttpContext http,
             CancellationToken ct) =>
         {
-            var updated = await update.RunAsync(Rest(http), category, settingsJson, ct);
+            var updated = await update.RunAsync(Rest(http), category, settingsJson, UnsentSecrets.Keep, ct);
             if (!updated.Succeeded)
                 return OperationProblems.Result(updated);
 
@@ -84,7 +84,7 @@ public static class SettingsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithName("UpdateSettings")
-        .WithDescription("Update settings for a specific category. An API key left out keeps its stored value.");
+        .WithDescription("Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it.");
 
         // POST /api/settings/test-connection - Test connection with provided settings
         group.MapPost("/test-connection", async (

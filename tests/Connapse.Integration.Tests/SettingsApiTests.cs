@@ -33,6 +33,10 @@ public class SettingsApiTests(SharedWebAppFixture fixture)
             // What GET returned, sent back as it is, keeps the key it didn't show.
             (await fixture.AdminClient.PutAsync("/api/settings/llm", JsonContent.Create(read))).StatusCode.Should().Be(HttpStatusCode.OK);
             (await store.GetAsync<LlmSettings>("llm"))!.AnthropicApiKey.Should().Be("k-922");
+
+            // An empty key clears it.
+            (await fixture.AdminClient.PutAsJsonAsync("/api/settings/llm", new { model = "m-922", anthropicApiKey = "" })).EnsureSuccessStatusCode();
+            (await store.GetAsync<LlmSettings>("llm"))!.AnthropicApiKey.Should().BeNull();
         }
         finally
         {

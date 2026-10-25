@@ -45,7 +45,7 @@ public abstract class SettingsCategory(string name, string key)
 
     internal abstract Task<object> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct);
 
-    internal abstract Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, CancellationToken ct);
+    internal abstract Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent, CancellationToken ct);
 
     internal abstract object? Parse(JsonElement body);
 
@@ -73,19 +73,34 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
         return copy;
     }
 
-    internal override async Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, CancellationToken ct) =>
+    internal override async Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent, CancellationToken ct) =>
         await store.UpdateAsync<T>(Key, stored =>
         {
             // A secret left out keeps the one in effect: stored, or configured when nothing is stored yet, as a
             // first save of a value read from GET would otherwise erase a key that came from configuration.
             var current = stored ?? configured.Current<T>();
             var incoming = (T)settings;
-            foreach (var secret in Secrets.Where(s => s.GetValue(incoming) is null))
-                secret.SetValue(incoming, secret.GetValue(current));
+            foreach (var secret in Secrets)
+            {
+                if (secret.GetValue(incoming) is null && unsent == UnsentSecrets.Keep)
+                    secret.SetValue(incoming, secret.GetValue(current));
+                else if (secret.GetValue(incoming) is "")
+                    secret.SetValue(incoming, null);
+            }
             return incoming;
         }, ct);
 
     internal override object? Parse(JsonElement body) => JsonSerializer.Deserialize<T>(body.GetRawText(), Json);
+}
+
+/// <summary>
+/// What a change means by a secret it leaves null. REST callers read secrets back as null, so for them it keeps
+/// the one in effect, and an empty string clears it; the page holds every value, so for it null clears it.
+/// </summary>
+public enum UnsentSecrets
+{
+    Keep,
+    Clear,
 }
 
 /// <summary>Every settings category, as the API names it.</summary>
@@ -144,7 +159,8 @@ public sealed class GetSettings(ISettingsStore store, IConfiguredSettings config
 }
 
 /// <summary>
-/// Replaces one settings category. A secret left out keeps its stored value. Changing the embedding settings
+/// Replaces one settings category. A secret left out keeps the one in effect unless the caller says it clears
+/// (see <see cref="UnsentSecrets"/>), and an empty one clears it. Changing the embedding settings
 /// schedules the new model's vector index and reports the other models that still have vectors.
 /// </summary>
 [Operation("settings.update", Scope = SettingsScope.Name, Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
@@ -154,7 +170,8 @@ public sealed class UpdateSettings(
 {
     public const string UpdatedEvent = "settings.updated";
 
-    public async Task<Attempt<SettingsChange, SettingsStatus>> RunAsync(OperationContext context, string category, JsonElement body, CancellationToken ct = default)
+    public async Task<Attempt<SettingsChange, SettingsStatus>> RunAsync(
+        OperationContext context, string category, JsonElement body, UnsentSecrets unsent = UnsentSecrets.Keep, CancellationToken ct = default)
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
             return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can change settings.");
@@ -178,7 +195,7 @@ public sealed class UpdateSettings(
             return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.Invalid,
                 string.Join(" ", problems.Select(p => p.ErrorMessage)), FieldOf(problems[0]));
 
-        var saved = await found.WriteAsync(store, configured, settings, ct);
+        var saved = await found.WriteAsync(store, configured, settings, unsent, ct);
         // The values are not recorded: they hold provider keys.
         await audit.LogAsync(UpdatedEvent, "settings", found.Name, null, ct);
 

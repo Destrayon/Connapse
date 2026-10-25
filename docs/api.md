@@ -950,7 +950,7 @@ API keys are never returned: those fields read as `null`. The provider sign-in c
 **Notes**: Changes take effect immediately (live reload via `IOptionsMonitor<T>`). No restart required.
 The body replaces the whole category; a property the category doesn't have is refused (`400`
 [`invalid-settings`](problems.md#invalid-settings)). An API key left out or
-`null` keeps its stored value, so a body read from `GET` can be sent back as it is.
+`null` keeps its value, so a body read from `GET` can be sent back as it is; send `""` to clear one.
 
 **Response** (200 OK):
 ```json
