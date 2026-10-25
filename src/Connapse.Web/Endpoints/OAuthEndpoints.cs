@@ -6,7 +6,9 @@ using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 
 namespace Connapse.Web.Endpoints;
 
@@ -99,10 +101,25 @@ public static class OAuthEndpoints
 
         app.MapPost("/oauth/register", async (
             HttpContext ctx,
-            [FromBody] ClientRegistrationRequest request,
             [FromServices] OAuthClientService clientService,
             CancellationToken ct) =>
         {
+            // Read here rather than bound, so a body that isn't a JSON registration gets RFC 7591's error, not the
+            // framework's: this route is outside /api, where binding failures become problems.
+            ClientRegistrationRequest? request = null;
+            if (ctx.Request.HasJsonContentType())
+            {
+                try
+                {
+                    request = await ctx.Request.ReadFromJsonAsync<ClientRegistrationRequest>(ct);
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                }
+            }
+            if (request is null)
+                return Results.Json(new OAuthError("invalid_client_metadata", "The body must be a JSON client registration."), statusCode: 400);
+
             try
             {
                 var result = await clientService.RegisterAsync(
@@ -128,6 +145,22 @@ public static class OAuthEndpoints
         .AllowAnonymous()
         .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
         .DisableAntiforgery()
+        // The body is read by hand above, so the document is told what it takes. Not Accepts<T>: that makes routing
+        // refuse any other content type before the handler, with the framework's answer instead of RFC 7591's.
+        .AddOpenApiOperationTransformer(async (operation, context, ct) =>
+        {
+            const string schema = nameof(ClientRegistrationRequest);
+            if (context.Document!.Components?.Schemas?.ContainsKey(schema) != true)
+                context.Document.AddComponent(schema, await context.GetOrCreateSchemaAsync(typeof(ClientRegistrationRequest), null, ct));
+            operation.RequestBody = new OpenApiRequestBody
+            {
+                Required = true,
+                Content = new Dictionary<string, OpenApiMediaType>
+                {
+                    ["application/json"] = new() { Schema = new OpenApiSchemaReference(schema, context.Document) },
+                },
+            };
+        })
         .Produces<ClientRegistrationResponse>(StatusCodes.Status201Created)
         .Produces<OAuthError>(StatusCodes.Status400BadRequest)
         .Produces<OAuthError>(StatusCodes.Status429TooManyRequests);
