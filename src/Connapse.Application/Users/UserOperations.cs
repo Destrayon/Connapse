@@ -23,6 +23,9 @@ public enum UserStatus
 
     [Failure(500, "user-not-changed", "The user wasn't changed")]
     NotChanged,
+
+    [Failure(409, "user-changed", "The user changed")]
+    Changed,
 }
 
 /// <summary>One page of users. <see cref="Take"/> null means every user, which only the User management page asks for.</summary>
@@ -116,8 +119,11 @@ public sealed class SetUserRoles(IUserDirectory directory, IOperationAuthorizer 
 
         // The names Identity knows, so a role given in another case is stored as it is defined.
         roles = roles.Select(r => UserRules.Assignable.First(a => a.Equals(r, StringComparison.OrdinalIgnoreCase))).ToList();
-        if (await directory.SetRolesAsync(target.Id, roles, ct) is { Count: > 0 } errors)
-            return Attempt<UserAccount, UserStatus>.Fail(UserStatus.NotChanged, string.Join(" ", errors));
+        var change = await directory.SetRolesAsync(target.Id, target.Roles, roles, ct);
+        if (change.Outcome == DirectoryWrite.Changed)
+            return Attempt<UserAccount, UserStatus>.Fail(UserStatus.Changed, "The user changed while this was being checked. Load it again and retry.");
+        if (change.Outcome == DirectoryWrite.Failed)
+            return Attempt<UserAccount, UserStatus>.Fail(UserStatus.NotChanged, string.Join(" ", change.Errors));
 
         await audit.LogAsync(UpdatedEvent, "user", target.Id.ToString(), new { Roles = roles }, ct);
         return Attempt<UserAccount, UserStatus>.Succeed(target with { Roles = roles });
@@ -147,10 +153,16 @@ public sealed class DeleteUser(IUserDirectory directory, ICustomLinkRemovalStore
             return Attempt<UserAccount, UserStatus>.Fail(UserStatus.Forbidden, whyNot);
 
         await linkRemovals.EnqueueForUserAsync(target.Id, ct);
-        if (!await directory.DeleteAsync(target.Id, ct))
+        var deleted = await directory.DeleteAsync(target.Id, target.Roles, ct);
+        if (deleted != DirectoryWrite.Done)
         {
-            await linkRemovals.CancelForUserAsync(target.Id, ct: ct);
-            return Attempt<UserAccount, UserStatus>.Fail(UserStatus.NotChanged, "Failed to delete user.");
+            // Cancelled only while the user still exists: if another request deleted them first, the unlinks
+            // queued here are theirs too, and its release (or the removal job) still owes them.
+            if (await directory.GetAsync(target.Id, ct) is not null)
+                await linkRemovals.CancelForUserAsync(target.Id, ct: ct);
+            return deleted == DirectoryWrite.Changed
+                ? Attempt<UserAccount, UserStatus>.Fail(UserStatus.Changed, "The user changed while this was being checked. Load it again and retry.")
+                : Attempt<UserAccount, UserStatus>.Fail(UserStatus.NotChanged, "Failed to delete user.");
         }
         await linkRemovals.ActivateForUserAsync(target.Id, ct);
 

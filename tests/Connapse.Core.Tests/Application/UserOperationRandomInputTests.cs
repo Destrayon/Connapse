@@ -95,16 +95,16 @@ public class UserOperationRandomInputTests
     [RandomInputTestOf(typeof(SetUserRoles))]
     public Task SetRoles_AnyRequest_FollowsTheRules_AndARefusalChangesAndAuditsNothing() =>
         Gen.Select(Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<OperationSurface>()),
-                Gen.Bool, Gen.Bool, TargetRoles, RequestedRole.Array[0, 3], Gen.Bool)
+                Gen.Bool, Gen.Bool, TargetRoles, RequestedRole.Array[0, 3], Gen.Enum<DirectoryWrite>())
             .SampleAsync(async t =>
             {
-                var ((admin, scope, owner, surface), exists, self, targetRoles, requested, storeRefuses) = t;
+                var ((admin, scope, owner, surface), exists, self, targetRoles, requested, store) = t;
                 var world = new World(admin, scope, owner, surface);
                 var target = world.Target(self, targetRoles);
                 Guid targetId = target.Id;
                 world.Directory.GetAsync(targetId, Arg.Any<CancellationToken>()).Returns(exists ? target : null);
-                world.Directory.SetRolesAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
-                    .Returns(storeRefuses ? ["Identity refused."] : []);
+                world.Directory.SetRolesAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+                    .Returns(new RoleChange(store, store == DirectoryWrite.Failed ? ["Identity refused."] : []));
 
                 var set = await new SetUserRoles(world.Directory, world.Authorizer, world.Audit)
                     .RunAsync(world.Caller, new SetUserRolesRequest(targetId, requested));
@@ -118,18 +118,22 @@ public class UserOperationRandomInputTests
                     : !MayManage(target, world.CallerId, owner) ? UserStatus.Forbidden
                     : roles.Count == 0 || reserved || unknown ? UserStatus.InvalidRoles
                     : !owner && roles.Contains("Admin", StringComparer.OrdinalIgnoreCase) ? UserStatus.Forbidden
-                    : storeRefuses ? UserStatus.NotChanged
+                    : store == DirectoryWrite.Changed ? UserStatus.Changed
+                    : store == DirectoryWrite.Failed ? UserStatus.NotChanged
                     : UserStatus.Success;
                 set.Status.Should().Be(expected);
 
-                bool asked = expected is UserStatus.Success or UserStatus.NotChanged;
-                await world.Directory.Received(asked ? 1 : 0).SetRolesAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+                bool asked = expected is UserStatus.Success or UserStatus.NotChanged or UserStatus.Changed;
+                // Written only while the target still holds the roles the rules were checked against.
+                await world.Directory.Received(asked ? 1 : 0).SetRolesAsync(
+                    targetId, Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(targetRoles)), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
                 world.AuditCalls.Should().Be(expected == UserStatus.Success ? 1 : 0);
                 if (expected == UserStatus.Success)
                 {
                     // Stored under the names Identity defines, whatever case and padding the caller sent.
                     set.Result!.Roles.Should().BeEquivalentTo(roles.Select(r => new[] { "Viewer", "Editor", "Admin" }.First(a => a.Equals(r, StringComparison.OrdinalIgnoreCase))));
-                    await world.Directory.Received(1).SetRolesAsync(targetId, Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(set.Result.Roles)), Arg.Any<CancellationToken>());
+                    await world.Directory.Received(1).SetRolesAsync(
+                        targetId, Arg.Any<IReadOnlyList<string>>(), Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(set.Result.Roles)), Arg.Any<CancellationToken>());
                 }
             });
 
@@ -143,7 +147,7 @@ public class UserOperationRandomInputTests
         var world = new World(admin: true, scope: true, owner: true, OperationSurface.Rest);
         var target = world.Target(self: false, ["Viewer"]);
         world.Directory.GetAsync(target.Id, Arg.Any<CancellationToken>()).Returns(target, (UserAccount?)null);
-        world.Directory.DeleteAsync(target.Id, Arg.Any<CancellationToken>()).Returns(false);
+        world.Directory.DeleteAsync(target.Id, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>()).Returns(DirectoryWrite.Changed);
 
         await new DeleteUser(world.Directory, world.Removals, world.Authorizer, world.Audit).RunAsync(world.Caller, target.Id);
 
@@ -153,14 +157,14 @@ public class UserOperationRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(DeleteUser))]
     public Task Delete_AnyTarget_FollowsTheRules_AndHoldsTheUnlinksUntilTheDeleteSucceeds() =>
-        Gen.Select(Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<OperationSurface>()), Gen.Bool, Gen.Bool, TargetRoles, Gen.Bool)
+        Gen.Select(Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<OperationSurface>()), Gen.Bool, Gen.Bool, TargetRoles, Gen.Enum<DirectoryWrite>())
             .SampleAsync(async t =>
             {
-                var ((admin, scope, owner, surface), exists, self, targetRoles, storeRefuses) = t;
+                var ((admin, scope, owner, surface), exists, self, targetRoles, store) = t;
                 var world = new World(admin, scope, owner, surface);
                 var target = world.Target(self, targetRoles);
                 world.Directory.GetAsync(target.Id, Arg.Any<CancellationToken>()).Returns(exists ? target : null);
-                world.Directory.DeleteAsync(target.Id, Arg.Any<CancellationToken>()).Returns(!storeRefuses);
+                world.Directory.DeleteAsync(target.Id, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>()).Returns(store);
 
                 var deleted = await new DeleteUser(world.Directory, world.Removals, world.Authorizer, world.Audit).RunAsync(world.Caller, target.Id);
 
@@ -168,16 +172,20 @@ public class UserOperationRandomInputTests
                     !admin || !scope ? UserStatus.Forbidden
                     : !exists ? UserStatus.NotFound
                     : !MayManage(target, world.CallerId, owner) ? UserStatus.Forbidden
-                    : storeRefuses ? UserStatus.NotChanged
+                    : store == DirectoryWrite.Changed ? UserStatus.Changed
+                    : store == DirectoryWrite.Failed ? UserStatus.NotChanged
                     : UserStatus.Success;
                 deleted.Status.Should().Be(expected);
 
-                bool attempted = expected is UserStatus.Success or UserStatus.NotChanged;
+                bool attempted = expected is UserStatus.Success or UserStatus.NotChanged or UserStatus.Changed;
                 await world.Removals.Received(attempted ? 1 : 0).EnqueueForUserAsync(target.Id, Arg.Any<CancellationToken>());
-                await world.Directory.Received(attempted ? 1 : 0).DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
-                // Released only after a deletion, cancelled only after a refused one: never both, never on a refusal.
+                await world.Directory.Received(attempted ? 1 : 0).DeleteAsync(
+                    target.Id, Arg.Is<IReadOnlyList<string>>(l => l.SequenceEqual(targetRoles)), Arg.Any<CancellationToken>());
+                // Released only after a deletion, cancelled only after one that didn't happen while the user
+                // still exists (here they always do): never both, never on a refusal.
                 await world.Removals.Received(expected == UserStatus.Success ? 1 : 0).ActivateForUserAsync(target.Id, Arg.Any<CancellationToken>());
-                await world.Removals.Received(expected == UserStatus.NotChanged ? 1 : 0).CancelForUserAsync(target.Id, Arg.Any<DateTime?>(), Arg.Any<CancellationToken>());
+                await world.Removals.Received(expected is UserStatus.NotChanged or UserStatus.Changed ? 1 : 0)
+                    .CancelForUserAsync(target.Id, Arg.Any<DateTime?>(), Arg.Any<CancellationToken>());
                 world.AuditCalls.Should().Be(expected == UserStatus.Success ? 1 : 0);
             });
 }

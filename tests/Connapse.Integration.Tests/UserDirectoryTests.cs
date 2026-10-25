@@ -37,8 +37,33 @@ public class UserDirectoryTests(SharedWebAppFixture fixture)
         var directory = scope.ServiceProvider.GetRequiredService<IUserDirectory>();
 
         // A role Identity doesn't have: the add fails after the old roles were removed.
-        await directory.SetRolesAsync(id, ["NoSuchRole"]);
+        (await directory.SetRolesAsync(id, ["Viewer"], ["NoSuchRole"])).Outcome.Should().Be(DirectoryWrite.Failed);
 
         (await RolesAsync(id)).Should().BeEquivalentTo(["Viewer"], "a failed change must not leave the account without its roles");
+    }
+
+    [Fact]
+    public async Task SetRoles_RolesChangedSinceTheCheck_WritesNothing()
+    {
+        Guid id = await ViewerAsync();
+        using var scope = fixture.Factory.Services.CreateScope();
+        var directory = scope.ServiceProvider.GetRequiredService<IUserDirectory>();
+
+        // The caller's rights were checked while the account was an Admin; it's a Viewer now.
+        var change = await directory.SetRolesAsync(id, ["Admin"], ["Editor"]);
+
+        change.Outcome.Should().Be(DirectoryWrite.Changed);
+        (await RolesAsync(id)).Should().BeEquivalentTo(["Viewer"]);
+    }
+
+    [Fact]
+    public async Task Delete_RolesChangedSinceTheCheck_DeletesNothing()
+    {
+        Guid id = await ViewerAsync();
+        using var scope = fixture.Factory.Services.CreateScope();
+        var directory = scope.ServiceProvider.GetRequiredService<IUserDirectory>();
+
+        (await directory.DeleteAsync(id, ["Editor"])).Should().Be(DirectoryWrite.Changed);
+        (await directory.GetAsync(id)).Should().NotBeNull();
     }
 }

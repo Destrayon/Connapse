@@ -34,21 +34,51 @@ public sealed class UserDirectory(UserManager<ConnapseUser> users, IDbContextFac
     public async Task<UserAccount?> GetAsync(Guid id, CancellationToken ct = default) =>
         await users.FindByIdAsync(id.ToString()) is { } user ? Of(user, (await users.GetRolesAsync(user)).ToList()) : null;
 
-    public async Task<IReadOnlyList<string>> SetRolesAsync(Guid id, IReadOnlyList<string> roles, CancellationToken ct = default)
+    public async Task<RoleChange> SetRolesAsync(
+        Guid id, IReadOnlyList<string> checkedRoles, IReadOnlyList<string> roles, CancellationToken ct = default)
     {
+        // Read again just before writing: if the roles changed since the caller's rights were checked
+        // (another request made them an Admin, say), those rights may no longer hold.
         if (await users.FindByIdAsync(id.ToString()) is not { } user)
-            return ["User not found."];
+            return new RoleChange(DirectoryWrite.Changed, []);
+        var current = (await users.GetRolesAsync(user)).ToList();
+        if (!Same(current, checkedRoles))
+            return new RoleChange(DirectoryWrite.Changed, []);
 
-        var current = await users.GetRolesAsync(user);
         var removed = current.Count == 0 ? IdentityResult.Success : await users.RemoveFromRolesAsync(user, current);
         if (!removed.Succeeded)
-            return removed.Errors.Select(e => e.Description).ToList();
-        var added = await users.AddToRolesAsync(user, roles);
-        return added.Succeeded ? [] : added.Errors.Select(e => e.Description).ToList();
+            return new RoleChange(DirectoryWrite.Failed, Errors(removed));
+        IReadOnlyList<string> errors;
+        try
+        {
+            var added = await users.AddToRolesAsync(user, roles);
+            if (added.Succeeded)
+                return new RoleChange(DirectoryWrite.Done, []);
+            errors = Errors(added);
+        }
+        catch (InvalidOperationException)
+        {
+            // Identity throws, rather than failing, for a role it doesn't have.
+            errors = ["A role in the change doesn't exist."];
+        }
+
+        // Put the old roles back, so a refused change never leaves the account with none.
+        if (current.Count > 0)
+            await users.AddToRolesAsync(user, current);
+        return new RoleChange(DirectoryWrite.Failed, errors);
     }
 
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default) =>
-        await users.FindByIdAsync(id.ToString()) is { } user && (await users.DeleteAsync(user)).Succeeded;
+    public async Task<DirectoryWrite> DeleteAsync(Guid id, IReadOnlyList<string> checkedRoles, CancellationToken ct = default)
+    {
+        if (await users.FindByIdAsync(id.ToString()) is not { } user || !Same(await users.GetRolesAsync(user), checkedRoles))
+            return DirectoryWrite.Changed;
+        return (await users.DeleteAsync(user)).Succeeded ? DirectoryWrite.Done : DirectoryWrite.Failed;
+    }
+
+    private static bool Same(IEnumerable<string> roles, IEnumerable<string> other) =>
+        roles.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(other);
+
+    private static List<string> Errors(IdentityResult result) => result.Errors.Select(e => e.Description).ToList();
 
     private static UserAccount Of(ConnapseUser user, IReadOnlyList<string> roles) =>
         new(user.Id, user.Email ?? "", user.DisplayName, roles, user.CreatedAt, user.LastLoginAt);

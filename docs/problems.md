@@ -192,6 +192,11 @@ The roles asked for can't be given: none at all (a user keeps at least one), one
 (the roles are `Viewer`, `Editor` and `Admin`), or `Owner` or `Agent`, which are never assigned.
 `field` is `roles`.
 
+## user-changed
+
+The user's roles changed between the check of what you may do and the change itself, most often
+because someone else changed them, so nothing was done. Load the user again and retry.
+
 ## user-not-changed
 
 The user's account store refused the change, so nothing was changed. The detail says why when it
