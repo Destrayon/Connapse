@@ -108,6 +108,9 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
 
                 builder.ConfigureTestServices(services =>
                 {
+                    // Every /api response checked against docs/api/openapi.json (CON-8).
+                    services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, Spec.SpecConformance.StartupFilter>();
+
                     // Replaces the real AzureOidcTokenExchanger (dials login.microsoftonline.com)
                     // and the real JWKS lookup (fetches the tenant's signing keys) with in-process
                     // fakes, so the callback endpoint can be driven end to end without a real
@@ -162,6 +165,8 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
 
         if (Directory.Exists(AtlassianStateDirectory))
             Directory.Delete(AtlassianStateDirectory, recursive: true);
+
+        Spec.SpecConformance.Finish();
     }
 
     private static async Task WaitForAppReadyAsync(HttpClient client)

@@ -275,7 +275,7 @@ public class SourceSyncService(
                 && ex is Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth)
             {
                 await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
-                    AtlassianSignInHealth(auth, source.Name, AtlassianSourceScope.IsJira(source.ScopeJson)), ct);
+                    AtlassianSignInHealth(auth, source.Name, SourceScopeCodec.AtlassianKindOf(source.ScopeJson) == AtlassianScopeKind.JiraProject), ct);
             }
 
             // A middle man refused the token a custom source reads with (its connection's, or its provider's):

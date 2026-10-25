@@ -133,6 +133,24 @@ public class AuthEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetToken_NoEmail_Returns400()
+    {
+        var response = await _anonClient.PostAsJsonAsync(
+            "/api/v1/auth/token", new { password = "SomePassword1!" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task GetToken_NoPassword_Returns400()
+    {
+        var response = await _anonClient.PostAsJsonAsync(
+            "/api/v1/auth/token", new { email = SharedWebAppFixture.AdminEmail });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task GetToken_ValidCredentials_UpdatesLastLoginAt()
     {
         var before = DateTime.UtcNow.AddSeconds(-1);
@@ -174,6 +192,14 @@ public class AuthEndpointTests : IAsyncLifetime
             "/api/v1/auth/token/refresh", new RefreshTokenRequest("not-a-real-refresh-token"));
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task RefreshToken_NoRefreshToken_Returns400()
+    {
+        var response = await _anonClient.PostAsJsonAsync("/api/v1/auth/token/refresh", new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

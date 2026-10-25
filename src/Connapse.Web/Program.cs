@@ -43,7 +43,11 @@ bool generatingOpenApiDocument = System.Reflection.Assembly.GetEntryAssembly()?.
 
 // Serialize enums as strings in all Minimal API JSON responses and request bodies.
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    // A source scope's "type" may come anywhere in the object, as clients write members in any order (#859).
+    options.SerializerOptions.AllowOutOfOrderMetadataProperties = true;
+});
 
 // Persist Data Protection keys to the appdata volume so they survive container restarts.
 // In dev this lands in <ContentRoot>/appdata/DataProtection-Keys; in the container it
@@ -170,7 +174,7 @@ if (allowAnonDiscovery)
 builder.Services.AddMemoryCache();
 
 // The REST API's shape, generated at build time into docs/api/openapi.json (#857). No route serves it.
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddSchemaTransformer<Connapse.Web.Endpoints.DeprecatedScopeJsonTransformer>());
 
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed

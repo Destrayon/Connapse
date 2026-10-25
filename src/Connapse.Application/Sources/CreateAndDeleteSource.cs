@@ -16,7 +16,8 @@ public sealed record NewSource(
     string? Description = null,
     int? SyncIntervalSeconds = null,
     ConnectionProvider? Provider = null,
-    string? Secret = null)
+    string? Secret = null,
+    SourceScope? Scope = null)
 {
     /// <summary>The page's request, as REST would send it.</summary>
     public static NewSource From(CreateSourceRequest request) =>
@@ -25,7 +26,7 @@ public sealed record NewSource(
     // The generated ToString would print the secret into any log line or message it reached.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Description = {Description}, ")
+        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Scope = {Scope}, Description = {Description}, ")
             .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Provider = {Provider}, Secret = {(Secret is null ? "null" : "***")}");
         return true;
     }
@@ -68,6 +69,8 @@ public sealed class CreateSource(
             return Fail(SourceWriteStatus.Invalid, "Source name is required", "name");
         if (request.ConnectionId is not null && request.Provider is not null)
             return Fail(SourceWriteStatus.Invalid, "a source must have exactly one of a connectionId or a provider");
+        if (request.Scope is not null && !string.IsNullOrWhiteSpace(request.ScopeJson))
+            return Fail(SourceWriteStatus.Invalid, SourceScopeRequests.BothGiven, "scope");
 
         if (request.ConnectionId is Guid connectionId)
         {
@@ -76,6 +79,13 @@ public sealed class CreateSource(
             var connection = await connections.GetAsync(connectionId, ct);
             if (connection is null)
                 return Fail(SourceWriteStatus.Invalid, $"Connection {connectionId} not found");
+
+            if (request.Scope is { } typed)
+            {
+                if (SourceScopeRequests.Mismatch(typed, connection.Provider) is { } mismatch)
+                    return Fail(SourceWriteStatus.Invalid, mismatch, "scope");
+                scopeJson = SourceScopeCodec.Write(typed);
+            }
 
             var check = await scopes.CheckCreateAsync(connection, scopeJson, ct);
             if (!check.Ok)
@@ -106,6 +116,10 @@ public sealed class CreateSource(
             return Fail(SourceWriteStatus.Invalid,
                 "GitHub sources need a GitHub App connection: pass the connectionId of a GitHub installation instead of a provider");
         }
+
+        // Only a connection reads a typed scope's sources: no provider left to a connection-less source syncs one.
+        if (request.ConnectionId is null && request.Scope is not null)
+            return Fail(SourceWriteStatus.Invalid, SourceScopeRequests.NeedsConnection, "connectionId");
 
         if (!string.IsNullOrWhiteSpace(scopeJson))
         {

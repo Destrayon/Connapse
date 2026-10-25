@@ -81,7 +81,7 @@ public static class SourcesEndpoints
         {
             var created = await create.RunAsync(Rest(http), new NewSource(
                 request.Name, request.ConnectionId, request.ScopeJson, request.Description,
-                request.SyncIntervalSeconds, request.Provider, request.Secret), ct);
+                request.SyncIntervalSeconds, request.Provider, request.Secret, request.Scope), ct);
             if (!created.Succeeded)
                 return OperationProblems.Result(created);
 
@@ -109,7 +109,8 @@ public static class SourcesEndpoints
             {
                 request = body.Deserialize<UpdateSourceRequest>(jsonOptions.Value.SerializerOptions) ?? new UpdateSourceRequest();
             }
-            catch (JsonException ex)
+            // A scope with no type is NotSupportedException rather than JsonException; both are the caller's mistake.
+            catch (Exception ex) when (ex is JsonException or NotSupportedException)
             {
                 return Results.BadRequest(new { error = $"Invalid request: {ex.Message}" });
             }
@@ -181,6 +182,21 @@ public static class SourcesEndpoints
         .WithDescription("Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file.")
         .RequireAuthorization("RequireAdmin");
 
+        // GET /api/v1/sources/scope-schema/{provider}
+        app.MapGroup("/api/v1/sources").WithTags("Sources").MapGet("/scope-schema/{provider}", async (
+            string provider,
+            [FromServices] GetScopeSchema schema,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var read = await schema.RunAsync(Rest(http), provider, ct);
+            return read.Succeeded ? Results.Ok(read.Result) : OperationProblems.Result(read);
+        })
+        .Produces<ScopeSchema>()
+        .WithName("GetSourceScopeSchema")
+        .WithDescription("The JSON schema of each kind of scope a provider's sources take: the \"scope\" a create or update sends, with its \"type\".")
+        .RequireAuthorization("RequireViewer");
+
         return app;
     }
 
@@ -243,12 +259,13 @@ public record CreateSourceApiRequest(
     string? Description = null,
     int? SyncIntervalSeconds = null,
     ConnectionProvider? Provider = null,
-    string? Secret = null)
+    string? Secret = null,
+    SourceScope? Scope = null)
 {
     // The generated ToString would print the secret into any log line or message it reached.
     protected virtual bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Description = {Description}, ")
+        builder.Append($"Name = {Name}, ConnectionId = {ConnectionId}, ScopeJson = {ScopeJson}, Scope = {Scope}, Description = {Description}, ")
             .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Provider = {Provider}, Secret = {(Secret is null ? "null" : "***")}");
         return true;
     }

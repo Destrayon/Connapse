@@ -51,3 +51,79 @@ jobs:
       with:
         name: test-results-large
         path: '**/*.trx'
+
+  # Schemathesis_NoServerErrors (epic #783, Phase 3.2, CON-53): generated requests for every operation in
+  # docs/api/openapi.json against the app as it ships, and none may get a 5xx. Never on a PR: it sends
+  # thousands of requests and builds the image. Both containers are capped: the app by docker-compose.yml's
+  # limits, Schemathesis here, and the job by its timeout.
+  schemathesis:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CONNAPSE_ADMIN_EMAIL: admin@schemathesis.connapse.io
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # A fresh password and JWT secret for each run, so nothing reusable is written down. The rate limits
+    # are raised past what one run sends: at the shipped limits most operations only ever got a 429, so
+    # the logic behind them went untested. Everything else is the compose file as it ships.
+    - name: Start the app
+      run: |
+        password="Nightly-$(openssl rand -hex 12)!"
+        secret="$(openssl rand -hex 32)"
+        echo "::add-mask::$password"
+        echo "::add-mask::$secret"
+        echo "CONNAPSE_ADMIN_PASSWORD=$password" >> "$GITHUB_ENV"
+        cat > "$RUNNER_TEMP/no-rate-limits.yml" <<'EOF'
+        services:
+          web:
+            environment:
+              RateLimiting__AuthPermitLimit: "1000000"
+              RateLimiting__ApiPermitLimit: "1000000"
+              RateLimiting__McpPermitLimit: "1000000"
+        EOF
+        CONNAPSE_ADMIN_PASSWORD="$password" Identity__Jwt__Secret="$secret" \
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/no-rate-limits.yml" up -d --build web
+        for i in $(seq 1 60); do
+          curl -fsS http://localhost:5001/health > /dev/null && exit 0
+          sleep 5
+        done
+        docker compose logs web | tail -50
+        echo "::error::the app didn't answer /health within 5 minutes"
+        exit 1
+
+    - name: Sign in
+      run: |
+        token=$(curl -fsS -X POST http://localhost:5001/api/v1/auth/token -H 'Content-Type: application/json' \
+          -d "{\"email\":\"$CONNAPSE_ADMIN_EMAIL\",\"password\":\"$CONNAPSE_ADMIN_PASSWORD\"}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')
+        echo "::add-mask::$token"
+        echo "API_TOKEN=$token" >> "$GITHUB_ENV"
+
+    - name: No server errors
+      run: |
+        mkdir -p schemathesis-report
+        # As the runner's user, so it can write its report into the mounted folder. It writes its schema
+        # coverage report to the working directory, so that's the report folder too.
+        docker run --rm --network host --cpus 2 --memory 1g --user "$(id -u):$(id -g)" -w /report \
+          -e HOME=/tmp -e HYPOTHESIS_STORAGE_DIRECTORY=/tmp/.hypothesis \
+          -v "$PWD/docs/api:/spec:ro" -v "$PWD/schemathesis-report:/report" \
+          -v "$PWD/.github/schemathesis.toml:/config/schemathesis.toml:ro" \
+          schemathesis/schemathesis@sha256:30ef2766eb58dabfd26f9785d2e29e366a3ab69c2a40e34a8e56dbef5ce525f6 \
+          --config-file /config/schemathesis.toml run /spec/openapi.json --url http://localhost:5001 \
+          -H "Authorization: Bearer $API_TOKEN" \
+          --checks not_a_server_error --phases examples,fuzzing --max-examples 20 --request-timeout 30 \
+          --report junit --report-dir /report
+
+    - name: App logs
+      if: failure()
+      run: docker compose logs web | tail -200
+
+    - name: Upload the Schemathesis report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: schemathesis-report
+        path: schemathesis-report/
+        if-no-files-found: ignore

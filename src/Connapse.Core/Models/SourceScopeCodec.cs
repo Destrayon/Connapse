@@ -1,8 +1,12 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Connapse.Core;
+
+/// <summary>Which Atlassian product a stored scope reads, if any.</summary>
+public enum AtlassianScopeKind { None, JiraProject, ConfluenceSpace }
 
 /// <summary>
 /// Reads and writes a source's stored scope JSON as a <see cref="SourceScope"/>, by the source's
@@ -29,6 +33,29 @@ public static class SourceScopeCodec
         _ => throw new ArgumentOutOfRangeException(nameof(scope), scope.GetType().Name, "No provider reads this kind of scope."),
     };
 
+    /// <summary>The kinds of scope a provider's sources take, each with the <c>type</c> the API names it by.</summary>
+    public static IReadOnlyList<(string Type, Type Record)> KindsFor(ConnectionProvider provider) => provider switch
+    {
+        ConnectionProvider.S3 => [Kind<S3BucketScope>()],
+        ConnectionProvider.AzureBlob => [Kind<AzureBlobContainerScope>()],
+        ConnectionProvider.Filesystem => [Kind<FilesystemFolderScope>()],
+        ConnectionProvider.Sftp => [Kind<SftpFolderScope>()],
+        ConnectionProvider.GitHub => [Kind<GitHubRepositoryScope>()],
+        ConnectionProvider.Atlassian => [Kind<JiraProjectScope>(), Kind<ConfluenceSpaceScope>()],
+        ConnectionProvider.Custom => [Kind<CustomSourceScope>()],
+        _ => [],
+    };
+
+    /// <summary>The <c>type</c> the API names a scope's kind by.</summary>
+    public static string TypeOf(SourceScope scope) => TypeNames[scope.GetType()];
+
+    private static readonly Dictionary<Type, string> TypeNames = typeof(SourceScope)
+        .GetCustomAttributes(typeof(JsonDerivedTypeAttribute), inherit: false)
+        .Cast<JsonDerivedTypeAttribute>()
+        .ToDictionary(a => a.DerivedType, a => (string)a.TypeDiscriminator!);
+
+    private static (string Type, Type Record) Kind<T>() where T : SourceScope => (TypeNames[typeof(T)], typeof(T));
+
     /// <summary>
     /// The typed scope a stored row holds, or null when the JSON doesn't name a scope of the provider's
     /// kind; such a row is left to the connector, which says what is wrong with it.
@@ -54,12 +81,12 @@ public static class SourceScopeCodec
             ConnectionProvider.Filesystem => new FilesystemFolderScope(Str(o, "subPath"), Arr(o, "includePatterns"), Arr(o, "excludePatterns")),
             ConnectionProvider.Sftp => new SftpFolderScope(Str(o, "subPath"), Arr(o, "includePatterns"), Arr(o, "excludePatterns")),
             ConnectionProvider.GitHub => ReadGitHub(o),
-            ConnectionProvider.Atlassian => Str(o, "kind") switch
+            ConnectionProvider.Atlassian => AtlassianKindOf(o) switch
             {
-                JiraKind => Id(o, "projectId") is { } projectId
+                AtlassianScopeKind.JiraProject => Id(o, "projectId") is { } projectId
                     ? new JiraProjectScope(projectId, Str(o, "projectKey"), Str(o, "projectName"), Bool(o, "includeAttachments"), Int(o, "maxAttachmentMb"))
                     : null,
-                ConfluenceKind => Id(o, "spaceId") is { } spaceId
+                AtlassianScopeKind.ConfluenceSpace => Id(o, "spaceId") is { } spaceId
                     ? new ConfluenceSpaceScope(spaceId, Str(o, "spaceKey"), Str(o, "spaceName"), Bool(o, "includeAttachments"), Int(o, "maxAttachmentMb"))
                     : null,
                 _ => null,
@@ -90,6 +117,23 @@ public static class SourceScopeCodec
         }
         return written.ToJsonString();
     }
+
+    /// <summary>
+    /// The Atlassian kind a stored scope names: its exact <c>kind</c>, <c>jira-project</c> or <c>confluence-space</c>,
+    /// as the connector syncs it. Anything else, a missing kind or one in another case, names none. Connapse always
+    /// stores the exact value, so only a row edited outside it reads as none. Every reader of a stored row's kind
+    /// asks here; a request's own looser kind is normalized before it is stored.
+    /// </summary>
+    public static AtlassianScopeKind AtlassianKindOf(string? storedJson) =>
+        Parse(storedJson) is { } o ? AtlassianKindOf(o) : AtlassianScopeKind.None;
+
+    /// <summary>The same rule, for a stored scope already parsed.</summary>
+    public static AtlassianScopeKind AtlassianKindOf(JsonObject o) => Str(o, "kind") switch
+    {
+        JiraKind => AtlassianScopeKind.JiraProject,
+        ConfluenceKind => AtlassianScopeKind.ConfluenceSpace,
+        _ => AtlassianScopeKind.None,
+    };
 
     private static GitHubRepositoryScope? ReadGitHub(JsonObject o)
     {

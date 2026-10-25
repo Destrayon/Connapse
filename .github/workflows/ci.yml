@@ -137,6 +137,7 @@ jobs:
         name: test-results-integration-${{ matrix.shard }}
         path: |
           tests/Connapse.Integration.Tests/TestResults/*.trx
+          tests/Connapse.Integration.Tests/TestResults/spec-conformance-*.json
           walls/
 
     - name: Upload coverage reports
@@ -148,10 +149,62 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  # The API contract (epic #783, Phase 3.2, CON-53). On a PR, oasdiff compares the spec with its base
+  # branch's and fails on a breaking change; Spectral checks .spectral.yaml's style rules on every run,
+  # against the exact-match list in .github/spectral-known.json. Schemathesis runs nightly only.
+  api-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: The base branch's spec
+      id: base
+      if: github.event_name == 'pull_request'
+      run: |
+        # The spec as it is without this PR: the first parent of the merge commit a PR run checks out. For a
+        # PR in a GitHub stack that is every PR below it merged onto the trunk, which base_ref (the trunk)
+        # isn't. In the workspace, since oasdiff runs in a Docker container that sees only the workspace.
+        if git show "HEAD^1:docs/api/openapi.json" > base-openapi.json 2>/dev/null; then
+          echo "path=base-openapi.json" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::the base has no committed spec yet, so there is nothing to break"
+        fi
+
+    # review: false keeps both specs in CI; the action otherwise uploads them to oasdiff.com.
+    - name: No breaking API changes
+      if: steps.base.outputs.path != ''
+      uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+      with:
+        base: ${{ steps.base.outputs.path }}
+        revision: docs/api/openapi.json
+        # WARN too: oasdiff rates some real breaks only as warnings, such as a change it can't compare
+        # exactly inside an allOf.
+        fail-on: WARN
+        # One line per intended change, "<METHOD> <path> <oasdiff's message>"; each matches only that
+        # operation's change. Every line is explained in the PR that adds it.
+        err-ignore: .github/oasdiff-err-ignore.txt
+        review: 'false'
+        github-token: ''
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    # Spectral exits non-zero for any violation; the exact-match list decides.
+    - name: Spec follows the style rules
+      run: |
+        npx --yes @stoplight/spectral-cli@6.17.0 lint docs/api/openapi.json --ruleset .spectral.yaml \
+          --format json --output "$RUNNER_TEMP/spectral.json" || true
+        python3 .github/scripts/spectral_baseline.py --results "$RUNNER_TEMP/spectral.json" --known .github/spectral-known.json
+
   # Keeps the check name the repository already reports, and fails unless every test job passed.
   build-and-test:
     runs-on: ubuntu-latest
-    needs: [small, medium, integration, code-quality, mcp-conformance]
+    needs: [small, medium, integration, code-quality, mcp-conformance, api-contract]
     if: always()
     permissions:
       contents: write
@@ -202,6 +255,12 @@ jobs:
         name: integration-timings
         path: integration-timings/
         if-no-files-found: ignore
+
+    # IntegrationSuite_EveryResponse_ConformsToCommittedSpec (CON-8): every shard's /api responses against
+    # docs/api/openapi.json, compared exactly with the list of today's violations.
+    - name: Check responses against the committed spec
+      if: success() || failure()
+      run: python3 .github/scripts/spec_conformance.py --reports "**/spec-conformance-*.json" --known tests/Connapse.Integration.Tests/Spec/known-spec-violations.json --expect-reports 3
 
     # Every tier is checked even if another fails, and every test project must have reported. The
     # Medium tier's wall time is its slowest job's, since the jobs run side by side.

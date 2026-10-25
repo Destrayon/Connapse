@@ -31,9 +31,15 @@ public static class ProblemDetailsExtensions
         app.UseWhen(IsApiRequest, api => api
             .UseExceptionHandler(new ExceptionHandlerOptions
             {
-                StatusCodeSelector = ex => ex is BadHttpRequestException bad
-                    ? bad.StatusCode
-                    : StatusCodes.Status500InternalServerError,
+                StatusCodeSelector = ex => ex switch
+                {
+                    BadHttpRequestException bad => bad.StatusCode,
+                    // A body naming no kind for a polymorphic member, such as a source scope with no "type":
+                    // System.Text.Json reports it as unsupported rather than malformed (#859).
+                    NotSupportedException { Source: "System.Text.Json" } unsupported
+                        when unsupported.Message.StartsWith("The JSON payload for polymorphic", StringComparison.Ordinal) => StatusCodes.Status400BadRequest,
+                    _ => StatusCodes.Status500InternalServerError,
+                },
             })
             .UseStatusCodePages());
 

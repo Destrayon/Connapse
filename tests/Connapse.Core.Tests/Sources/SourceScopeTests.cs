@@ -108,6 +108,22 @@ public class SourceScopeTests
         generated.Keys.Should().BeEquivalentTo(kinds);
     }
 
+    [Fact]
+    public void KindsFor_EveryKindBelongsToTheProviderThatReadsIt()
+    {
+        var listed = Enum.GetValues<ConnectionProvider>()
+            .SelectMany(p => SourceScopeCodec.KindsFor(p).Select(k => (Provider: p, k.Type, k.Record)))
+            .ToList();
+        var kinds = typeof(SourceScope).Assembly.GetTypes().Where(t => t.IsSubclassOf(typeof(SourceScope)));
+
+        listed.Select(k => k.Record).Should().BeEquivalentTo(kinds, "every kind is offered by exactly one provider");
+        listed.Select(k => k.Type).Should().OnlyHaveUniqueItems();
+        AnyScope.Sample(scope =>
+            listed.Should().ContainSingle(k => k.Record == scope.GetType())
+                .Which.Should().Match<(ConnectionProvider Provider, string Type, Type Record)>(k =>
+                    k.Provider == SourceScopeCodec.ProviderOf(scope) && k.Type == SourceScopeCodec.TypeOf(scope)));
+    }
+
     private static readonly Gen<string> Text = Gen.String[Gen.Char.AlphaNumeric, 1, 12];
     private static readonly Gen<string?> MaybeText = Gen.Frequency((1, Gen.Const((string?)null)), (3, Text.Select(s => (string?)s)));
     private static readonly Gen<string> Digits = Gen.Long[1, long.MaxValue].Select(l => l.ToString(System.Globalization.CultureInfo.InvariantCulture));

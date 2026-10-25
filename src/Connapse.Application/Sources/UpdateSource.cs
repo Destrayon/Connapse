@@ -35,7 +35,8 @@ public enum SourceWriteStatus
 /// provider's rule (<see cref="ISourceScopeRules"/>); a source never holds a secret.
 /// </summary>
 [Operation("sources.update", Scope = "admin:sources", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
-public sealed class UpdateSource(ISourceStore sources, ISourceScopeRules scopes, IAuditLogger audit, IOperationAuthorizer authorizer)
+public sealed class UpdateSource(
+    ISourceStore sources, IConnectionStore connections, ISourceScopeRules scopes, IAuditLogger audit, IOperationAuthorizer authorizer)
 {
     public async Task<Attempt<Source, SourceWriteStatus>> RunAsync(OperationContext context, Guid sourceId, UpdateSourceRequest request, CancellationToken ct = default)
     {
@@ -50,6 +51,31 @@ public sealed class UpdateSource(ISourceStore sources, ISourceScopeRules scopes,
                 return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, "Source name is required", "name");
             if (name.Length > 128)
                 return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, "Source name must be 1-128 characters.", "name");
+        }
+
+        // A typed scope becomes the stored JSON, over the keys its kind models; the rest are kept.
+        // From then on it is checked like a scopeJson would be.
+        if (request.Scope is { } typed)
+        {
+            if (!string.IsNullOrWhiteSpace(request.ScopeJson))
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, SourceScopeRequests.BothGiven, "scope");
+            if (await sources.GetAsync(sourceId, ct) is not { } existing)
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.NotFound, $"Source {sourceId} not found");
+
+            ConnectionProvider? provider = existing.ConnectionId is Guid connectionId
+                ? (await connections.GetAsync(connectionId, ct))?.Provider
+                : existing.Provider;
+            if (provider is null)
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid,
+                    "This source's connection no longer exists, so no scope kind can be checked against it.", "scope");
+            if (SourceScopeRequests.Mismatch(typed, provider.Value) is { } mismatch)
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid, mismatch, "scope");
+            // A source keeps its kind: a Jira source can't become a Confluence one, though both read through Atlassian.
+            if (SourceScopeCodec.Read(provider.Value, existing.ScopeJson) is { } stored && stored.GetType() != typed.GetType())
+                return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Invalid,
+                    SourceScopeRequests.KindChanged(stored, typed), "scope");
+
+            request = request with { ScopeJson = SourceScopeCodec.Write(typed, existing.ScopeJson), Scope = null };
         }
 
         if (!string.IsNullOrWhiteSpace(request.ScopeJson))

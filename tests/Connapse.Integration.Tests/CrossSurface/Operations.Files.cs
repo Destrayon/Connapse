@@ -44,12 +44,14 @@ public static partial class Operations
                 page.WaitForAssertion(() => page.FindAll("select.form-select optgroup option").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 if (!page.FindAll("select.form-select option").Any(o => o.GetAttribute("value") == Target(c, k)))
                     return "error:not_found";
-                var select = page.FindAll("select.form-select").First();
-                select.Change(Target(c, k));
+                // Each element is found and changed on the renderer's thread: the page may still be rendering
+                // the rest of its scope list, and a render between finding and changing drops the handler.
+                await page.InvokeAsync(() => page.FindAll("select.form-select").First().Change(Target(c, k)));
                 // The same mode REST and MCP are asked for (the page defaults to Hybrid), chosen before
                 // the query so the re-render it causes can't drop what was typed.
-                page.FindAll("select.form-select").Single(sel => sel.QuerySelector("option[value='Keyword']") is not null).Change("Keyword");
-                page.Find("input[placeholder='Enter your search query...']").Input(k == Case.Invalid ? "" : Query);
+                await page.InvokeAsync(() => page.FindAll("select.form-select")
+                    .Single(sel => sel.QuerySelector("option[value='Keyword']") is not null).Change("Keyword"));
+                await page.InvokeAsync(() => page.Find("input[placeholder='Enter your search query...']").Input(k == Case.Invalid ? "" : Query));
                 // The button enables once the page has the scope and a query; one that stays disabled refuses the input.
                 try
                 {

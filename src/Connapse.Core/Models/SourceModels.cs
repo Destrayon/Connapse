@@ -95,12 +95,13 @@ public record UpdateSourceRequest(
     string? ScopeJson = null,
     int? SyncIntervalSeconds = null,
     bool? Enabled = null,
-    string? Secret = null)
+    string? Secret = null,
+    SourceScope? Scope = null)
 {
     // The generated ToString would print the token into any log line or message it reached.
     protected virtual bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Name = {Name}, Description = {Description}, ScopeJson = {ScopeJson}, ")
+        builder.Append($"Name = {Name}, Description = {Description}, ScopeJson = {ScopeJson}, Scope = {Scope}, ")
             .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Enabled = {Enabled}, Secret = {(Secret is null ? "null" : "***")}");
         return true;
     }

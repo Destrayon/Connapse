@@ -138,8 +138,7 @@ public sealed record ConfluenceSourceSettings(
     public const string Kind = "confluence-space";
 
     internal static bool IsConfluence(JsonObject scope) =>
-        scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k)
-        && string.Equals(k, Kind, StringComparison.OrdinalIgnoreCase);
+        SourceScopeCodec.AtlassianKindOf(scope) == AtlassianScopeKind.ConfluenceSpace;
 
     /// <summary>The settings, or null when <paramref name="scope"/> is not a Confluence space's.</summary>
     internal static ConfluenceSourceSettings? From(JsonObject? scope)
@@ -185,7 +184,7 @@ public sealed record JiraSourceSettings(
     string? ProjectId, string? ProjectKey, string? ProjectName, bool IncludeAttachments, int MaxAttachmentMb)
 {
     internal static bool IsJira(JsonObject scope) =>
-        scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k) && AtlassianSourceScope.IsJiraKind(k);
+        SourceScopeCodec.AtlassianKindOf(scope) == AtlassianScopeKind.JiraProject;
 
     /// <summary>The settings, or null when <paramref name="scope"/> is not a Jira project's.</summary>
     internal static JiraSourceSettings? From(JsonObject? scope)
