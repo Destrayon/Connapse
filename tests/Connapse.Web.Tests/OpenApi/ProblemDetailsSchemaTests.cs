@@ -25,7 +25,9 @@ public class ProblemDetailsSchemaTests
 
         foreach (string name in new[] { "error", "message", "field", "traceId" })
             properties.TryGetProperty(name, out JsonElement member).Should().BeTrue($"API errors carry \"{name}\"");
-        properties.GetProperty("errors").GetProperty("type").ToString().Should().Contain("array");
+        // A handler's list of reasons, or request validation's messages per field.
+        properties.GetProperty("errors").GetProperty("anyOf").EnumerateArray()
+            .Select(shape => shape.GetProperty("type").ToString()).Should().BeEquivalentTo(["array", "object"]);
     }
 
     [Fact]

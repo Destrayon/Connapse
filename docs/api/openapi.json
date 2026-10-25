@@ -7143,6 +7143,9 @@
         }
       },
       "ProblemDetails": {
+        "required": [
+          "error"
+        ],
         "type": "object",
         "properties": {
           "type": {
@@ -7177,6 +7180,42 @@
               "null",
               "string"
             ]
+          },
+          "error": {
+            "type": "string",
+            "description": "A machine-readable code, or the error's text when there is no code."
+          },
+          "message": {
+            "type": "string",
+            "description": "The human-readable text, when error is a code."
+          },
+          "field": {
+            "type": "string",
+            "description": "The request member at fault, when there is one."
+          },
+          "errors": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            ],
+            "description": "Every reason, when a request failed for several: a list, or each request field's messages."
+          },
+          "traceId": {
+            "type": "string",
+            "description": "The request's trace, to find it in the server's log."
           }
         }
       },
