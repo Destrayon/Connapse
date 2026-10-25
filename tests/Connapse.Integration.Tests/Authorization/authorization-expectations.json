@@ -580,6 +580,11 @@
       "risk": "write",
       "scope": null
     },
+    "POST /api/sources/{sourceId:guid}/search": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "POST /api/sources/{sourceId:guid}/sync": {
       "requires": "admin",
       "risk": "write",

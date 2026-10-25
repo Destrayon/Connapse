@@ -14,9 +14,7 @@ public static class SearchEndpoints
     public static IEndpointRouteBuilder MapSearchEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/containers/{containerId:guid}/search").WithTags("Search")
-            .RequireAuthorization("RequireViewer")
-            .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesProblem(StatusCodes.Status403Forbidden);
+            .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/search - Simple search with query parameters
         group.MapGet("/", async (
@@ -39,6 +37,8 @@ public static class SearchEndpoints
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("search.containerByQuery")
         .WithDescription("Search within a container using query string parameters");
@@ -56,6 +56,8 @@ public static class SearchEndpoints
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("search.container")
         .WithDescription("Search within a container with advanced filters and options");
@@ -95,10 +97,10 @@ public static class SearchEndpoints
         })
         .WithTags("Search")
         .RequireAuthorization("RequireViewer")
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden)
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("search.source")
         .WithDescription("Search a source. Every hit is checked for the caller, as a container search's are; a source the caller may not know exists reads as not found.");

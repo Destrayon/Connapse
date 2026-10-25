@@ -374,6 +374,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var accessor = sp.GetRequiredService<IHttpContextAccessor>();
         accessor.HttpContext = new DefaultHttpContext
         {
+            // A Viewer, as any signed-in reader is: the search operation requires knowledge:read (#916).
             User = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, "Viewer")], "test")),
         };
@@ -388,7 +389,8 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
     }
 
     private static Task<string> McpSearchAsync(IServiceProvider sp, string scope) =>
-        McpTools.SearchKnowledge(sp, Term, scope, mode: "Keyword", topK: 20);
+        McpTools.SearchKnowledge(sp.GetRequiredService<Connapse.Application.Search.SearchKnowledge>(),
+            sp.GetRequiredService<IHttpContextAccessor>(), Term, scope, mode: "Keyword", topK: 20);
 
     [Fact]
     public async Task McpSearch_ConfluenceSourceById_LinkedAllowedNonAdmin_SeesPermittedPage()

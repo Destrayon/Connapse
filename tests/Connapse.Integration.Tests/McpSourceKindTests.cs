@@ -112,12 +112,26 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         // Keyword mode deliberately: the default Hybrid path embeds the query, which would
         // make this a test of whether Ollama happens to be running rather than of whether a
         // source id resolves.
-        string output = await McpTools.SearchKnowledge(
-            scope.ServiceProvider, "anything", source.Id.ToString(), mode: "Keyword");
+        // As an administrator: the search operation decides who may search (#916).
+        var accessor = scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "Admin")], "test")),
+        };
+        string output;
+        try
+        {
+            output = await McpTools.SearchKnowledge(scope.ServiceProvider.GetRequiredService<Connapse.Application.Search.SearchKnowledge>(),
+                accessor, "anything", source.Id.ToString(), mode: "Keyword");
+        }
+        finally
+        {
+            accessor.HttpContext = null;
+        }
 
         // The corpus is empty, so this asserts the scope resolved rather than that results
         // came back — "not found" would mean the resolver rejected the source outright.
-        output.Should().NotContain("not found");
+        output.Should().NotContain("not found").And.NotStartWith("Error");
     }
 
     // ── Not enumerable ────────────────────────────────────────────────────

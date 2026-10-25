@@ -125,7 +125,8 @@ public class McpTools
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again.")]
     public static async Task<string> SearchKnowledge(
-        IServiceProvider services,
+        Connapse.Application.Search.SearchKnowledge search,
+        IHttpContextAccessor httpContextAccessor,
         [Description("The search query text")] string query,
         [Description("Container or source ID or name to search within")] string containerId,
         [Description("Search mode: Semantic (vector), Keyword (full-text), or Hybrid (both). Default: Hybrid")] string? mode = null,
@@ -136,15 +137,14 @@ public class McpTools
     {
         var parsedMode = Enum.TryParse<SearchMode>(mode, ignoreCase: true, out var m) ? m : SearchMode.Hybrid;
 
-        // Through IHttpContextAccessor because an MCP tool is handed only an IServiceProvider.
-        // The accessor is registered for this: without it these tools are the one surface that
-        // cannot name its caller, and a permission filter is only as good as its weakest entry
-        // point.
-        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User ?? new ClaimsPrincipal();
+        // Through IHttpContextAccessor, which is registered for this: without it these tools are the
+        // one surface that cannot name its caller, and a permission filter is only as good as its
+        // weakest entry point. No request means no caller, whom the operation refuses.
+        var caller = httpContextAccessor.HttpContext?.User ?? new ClaimsPrincipal();
 
         // The same operation REST and the page search through: it accepts a container or a source by
         // id or name, and decides what the caller may search.
-        var searched = await services.GetRequiredService<Connapse.Application.Search.SearchKnowledge>().RunAsync(
+        var searched = await search.RunAsync(
             new OperationContext(caller, OperationSurface.Mcp), new SearchScope(containerId),
             new SearchRequest(query, parsedMode, topK, minScore, path), ct);
         if (!searched.Succeeded)
