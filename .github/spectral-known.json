@@ -108,5 +108,9 @@
   "connapse-operation-id-feature-verb paths./oauth/token.post": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-problem-details-on-errors paths./api/v1/identity/manage/2fa.post.responses.404": "The error response is declared without its application/problem+json body.",
   "connapse-problem-details-on-errors paths./api/v1/identity/manage/info.get.responses.404": "The error response is declared without its application/problem+json body.",
-  "connapse-problem-details-on-errors paths./api/v1/identity/manage/info.post.responses.404": "The error response is declared without its application/problem+json body."
+  "connapse-problem-details-on-errors paths./api/v1/identity/manage/info.post.responses.404": "The error response is declared without its application/problem+json body.",
+  "connapse-problem-details-on-errors paths./oauth/register.post.responses.400.content": "An OAuth error: RFC 6749 §5.2 defines it as application/json with error and error_description, not a problem.",
+  "connapse-problem-details-on-errors paths./oauth/register.post.responses.429.content": "An OAuth error: RFC 6749 §5.2 defines it as application/json with error and error_description, not a problem.",
+  "connapse-problem-details-on-errors paths./oauth/token.post.responses.400.content": "An OAuth error: RFC 6749 §5.2 defines it as application/json with error and error_description, not a problem.",
+  "connapse-problem-details-on-errors paths./oauth/token.post.responses.429.content": "An OAuth error: RFC 6749 §5.2 defines it as application/json with error and error_description, not a problem."
 }

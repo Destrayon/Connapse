@@ -460,17 +460,17 @@ app.MapRazorComponents<App>()
 
 // Health check — returns 200 when the app is fully initialized.
 // Used by integration tests to replace Task.Delay(2000) startup waits.
-app.MapGet("/health", () => Results.Ok());
+app.MapGet("/health", () => Results.Ok()).Produces(StatusCodes.Status200OK);
 
 // Server info — lets CLI detect whether it's talking to Cloud or self-hosted
-app.MapGet("/api/v1/info", () => Results.Json(new
-{
-    edition = "self-hosted",
-    version = typeof(Program).Assembly
+app.MapGet("/api/v1/info", () => Results.Json(new Connapse.Web.Endpoints.ServerInfo(
+    "self-hosted",
+    typeof(Program).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
         ?.InformationalVersion ?? "0.0.0",
-    features = new[] { "mcp", "connectors", "agents" },
-})).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
+    ["mcp", "connectors", "agents"])))
+    .AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.ApiPolicy)
+    .Produces<Connapse.Web.Endpoints.ServerInfo>();
 
 // Map API endpoints — antiforgery is disabled for all API routes because they
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.

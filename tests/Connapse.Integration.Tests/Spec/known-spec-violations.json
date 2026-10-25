@@ -1,7 +1,6 @@
 {
   "GET /api/v1/identity/manage/info 204: status not in the spec": "The spec documents only the endpoint's success response; this status isn't declared on it.",
   "GET /api/v1/identity/manage/info 401: status not in the spec": "The spec documents only the endpoint's success response; this status isn't declared on it.",
-  "GET /api/v1/info 200: body not described": "The endpoint returns an untyped body, so the spec has no schema to check it against.",
   "POST /api/v1/identity/manage/2fa 204: status not in the spec": "The spec documents only the endpoint's success response; this status isn't declared on it.",
   "POST /api/v1/identity/manage/2fa 401: status not in the spec": "The spec documents only the endpoint's success response; this status isn't declared on it.",
   "POST /api/v1/identity/manage/info 204: status not in the spec": "The spec documents only the endpoint's success response; this status isn't declared on it.",

@@ -26,47 +26,44 @@ public static class OAuthEndpoints
         // doesn't match the URL they are trying to reach, which is why the
         // bare endpoint alone is not sufficient for multi-path deployments.
         app.MapGet("/.well-known/oauth-protected-resource", (HttpContext ctx) =>
-            BuildProtectedResourceMetadata(ctx, resourcePath: null)).AllowAnonymous();
+            BuildProtectedResourceMetadata(ctx, resourcePath: null)).AllowAnonymous()
+            .Produces<ProtectedResourceMetadata>();
 
         app.MapGet("/.well-known/oauth-protected-resource/{**resourcePath}", (HttpContext ctx, string resourcePath) =>
-            BuildProtectedResourceMetadata(ctx, resourcePath)).AllowAnonymous();
+            BuildProtectedResourceMetadata(ctx, resourcePath)).AllowAnonymous()
+            .Produces<ProtectedResourceMetadata>();
 
         app.MapGet("/.well-known/oauth-authorization-server", (HttpContext ctx) =>
         {
             var baseUrl = GetBaseUrl(ctx);
-            return Results.Json(new
-            {
-                issuer = baseUrl,
-                authorization_endpoint = $"{baseUrl}/oauth/authorize",
-                token_endpoint = $"{baseUrl}/oauth/token",
-                registration_endpoint = $"{baseUrl}/oauth/register",
-                scopes_supported = new[] { "knowledge:read", "knowledge:write" },
-                response_types_supported = new[] { "code" },
-                grant_types_supported = new[] { "authorization_code", "refresh_token" },
-                code_challenge_methods_supported = new[] { "S256" },
-                token_endpoint_auth_methods_supported = new[] { "none", "client_secret_post" },
-                client_id_metadata_document_supported = true,
-            });
-        }).AllowAnonymous();
+            return Results.Json(new AuthorizationServerMetadata(
+                Issuer: baseUrl,
+                AuthorizationEndpoint: $"{baseUrl}/oauth/authorize",
+                TokenEndpoint: $"{baseUrl}/oauth/token",
+                RegistrationEndpoint: $"{baseUrl}/oauth/register",
+                ScopesSupported: ["knowledge:read", "knowledge:write"],
+                ResponseTypesSupported: ["code"],
+                GrantTypesSupported: ["authorization_code", "refresh_token"],
+                CodeChallengeMethodsSupported: ["S256"],
+                TokenEndpointAuthMethodsSupported: ["none", "client_secret_post"],
+                ClientIdMetadataDocumentSupported: true));
+        }).AllowAnonymous()
+        .Produces<AuthorizationServerMetadata>();
 
         // -- Static CLI Metadata Document --
 
         app.MapGet("/oauth/clients/cli.json", (HttpContext ctx) =>
         {
             var baseUrl = GetBaseUrl(ctx);
-            return Results.Json(new
-            {
-                client_id = $"{baseUrl}/oauth/clients/cli.json",
-                client_name = "Connapse CLI",
-                redirect_uris = new[]
-                {
-                    "http://127.0.0.1/callback",
-                },
-                grant_types = new[] { "authorization_code", "refresh_token" },
-                response_types = new[] { "code" },
-                token_endpoint_auth_method = "none",
-            });
-        }).AllowAnonymous();
+            return Results.Json(new ClientMetadataDocument(
+                ClientId: $"{baseUrl}/oauth/clients/cli.json",
+                ClientName: "Connapse CLI",
+                RedirectUris: ["http://127.0.0.1/callback"],
+                GrantTypes: ["authorization_code", "refresh_token"],
+                ResponseTypes: ["code"],
+                TokenEndpointAuthMethod: "none"));
+        }).AllowAnonymous()
+        .Produces<ClientMetadataDocument>();
 
         // -- Token Endpoint --
 
@@ -87,13 +84,16 @@ public static class OAuthEndpoints
                     ctx, form, authCodeService, tokenService, userManager, dbContext, ct),
                 "refresh_token" => await HandleRefreshTokenGrant(
                     ctx, form, tokenService, dbContext, ct),
-                _ => Results.Json(new { error = "unsupported_grant_type" }, statusCode: 400),
+                _ => Results.Json(new OAuthError("unsupported_grant_type"), statusCode: 400),
             };
         })
         .AllowAnonymous()
         .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
         .AddEndpointFilter(RequireFormContentType)
-        .DisableAntiforgery();
+        .DisableAntiforgery()
+        .Produces<OAuthTokenResponse>()
+        .Produces<OAuthError>(StatusCodes.Status400BadRequest)
+        .Produces<OAuthError>(StatusCodes.Status429TooManyRequests);
 
         // -- Dynamic Client Registration --
 
@@ -112,24 +112,25 @@ public static class OAuthEndpoints
                     ctx.Connection.RemoteIpAddress?.ToString(),
                     ct);
 
-                return Results.Json(new
-                {
-                    client_id = result.ClientId,
-                    client_name = result.ClientName,
-                    redirect_uris = result.RedirectUris,
-                    grant_types = new[] { "authorization_code", "refresh_token" },
-                    application_type = result.ApplicationType,
-                    token_endpoint_auth_method = "none",
-                }, statusCode: 201);
+                return Results.Json(new ClientRegistrationResponse(
+                    ClientId: result.ClientId,
+                    ClientName: result.ClientName,
+                    RedirectUris: result.RedirectUris,
+                    GrantTypes: ["authorization_code", "refresh_token"],
+                    ApplicationType: result.ApplicationType,
+                    TokenEndpointAuthMethod: "none"), statusCode: 201);
             }
             catch (ArgumentException ex)
             {
-                return Results.Json(new { error = "invalid_client_metadata", error_description = ex.Message }, statusCode: 400);
+                return Results.Json(new OAuthError("invalid_client_metadata", ex.Message), statusCode: 400);
             }
         })
         .AllowAnonymous()
         .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
-        .DisableAntiforgery();
+        .DisableAntiforgery()
+        .Produces<ClientRegistrationResponse>(StatusCodes.Status201Created)
+        .Produces<OAuthError>(StatusCodes.Status400BadRequest)
+        .Produces<OAuthError>(StatusCodes.Status429TooManyRequests);
 
         return app;
     }
@@ -152,12 +153,12 @@ public static class OAuthEndpoints
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(redirectUri) ||
             string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(codeVerifier))
         {
-            return Results.Json(new { error = "invalid_request" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_request"), statusCode: 400);
         }
 
         var exchangeResult = await authCodeService.ExchangeAsync(code, codeVerifier, redirectUri, clientId, ct);
         if (exchangeResult is null)
-            return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
 
         // RFC 8707 §2 / MCP §Token Audience Binding: if the client included a
         // `resource` parameter at the token endpoint, it MUST match the value
@@ -167,7 +168,7 @@ public static class OAuthEndpoints
         if (!string.IsNullOrWhiteSpace(resourceParam) &&
             !string.Equals(resourceParam, exchangeResult.Resource, StringComparison.Ordinal))
         {
-            return Results.Json(new { error = "invalid_target" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_target"), statusCode: 400);
         }
 
         // Bind the access token's `aud` claim to the resource the client asked
@@ -185,7 +186,7 @@ public static class OAuthEndpoints
 
         var user = await userManager.FindByIdAsync(exchangeResult.UserId.ToString());
         if (user is null)
-            return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
 
         var roles = await userManager.GetRolesAsync(user);
         var claims = BuildClaims(user, roles, exchangeResult.Scope, clientId);
@@ -203,14 +204,12 @@ public static class OAuthEndpoints
             await dbContext.SaveChangesAsync(ct);
         }
 
-        return Results.Json(new
-        {
-            access_token = tokenResponse.AccessToken,
-            token_type = "bearer",
-            expires_in = (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
-            refresh_token = tokenResponse.RefreshToken,
-            scope = exchangeResult.Scope,
-        });
+        return Results.Json(new OAuthTokenResponse(
+            tokenResponse.AccessToken,
+            "bearer",
+            (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
+            tokenResponse.RefreshToken,
+            exchangeResult.Scope));
     }
 
     private static async Task<IResult> HandleRefreshTokenGrant(
@@ -224,7 +223,7 @@ public static class OAuthEndpoints
         var clientId = form["client_id"].ToString();
         var resourceParam = form["resource"].ToString();
         if (string.IsNullOrEmpty(refreshToken))
-            return Results.Json(new { error = "invalid_request" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_request"), statusCode: 400);
 
         // Look up the old refresh token to validate client_id/resource and propagate them
         var oldTokenHash = ComputeSha256Hex(refreshToken);
@@ -233,7 +232,7 @@ public static class OAuthEndpoints
         if (oldRefreshEntity?.ClientId is not null &&
             !string.Equals(oldRefreshEntity.ClientId, clientId, StringComparison.Ordinal))
         {
-            return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
         }
 
         // RFC 8707: an incoming `resource` at refresh time must match what the
@@ -246,7 +245,7 @@ public static class OAuthEndpoints
         if (!string.IsNullOrWhiteSpace(resourceParam) &&
             !string.Equals(resourceParam, oldRefreshEntity?.Resource, StringComparison.Ordinal))
         {
-            return Results.Json(new { error = "invalid_target" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_target"), statusCode: 400);
         }
 
         // Bind the refreshed access token's `iss` to the current request's
@@ -256,7 +255,7 @@ public static class OAuthEndpoints
 
         var tokenResponse = await tokenService.RefreshTokenAsync(refreshToken, issuer, ct);
         if (tokenResponse is null)
-            return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
+            return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
 
         // Tag the new refresh token with client_id (Resource is already
         // carried forward inside JwtTokenService.RefreshTokenAsync).
@@ -272,13 +271,11 @@ public static class OAuthEndpoints
             }
         }
 
-        return Results.Json(new
-        {
-            access_token = tokenResponse.AccessToken,
-            token_type = "bearer",
-            expires_in = (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
-            refresh_token = tokenResponse.RefreshToken,
-        });
+        return Results.Json(new OAuthTokenResponse(
+            tokenResponse.AccessToken,
+            "bearer",
+            (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
+            tokenResponse.RefreshToken));
     }
 
     private static IEnumerable<Claim> BuildClaims(
@@ -315,13 +312,11 @@ public static class OAuthEndpoints
             : "/" + resourcePath.TrimStart('/');
         var resource = baseUrl + normalizedPath;
 
-        return Results.Json(new
-        {
+        return Results.Json(new ProtectedResourceMetadata(
             resource,
-            authorization_servers = new[] { baseUrl },
-            scopes_supported = new[] { "knowledge:read", "knowledge:write" },
-            bearer_methods_supported = new[] { "header" },
-        });
+            [baseUrl],
+            ["knowledge:read", "knowledge:write"],
+            ["header"]));
     }
 
     // OAuth 2.1 requires application/x-www-form-urlencoded (RFC 6749 §3.2)
@@ -330,11 +325,8 @@ public static class OAuthEndpoints
     {
         if (!context.HttpContext.Request.HasFormContentType)
         {
-            return Results.Json(new
-            {
-                error = "invalid_request",
-                error_description = "Content-Type must be application/x-www-form-urlencoded",
-            }, statusCode: 400);
+            return Results.Json(
+                new OAuthError("invalid_request", "Content-Type must be application/x-www-form-urlencoded"), statusCode: 400);
         }
 
         return await next(context);
@@ -352,3 +344,56 @@ public record ClientRegistrationRequest(
     [property: System.Text.Json.Serialization.JsonPropertyName("redirect_uris")] List<string> RedirectUris,
     [property: System.Text.Json.Serialization.JsonPropertyName("application_type")] string? ApplicationType,
     [property: System.Text.Json.Serialization.JsonPropertyName("grant_types")] List<string>? GrantTypes = null);
+
+// The OAuth documents and answers, under the member names their RFCs define.
+
+/// <summary>RFC 9728 protected resource metadata.</summary>
+public sealed record ProtectedResourceMetadata(
+    [property: System.Text.Json.Serialization.JsonPropertyName("resource")] string Resource,
+    [property: System.Text.Json.Serialization.JsonPropertyName("authorization_servers")] IReadOnlyList<string> AuthorizationServers,
+    [property: System.Text.Json.Serialization.JsonPropertyName("scopes_supported")] IReadOnlyList<string> ScopesSupported,
+    [property: System.Text.Json.Serialization.JsonPropertyName("bearer_methods_supported")] IReadOnlyList<string> BearerMethodsSupported);
+
+/// <summary>RFC 8414 authorization server metadata.</summary>
+public sealed record AuthorizationServerMetadata(
+    [property: System.Text.Json.Serialization.JsonPropertyName("issuer")] string Issuer,
+    [property: System.Text.Json.Serialization.JsonPropertyName("authorization_endpoint")] string AuthorizationEndpoint,
+    [property: System.Text.Json.Serialization.JsonPropertyName("token_endpoint")] string TokenEndpoint,
+    [property: System.Text.Json.Serialization.JsonPropertyName("registration_endpoint")] string RegistrationEndpoint,
+    [property: System.Text.Json.Serialization.JsonPropertyName("scopes_supported")] IReadOnlyList<string> ScopesSupported,
+    [property: System.Text.Json.Serialization.JsonPropertyName("response_types_supported")] IReadOnlyList<string> ResponseTypesSupported,
+    [property: System.Text.Json.Serialization.JsonPropertyName("grant_types_supported")] IReadOnlyList<string> GrantTypesSupported,
+    [property: System.Text.Json.Serialization.JsonPropertyName("code_challenge_methods_supported")] IReadOnlyList<string> CodeChallengeMethodsSupported,
+    [property: System.Text.Json.Serialization.JsonPropertyName("token_endpoint_auth_methods_supported")] IReadOnlyList<string> TokenEndpointAuthMethodsSupported,
+    [property: System.Text.Json.Serialization.JsonPropertyName("client_id_metadata_document_supported")] bool ClientIdMetadataDocumentSupported);
+
+/// <summary>A client ID metadata document, as the CLI's client ID points to.</summary>
+public sealed record ClientMetadataDocument(
+    [property: System.Text.Json.Serialization.JsonPropertyName("client_id")] string ClientId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("client_name")] string ClientName,
+    [property: System.Text.Json.Serialization.JsonPropertyName("redirect_uris")] IReadOnlyList<string> RedirectUris,
+    [property: System.Text.Json.Serialization.JsonPropertyName("grant_types")] IReadOnlyList<string> GrantTypes,
+    [property: System.Text.Json.Serialization.JsonPropertyName("response_types")] IReadOnlyList<string> ResponseTypes,
+    [property: System.Text.Json.Serialization.JsonPropertyName("token_endpoint_auth_method")] string TokenEndpointAuthMethod);
+
+/// <summary>An RFC 7591 registration's answer.</summary>
+public sealed record ClientRegistrationResponse(
+    [property: System.Text.Json.Serialization.JsonPropertyName("client_id")] string ClientId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("client_name")] string ClientName,
+    [property: System.Text.Json.Serialization.JsonPropertyName("redirect_uris")] IReadOnlyList<string> RedirectUris,
+    [property: System.Text.Json.Serialization.JsonPropertyName("grant_types")] IReadOnlyList<string> GrantTypes,
+    [property: System.Text.Json.Serialization.JsonPropertyName("application_type")] string ApplicationType,
+    [property: System.Text.Json.Serialization.JsonPropertyName("token_endpoint_auth_method")] string TokenEndpointAuthMethod);
+
+/// <summary>An RFC 6749 token answer. <c>scope</c> is on an authorization code grant's only.</summary>
+public sealed record OAuthTokenResponse(
+    [property: System.Text.Json.Serialization.JsonPropertyName("access_token")] string AccessToken,
+    [property: System.Text.Json.Serialization.JsonPropertyName("token_type")] string TokenType,
+    [property: System.Text.Json.Serialization.JsonPropertyName("expires_in")] int ExpiresIn,
+    [property: System.Text.Json.Serialization.JsonPropertyName("refresh_token")] string RefreshToken,
+    [property: System.Text.Json.Serialization.JsonPropertyName("scope"), System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Scope = null);
+
+/// <summary>An RFC 6749 error. The rate limiter answers outside /api with the same shape.</summary>
+public sealed record OAuthError(
+    [property: System.Text.Json.Serialization.JsonPropertyName("error")] string Error,
+    [property: System.Text.Json.Serialization.JsonPropertyName("error_description"), System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? ErrorDescription = null);

@@ -1,12 +1,3 @@
 [
-  "Endpoints/AuthEndpoints.cs: GET /api/v1/auth/users: 1",
-  "Endpoints/OAuthEndpoints.cs: BuildProtectedResourceMetadata: 1",
-  "Endpoints/OAuthEndpoints.cs: GET /.well-known/oauth-authorization-server: 1",
-  "Endpoints/OAuthEndpoints.cs: GET /oauth/clients/cli.json: 1",
-  "Endpoints/OAuthEndpoints.cs: HandleAuthorizationCodeGrant: 5",
-  "Endpoints/OAuthEndpoints.cs: HandleRefreshTokenGrant: 5",
-  "Endpoints/OAuthEndpoints.cs: POST /oauth/register: 2",
-  "Endpoints/OAuthEndpoints.cs: POST /oauth/token: 1",
-  "Endpoints/OAuthEndpoints.cs: RequireFormContentType: 1",
-  "Program.cs: GET /api/v1/info: 1"
+  "Endpoints/AuthEndpoints.cs: GET /api/v1/auth/users: 1"
 ]

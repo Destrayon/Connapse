@@ -32,3 +32,4 @@ GET /api/v1/auth/cloud/github/connect removed the success response with the stat
 DELETE /api/v1/auth/cloud/{provider} removed the success response with the status `200`
 DELETE /api/v1/auth/custom/{providerId} removed the success response with the status `200`
 GET /api/v1/auth/custom/{providerId}/return removed the success response with the status `200`
+POST /oauth/register removed the success response with the status `200`
