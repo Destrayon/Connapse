@@ -9699,9 +9699,43 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/SourceScope"
+                "$ref": "#/components/schemas/SourceScopeS3BucketScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeAzureBlobContainerScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeFilesystemFolderScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeSftpFolderScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeGitHubRepositoryScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeJiraProjectScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeConfluenceSpaceScope"
+              },
+              {
+                "$ref": "#/components/schemas/SourceScopeCustomSourceScope"
               }
-            ]
+            ],
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "s3": "#/components/schemas/SourceScopeS3BucketScope",
+                "azureBlob": "#/components/schemas/SourceScopeAzureBlobContainerScope",
+                "filesystem": "#/components/schemas/SourceScopeFilesystemFolderScope",
+                "sftp": "#/components/schemas/SourceScopeSftpFolderScope",
+                "github": "#/components/schemas/SourceScopeGitHubRepositoryScope",
+                "jira": "#/components/schemas/SourceScopeJiraProjectScope",
+                "confluence": "#/components/schemas/SourceScopeConfluenceSpaceScope",
+                "custom": "#/components/schemas/SourceScopeCustomSourceScope"
+              }
+            }
           }
         }
       },
@@ -11840,32 +11874,21 @@
           "type"
         ],
         "type": "object",
-        "anyOf": [
-          {
-            "$ref": "#/components/schemas/SourceScopeS3BucketScope"
-          },
-          {
-            "$ref": "#/components/schemas/SourceScopeAzureBlobContainerScope"
-          },
-          {
-            "$ref": "#/components/schemas/SourceScopeFilesystemFolderScope"
-          },
-          {
-            "$ref": "#/components/schemas/SourceScopeSftpFolderScope"
-          },
-          {
-            "$ref": "#/components/schemas/SourceScopeGitHubRepositoryScope"
-          },
-          {
-            "$ref": "#/components/schemas/SourceScopeJiraProjectScope"
-          },
-          {
-            "$ref": "#/components/schemas/SourceScopeConfluenceSpaceScope"
-          },
-          {
-            "$ref": "#/components/schemas/SourceScopeCustomSourceScope"
+        "properties": {
+          "type": {
+            "enum": [
+              "s3",
+              "azureBlob",
+              "filesystem",
+              "sftp",
+              "github",
+              "jira",
+              "confluence",
+              "custom"
+            ],
+            "type": "string"
           }
-        ],
+        },
         "discriminator": {
           "propertyName": "type",
           "mapping": {
@@ -11881,301 +11904,357 @@
         }
       },
       "SourceScopeAzureBlobContainerScope": {
-        "required": [
-          "containerName"
-        ],
-        "properties": {
-          "type": {
-            "enum": [
-              "azureBlob"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
+          },
+          {
+            "required": [
+              "containerName"
             ],
-            "type": "string"
-          },
-          "containerName": {
-            "type": "string"
-          },
-          "prefix": {
-            "type": [
-              "null",
-              "string"
-            ]
+            "properties": {
+              "type": {
+                "enum": [
+                  "azureBlob"
+                ],
+                "type": "string"
+              },
+              "containerName": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            }
           }
-        }
+        ]
       },
       "SourceScopeConfluenceSpaceScope": {
-        "required": [
-          "spaceId"
-        ],
-        "properties": {
-          "type": {
-            "enum": [
-              "confluence"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
+          },
+          {
+            "required": [
+              "spaceId"
             ],
-            "type": "string"
-          },
-          "spaceId": {
-            "type": "string"
-          },
-          "spaceKey": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "spaceName": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "includeAttachments": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "maxAttachmentMb": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
+            "properties": {
+              "type": {
+                "enum": [
+                  "confluence"
+                ],
+                "type": "string"
+              },
+              "spaceId": {
+                "type": "string"
+              },
+              "spaceKey": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "spaceName": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "includeAttachments": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "maxAttachmentMb": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              }
+            }
           }
-        }
+        ]
       },
       "SourceScopeCustomSourceScope": {
-        "required": [
-          "baseUrl",
-          "scopeId"
-        ],
-        "properties": {
-          "type": {
-            "enum": [
-              "custom"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
+          },
+          {
+            "required": [
+              "baseUrl",
+              "scopeId"
             ],
-            "type": "string"
-          },
-          "baseUrl": {
-            "type": "string"
-          },
-          "scopeId": {
-            "type": "string"
+            "properties": {
+              "type": {
+                "enum": [
+                  "custom"
+                ],
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string"
+              },
+              "scopeId": {
+                "type": "string"
+              }
+            }
           }
-        }
+        ]
       },
       "SourceScopeFilesystemFolderScope": {
-        "properties": {
-          "type": {
-            "enum": [
-              "filesystem"
-            ],
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
           },
-          "subPath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "includePatterns": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "excludePatterns": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "filesystem"
+                ],
+                "type": "string"
+              },
+              "subPath": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "includePatterns": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "excludePatterns": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
-        }
+        ]
       },
       "SourceScopeGitHubRepositoryScope": {
-        "required": [
-          "owner",
-          "repo",
-          "kind"
-        ],
-        "properties": {
-          "type": {
-            "enum": [
-              "github"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
+          },
+          {
+            "required": [
+              "owner",
+              "repo",
+              "kind"
             ],
-            "type": "string"
-          },
-          "owner": {
-            "type": "string"
-          },
-          "repo": {
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/GitHubContentKind"
-          },
-          "repoId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "private": {
-            "type": "boolean",
-            "default": false
-          },
-          "includePatterns": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "excludePatterns": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "includeComments": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "includeCommentAuthors": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "excludeCommentAuthors": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
+            "properties": {
+              "type": {
+                "enum": [
+                  "github"
+                ],
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "repo": {
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/GitHubContentKind"
+              },
+              "repoId": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int64"
+              },
+              "private": {
+                "type": "boolean",
+                "default": false
+              },
+              "includePatterns": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "excludePatterns": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "includeComments": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "includeCommentAuthors": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "excludeCommentAuthors": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
-        }
+        ]
       },
       "SourceScopeJiraProjectScope": {
-        "required": [
-          "projectId"
-        ],
-        "properties": {
-          "type": {
-            "enum": [
-              "jira"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
+          },
+          {
+            "required": [
+              "projectId"
             ],
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "projectKey": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "projectName": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "includeAttachments": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "maxAttachmentMb": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
+            "properties": {
+              "type": {
+                "enum": [
+                  "jira"
+                ],
+                "type": "string"
+              },
+              "projectId": {
+                "type": "string"
+              },
+              "projectKey": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "projectName": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "includeAttachments": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "maxAttachmentMb": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              }
+            }
           }
-        }
+        ]
       },
       "SourceScopeS3BucketScope": {
-        "required": [
-          "bucketName"
-        ],
-        "properties": {
-          "type": {
-            "enum": [
-              "s3"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
+          },
+          {
+            "required": [
+              "bucketName"
             ],
-            "type": "string"
-          },
-          "bucketName": {
-            "type": "string"
-          },
-          "prefix": {
-            "type": [
-              "null",
-              "string"
-            ]
+            "properties": {
+              "type": {
+                "enum": [
+                  "s3"
+                ],
+                "type": "string"
+              },
+              "bucketName": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            }
           }
-        }
+        ]
       },
       "SourceScopeSftpFolderScope": {
-        "properties": {
-          "type": {
-            "enum": [
-              "sftp"
-            ],
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SourceScope"
           },
-          "subPath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "includePatterns": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "excludePatterns": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "sftp"
+                ],
+                "type": "string"
+              },
+              "subPath": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "includePatterns": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "excludePatterns": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
-        }
+        ]
       },
       "SourceSyncResponse": {
         "required": [

@@ -88,6 +88,22 @@ internal sealed partial class CommittedSpec
         return "body doesn't match its schema";
     }
 
+    /// <summary>
+    /// Whether a JSON request body matches the schema the operation documents for it, with the schema's
+    /// errors when it doesn't. For proving what the spec accepts, not run against live traffic.
+    /// </summary>
+    public bool AcceptsRequest(string operationKey, string json, out string? errors)
+    {
+        var schemaNode = _operations[operationKey]["requestBody"]!["content"]!["application/json"]!["schema"]!;
+        var root = JsonNode.Parse(Rewrite(schemaNode.ToJsonString()))!.AsObject();
+        root["$defs"] = _definitions.DeepClone();
+        var result = JsonSchema.FromText(root.ToJsonString())
+            .Evaluate(JsonDocument.Parse(json).RootElement, new EvaluationOptions { OutputFormat = OutputFormat.List });
+        errors = result.IsValid ? null : string.Join("; ", (result.Details ?? []).Where(d => d.Errors is { Count: > 0 })
+            .Take(3).Select(d => $"{d.InstanceLocation}: {string.Join(", ", d.Errors!.Values)}"));
+        return result.IsValid;
+    }
+
     /// <summary>A route as the spec spells it: no constraints, defaults or catch-all marks, and no trailing slash.</summary>
     public static string Normalize(string route)
     {
