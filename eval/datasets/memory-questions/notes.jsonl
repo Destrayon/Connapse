@@ -1,0 +1,246 @@
+{"note": "ASH-2026-01-05", "code": "ASH", "date": "2026-01-05", "text": "- Kickoff for Ashgrove. Initial setup values:\n  - database: PostgreSQL 16\n  - deploy region: ca-central-1\n  - tech lead: Ilario Brandtmoss\n  - CI system: GitHub Actions\n  - cache: Memcached 1.6\n  - public API rate limit: 250 requests/minute\n  - alert channel: #ash-pager\n  - current release: v1.1.0"}
+{"note": "ASH-2026-01-31", "code": "ASH", "date": "2026-01-31", "text": "- Opened ASH-18: plan to raise the public API rate limit from 250 requests/minute to 1000 requests/minute, for latency to the main customer. Not done yet; limit is still 250 requests/minute."}
+{"note": "ASH-2026-02-03", "code": "ASH", "date": "2026-02-03", "text": "- Paired on the billing webhook retry logic (ASH-33). Routine."}
+{"note": "ASH-2026-02-05", "code": "ASH", "date": "2026-02-05", "text": "- Released v1.2.0 (ASH-17). Current release is now v1.2.0 (was v1.1.0)."}
+{"note": "ASH-2026-02-08", "code": "ASH", "date": "2026-02-08", "text": "- ASH-18 done: public API rate limit changed from 250 requests/minute to 1000 requests/minute (for latency to the main customer). Limit is now 1000 requests/minute."}
+{"note": "ASH-2026-02-13", "code": "ASH", "date": "2026-02-13", "text": "- Sprint planning (ASH-34): no scope changes."}
+{"note": "ASH-2026-02-28", "code": "ASH", "date": "2026-02-28", "text": "- ASH-19 done: database changed from PostgreSQL 16 to MariaDB 11 (for latency to the main customer). Database is now MariaDB 11."}
+{"note": "ASH-2026-03-06", "code": "ASH", "date": "2026-03-06", "text": "- Opened ASH-20: plan to lower the public API rate limit from 1000 requests/minute to 100 requests/minute, at the customer's request. Not done yet; limit is still 1000 requests/minute."}
+{"note": "ASH-2026-03-07", "code": "ASH", "date": "2026-03-07", "text": "- Opened ASH-21: plan to move the CI system from GitHub Actions to CircleCI, at the customer's request. Not done yet; CI is still GitHub Actions."}
+{"note": "ASH-2026-03-12", "code": "ASH", "date": "2026-03-12", "text": "- ASH-20 done: public API rate limit changed from 1000 requests/minute to 100 requests/minute (customer's request). Limit is now 100 requests/minute."}
+{"note": "ASH-2026-03-19", "code": "ASH", "date": "2026-03-19", "text": "- ASH-21 done: CI system changed from GitHub Actions to CircleCI (customer's request). CI is now CircleCI."}
+{"note": "ASH-2026-04-07", "code": "ASH", "date": "2026-04-07", "text": "- ASH-22 done: CI system changed from CircleCI to Buildkite, after the load test. CI is now Buildkite."}
+{"note": "ASH-2026-04-09", "code": "ASH", "date": "2026-04-09", "text": "- ASH-23 done: tech lead changed from Ilario Brandtmoss to Odessa Venn (customer's request). Tech lead is now Odessa Venn.\n- Investigated a memory spike in the worker; cause was a leaky cache key (ASH-35)."}
+{"note": "ASH-2026-04-11", "code": "ASH", "date": "2026-04-11", "text": "- ASH-24 done: alert channel changed from #ash-pager to #ash-alerts, to simplify on-call. Alert channel is now #ash-alerts."}
+{"note": "ASH-2026-04-14", "code": "ASH", "date": "2026-04-14", "text": "- Opened ASH-28: plan to move CI from Buildkite back to GitHub Actions, to match the platform team's standard. Not done yet; CI is still Buildkite."}
+{"note": "ASH-2026-04-17", "code": "ASH", "date": "2026-04-17", "text": "- Released v1.3.0 (ASH-25). Current release is now v1.3.0 (was v1.2.0)."}
+{"note": "ASH-2026-04-22", "code": "ASH", "date": "2026-04-22", "text": "- Fixed a flaky test in the export job (ASH-36). Routine."}
+{"note": "ASH-2026-04-24", "code": "ASH", "date": "2026-04-24", "text": "- ASH-26 done: database changed from MariaDB 11 to PostgreSQL 15, after the load test. Database is now PostgreSQL 15."}
+{"note": "ASH-2026-04-25", "code": "ASH", "date": "2026-04-25", "text": "- ASH-27 done: cache changed from Memcached 1.6 to Valkey 8 (for latency to the main customer). Cache is now Valkey 8.\n- Investigated a memory spike in the worker; leaky cache key (ASH-37)."}
+{"note": "ASH-2026-04-28", "code": "ASH", "date": "2026-04-28", "text": "- ASH-28 done: CI system changed from Buildkite to GitHub Actions, to match the platform team's standard. CI is now GitHub Actions."}
+{"note": "ASH-2026-05-01", "code": "ASH", "date": "2026-05-01", "text": "- ASH-29 done: deploy region changed from ca-central-1 to us-east-2, after an outage review. Region is now us-east-2."}
+{"note": "ASH-2026-05-27", "code": "ASH", "date": "2026-05-27", "text": "- Updated the onboarding docs for new contributors (ASH-38). Routine."}
+{"note": "ASH-2026-05-30", "code": "ASH", "date": "2026-05-30", "text": "- Opened ASH-31: plan to move the alert channel from #ash-alerts back to #ash-pager, after the load test. Not done yet; still #ash-alerts.\n- Opened ASH-32: plan to raise the public API rate limit from 100 requests/minute to 500 requests/minute, because the old one is end-of-life. Not done yet; still 100 requests/minute."}
+{"note": "ASH-2026-06-08", "code": "ASH", "date": "2026-06-08", "text": "- Released v2.0.0 (ASH-30). Current release is now v2.0.0 (was v1.3.0)."}
+{"note": "ASH-2026-06-11", "code": "ASH", "date": "2026-06-11", "text": "- ASH-31 done: alert channel changed from #ash-alerts to #ash-pager, after the load test. Alert channel is now #ash-pager."}
+{"note": "ASH-2026-06-12", "code": "ASH", "date": "2026-06-12", "text": "- ASH-32 done: public API rate limit changed from 100 requests/minute to 500 requests/minute (old one is end-of-life). Limit is now 500 requests/minute.\n- Fixed a flaky test in the export job (ASH-39)."}
+{"note": "ASH-2026-06-24", "code": "ASH", "date": "2026-06-24", "text": "- Triaged three bug reports from support (ASH-40). Routine."}
+{"note": "BRM-2026-01-05", "code": "BRM", "date": "2026-01-05", "text": "Bramblewood kickoff. Baseline setup:\n- Database: MySQL 8.0\n- Deploy region: ca-central-1\n- Tech lead: Caspian Oduya\n- CI: GitHub Actions\n- Cache: Redis 7\n- Public API rate limit: 1000 requests/minute\n- Alert channel: #brm-pager\n- Current release: v1.5.0"}
+{"note": "BRM-2026-01-16", "code": "BRM", "date": "2026-01-16", "text": "- BRM-4 done: alert channel changed from #brm-pager to #brm-oncall, at the customer's request.\n- Alert channel is now #brm-oncall."}
+{"note": "BRM-2026-01-26", "code": "BRM", "date": "2026-01-26", "text": "- BRM-15: profiled the search endpoint; nothing alarming found. No changes."}
+{"note": "BRM-2026-01-29", "code": "BRM", "date": "2026-01-29", "text": "- BRM-16: reviewed the security questionnaire answers. Routine, no changes noted."}
+{"note": "BRM-2026-02-03", "code": "BRM", "date": "2026-02-03", "text": "- BRM-5 done: cache changed from Redis 7 to Valkey 8, to simplify on-call.\n- Cache is now Valkey 8."}
+{"note": "BRM-2026-02-08", "code": "BRM", "date": "2026-02-08", "text": "- BRM-6 done: CI system changed from GitHub Actions to GitLab CI, because the old one is end-of-life.\n- CI is now GitLab CI."}
+{"note": "BRM-2026-02-10", "code": "BRM", "date": "2026-02-10", "text": "- BRM-17: cleaned up unused feature flags. Routine."}
+{"note": "BRM-2026-03-17", "code": "BRM", "date": "2026-03-17", "text": "- BRM-7 done: tech lead changed from Caspian Oduya to Ilario Brandtmoss, to cut costs.\n- Tech lead is now Ilario Brandtmoss."}
+{"note": "BRM-2026-03-22", "code": "BRM", "date": "2026-03-22", "text": "- BRM-8: released v1.6.0. Current release is now v1.6.0 (was v1.5.0).\n- BRM-18: reviewed the security questionnaire answers. Routine."}
+{"note": "BRM-2026-04-12", "code": "BRM", "date": "2026-04-12", "text": "- BRM-19: cleaned up unused feature flags. Routine."}
+{"note": "BRM-2026-04-13", "code": "BRM", "date": "2026-04-13", "text": "- Opened BRM-9 (planned, not done): move public API rate limit from 1000 requests/minute to 100 requests/minute, after an outage review.\n- Rate limit is still 1000 requests/minute until BRM-9 lands."}
+{"note": "BRM-2026-04-23", "code": "BRM", "date": "2026-04-23", "text": "- BRM-9 done: public API rate limit changed from 1000 requests/minute to 100 requests/minute, after an outage review.\n- Rate limit is now 100 requests/minute."}
+{"note": "BRM-2026-04-29", "code": "BRM", "date": "2026-04-29", "text": "- BRM-10: released v2.0.0. Current release is now v2.0.0 (was v1.6.0)."}
+{"note": "BRM-2026-05-24", "code": "BRM", "date": "2026-05-24", "text": "- BRM-20: investigated a memory spike in the worker; cause was a leaky cache key."}
+{"note": "BRM-2026-05-30", "code": "BRM", "date": "2026-05-30", "text": "- BRM-11 done: deploy region changed from ca-central-1 to us-east-2, to cut costs.\n- Deploy region is now us-east-2."}
+{"note": "BRM-2026-06-01", "code": "BRM", "date": "2026-06-01", "text": "- BRM-12 done: cache changed from Valkey 8 back to Redis 7, at the customer's request.\n- Cache is now Redis 7 again."}
+{"note": "BRM-2026-06-06", "code": "BRM", "date": "2026-06-06", "text": "- BRM-21: profiled the search endpoint; nothing alarming found. No changes."}
+{"note": "BRM-2026-06-13", "code": "BRM", "date": "2026-06-13", "text": "- BRM-22: wrote the runbook for restoring a backup."}
+{"note": "BRM-2026-06-21", "code": "BRM", "date": "2026-06-21", "text": "- BRM-13 done: public API rate limit changed from 100 requests/minute to 250 requests/minute, for latency to the main customer.\n- Rate limit is now 250 requests/minute."}
+{"note": "BRM-2026-06-24", "code": "BRM", "date": "2026-06-24", "text": "- BRM-14: released v2.1.0. Current release is now v2.1.0 (was v2.0.0)."}
+{"note": "EMB-2026-01-05", "code": "EMB", "date": "2026-01-05", "text": "- Emberline kickoff, initial setup:\n  - Database: MariaDB 11\n  - Deploy region: us-east-2\n  - Tech lead: Signe Morrow-Dale\n  - CI: GitLab CI\n  - Cache: none\n  - Public API rate limit: 1000 requests/minute\n  - Alert channel: #emb-oncall\n  - Current release: v1.7.0"}
+{"note": "EMB-2026-01-28", "code": "EMB", "date": "2026-01-28", "text": "- Planned, not done:\n  - EMB-21: move public API rate limit from 1000 requests/minute to 250 requests/minute, to match the platform team's standard.\n  - EMB-22: move database from MariaDB 11 to SQLite 3.45, to match the platform team's standard.\n- Current state is unchanged: still MariaDB 11 and 1000 requests/minute."}
+{"note": "EMB-2026-01-29", "code": "EMB", "date": "2026-01-29", "text": "- EMB-35: updated the onboarding docs for new contributors. Routine."}
+{"note": "EMB-2026-01-31", "code": "EMB", "date": "2026-01-31", "text": "- EMB-20 done: deploy region changed from us-east-2 to ca-central-1, at the customer's request.\n- Region is now ca-central-1."}
+{"note": "EMB-2026-02-02", "code": "EMB", "date": "2026-02-02", "text": "- EMB-36: profiled the search endpoint; nothing alarming. No changes."}
+{"note": "EMB-2026-02-09", "code": "EMB", "date": "2026-02-09", "text": "- EMB-21 done: public API rate limit changed from 1000 requests/minute to 250 requests/minute (platform team's standard).\n- Rate limit is now 250 requests/minute. EMB-22 (SQLite 3.45 move) still pending as far as I know."}
+{"note": "EMB-2026-02-11", "code": "EMB", "date": "2026-02-11", "text": "- EMB-22 done: database changed from MariaDB 11 to SQLite 3.45 (platform team's standard).\n- Database is now SQLite 3.45."}
+{"note": "EMB-2026-02-18", "code": "EMB", "date": "2026-02-18", "text": "- EMB-23 done: tech lead changed from Signe Morrow-Dale to Jonah Felgate, after an outage review.\n- Tech lead is now Jonah Felgate."}
+{"note": "EMB-2026-03-12", "code": "EMB", "date": "2026-03-12", "text": "- EMB-24: released v1.8.0 (previous was v1.7.0). Current release is v1.8.0."}
+{"note": "EMB-2026-03-20", "code": "EMB", "date": "2026-03-20", "text": "- EMB-25 done: database changed from SQLite 3.45 to MySQL 8.0, to cut costs.\n- Database is now MySQL 8.0."}
+{"note": "EMB-2026-04-02", "code": "EMB", "date": "2026-04-02", "text": "- EMB-37: investigated a memory spike in the worker; cause was a leaky cache key. No config changes mentioned."}
+{"note": "EMB-2026-04-15", "code": "EMB", "date": "2026-04-15", "text": "- EMB-38: wrote the runbook for restoring a backup. Routine."}
+{"note": "EMB-2026-04-17", "code": "EMB", "date": "2026-04-17", "text": "- EMB-26 done: alert channel changed from #emb-oncall to #emb-alerts, at the customer's request.\n- Alert channel is now #emb-alerts."}
+{"note": "EMB-2026-04-20", "code": "EMB", "date": "2026-04-20", "text": "- EMB-39: investigated another memory spike in the worker; again a leaky cache key (similar to EMB-37). No config changes."}
+{"note": "EMB-2026-04-21", "code": "EMB", "date": "2026-04-21", "text": "- EMB-27 done: public API rate limit changed from 250 requests/minute back to 1000 requests/minute, for latency to the main customer.\n- Rate limit is now 1000 requests/minute."}
+{"note": "EMB-2026-05-06", "code": "EMB", "date": "2026-05-06", "text": "- EMB-28 done: CI system changed from GitLab CI to Jenkins, to match the platform team's standard.\n- CI is now Jenkins."}
+{"note": "EMB-2026-05-07", "code": "EMB", "date": "2026-05-07", "text": "- EMB-29 done: public API rate limit changed from 1000 requests/minute to 500 requests/minute, at the customer's request.\n- Rate limit is now 500 requests/minute."}
+{"note": "EMB-2026-05-17", "code": "EMB", "date": "2026-05-17", "text": "- EMB-40: sprint planning, no scope changes."}
+{"note": "EMB-2026-05-22", "code": "EMB", "date": "2026-05-22", "text": "- EMB-30 done: tech lead changed from Jonah Felgate back to Signe Morrow-Dale (reason given: latency to the main customer).\n- Tech lead is now Signe Morrow-Dale."}
+{"note": "EMB-2026-06-01", "code": "EMB", "date": "2026-06-01", "text": "- EMB-31: released v2.0.0 (previous v1.8.0). Current release is v2.0.0."}
+{"note": "EMB-2026-06-02", "code": "EMB", "date": "2026-06-02", "text": "- EMB-41: investigated a memory spike in the worker; leaky cache key again (same pattern as EMB-37, EMB-39). No config changes."}
+{"note": "EMB-2026-06-04", "code": "EMB", "date": "2026-06-04", "text": "- EMB-32 done: database changed from MySQL 8.0 to CockroachDB 23.2, to match the platform team's standard.\n- Database is now CockroachDB 23.2."}
+{"note": "EMB-2026-06-07", "code": "EMB", "date": "2026-06-07", "text": "- Planned, not done: EMB-34, move tech lead from Signe Morrow-Dale to Haruki Belmonde after an outage review.\n- Tech lead is still Signe Morrow-Dale."}
+{"note": "EMB-2026-06-10", "code": "EMB", "date": "2026-06-10", "text": "- EMB-33 done: CI system changed from Jenkins back to GitLab CI, to match the platform team's standard.\n- CI is now GitLab CI."}
+{"note": "EMB-2026-06-21", "code": "EMB", "date": "2026-06-21", "text": "- EMB-42: sprint planning, no scope changes."}
+{"note": "EMB-2026-06-25", "code": "EMB", "date": "2026-06-25", "text": "- EMB-34 done: tech lead changed from Signe Morrow-Dale to Haruki Belmonde, after an outage review.\n- Tech lead is now Haruki Belmonde."}
+{"note": "HAL-2026-01-05", "code": "HAL", "date": "2026-01-05", "text": "- Kickoff for Halcyon. Initial setup:\n  - database: MariaDB 11\n  - deploy region: ca-central-1\n  - tech lead: Tamsin Quarrell\n  - CI: GitHub Actions\n  - cache: Memcached 1.6\n  - public API rate limit: 1000 requests/minute\n  - alert channel: #hal-oncall\n  - current release: v0.3.0"}
+{"note": "HAL-2026-01-08", "code": "HAL", "date": "2026-01-08", "text": "- Opened HAL-16: plan to move the alert channel from #hal-oncall to #hal-alerts after an outage review. Not done yet; alert channel is still #hal-oncall."}
+{"note": "HAL-2026-01-16", "code": "HAL", "date": "2026-01-16", "text": "- Triaged three bug reports from support (HAL-28). Routine."}
+{"note": "HAL-2026-01-17", "code": "HAL", "date": "2026-01-17", "text": "- HAL-16 done: alert channel changed from #hal-oncall to #hal-alerts after the outage review. Alert channel is now #hal-alerts."}
+{"note": "HAL-2026-01-21", "code": "HAL", "date": "2026-01-21", "text": "- Released v1.0.0 (HAL-17). Current release is now v1.0.0 (was v0.3.0)."}
+{"note": "HAL-2026-01-26", "code": "HAL", "date": "2026-01-26", "text": "- Profiled the search endpoint; nothing alarming (HAL-29). Routine."}
+{"note": "HAL-2026-01-31", "code": "HAL", "date": "2026-01-31", "text": "- Triaged three bug reports from support (HAL-30). Routine."}
+{"note": "HAL-2026-02-21", "code": "HAL", "date": "2026-02-21", "text": "- Released v1.1.0 (HAL-18). Current release is now v1.1.0 (was v1.0.0)."}
+{"note": "HAL-2026-02-25", "code": "HAL", "date": "2026-02-25", "text": "- Sprint planning: no scope changes (HAL-31). Routine."}
+{"note": "HAL-2026-03-21", "code": "HAL", "date": "2026-03-21", "text": "- Opened HAL-20: plan to move the deploy region from ca-central-1 to us-west-2 at the customer's request. Not done yet; region is still ca-central-1."}
+{"note": "HAL-2026-03-24", "code": "HAL", "date": "2026-03-24", "text": "- HAL-19 done: database changed from MariaDB 11 to MySQL 8.0 to match the platform team's standard. Database is now MySQL 8.0."}
+{"note": "HAL-2026-04-03", "code": "HAL", "date": "2026-04-03", "text": "- HAL-20 done: deploy region changed from ca-central-1 to us-west-2 at the customer's request. Region is now us-west-2."}
+{"note": "HAL-2026-04-08", "code": "HAL", "date": "2026-04-08", "text": "- HAL-21 done: database changed from MySQL 8.0 back to MariaDB 11 to match the platform team's standard. Database is now MariaDB 11."}
+{"note": "HAL-2026-04-22", "code": "HAL", "date": "2026-04-22", "text": "- HAL-22 done: alert channel changed from #hal-alerts back to #hal-oncall after an outage review. Alert channel is now #hal-oncall."}
+{"note": "HAL-2026-05-06", "code": "HAL", "date": "2026-05-06", "text": "- HAL-23 done: public API rate limit changed from 1000 requests/minute to 100 requests/minute to match the platform team's standard. Limit is now 100 requests/minute."}
+{"note": "HAL-2026-05-08", "code": "HAL", "date": "2026-05-08", "text": "- Rotated the staging TLS certificate (HAL-32). Routine."}
+{"note": "HAL-2026-05-16", "code": "HAL", "date": "2026-05-16", "text": "- Released v1.2.0 (HAL-24). Current release is now v1.2.0 (was v1.1.0)."}
+{"note": "HAL-2026-06-02", "code": "HAL", "date": "2026-06-02", "text": "- Investigated a memory spike in the worker; cause was a leaky cache key (HAL-33)."}
+{"note": "HAL-2026-06-13", "code": "HAL", "date": "2026-06-13", "text": "- HAL-25 done: tech lead changed from Tamsin Quarrell to Ines Coldwater (session gave the reason as the old one being end-of-life). Tech lead is now Ines Coldwater.\n- Cleaned up unused feature flags (HAL-34). Routine."}
+{"note": "HAL-2026-06-17", "code": "HAL", "date": "2026-06-17", "text": "- Paired on the billing webhook retry logic (HAL-35). Routine."}
+{"note": "HAL-2026-06-20", "code": "HAL", "date": "2026-06-20", "text": "- HAL-26 done: CI system changed from GitHub Actions to GitLab CI (session gave the reason as the old one being end-of-life). CI is now GitLab CI."}
+{"note": "HAL-2026-06-23", "code": "HAL", "date": "2026-06-23", "text": "- HAL-27 done: deploy region changed from us-west-2 to eu-west-1 for latency to the main customer. Region is now eu-west-1."}
+{"note": "KST-2026-01-05", "code": "KST", "date": "2026-01-05", "text": "- Kestrel Row kickoff. Initial setup:\n  - database: MariaDB 11\n  - deploy region: eu-central-1\n  - tech lead: Haruki Belmonde\n  - CI: CircleCI\n  - cache: Memcached 1.6\n  - public API rate limit: 100 requests/minute\n  - alert channel: #kst-pager\n  - current release: v0.5.0"}
+{"note": "KST-2026-01-15", "code": "KST", "date": "2026-01-15", "text": "- KST-9 done: CI system changed from CircleCI to Buildkite, to simplify on-call. CI is now Buildkite."}
+{"note": "KST-2026-01-16", "code": "KST", "date": "2026-01-16", "text": "- KST-10 done: alert channel changed from #kst-pager to #kst-alerts, after an outage review. Alerts now go to #kst-alerts."}
+{"note": "KST-2026-01-27", "code": "KST", "date": "2026-01-27", "text": "- Released v0.6.0 (KST-11). Current release is now v0.6.0 (was v0.5.0)."}
+{"note": "KST-2026-01-28", "code": "KST", "date": "2026-01-28", "text": "- Reviewed the security questionnaire answers (KST-23). No settings changed."}
+{"note": "KST-2026-01-31", "code": "KST", "date": "2026-01-31", "text": "- Fixed a flaky test in the export job (KST-24). Routine."}
+{"note": "KST-2026-02-20", "code": "KST", "date": "2026-02-20", "text": "- Released v0.7.0 (KST-12). Current release is now v0.7.0.\n- Rotated the staging TLS certificate (KST-25)."}
+{"note": "KST-2026-02-23", "code": "KST", "date": "2026-02-23", "text": "- KST-13 done: cache changed from Memcached 1.6 to Redis 7, after an outage review. Cache is now Redis 7."}
+{"note": "KST-2026-02-27", "code": "KST", "date": "2026-02-27", "text": "- KST-14 done: public API rate limit raised from 100 requests/minute to 250 requests/minute, after an outage review.\n- KST-15 done: deploy region changed from eu-central-1 to ca-central-1, to cut costs."}
+{"note": "KST-2026-03-17", "code": "KST", "date": "2026-03-17", "text": "- Released v1.0.0 (KST-16). Current release is now v1.0.0."}
+{"note": "KST-2026-04-01", "code": "KST", "date": "2026-04-01", "text": "- Paired on the billing webhook retry logic (KST-26). Routine."}
+{"note": "KST-2026-04-10", "code": "KST", "date": "2026-04-10", "text": "- KST-17 done: database changed from MariaDB 11 to MySQL 8.0, to simplify on-call. Database is now MySQL 8.0."}
+{"note": "KST-2026-04-28", "code": "KST", "date": "2026-04-28", "text": "- Opened KST-19 (plan, not done): move the cache from Redis 7 to Valkey 8, because the old one is end-of-life. Cache is still Redis 7 for now."}
+{"note": "KST-2026-05-01", "code": "KST", "date": "2026-05-01", "text": "- Rotated the staging TLS certificate (KST-27). Routine."}
+{"note": "KST-2026-05-07", "code": "KST", "date": "2026-05-07", "text": "- KST-18 done: alert channel changed from #kst-alerts to #kst-oncall, because the old one is end-of-life. Alerts now go to #kst-oncall."}
+{"note": "KST-2026-05-10", "code": "KST", "date": "2026-05-10", "text": "- KST-19 done (the planned move): cache changed from Redis 7 to Valkey 8, because the old one is end-of-life. Cache is now Valkey 8."}
+{"note": "KST-2026-05-17", "code": "KST", "date": "2026-05-17", "text": "- Cleaned up unused feature flags (KST-28). Routine."}
+{"note": "KST-2026-05-18", "code": "KST", "date": "2026-05-18", "text": "- Released v1.1.0 (KST-20). Current release is now v1.1.0."}
+{"note": "KST-2026-05-22", "code": "KST", "date": "2026-05-22", "text": "- Investigated a memory spike in the worker; cause was a leaky cache key (KST-29)."}
+{"note": "KST-2026-05-30", "code": "KST", "date": "2026-05-30", "text": "- Reviewed the security questionnaire answers (KST-30). No settings changed."}
+{"note": "KST-2026-06-03", "code": "KST", "date": "2026-06-03", "text": "- KST-21 done: cache changed from Valkey 8 to no cache, to cut costs. There is now no cache."}
+{"note": "KST-2026-06-18", "code": "KST", "date": "2026-06-18", "text": "- KST-22 done: public API rate limit changed from 250 requests/minute back to 100 requests/minute, after the load test."}
+{"note": "LNF-2026-01-05", "code": "LNF", "date": "2026-01-05", "text": "- Kickoff for Lanternfish. Initial setup:\n  - database: MariaDB 11\n  - deploy region: us-west-2\n  - tech lead: Haruki Belmonde\n  - CI system: GitLab CI\n  - cache: no cache\n  - public API rate limit: 250 requests/minute\n  - alert channel: #lnf-oncall\n  - current release: v0.2.0"}
+{"note": "LNF-2026-01-22", "code": "LNF", "date": "2026-01-22", "text": "- Triaged three bug reports from support (LNF-32)."}
+{"note": "LNF-2026-01-24", "code": "LNF", "date": "2026-01-24", "text": "- LNF-18 done: database changed from MariaDB 11 to PostgreSQL 15, after an outage review.\n- Database is now PostgreSQL 15."}
+{"note": "LNF-2026-02-15", "code": "LNF", "date": "2026-02-15", "text": "- Opened LNF-19: plan to move tech lead from Haruki Belmonde to Marisol Ternby, to match the platform team's standard. Not done yet; Haruki Belmonde is still tech lead."}
+{"note": "LNF-2026-02-24", "code": "LNF", "date": "2026-02-24", "text": "- Fixed a flaky test in the export job (LNF-33)."}
+{"note": "LNF-2026-02-25", "code": "LNF", "date": "2026-02-25", "text": "- LNF-19 done: tech lead changed from Haruki Belmonde to Marisol Ternby, to match the platform team's standard.\n- Tech lead is now Marisol Ternby."}
+{"note": "LNF-2026-02-27", "code": "LNF", "date": "2026-02-27", "text": "- LNF-20 done: public API rate limit changed from 250 requests/minute to 1000 requests/minute, at the customer's request.\n- Rate limit is now 1000 requests/minute."}
+{"note": "LNF-2026-03-02", "code": "LNF", "date": "2026-03-02", "text": "- LNF-21 done: database changed from PostgreSQL 15 back to MariaDB 11, after an outage review.\n- Database is now MariaDB 11 again."}
+{"note": "LNF-2026-03-07", "code": "LNF", "date": "2026-03-07", "text": "- Updated the onboarding docs for new contributors (LNF-34)."}
+{"note": "LNF-2026-03-22", "code": "LNF", "date": "2026-03-22", "text": "- Opened LNF-22: plan to move database from MariaDB 11 to PostgreSQL 15 after an outage review. Not done yet; database is still MariaDB 11."}
+{"note": "LNF-2026-04-04", "code": "LNF", "date": "2026-04-04", "text": "- LNF-22 done: database changed from MariaDB 11 to PostgreSQL 15, after an outage review.\n- Database is now PostgreSQL 15."}
+{"note": "LNF-2026-04-05", "code": "LNF", "date": "2026-04-05", "text": "- LNF-23 done: alert channel changed from #lnf-oncall to #platform-alerts, at the customer's request.\n- Alert channel is now #platform-alerts."}
+{"note": "LNF-2026-04-12", "code": "LNF", "date": "2026-04-12", "text": "- Sprint planning: no scope changes (LNF-35)."}
+{"note": "LNF-2026-04-17", "code": "LNF", "date": "2026-04-17", "text": "- LNF-24 done: public API rate limit changed from 1000 requests/minute to 500 requests/minute, at the customer's request.\n- Rate limit is now 500 requests/minute."}
+{"note": "LNF-2026-04-25", "code": "LNF", "date": "2026-04-25", "text": "- Investigated a memory spike in the worker; cause was a leaky cache key (LNF-36)."}
+{"note": "LNF-2026-05-04", "code": "LNF", "date": "2026-05-04", "text": "- Opened LNF-26: plan to move the cache from no cache to Valkey 8, after the load test. Not done yet; still no cache."}
+{"note": "LNF-2026-05-06", "code": "LNF", "date": "2026-05-06", "text": "- LNF-25 done: tech lead changed from Marisol Ternby to Ilario Brandtmoss, at the customer's request.\n- Tech lead is now Ilario Brandtmoss."}
+{"note": "LNF-2026-05-15", "code": "LNF", "date": "2026-05-15", "text": "- LNF-26 done: cache changed from no cache to Valkey 8, after the load test.\n- Cache is now Valkey 8."}
+{"note": "LNF-2026-05-16", "code": "LNF", "date": "2026-05-16", "text": "- LNF-27 done: alert channel changed from #platform-alerts back to #lnf-oncall, for latency to the main customer.\n- Alert channel is now #lnf-oncall."}
+{"note": "LNF-2026-05-23", "code": "LNF", "date": "2026-05-23", "text": "- Released v0.3.0 (LNF-28). Current release is now v0.3.0."}
+{"note": "LNF-2026-05-31", "code": "LNF", "date": "2026-05-31", "text": "- Opened LNF-29: plan to move the cache from Valkey 8 to Redis 7, to simplify on-call. Not done yet; cache is still Valkey 8."}
+{"note": "LNF-2026-06-14", "code": "LNF", "date": "2026-06-14", "text": "- Rotated the staging TLS certificate (LNF-37)."}
+{"note": "LNF-2026-06-15", "code": "LNF", "date": "2026-06-15", "text": "- Opened LNF-30: plan to move tech lead from Ilario Brandtmoss to Haruki Belmonde, for latency to the main customer. Not done yet; Ilario Brandtmoss is still tech lead."}
+{"note": "LNF-2026-06-16", "code": "LNF", "date": "2026-06-16", "text": "- LNF-29 done: cache changed from Valkey 8 to Redis 7, to simplify on-call.\n- Cache is now Redis 7."}
+{"note": "LNF-2026-06-20", "code": "LNF", "date": "2026-06-20", "text": "- LNF-30 done: tech lead changed from Ilario Brandtmoss to Haruki Belmonde, for latency to the main customer. Tech lead is now Haruki Belmonde.\n- Released v0.4.0 (LNF-31). Current release is now v0.4.0.\n- Cleaned up unused feature flags (LNF-38)."}
+{"note": "LNF-2026-06-25", "code": "LNF", "date": "2026-06-25", "text": "- Profiled the search endpoint; nothing alarming (LNF-39)."}
+{"note": "MRW-2026-01-05", "code": "MRW", "date": "2026-01-05", "text": "Kickoff for Marrowgate. Baseline setup:\n- Database: PostgreSQL 15\n- Deploy region: eu-west-1\n- Tech lead: Priya Laskin\n- CI: GitLab CI\n- Cache: Valkey 8\n- Public API rate limit: 100 requests/minute\n- Alert channel: #mrw-oncall\n- Current release: v2.6.0"}
+{"note": "MRW-2026-01-16", "code": "MRW", "date": "2026-01-16", "text": "- MRW-6 done: cache changed from Valkey 8 to no cache (reason given: latency to the main customer). Marrowgate currently has no cache."}
+{"note": "MRW-2026-01-19", "code": "MRW", "date": "2026-01-19", "text": "- Released v2.7.0 (MRW-7). Current release is now v2.7.0 (was v2.6.0)."}
+{"note": "MRW-2026-01-23", "code": "MRW", "date": "2026-01-23", "text": "- MRW-8 done: alert channel changed from #mrw-oncall to #mrw-alerts, because the old one is end-of-life. Alerts now go to #mrw-alerts."}
+{"note": "MRW-2026-01-26", "code": "MRW", "date": "2026-01-26", "text": "- MRW-9 done: CI system changed from GitLab CI to Jenkins, at the customer's request.\n- MRW-10 done: public API rate limit raised from 100 requests/minute to 500 requests/minute after the load test."}
+{"note": "MRW-2026-02-01", "code": "MRW", "date": "2026-02-01", "text": "- Opened MRW-11 (planned, not done): move tech lead from Priya Laskin to Anouk Vasquell, to simplify on-call. Tech lead is still Priya Laskin for now."}
+{"note": "MRW-2026-02-03", "code": "MRW", "date": "2026-02-03", "text": "- Investigated a memory spike in the worker; cause was a leaky cache key (MRW-22). No config changes recorded."}
+{"note": "MRW-2026-02-19", "code": "MRW", "date": "2026-02-19", "text": "- MRW-11 done: tech lead changed from Priya Laskin to Anouk Vasquell, to simplify on-call. Tech lead is now Anouk Vasquell."}
+{"note": "MRW-2026-02-22", "code": "MRW", "date": "2026-02-22", "text": "- MRW-12 done: deploy region changed from eu-west-1 to ca-central-1, after the load test. Region is now ca-central-1."}
+{"note": "MRW-2026-02-25", "code": "MRW", "date": "2026-02-25", "text": "- Profiled the search endpoint; nothing alarming (MRW-23)."}
+{"note": "MRW-2026-02-27", "code": "MRW", "date": "2026-02-27", "text": "- Released v2.8.0 (MRW-13). Current release is now v2.8.0 (was v2.7.0)."}
+{"note": "MRW-2026-03-07", "code": "MRW", "date": "2026-03-07", "text": "- Paired on the billing webhook retry logic (MRW-24). No config changes recorded."}
+{"note": "MRW-2026-03-08", "code": "MRW", "date": "2026-03-08", "text": "- MRW-14 done: deploy region changed from ca-central-1 to us-west-2, to cut costs. Region is now us-west-2."}
+{"note": "MRW-2026-03-16", "code": "MRW", "date": "2026-03-16", "text": "- MRW-15 done: alert channel changed from #mrw-alerts back to #mrw-oncall, at the customer's request. Alerts now go to #mrw-oncall."}
+{"note": "MRW-2026-03-30", "code": "MRW", "date": "2026-03-30", "text": "- Cleaned up unused feature flags (MRW-25)."}
+{"note": "MRW-2026-04-10", "code": "MRW", "date": "2026-04-10", "text": "- Reviewed the security questionnaire answers (MRW-26)."}
+{"note": "MRW-2026-04-11", "code": "MRW", "date": "2026-04-11", "text": "- Released v2.9.0 (MRW-16). Current release is now v2.9.0 (was v2.8.0)."}
+{"note": "MRW-2026-04-25", "code": "MRW", "date": "2026-04-25", "text": "- MRW-17 done: CI system changed from Jenkins back to GitLab CI, to match the platform team's standard. CI is now GitLab CI."}
+{"note": "MRW-2026-04-26", "code": "MRW", "date": "2026-04-26", "text": "- Investigated a memory spike in the worker; cause was a leaky cache key (MRW-27). Same kind of issue as MRW-22. No config changes recorded."}
+{"note": "MRW-2026-05-09", "code": "MRW", "date": "2026-05-09", "text": "- Opened MRW-20 (planned, not done): move CI from GitLab CI to CircleCI, to cut costs. CI is still GitLab CI for now."}
+{"note": "MRW-2026-05-13", "code": "MRW", "date": "2026-05-13", "text": "- MRW-18 done: public API rate limit raised from 500 requests/minute to 1000 requests/minute (reason given: the old one is end-of-life). Limit is now 1000 requests/minute."}
+{"note": "MRW-2026-05-21", "code": "MRW", "date": "2026-05-21", "text": "- MRW-19 done: alert channel changed from #mrw-oncall to #mrw-pager, because the old one is end-of-life. Alerts now go to #mrw-pager."}
+{"note": "MRW-2026-05-23", "code": "MRW", "date": "2026-05-23", "text": "- MRW-20 done: CI changed from GitLab CI to CircleCI, to cut costs. CI is now CircleCI."}
+{"note": "MRW-2026-05-26", "code": "MRW", "date": "2026-05-26", "text": "- Investigated a memory spike in the worker; cause was a leaky cache key (MRW-28). Recurring pattern (see MRW-22, MRW-27). No config changes recorded."}
+{"note": "MRW-2026-05-31", "code": "MRW", "date": "2026-05-31", "text": "- MRW-21 done: tech lead changed from Anouk Vasquell to Teodor Klyne, after the load test. Tech lead is now Teodor Klyne."}
+{"note": "MRW-2026-06-15", "code": "MRW", "date": "2026-06-15", "text": "- Investigated a memory spike in the worker; cause was a leaky cache key (MRW-29). Recurring pattern (see MRW-22, MRW-27, MRW-28). No config changes recorded."}
+{"note": "QFT-2026-01-05", "code": "QFT", "date": "2026-01-05", "text": "- Kickoff for Quillfeather. Setup as of now:\n  - database: MariaDB 11\n  - deploy region: us-west-2\n  - tech lead: Signe Morrow-Dale\n  - CI: CircleCI\n  - cache: none\n  - public API rate limit: 250 requests/minute\n  - alert channel: #qft-pager\n  - current release: v2.6.0"}
+{"note": "QFT-2026-01-19", "code": "QFT", "date": "2026-01-19", "text": "- Cleaned up unused feature flags (QFT-30)."}
+{"note": "QFT-2026-02-01", "code": "QFT", "date": "2026-02-01", "text": "- Released v2.7.0 (QFT-16). Current release is now v2.7.0 (was v2.6.0)."}
+{"note": "QFT-2026-02-02", "code": "QFT", "date": "2026-02-02", "text": "- Cleaned up unused feature flags (QFT-31)."}
+{"note": "QFT-2026-02-13", "code": "QFT", "date": "2026-02-13", "text": "- QFT-17 done: deploy region changed from us-west-2 to eu-central-1, to match the platform team's standard. Deploy region is now eu-central-1."}
+{"note": "QFT-2026-02-18", "code": "QFT", "date": "2026-02-18", "text": "- QFT-18 done: database changed from MariaDB 11 to CockroachDB 23.2, for latency to the main customer. Database is now CockroachDB 23.2."}
+{"note": "QFT-2026-02-25", "code": "QFT", "date": "2026-02-25", "text": "- Sprint planning: no scope changes (QFT-32)."}
+{"note": "QFT-2026-03-16", "code": "QFT", "date": "2026-03-16", "text": "- Released v2.8.0 (QFT-19). Current release is now v2.8.0 (was v2.7.0)."}
+{"note": "QFT-2026-03-24", "code": "QFT", "date": "2026-03-24", "text": "- QFT-20 done: CI system changed from CircleCI to GitHub Actions, at the customer's request. CI is now GitHub Actions."}
+{"note": "QFT-2026-03-25", "code": "QFT", "date": "2026-03-25", "text": "- Opened QFT-22: plan to move the tech lead from Signe Morrow-Dale to Caspian Oduya, to match the platform team's standard. Not done yet; tech lead is still Signe Morrow-Dale."}
+{"note": "QFT-2026-03-27", "code": "QFT", "date": "2026-03-27", "text": "- Fixed a flaky test in the export job (QFT-33)."}
+{"note": "QFT-2026-03-30", "code": "QFT", "date": "2026-03-30", "text": "- Reviewed the security questionnaire answers (QFT-34)."}
+{"note": "QFT-2026-04-01", "code": "QFT", "date": "2026-04-01", "text": "- QFT-21 done: cache changed from no cache to Redis 7, at the customer's request. Cache is now Redis 7."}
+{"note": "QFT-2026-04-12", "code": "QFT", "date": "2026-04-12", "text": "- Cleaned up unused feature flags (QFT-35)."}
+{"note": "QFT-2026-04-14", "code": "QFT", "date": "2026-04-14", "text": "- QFT-22 done (planned 2026-03-25): tech lead changed from Signe Morrow-Dale to Caspian Oduya, to match the platform team's standard. Tech lead is now Caspian Oduya."}
+{"note": "QFT-2026-04-23", "code": "QFT", "date": "2026-04-23", "text": "- Opened QFT-23: plan to move deploy region from eu-central-1 back to us-west-2, to cut costs. Not done yet; region is still eu-central-1.\n- Reviewed the security questionnaire answers (QFT-36)."}
+{"note": "QFT-2026-04-29", "code": "QFT", "date": "2026-04-29", "text": "- QFT-23 done (planned 2026-04-23): deploy region changed from eu-central-1 to us-west-2, to cut costs. Deploy region is now us-west-2."}
+{"note": "QFT-2026-05-01", "code": "QFT", "date": "2026-05-01", "text": "- Released v2.9.0 (QFT-24). Current release is now v2.9.0 (was v2.8.0)."}
+{"note": "QFT-2026-05-12", "code": "QFT", "date": "2026-05-12", "text": "- QFT-25 done: database changed from CockroachDB 23.2 to PostgreSQL 15, after the load test. Database is now PostgreSQL 15."}
+{"note": "QFT-2026-05-19", "code": "QFT", "date": "2026-05-19", "text": "- QFT-26 done: tech lead changed from Caspian Oduya to Marisol Ternby, to match the platform team's standard. Tech lead is now Marisol Ternby."}
+{"note": "QFT-2026-05-20", "code": "QFT", "date": "2026-05-20", "text": "- Opened QFT-27: plan to move the cache from Redis 7 to no cache, for latency to the main customer. Not done yet; cache is still Redis 7."}
+{"note": "QFT-2026-05-30", "code": "QFT", "date": "2026-05-30", "text": "- QFT-27 done (planned 2026-05-20): cache changed from Redis 7 to no cache, for latency to the main customer. Cache is now none."}
+{"note": "QFT-2026-06-01", "code": "QFT", "date": "2026-06-01", "text": "- Paired on the billing webhook retry logic (QFT-37)."}
+{"note": "QFT-2026-06-03", "code": "QFT", "date": "2026-06-03", "text": "- Released v2.10.0 (QFT-28). Current release is now v2.10.0 (was v2.9.0)."}
+{"note": "QFT-2026-06-16", "code": "QFT", "date": "2026-06-16", "text": "- QFT-29 done: tech lead changed from Marisol Ternby to Teodor Klyne, after the load test. Tech lead is now Teodor Klyne."}
+{"note": "SLT-2026-01-05", "code": "SLT", "date": "2026-01-05", "text": "- Kickoff for Saltmarsh. Initial setup:\n  - database: PostgreSQL 15\n  - deploy region: us-west-2\n  - tech lead: Anouk Vasquell\n  - CI system: Jenkins\n  - cache: Memcached 1.6\n  - public API rate limit: 500 requests/minute\n  - alert channel: #slt-oncall\n  - current release: v0.7.0"}
+{"note": "SLT-2026-01-22", "code": "SLT", "date": "2026-01-22", "text": "- Reviewed the security questionnaire answers (SLT-28)."}
+{"note": "SLT-2026-01-25", "code": "SLT", "date": "2026-01-25", "text": "- Paired on the billing webhook retry logic (SLT-29)."}
+{"note": "SLT-2026-02-12", "code": "SLT", "date": "2026-02-12", "text": "- Opened SLT-15: plan to move the public API rate limit from 500 requests/minute to 100 requests/minute because the old one is end-of-life. Not done yet; limit is still 500 requests/minute."}
+{"note": "SLT-2026-02-15", "code": "SLT", "date": "2026-02-15", "text": "- Released v1.0.0 (SLT-13). Current release is now v1.0.0 (was v0.7.0)."}
+{"note": "SLT-2026-02-20", "code": "SLT", "date": "2026-02-20", "text": "- Opened SLT-14: plan to move the cache from Memcached 1.6 to Redis 7 because the old one is end-of-life. Not done yet; cache is still Memcached 1.6."}
+{"note": "SLT-2026-02-28", "code": "SLT", "date": "2026-02-28", "text": "- Sprint planning: no scope changes (SLT-30)."}
+{"note": "SLT-2026-03-01", "code": "SLT", "date": "2026-03-01", "text": "- SLT-14 done: the cache changed from Memcached 1.6 to Redis 7 because the old one is end-of-life. Cache is now Redis 7."}
+{"note": "SLT-2026-03-04", "code": "SLT", "date": "2026-03-04", "text": "- SLT-15 done: the public API rate limit changed from 500 requests/minute to 100 requests/minute because the old one is end-of-life. Limit is now 100 requests/minute."}
+{"note": "SLT-2026-03-05", "code": "SLT", "date": "2026-03-05", "text": "- Wrote the runbook for restoring a backup (SLT-31)."}
+{"note": "SLT-2026-03-06", "code": "SLT", "date": "2026-03-06", "text": "- SLT-16 done: the alert channel changed from #slt-oncall to #slt-alerts at the customer's request. Alert channel is now #slt-alerts."}
+{"note": "SLT-2026-03-18", "code": "SLT", "date": "2026-03-18", "text": "- Opened SLT-20: plan to move the cache from Redis 7 back to Memcached 1.6 for latency to the main customer. Not done yet; cache is still Redis 7."}
+{"note": "SLT-2026-04-01", "code": "SLT", "date": "2026-04-01", "text": "- SLT-17 done: the public API rate limit changed from 100 requests/minute to 250 requests/minute at the customer's request. Limit is now 250 requests/minute."}
+{"note": "SLT-2026-04-03", "code": "SLT", "date": "2026-04-03", "text": "- SLT-18 done: the deploy region changed from us-west-2 to ca-central-1 at the customer's request. Deploy region is now ca-central-1."}
+{"note": "SLT-2026-04-04", "code": "SLT", "date": "2026-04-04", "text": "- Released v2.0.0 (SLT-19). Current release is now v2.0.0."}
+{"note": "SLT-2026-04-06", "code": "SLT", "date": "2026-04-06", "text": "- SLT-20 done: the cache changed from Redis 7 to Memcached 1.6 for latency to the main customer. Cache is now Memcached 1.6 again."}
+{"note": "SLT-2026-04-13", "code": "SLT", "date": "2026-04-13", "text": "- Opened SLT-23: plan to move the deploy region from ca-central-1 back to us-west-2 at the customer's request. Not done yet; region is still ca-central-1."}
+{"note": "SLT-2026-04-18", "code": "SLT", "date": "2026-04-18", "text": "- SLT-21 done: the tech lead changed from Anouk Vasquell to Ines Coldwater to simplify on-call. Tech lead is now Ines Coldwater."}
+{"note": "SLT-2026-04-19", "code": "SLT", "date": "2026-04-19", "text": "- SLT-22 done: the public API rate limit changed from 250 requests/minute to 100 requests/minute at the customer's request. Limit is now 100 requests/minute.\n- SLT-23 done: the deploy region changed from ca-central-1 to us-west-2 at the customer's request. Region is now us-west-2."}
+{"note": "SLT-2026-04-21", "code": "SLT", "date": "2026-04-21", "text": "- Sprint planning: no scope changes (SLT-32)."}
+{"note": "SLT-2026-04-30", "code": "SLT", "date": "2026-04-30", "text": "- SLT-24 done: the cache changed from Memcached 1.6 to Valkey 8 for latency to the main customer. Cache is now Valkey 8."}
+{"note": "SLT-2026-05-13", "code": "SLT", "date": "2026-05-13", "text": "- SLT-25 done: the deploy region changed from us-west-2 to us-east-2 after the load test. Region is now us-east-2."}
+{"note": "SLT-2026-05-28", "code": "SLT", "date": "2026-05-28", "text": "- Wrote the runbook for restoring a backup (SLT-33)."}
+{"note": "SLT-2026-05-30", "code": "SLT", "date": "2026-05-30", "text": "- Released v3.0.0 (SLT-26). Current release is now v3.0.0."}
+{"note": "SLT-2026-05-31", "code": "SLT", "date": "2026-05-31", "text": "- Triaged three bug reports from support (SLT-34)."}
+{"note": "SLT-2026-06-05", "code": "SLT", "date": "2026-06-05", "text": "- Opened SLT-27: plan to move the alert channel from #slt-alerts to #slt-pager after an outage review. Not done yet; channel is still #slt-alerts."}
+{"note": "SLT-2026-06-06", "code": "SLT", "date": "2026-06-06", "text": "- Updated the onboarding docs for new contributors (SLT-35)."}
+{"note": "SLT-2026-06-20", "code": "SLT", "date": "2026-06-20", "text": "- SLT-27 done: the alert channel changed from #slt-alerts to #slt-pager after an outage review. Alert channel is now #slt-pager."}
+{"note": "TDW-2026-01-05", "code": "TDW", "date": "2026-01-05", "text": "- Kickoff for Tidewater; initial setup recorded.\n- Database: PostgreSQL 16. Cache: Valkey 8.\n- Deploy region: ap-southeast-1.\n- Tech lead: Ilario Brandtmoss.\n- CI system: GitLab CI.\n- Public API rate limit: 250 requests/minute.\n- Alert channel: #tdw-alerts.\n- Current release: v2.2.0."}
+{"note": "TDW-2026-01-08", "code": "TDW", "date": "2026-01-08", "text": "- Opened TDW-21: plan to move the cache from Valkey 8 to no cache, because the old one is end-of-life. Not done yet; cache is still Valkey 8."}
+{"note": "TDW-2026-01-15", "code": "TDW", "date": "2026-01-15", "text": "- Sprint planning (TDW-32): no scope changes."}
+{"note": "TDW-2026-01-22", "code": "TDW", "date": "2026-01-22", "text": "- Released v2.3.0 (TDW-18). Current release is now v2.3.0 (was v2.2.0)."}
+{"note": "TDW-2026-01-24", "code": "TDW", "date": "2026-01-24", "text": "- TDW-19 done: CI system changed from GitLab CI to CircleCI, to cut costs. CI is now CircleCI."}
+{"note": "TDW-2026-01-25", "code": "TDW", "date": "2026-01-25", "text": "- TDW-20 done: public API rate limit changed from 250 requests/minute to 100 requests/minute (reason given: the old one is end-of-life). Limit is now 100 requests/minute."}
+{"note": "TDW-2026-01-26", "code": "TDW", "date": "2026-01-26", "text": "- TDW-21 done (planned in the 2026-01-08 session): cache changed from Valkey 8 to no cache, because the old one is end-of-life. There is now no cache."}
+{"note": "TDW-2026-01-30", "code": "TDW", "date": "2026-01-30", "text": "- Profiled the search endpoint (TDW-33); nothing alarming found."}
+{"note": "TDW-2026-02-02", "code": "TDW", "date": "2026-02-02", "text": "- TDW-22 done: tech lead changed from Ilario Brandtmoss to Marisol Ternby (reason given: the old one is end-of-life). Tech lead is now Marisol Ternby."}
+{"note": "TDW-2026-02-08", "code": "TDW", "date": "2026-02-08", "text": "- Opened TDW-24: plan to move the public API rate limit from 100 requests/minute to 250 requests/minute, to simplify on-call. Not done yet; limit is still 100 requests/minute.\n- TDW-23 done: alert channel changed from #tdw-alerts to #tdw-pager, at the customer's request. Alert channel is now #tdw-pager."}
+{"note": "TDW-2026-02-09", "code": "TDW", "date": "2026-02-09", "text": "- Fixed a flaky test in the export job (TDW-34)."}
+{"note": "TDW-2026-02-14", "code": "TDW", "date": "2026-02-14", "text": "- TDW-24 done (planned 2026-02-08): public API rate limit changed from 100 requests/minute back to 250 requests/minute, to simplify on-call. Limit is now 250 requests/minute."}
+{"note": "TDW-2026-02-21", "code": "TDW", "date": "2026-02-21", "text": "- Updated the onboarding docs for new contributors (TDW-35)."}
+{"note": "TDW-2026-02-26", "code": "TDW", "date": "2026-02-26", "text": "- Released v3.0.0 (TDW-25). Current release is now v3.0.0 (was v2.3.0)."}
+{"note": "TDW-2026-03-04", "code": "TDW", "date": "2026-03-04", "text": "- Reviewed the security questionnaire answers (TDW-36)."}
+{"note": "TDW-2026-03-08", "code": "TDW", "date": "2026-03-08", "text": "- TDW-26 done: database changed from PostgreSQL 16 to SQLite 3.45, to simplify on-call. Database is now SQLite 3.45."}
+{"note": "TDW-2026-03-09", "code": "TDW", "date": "2026-03-09", "text": "- Reviewed the security questionnaire answers (TDW-37)."}
+{"note": "TDW-2026-03-16", "code": "TDW", "date": "2026-03-16", "text": "- TDW-27 done: deploy region changed from ap-southeast-1 to us-west-2, to match the platform team's standard. Region is now us-west-2."}
+{"note": "TDW-2026-04-01", "code": "TDW", "date": "2026-04-01", "text": "- Released v3.1.0 (TDW-28). Current release is now v3.1.0 (was v3.0.0)."}
+{"note": "TDW-2026-04-02", "code": "TDW", "date": "2026-04-02", "text": "- Sprint planning (TDW-38): no scope changes."}
+{"note": "TDW-2026-04-14", "code": "TDW", "date": "2026-04-14", "text": "- TDW-29 done: alert channel changed from #tdw-pager to #platform-alerts, for latency to the main customer. Alert channel is now #platform-alerts."}
+{"note": "TDW-2026-04-27", "code": "TDW", "date": "2026-04-27", "text": "- TDW-30 done: CI system changed from CircleCI back to GitLab CI, for latency to the main customer. CI is now GitLab CI."}
+{"note": "TDW-2026-05-24", "code": "TDW", "date": "2026-05-24", "text": "- Released v4.0.0 (TDW-31). Current release is now v4.0.0 (was v3.1.0)."}
+{"note": "TDW-2026-06-14", "code": "TDW", "date": "2026-06-14", "text": "- Wrote the runbook for restoring a backup (TDW-39)."}

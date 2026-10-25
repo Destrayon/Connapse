@@ -1,0 +1,115 @@
+{
+  "system": "BM25 over plain notes (k1 1.2, b 0.75)",
+  "groups": {
+    "heldout": {
+      "questions": 287,
+      "hit@1": 0.2439,
+      "hit@5": 0.6794,
+      "answer": 0.439
+    },
+    "heldout/as_of": {
+      "questions": 39,
+      "hit@1": 0.0769,
+      "hit@5": 0.3333,
+      "answer": 0.4359
+    },
+    "heldout/changed": {
+      "questions": 10,
+      "hit@1": 0.2,
+      "hit@5": 0.2
+    },
+    "heldout/current": {
+      "questions": 40,
+      "hit@1": 0.05,
+      "hit@5": 0.225,
+      "answer": 0.325
+    },
+    "heldout/ticket": {
+      "questions": 63,
+      "hit@1": 0.4127,
+      "hit@5": 0.8254,
+      "answer": 0.4762
+    },
+    "heldout/ticket_effect": {
+      "questions": 72,
+      "hit@1": 0.1667,
+      "hit@5": 0.9444
+    },
+    "heldout/when": {
+      "questions": 63,
+      "hit@1": 0.3968,
+      "hit@5": 0.8095,
+      "answer": 0.4762
+    },
+    "longmemeval/heldout": {
+      "questions": 114,
+      "hit@1": 0.8509,
+      "hit@5": 0.9561
+    },
+    "longmemeval/heldout/knowledge-update": {
+      "questions": 33,
+      "hit@1": 0.9697,
+      "hit@5": 1.0
+    },
+    "longmemeval/heldout/temporal-reasoning": {
+      "questions": 81,
+      "hit@1": 0.8025,
+      "hit@5": 0.9383
+    },
+    "longmemeval/tuning": {
+      "questions": 97,
+      "hit@1": 0.8969,
+      "hit@5": 1.0
+    },
+    "longmemeval/tuning/knowledge-update": {
+      "questions": 45,
+      "hit@1": 0.9333,
+      "hit@5": 1.0
+    },
+    "longmemeval/tuning/temporal-reasoning": {
+      "questions": 52,
+      "hit@1": 0.8654,
+      "hit@5": 1.0
+    },
+    "tuning": {
+      "questions": 264,
+      "hit@1": 0.2879,
+      "hit@5": 0.6856,
+      "answer": 0.4892
+    },
+    "tuning/as_of": {
+      "questions": 39,
+      "hit@1": 0.0,
+      "hit@5": 0.3333,
+      "answer": 0.4103
+    },
+    "tuning/changed": {
+      "questions": 9,
+      "hit@1": 0.0,
+      "hit@5": 0.0
+    },
+    "tuning/current": {
+      "questions": 39,
+      "hit@1": 0.0513,
+      "hit@5": 0.2821,
+      "answer": 0.4872
+    },
+    "tuning/ticket": {
+      "questions": 54,
+      "hit@1": 0.537,
+      "hit@5": 0.9074,
+      "answer": 0.5185
+    },
+    "tuning/ticket_effect": {
+      "questions": 69,
+      "hit@1": 0.2464,
+      "hit@5": 0.8696
+    },
+    "tuning/when": {
+      "questions": 54,
+      "hit@1": 0.5185,
+      "hit@5": 0.8889,
+      "answer": 0.5185
+    }
+  }
+}
