@@ -503,7 +503,7 @@ public class ContainerRandomInputTests
                 // Its type from the extension, and marked as found by a reconcile rather than uploaded.
                 stored.Should().OnlyContain(d => d.ContentType == TypeOf[Path.GetExtension(d.Path)] && d.Metadata["Source"] == "ConnectorSync");
                 var jobs = queue.ReceivedCalls().Select(c => (IngestionJob)c.GetArguments()[0]!).ToList();
-                jobs.Should().OnlyContain(j => j.BatchId == synced.Result!.BatchId && j.Options.ContentType == TypeOf[Path.GetExtension(j.Options.Path)]
+                jobs.Should().OnlyContain(j => j.BatchId == synced.Result!.BatchId && j.Options.ContentType == TypeOf[Path.GetExtension(j.Options.Path!)]
                     && j.Options.Metadata!["OriginalFileName"] == Path.GetFileName(j.Options.Path) && j.Options.Metadata["Source"] == "ConnectorSync");
                 jobs.Select(j => j.Options.Path).Should().BeEquivalentTo(fresh);
                 await world.Audit.Received(1).LogAsync("container.synced", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
