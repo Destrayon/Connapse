@@ -1,6 +1,4 @@
 {
-  "search_knowledge/invalid/mcp": "MCP search_knowledge accepts an empty query and returns no results; REST and the page refuse it",
-  "search_knowledge/under-scoped/ui": "the Search page searches for a user with no role; REST and MCP refuse them",
   "upload_file/valid/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
   "upload_file/invalid/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
   "upload_file/under-scoped/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
