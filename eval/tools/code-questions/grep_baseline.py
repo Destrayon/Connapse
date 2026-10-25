@@ -6,8 +6,8 @@ For each question, every text file the repo tracks at its pinned commit is ranke
 lines hold the symbol's own name (the last part of `Type.Member`) as a whole word, which is the count
 `grep -w -c` prints, most first, ties by path.
 Recall@k is the share of the answer key's files in the top k, capped at k when the key is bigger:
-|top-k ∩ key| / min(|key|, k). The later gate for the code engine is Recall@10 0.15 above this, on the
-held-out half.
+|top-k ∩ key| / min(|key|, k). The code engine's pass bar (gate.json) is this baseline's held-out Recall@10
+plus 0.15 on two groups: crowded names (more than 10 files hold the name) and how questions.
 """
 import json
 import re

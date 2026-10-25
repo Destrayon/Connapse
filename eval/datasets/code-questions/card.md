@@ -48,7 +48,8 @@
   | crowded (>10 files hold the name) | 71 | 0.464 | 0.714 | 0.902 |
   | sparse (≤10 files hold the name) | 91 | 0.883 | 0.919 | 0.919 |
 
-  Grep is strong here by construction: every file in a callers or usages key contains the symbol's name, so grep can only lose by ranking. On sparse names it scores about 1.0, and "+0.15 over grep" overall would mean 0.98. A gate is reachable on the crowded group (0.714, where ranking decides) and the how group (0.443). Choosing the gate is a decision for CON-36/37.
+  Grep is strong here by construction: every file in a callers or usages key contains the symbol's name, so grep can only lose by ranking. On sparse names it scores about 1.0, and "+0.15 over grep" overall would mean 0.98. A gate is reachable on the crowded group (0.714, where ranking decides) and the how group (0.443).
+- **Pass bar for the code engine (CON-36/37),** fixed in `gate.json` on 2026-10-24, before any run: held-out Recall@10 of at least **0.864 on crowded names** and at least **0.593 on how questions**. Both are grep + 0.15, and both must hold. This replaces a single "+0.15 over grep" across all questions.
 - **Hand check:** 12 how questions, drawn with seed 35.
   - All 12 definitions and line spans are right.
   - Every symbol a key lists is named in its body.
