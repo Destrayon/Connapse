@@ -10,7 +10,9 @@ GitHub's runners differ in speed: the same Small tests take 14 to 31 s of wall, 
 duration moves with it (CON-87). With --reference, the wall limit is read on a median runner: the
 run's wall divided by its runner factor, the median ratio of its tests' durations to the
 reference's. A real slowdown still shows: a slower start, or new tests, raise the wall but not the
-factor. What it can't see is one that slows every test alike, which reads as a slower runner.
+factor. One that slows every test alike reads as a slower runner, so the factor is capped at
+MAX_FACTOR, a little above the slowest runner seen: no run reads as more than that much faster
+than its wall, and a broad slowdown still fails once it passes that.
 
 Usage:
   test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds 22 --max-wall-seconds 30 \
@@ -53,6 +55,16 @@ MIN_REFERENCE_SECONDS = 0.01
 # Below this many reference tests in a run, the factor says too little: the reference is stale.
 MIN_MATCHED = 100
 
+# Below this share of the reference's tests in a run, the reference has drifted from the suite.
+MIN_MATCHED_SHARE = 0.8
+
+# The slowest of the runs the reference came from was 1.26x a median runner (CON-87). A factor above
+# this is read as this: past it, slower tests are the code's, not the runner's.
+MAX_FACTOR = 1.5
+
+# A reference is a median runner's only if it comes from several runners.
+MIN_REFERENCE_RUNS = 5
+
 
 def durations(paths: list[str]) -> dict[str, float]:
     """Each passed test's duration by its full name, theory cases apart, across these TRX files."""
@@ -73,8 +85,15 @@ def runner_factor(run: dict[str, float], reference: dict[str, float]) -> tuple[f
 
 def write_reference(out: str, trx_name: str, run_dirs: list[str]) -> dict[str, float]:
     """Each test's median duration over the runs, for tests every run timed at 10 ms or more on the median."""
-    runs = [durations(glob.glob(f"{d}/**/{trx_name}", recursive=True)) for d in run_dirs]
-    common = set.intersection(*(set(r) for r in runs)) if runs else set()
+    if len(run_dirs) < MIN_REFERENCE_RUNS:
+        raise ValueError(f"a reference needs at least {MIN_REFERENCE_RUNS} runs, so it is a median runner's; got {len(run_dirs)}")
+    runs = []
+    for d in run_dirs:
+        timed = durations(glob.glob(f"{d}/**/{trx_name}", recursive=True))
+        if not timed:
+            raise ValueError(f"{d} has no {trx_name} with timed results")
+        runs.append(timed)
+    common = set.intersection(*(set(r) for r in runs))
     reference = {}
     for name in sorted(common):
         median = statistics.median(r[name] for r in runs)
@@ -122,7 +141,11 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
 
     if a.write_reference:
-        reference = write_reference(a.write_reference, a.trx, a.runs)
+        try:
+            reference = write_reference(a.write_reference, a.trx, a.runs)
+        except ValueError as e:
+            print(f"::error::{e}")
+            return 1
         print(f"Wrote {len(reference)} tests from {len(a.runs)} runs to {a.write_reference}")
         return 0 if len(reference) >= MIN_MATCHED else 1
     if not a.tier:
@@ -156,14 +179,16 @@ def main(argv: list[str] | None = None) -> int:
                 reference = json.loads(pathlib.Path(a.reference).read_text(encoding="utf-8"))
                 run = durations([path for project in projects for path in glob.glob(f"{project}/TestResults/{a.trx}")])
                 factor, matched = runner_factor(run, reference)
-                if matched < MIN_MATCHED:
+                if matched < max(MIN_MATCHED, MIN_MATCHED_SHARE * len(reference)):
                     failures.append(f"only {matched} of the {len(reference)} tests in {a.reference} ran, too few to tell "
                                     f"the runner's speed; refresh it with --write-reference from recent runs' artifacts")
                     wall = None
                 else:
-                    print(f"{a.tier} runner factor {factor:.2f} over {matched} reference tests: "
-                          f"{a.wall_seconds:g} s wall is {a.wall_seconds / factor:.1f} s on a median runner")
-                    wall, on = a.wall_seconds / factor, "on a median runner"
+                    capped = min(factor, MAX_FACTOR)
+                    note = f", capped at {MAX_FACTOR:g}" if capped < factor else ""
+                    print(f"{a.tier} runner factor {factor:.2f}{note} over {matched} reference tests: "
+                          f"{a.wall_seconds:g} s wall is {a.wall_seconds / capped:.1f} s on a median runner")
+                    wall, on = a.wall_seconds / capped, "on a median runner"
             if wall is not None and wall > a.max_wall_seconds:
                 failures.append(f"{a.tier} tier took {wall:.1f} s {on}, over its {a.max_wall_seconds:g} s budget")
             elif wall is not None:
