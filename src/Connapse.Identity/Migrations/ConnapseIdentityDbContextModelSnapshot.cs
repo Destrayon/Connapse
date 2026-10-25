@@ -656,6 +656,11 @@ namespace Connapse.Identity.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
 
+                    b.Property<string>("Scope")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("scope");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(64)

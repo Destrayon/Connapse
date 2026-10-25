@@ -234,6 +234,7 @@ public static class OAuthEndpoints
         {
             refreshEntity.ClientId = clientId;
             refreshEntity.Resource = exchangeResult.Resource;
+            refreshEntity.Scope = exchangeResult.Scope;
             await dbContext.SaveChangesAsync(ct);
         }
 

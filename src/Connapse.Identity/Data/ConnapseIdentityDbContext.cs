@@ -245,6 +245,10 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .HasColumnName("resource")
                 .HasMaxLength(2048);
 
+            entity.Property(e => e.Scope)
+                .HasColumnName("scope")
+                .HasMaxLength(1024);
+
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasDefaultValueSql("now()");
