@@ -264,13 +264,15 @@ jobs:
 
     # Every tier is checked even if another fails, and every test project must have reported. The
     # Medium tier's wall time is its slowest job's, since the jobs run side by side.
+    # The Small tier's 30 s is on a median runner: its wall, divided by how much slower than the
+    # reference this runner ran the same tests (CON-87).
     - name: Check test-speed budgets
       if: success() || failure()
       run: |
         rc=0
         small=$(cat walls/small.txt 2>/dev/null || echo -1)
         medium=$(cat walls/medium.txt walls/integration-*.txt 2>/dev/null | sort -n | tail -1)
-        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds "$small" --max-wall-seconds 30 || rc=1
+        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds "$small" --max-wall-seconds 30 --reference .github/test-timings/small-reference.json || rc=1
         python3 .github/scripts/test_budgets.py --tier Medium --trx "medium-tests*.trx" --max-test-seconds 30 --wall-seconds "${medium:--1}" --max-wall-seconds 480 || rc=1
         exit $rc
 
