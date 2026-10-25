@@ -161,8 +161,10 @@ public class PostgresFolderStore(
         await context.SaveChangesAsync(ct);
 
         // Stored files go before the commit, while the folders are still locked: a file removed after it could be
-        // one a new upload to the same path had just written. Past this point the delete finishes even if cancelled,
-        // since stopping halfway would leave records whose files are gone.
+        // one a new upload to the same path had just written. A file that can't be removed throws, rolling the
+        // records back rather than leaving a file nothing points to; the folder then still holds everything not yet
+        // removed, and deleting it again finishes the job. Past this point the delete isn't cancelled, since stopping
+        // halfway would leave records whose files are gone.
         await DeleteStoredFilesAsync(containerId, documentsToDelete.Select(d => d.Path));
         await transaction.CommitAsync(CancellationToken.None);
 
@@ -189,16 +191,7 @@ public class PostgresFolderStore(
                 return;
 
             foreach (string path in paths)
-            {
-                try
-                {
-                    await writable.DeleteFileAsync(path, CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Failed to delete stored file {Path} in container {ContainerId}", path, containerId);
-                }
-            }
+                await writable.DeleteFileAsync(path, CancellationToken.None);
         }
         finally
         {

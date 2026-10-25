@@ -5,7 +5,9 @@ using System.Text;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests;
@@ -86,7 +88,7 @@ public class FolderDeleteRaceTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task StoreInFolder_FolderDeletedAfterTheUploadFoundIt_StoresNoRecord()
+    public async Task StoreInFolder_FolderDeletedAfterTheUploadFoundIt_WritesAndStoresNothing()
     {
         var containerId = await CreateContainerAsync();
         try
@@ -97,12 +99,84 @@ public class FolderDeleteRaceTests(SharedWebAppFixture fixture)
             var folder = await folders.EnsureAsync(Guid.Parse(containerId), "/docs/");
 
             await folders.DeleteAsync(Guid.Parse(containerId), "/docs/");
-            var stored = await documents.StoreInFolderAsync(
-                new Document(Guid.NewGuid().ToString(), containerId, "late.txt", "text/plain", "/docs/late.txt", 4, DateTime.UtcNow, []),
-                Guid.Parse(folder.Id));
+            bool wrote = false;
+            var stored = await documents.StoreInFolderAsync(DocumentAt(containerId, "/docs/late.txt"), Guid.Parse(folder.Id),
+                _ => { wrote = true; return Task.CompletedTask; });
 
             stored.Should().BeNull("the folder the upload was going into is gone");
+            wrote.Should().BeFalse("a refused upload must not have written a file it would then have to clean up");
             (await RecordedPathsAsync(containerId)).Should().BeEmpty();
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
+    public async Task DeleteFolder_WhileAnUploadHoldsTheFolder_WaitsAndRemovesTheUploadWhole()
+    {
+        var containerId = await CreateContainerAsync();
+        try
+        {
+            using var scope = fixture.Factory.Services.CreateScope();
+            var folders = scope.ServiceProvider.GetRequiredService<IFolderStore>();
+            var documents = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            var folder = await folders.EnsureAsync(Guid.Parse(containerId), "/docs/");
+            var written = new TaskCompletionSource();
+            var release = new TaskCompletionSource();
+
+            // The upload writes its file and then stalls before storing its record, holding the folder.
+            var upload = documents.StoreInFolderAsync(DocumentAt(containerId, "/docs/held.txt"), Guid.Parse(folder.Id), async token =>
+            {
+                await WriteAsync(containerId, "/docs/held.txt", "held", token);
+                written.SetResult();
+                await release.Task;
+            });
+            await written.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            var delete = Task.Run(async () =>
+            {
+                using var deleteScope = fixture.Factory.Services.CreateScope();
+                return await deleteScope.ServiceProvider.GetRequiredService<IFolderStore>().DeleteAsync(Guid.Parse(containerId), "/docs/");
+            });
+            await WaitUntilALockIsAwaitedAsync();
+            delete.IsCompleted.Should().BeFalse("the delete must wait for the upload holding the folder");
+
+            release.SetResult();
+            (await upload.WaitAsync(TimeSpan.FromSeconds(30))).Should().NotBeNull("the upload got the folder first");
+            (await delete.WaitAsync(TimeSpan.FromSeconds(30))).Should().BeTrue();
+
+            (await RecordedPathsAsync(containerId)).Should().BeEmpty();
+            (await StoredPathsAsync(containerId)).Should().BeEmpty("the delete saw the upload and removed it whole");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
+    public async Task UploadRefusedByADelete_ThenUploadToTheSamePath_KeepsTheNewerUploadWhole()
+    {
+        var containerId = await CreateContainerAsync();
+        try
+        {
+            using var scope = fixture.Factory.Services.CreateScope();
+            var folders = scope.ServiceProvider.GetRequiredService<IFolderStore>();
+            var documents = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+
+            // Upload A finds the folder, the folder is deleted, upload B recreates it and lands, then A is refused.
+            var seenByA = await folders.EnsureAsync(Guid.Parse(containerId), "/docs/");
+            await folders.DeleteAsync(Guid.Parse(containerId), "/docs/");
+            var seenByB = await folders.EnsureAsync(Guid.Parse(containerId), "/docs/");
+            (await documents.StoreInFolderAsync(DocumentAt(containerId, "/docs/same.txt"), Guid.Parse(seenByB.Id),
+                token => WriteAsync(containerId, "/docs/same.txt", "from B", token))).Should().NotBeNull();
+            (await documents.StoreInFolderAsync(DocumentAt(containerId, "/docs/same.txt"), Guid.Parse(seenByA.Id),
+                token => WriteAsync(containerId, "/docs/same.txt", "from A", token))).Should().BeNull();
+
+            (await RecordedPathsAsync(containerId)).Should().Equal("/docs/same.txt");
+            (await ReadAsync(containerId, "/docs/same.txt")).Should().Be("from B", "the refused upload must not touch the newer upload's file");
         }
         finally
         {
@@ -157,6 +231,42 @@ public class FolderDeleteRaceTests(SharedWebAppFixture fixture)
         multipart.Add(file, "files", fileName);
         multipart.Add(new StringContent(path), "path");
         return await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", multipart);
+    }
+
+    private static Document DocumentAt(string containerId, string path) =>
+        new(Guid.NewGuid().ToString(), containerId, path[(path.LastIndexOf('/') + 1)..], "text/plain", path, 4, DateTime.UtcNow, []);
+
+    private async Task WriteAsync(string containerId, string path, string text, CancellationToken ct)
+    {
+        var connector = (IWritableConnector)fixture.Factory.Services.GetRequiredService<IManagedStorageProvider>().CreateConnector(containerId);
+        using var content = new MemoryStream(Encoding.UTF8.GetBytes(text));
+        await connector.WriteFileAsync(path, content, "text/plain", ct);
+    }
+
+    private async Task<string> ReadAsync(string containerId, string path)
+    {
+        var connector = fixture.Factory.Services.GetRequiredService<IManagedStorageProvider>().CreateConnector(containerId);
+        using var reader = new StreamReader(await connector.ReadFileAsync(path));
+        return await reader.ReadToEndAsync();
+    }
+
+    /// <summary>Waits until some session is blocked waiting for a row or transaction lock, as the folder delete is.</summary>
+    private async Task WaitUntilALockIsAwaitedAsync()
+    {
+        using var scope = fixture.Factory.Services.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            await using var context = await factory.CreateDbContextAsync();
+            var waiting = await context.Database
+                .SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_locks WHERE NOT granted AND locktype IN ('tuple', 'transactionid')")
+                .ToListAsync();
+            if (waiting[0] > 0)
+                return;
+            await Task.Delay(50);
+        }
+        throw new TimeoutException("The folder delete never waited on a lock.");
     }
 
     private async Task<List<string>> StoredPathsAsync(string containerId)

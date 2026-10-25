@@ -37,8 +37,12 @@ public class UploadServiceTests
             .Returns(ci => new Folder(Guid.NewGuid().ToString(), ci.ArgAt<Guid>(0).ToString(), ci.ArgAt<string>(1), DateTime.UtcNow));
         _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
             .Returns(ci => new StoreResult(Guid.NewGuid().ToString(), 1));
-        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(ci => new StoreResult(Guid.NewGuid().ToString(), 1));
+        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async ci =>
+            {
+                await ci.ArgAt<Func<CancellationToken, Task>>(2)(CancellationToken.None);
+                return (StoreResult?)new StoreResult(Guid.NewGuid().ToString(), 1);
+            });
         _ingestionQueue.EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>())
             .Returns(ci => Guid.NewGuid().ToString());
 
@@ -166,22 +170,24 @@ public class UploadServiceTests
         result.Success.Should().BeTrue();
         Received.InOrder(() =>
         {
+            // The file is written inside the store, while it holds the folder against a delete.
             _folderStore.EnsureAsync(ContainerId, "/docs/reports/", Arg.Any<CancellationToken>());
+            _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Guid.Parse(folder.Id), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
             _connector.WriteFileAsync("docs/reports/test.txt", Arg.Any<Stream>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
-            _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Guid.Parse(folder.Id), Arg.Any<CancellationToken>());
         });
     }
 
     [Fact]
-    public async Task UploadAsync_FolderDeletedWhileUploading_FailsAndRemovesItsStoredFile()
+    public async Task UploadAsync_FolderDeletedBeforeTheStore_FailsHavingWrittenNothing()
     {
-        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
             .Returns((StoreResult?)null);
 
         var result = await _sut.UploadAsync(MakeRequest(path: "/docs/"));
 
         result.Success.Should().BeFalse();
-        await _connector.Received(1).DeleteFileAsync("docs/test.txt", Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive().WriteFileAsync(Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive().DeleteFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _ingestionQueue.DidNotReceive().EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>());
     }
 

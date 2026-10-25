@@ -41,9 +41,11 @@ public class PostgresDocumentStore : IDocumentStore
         return await UpsertAsync(context, document, ct);
     }
 
-    public async Task<StoreResult?> StoreInFolderAsync(Document document, Guid folderId, CancellationToken ct = default)
+    public async Task<StoreResult?> StoreInFolderAsync(
+        Document document, Guid folderId, Func<CancellationToken, Task> writeFile, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(writeFile);
 
         await using var context = await _factory.CreateDbContextAsync(ct);
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
@@ -56,6 +58,9 @@ public class PostgresDocumentStore : IDocumentStore
         if (folder.Count == 0)
             return null;
 
+        // Written under the lock: a refused upload has written nothing, so it never has a file to clean up that a
+        // newer upload to the same path might have replaced.
+        await writeFile(ct);
         var stored = await UpsertAsync(context, document, ct);
         await transaction.CommitAsync(ct);
         return stored;

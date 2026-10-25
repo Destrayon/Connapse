@@ -141,13 +141,8 @@ public class UploadService(
 
         var contentType = request.ContentType ?? InferContentType(request.FileName);
 
-        // The folder comes before the file, so a folder delete that lands anywhere after this point either sees the
-        // document and removes it, stored file included, or makes the store below refuse it (CON-86).
         var folderPath = PathUtilities.GetParentPath(virtualFilePath);
         Folder? folder = folderPath == "/" ? null : await folderStore.EnsureAsync(request.ContainerId, folderPath, ct);
-
-        // Write file
-        await connector.WriteFileAsync(relativePath, request.Content, contentType, ct);
 
         // Cancel any in-flight ingestion for an existing document at the same path.
         var existingDoc = await documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
@@ -171,16 +166,23 @@ public class UploadService(
                 ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
                 ["IngestedVia"] = request.IngestedVia
             });
-        var storeResult = folder is null
-            ? await documentStore.StoreAsync(document, ct)
-            : await documentStore.StoreInFolderAsync(document, Guid.Parse(folder.Id), ct);
-
-        // The folder was deleted while the file was uploading: the upload goes with it, stored file included.
-        if (storeResult is null)
+        // In a folder, the file is written while the folder is locked against a delete, so a folder delete either
+        // waits and removes the file with its record, or comes first and the upload is refused before it writes
+        // anything (CON-86).
+        Task WriteFileAsync(CancellationToken token) => connector.WriteFileAsync(relativePath, request.Content, contentType, token);
+        StoreResult? storeResult;
+        if (folder is null)
         {
-            await connector.DeleteFileAsync(relativePath, CancellationToken.None);
-            return new UploadResult(false, Error: "Upload not allowed: the folder was deleted while the file was uploading.");
+            await WriteFileAsync(ct);
+            storeResult = await documentStore.StoreAsync(document, ct);
         }
+        else
+        {
+            storeResult = await documentStore.StoreInFolderAsync(document, Guid.Parse(folder.Id), WriteFileAsync, ct);
+        }
+
+        if (storeResult is null)
+            return new UploadResult(false, Error: "Upload not allowed: the folder was deleted while the file was uploading.");
 
         // Use the winning document ID (may differ from our generated one if upsert hit an existing row)
         var winnerDocId = storeResult.DocumentId;
