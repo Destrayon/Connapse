@@ -3,3 +3,5 @@ DELETE /api/containers/{containerId} removed the success response with the statu
 DELETE /api/containers/{containerId}/files/{fileId} removed the success response with the status `200`
 DELETE /api/containers/{containerId}/folders removed the success response with the status `200`
 POST /api/containers/{containerId}/folders removed the success response with the status `200`
+POST /api/sources removed the success response with the status `200`
+DELETE /api/sources/{sourceId} removed the success response with the status `200`

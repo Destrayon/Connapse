@@ -34,7 +34,9 @@ public static class SourcesEndpoints
 {
     public static IEndpointRouteBuilder MapSourcesEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/sources").WithTags("Sources");
+        var group = app.MapGroup("/api/sources").WithTags("Sources")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // GET /api/sources - List sources (paginated)
         group.MapGet("/", async (
@@ -52,6 +54,8 @@ public static class SourcesEndpoints
             var items = page.Items.Select(s => SourceResponse.From(s, page.Diagnostics)).ToList();
             return Results.Ok(new PagedResponse<SourceResponse>(items, items.Count, page.HasMore));
         })
+        .Produces<PagedResponse<SourceResponse>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .WithName("ListSources")
         .WithDescription("List sources with pagination (?skip=0&take=50). Returns sync state, never a file listing.")
         .RequireAuthorization("RequireViewer");
@@ -68,6 +72,8 @@ public static class SourcesEndpoints
                 ? Results.Ok(SourceResponse.From(read.Result!.Source, read.Result.Diagnostics))
                 : OperationProblems.Result(read);
         })
+        .Produces<SourceResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetSource")
         .WithDescription("Get a source's configuration summary and sync state.")
         .RequireAuthorization("RequireViewer");
@@ -89,6 +95,10 @@ public static class SourcesEndpoints
             return Results.Created($"/api/sources/{source.Id}",
                 SourceResponse.From(source, includeDiagnostics: true) with { Warning = created.Result.Warning });
         })
+        .Produces<SourceResponse>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status502BadGateway)
         .WithName("CreateSource")
         .WithDescription("Create a source inside an existing connection. Administrator only — a source chooses what external data is indexed.")
         .RequireAuthorization("RequireAdmin");
@@ -103,7 +113,7 @@ public static class SourcesEndpoints
             CancellationToken ct) =>
         {
             if (body.ValueKind != JsonValueKind.Object)
-                return Results.BadRequest(new { error = "The body must be a JSON object." });
+                return ApiProblem.BadRequest("The body must be a JSON object.");
             UpdateSourceRequest request;
             try
             {
@@ -112,7 +122,7 @@ public static class SourcesEndpoints
             // A scope with no type is NotSupportedException rather than JsonException; both are the caller's mistake.
             catch (Exception ex) when (ex is JsonException or NotSupportedException)
             {
-                return Results.BadRequest(new { error = $"Invalid request: {ex.Message}" });
+                return ApiProblem.BadRequest($"Invalid request: {ex.Message}");
             }
 
             var updated = await update.RunAsync(Rest(http), sourceId, request, ct);
@@ -121,6 +131,10 @@ public static class SourcesEndpoints
                 : OperationProblems.Result(updated);
         })
         .Accepts<UpdateSourceRequest>("application/json")
+        .Produces<SourceResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("UpdateSource")
         .WithDescription("Update a source's name, description, scope, sync interval, or enabled state.")
         .RequireAuthorization("RequireAdmin");
@@ -136,6 +150,9 @@ public static class SourcesEndpoints
             var deleted = await delete.RunAsync(Rest(http), sourceId, confirmName, ct);
             return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("DeleteSource")
         .WithDescription("Delete a source and its indexed documents. confirmName must be the source's name. The external data itself is untouched.")
         .RequireAuthorization("RequireAdmin");
@@ -153,16 +170,18 @@ public static class SourcesEndpoints
                 return OperationProblems.Result(synced);
 
             var result = synced.Result!.Result;
-            return Results.Ok(new
-            {
+            return Results.Ok(new SourceSyncResponse(
                 result.Upserted,
                 result.Deleted,
                 result.UsedDeltaPath,
                 result.RequiredResync,
                 result.Error,
-                result.WithheldDeletions
-            });
+                result.WithheldDeletions));
         })
+        .Produces<SourceSyncResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("SyncSource")
         .WithDescription("Run one sync cycle for a source immediately, rather than waiting for the next scheduled poll.")
         .RequireAuthorization("RequireAdmin");
@@ -175,15 +194,20 @@ public static class SourcesEndpoints
         {
             var retried = await retryFailed.RunAsync(Rest(http), sourceId, ct);
             return retried.Succeeded
-                ? Results.Ok(new { enqueuedCount = retried.Result })
+                ? Results.Ok(new RetryFailedResponse(retried.Result))
                 : OperationProblems.Result(retried);
         })
+        .Produces<RetryFailedResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("RetryFailedSourceDocuments")
         .WithDescription("Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file.")
         .RequireAuthorization("RequireAdmin");
 
         // GET /api/v1/sources/scope-schema/{provider}
-        app.MapGroup("/api/v1/sources").WithTags("Sources").MapGet("/scope-schema/{provider}", async (
+        app.MapGroup("/api/v1/sources").WithTags("Sources")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .MapGet("/scope-schema/{provider}", async (
             string provider,
             [FromServices] GetScopeSchema schema,
             HttpContext http,
@@ -193,6 +217,7 @@ public static class SourcesEndpoints
             return read.Succeeded ? Results.Ok(read.Result) : OperationProblems.Result(read);
         })
         .Produces<ScopeSchema>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetSourceScopeSchema")
         .WithDescription("The JSON schema of each kind of scope a provider's sources take: the \"scope\" a create or update sends, with its \"type\".")
         .RequireAuthorization("RequireViewer");
@@ -247,6 +272,15 @@ public static class SourcesEndpoints
 
     private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 }
+
+/// <summary>One sync cycle's outcome, as POST /api/sources/{sourceId}/sync returns it.</summary>
+public record SourceSyncResponse(
+    int Upserted,
+    int Deleted,
+    bool UsedDeltaPath,
+    bool RequiredResync,
+    string? Error,
+    int WithheldDeletions);
 
 /// <summary>
 /// Request body for creating a source. Separate from <see cref="CreateSourceRequest"/> so the

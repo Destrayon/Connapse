@@ -30,18 +30,5 @@
   "Endpoints/OAuthEndpoints.cs: POST /oauth/register: 2",
   "Endpoints/OAuthEndpoints.cs: POST /oauth/token: 1",
   "Endpoints/OAuthEndpoints.cs: RequireFormContentType: 1",
-  "Endpoints/SearchEndpoints.cs: GET /api/containers/{containerId:guid}/search/: 2",
-  "Endpoints/SearchEndpoints.cs: GET /api/containers/{containerId:guid}/search/models: 3",
-  "Endpoints/SearchEndpoints.cs: POST /api/containers/{containerId:guid}/search/: 2",
-  "Endpoints/SearchEndpoints.cs: ValidateSearchParams: 3",
-  "Endpoints/SettingsEndpoints.cs: GET /api/settings/embedding-models: 2",
-  "Endpoints/SettingsEndpoints.cs: GET /api/settings/reindex/status: 1",
-  "Endpoints/SettingsEndpoints.cs: GET /api/settings/{category}: 1",
-  "Endpoints/SettingsEndpoints.cs: POST /api/settings/reindex: 1",
-  "Endpoints/SettingsEndpoints.cs: POST /api/settings/test-connection: 3",
-  "Endpoints/SettingsEndpoints.cs: PUT /api/settings/{category}: 5",
-  "Endpoints/SourcesEndpoints.cs: PATCH /api/sources/{sourceId:guid}: 2",
-  "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/retry-failed: 1",
-  "Endpoints/SourcesEndpoints.cs: POST /api/sources/{sourceId:guid}/sync: 1",
   "Program.cs: GET /api/v1/info: 1"
 ]
