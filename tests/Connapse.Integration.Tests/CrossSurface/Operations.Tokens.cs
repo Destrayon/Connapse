@@ -32,12 +32,14 @@ public static partial class Operations
     /// </summary>
     private static readonly Operation[] TokenOperations =
     [
+        // Lists the caller's tokens. Besides the admin's, the case arranges one of the Viewer's, so each surface
+        // must answer exactly the caller's own: the admin sees only theirs, and a user with no role sees neither.
         new("pats_list", [Case.Valid, Case.UnderScoped], Writes: false, 0, false,
             Rest: async (f, c, p, k) =>
             {
                 using var rest = await Surfaces.RestAsync(f, p);
                 var response = await rest.GetAsync("/api/v1/auth/pats");
-                return await WithPayloadAsync(response, body => Listed(TokenNames(body).Contains(c.Token!.Name)));
+                return await WithPayloadAsync(response, body => CaseTokens(c, TokenNames(body)));
             },
             Mcp: null,
             Ui: async (f, c, p, k) =>
@@ -46,12 +48,13 @@ public static partial class Operations
                 var page = ui.Context.Render<PersonalTokens>();
                 if (TokensPageError(page) is { } error)
                     return error;
-                return "ok " + Listed(TokenRow(page, c.Token!.Name) is not null);
+                return "ok " + CaseTokens(c, page.FindAll("tbody tr").Select(r => r.QuerySelector("td")?.TextContent.Trim()));
             },
             Project: (sp, c) => TokenStateAsync(sp, c))
         {
             AbsentReasons = NoTokenTools,
             ArrangesToken = true,
+            Prepare = async (f, c, k) => await ArrangeViewersTokenAsync(f, c),
         },
 
         // Makes a token named after the case that reads knowledge. The invalid case's name is blank.
@@ -117,6 +120,21 @@ public static partial class Operations
     ];
 
     private static string TokenName(string containerName) => $"pat-{containerName}";
+
+    private static string ViewersTokenName(CaseContext c) => $"{c.Token!.Name}-viewers";
+
+    /// <summary>Which of the case's tokens a list holds, in the surfaces' shared words: whose each is, in order.</summary>
+    private static string CaseTokens(CaseContext c, IEnumerable<string?> names) =>
+        "tokens=[" + string.Join(",", names.Where(n => n?.Contains(c.ContainerName, StringComparison.Ordinal) == true)
+            .Select(n => n == c.Token!.Name ? "admin's" : n == ViewersTokenName(c) ? "viewer's" : "other").Order(StringComparer.Ordinal)) + "]";
+
+    /// <summary>Gives the Viewer a token named after the case, which no one else's list may show.</summary>
+    private static async Task ArrangeViewersTokenAsync(SharedWebAppFixture fixture, CaseContext c)
+    {
+        Guid viewer = await Principals.UserIdAsync(fixture, Principal.Viewer);
+        using var scope = fixture.Factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<PatService>().CreateAsync(viewer, new PatCreateRequest(ViewersTokenName(c), ["knowledge:read"]));
+    }
 
     private static string NewTokenName(CaseContext c, string @case) => @case == Case.Invalid ? "   " : $"{c.Token!.Name}-{@case[..2]}";
 

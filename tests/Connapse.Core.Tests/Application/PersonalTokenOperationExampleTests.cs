@@ -65,6 +65,27 @@ public class PersonalTokenOperationExampleTests
         _audit.ReceivedCalls().Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("client_id", "an-mcp-client")]
+    [InlineData("auth_method", "api_key")]
+    [InlineData("auth_method", "agent_api_key")]
+    public async Task EveryOperation_FromAToken_IsForbidden_EvenWhenThePersonPolicyLetsItThrough(string type, string value)
+    {
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Person).Returns(true);
+        var context = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, _callerId.ToString()), new Claim(type, value)], "test")), OperationSurface.Rest);
+
+        var attempts = new[]
+        {
+            (await new ListPersonalTokens(_pats, _authorizer).RunAsync(context)).Status,
+            (await Create().RunAsync(context, new("script"))).Status,
+            (await new RevokePersonalToken(_pats, _authorizer, _audit).RunAsync(context, _tokenId)).Status,
+        };
+
+        attempts.Should().AllBeEquivalentTo(PatStatus.Forbidden);
+        _pats.ReceivedCalls().Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Forbidden_SaysWhy()
     {

@@ -2,6 +2,7 @@ using Connapse.Application.Ports;
 using Connapse.Application.Users;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Identity.Authorization;
 using Connapse.Identity.Services;
 
 namespace Connapse.Application.Tokens;
@@ -29,12 +30,16 @@ internal static class PatRules
     public const int MaxNameLength = 256;
 
     /// <summary>
-    /// The person managing their own tokens, signed in themselves: a browser session or their own bearer token.
-    /// Never a personal access token, which could otherwise mint its owner one with more scopes than it holds,
-    /// and never an agent key, which acts as no person. Null when the caller is neither.
+    /// The person managing their own tokens, signed in themselves: a browser session or the bearer token they
+    /// signed in for. Never a token of any kind: a personal access token or an OAuth client's access token could
+    /// otherwise mint its owner one with more scopes than it was granted, and an agent key acts as no person.
+    /// RequirePerson refuses the first and last but admits an OAuth client's token, so that is refused here.
+    /// Null when the caller may not.
     /// </summary>
     public static async Task<Guid?> OwnerAsync(IOperationAuthorizer authorizer, OperationContext context) =>
-        await authorizer.AllowsAsync(context.User, Policies.Person) ? UserRules.CallerId(context.User) : null;
+        await authorizer.AllowsAsync(context.User, Policies.Person) && !TokenScopes.IsToken(context.User)
+            ? UserRules.CallerId(context.User)
+            : null;
 }
 
 /// <summary>Lists the caller's own personal access tokens, newest first, revoked ones included. A token's value is never listed.</summary>
