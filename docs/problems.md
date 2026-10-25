@@ -181,3 +181,42 @@ upload, each such file is reported in its place and the rest are still uploaded.
 ## container-not-writable
 
 The container's storage doesn't take uploads.
+
+## user-not-found
+
+No user has that id.
+
+## invalid-roles
+
+The roles asked for can't be given: none at all (a user keeps at least one), one that isn't a role
+(the roles are `Viewer`, `Editor` and `Admin`), or `Owner` or `Agent`, which are never assigned.
+`field` is `roles`.
+
+## user-changed
+
+The user's roles changed between the check of what you may do and the change itself, most often
+because someone else changed them, so nothing was done. Load the user again and retry.
+
+## user-not-changed
+
+The user's account store refused the change, so nothing was changed. The detail says why when it
+can.
+
+## invalid-invite
+
+The invite can't be made as asked: the email is missing, longer than 256 characters, or not an
+email address (`field` is `email`), or the role isn't one an invite gives. The roles are `Viewer`,
+`Editor` and `Admin`; `Owner` and `Agent` are never given (`field` is `role`).
+
+## user-exists
+
+Someone already has an account with that email, so there's no one to invite. `field` is `email`.
+
+## invite-pending
+
+That email already has a pending invite. Revoke it first to send a new link.
+`field` is `email`.
+
+## invite-not-found
+
+No pending invite has that id. It may have been revoked, or already accepted.

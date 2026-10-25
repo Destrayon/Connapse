@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Connapse.Application;
 using Connapse.Application.Links;
 using Connapse.Application.Ports;
+using Connapse.Application.Users;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -219,116 +220,70 @@ public static class AuthEndpoints
         group.MapGet("/users", async (
             [FromQuery] int? skip,
             [FromQuery] int? take,
-            [FromServices] ConnapseIdentityDbContext dbContext,
+            [FromServices] ListUsers list,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var effectiveSkip = skip ?? 0;
-            var effectiveTake = take ?? 50;
-            var validationError = PaginationValidator.Validate(effectiveSkip, effectiveTake);
-            if (validationError is not null) return validationError;
+            var listed = await list.RunAsync(Rest(http), new ListUsersQuery(skip ?? 0, take ?? 50), ct);
+            if (!listed.Succeeded)
+                return OperationProblems.Result(listed);
 
-            var totalCount = await dbContext.Users.CountAsync(ct);
-
-            var users = await dbContext.Users
-                .OrderBy(u => u.CreatedAt)
-                .Skip(effectiveSkip)
-                .Take(effectiveTake)
-                .ToListAsync(ct);
-
-            var userIds = users.Select(u => u.Id).ToList();
-
-            // Batch-load role mappings only for this page of users
-            var rolesByUserId = await dbContext.UserRoles
-                .Where(ur => userIds.Contains(ur.UserId))
-                .Join(
-                    dbContext.Roles,
-                    ur => ur.RoleId,
-                    r => r.Id,
-                    (ur, r) => new { ur.UserId, RoleName = r.Name! })
-                .ToListAsync(ct);
-
-            var roleLookup = rolesByUserId
-                .GroupBy(x => x.UserId)
-                .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.RoleName).ToList());
-
-            var items = users.Select(u => new UserListItem(
-                u.Id,
-                u.Email ?? "",
-                u.DisplayName,
-                roleLookup.GetValueOrDefault(u.Id, []),
-                u.CreatedAt,
-                u.LastLoginAt)).ToList();
-
-            return Results.Ok(new PagedResponse<UserListItem>(items, totalCount, effectiveSkip + effectiveTake < totalCount));
+            var page = listed.Result!;
+            var items = page.Items.Select(u => new UserListItem(u.Id, u.Email, u.DisplayName, u.Roles, u.CreatedAt, u.LastLoginAt)).ToList();
+            return Results.Ok(new PagedResponse<UserListItem>(items, page.TotalCount, page.HasMore));
         })
         .Produces<PagedResponse<UserListItem>>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden)
-        .WithName("ListUsers")
+        .WithName("users.list")
         .WithDescription("List users with pagination (?skip=0&take=50) (Admin only)")
         .RequireAuthorization("RequireAdmin");
 
-        // PUT /api/v1/auth/users/{id}/roles — assign roles to a user (Admin only)
+        // PUT /api/v1/auth/users/{id}/roles — replace a user's roles (Admin only; Admins only by the Owner)
         group.MapPut("/users/{id:guid}/roles", async (
             Guid id,
             [FromBody] AssignRolesRequest request,
-            [FromServices] UserManager<ConnapseUser> userManager,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] SetUserRoles setRoles,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var targetUser = await userManager.FindByIdAsync(id.ToString());
-            if (targetUser is null)
-                return ApiProblem.NotFound("User not found");
-
-            // Owner and Agent roles cannot be assigned via this endpoint
-            var reservedRoles = new[] { "Owner", "Agent" };
-            var blocked = request.Roles.FirstOrDefault(r =>
-                reservedRoles.Contains(r, StringComparer.OrdinalIgnoreCase));
-            if (blocked is not null)
-                return ApiProblem.BadRequest($"The '{blocked}' role cannot be assigned via this endpoint.");
-
-            var currentRoles = await userManager.GetRolesAsync(targetUser);
-
-            // Never remove the Owner role — preserve it regardless of requested roles
-            var ownerRoles = currentRoles
-                .Where(r => r.Equals("Owner", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            var rolesToRemove = currentRoles
-                .Except(ownerRoles, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (rolesToRemove.Count > 0)
-                await userManager.RemoveFromRolesAsync(targetUser, rolesToRemove);
-
-            var rolesToAdd = request.Roles
-                .Where(r => !currentRoles.Contains(r, StringComparer.OrdinalIgnoreCase))
-                .ToList();
-
-            if (rolesToAdd.Count > 0)
-            {
-                var addResult = await userManager.AddToRolesAsync(targetUser, rolesToAdd);
-                if (!addResult.Succeeded)
-                    return ApiProblem.BadRequest(addResult.Errors.Select(e => e.Description));
-            }
-
-            await auditLogger.LogAsync("user.roles.updated", "user", id.ToString(),
-                new { Roles = request.Roles }, ct);
-
-            return Results.NoContent();
+            var set = await setRoles.RunAsync(Rest(http), new SetUserRolesRequest(id, request.Roles), ct);
+            return set.Succeeded ? Results.NoContent() : OperationProblems.Result(set);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("AssignUserRoles")
-        .WithDescription("Assign roles to a user (Admin only)")
+        .WithName("users.setRoles")
+        .WithDescription("Replace a user's roles (Admin only). Nobody changes their own account or the Owner's, only the Owner manages Admins, and Owner and Agent are never assigned.")
         .RequireAuthorization("RequireAdmin");
+
+        // DELETE /api/v1/auth/users/{id} — delete a user (Admin only), queuing their custom-provider unlinks
+        group.MapDelete("/users/{id:guid}", async (
+            Guid id,
+            [FromServices] DeleteUser delete,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var deleted = await delete.RunAsync(Rest(http), id, ct);
+            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
+        })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status500InternalServerError)
+        .WithName("users.delete")
+        .WithDescription("Delete a user (Admin only). Nobody deletes their own account or the Owner's, and only the Owner deletes an Admin. Their custom-provider links are unlinked afterwards.")
+        // The scope too: an administrator's token issued for less (knowledge:read) is refused here, before the operation.
+        .RequireAuthorization("RequireAdmin", "Scope:AdminUsers");
 
         return app;
     }
+
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 
     private static Guid? GetUserId(HttpContext httpContext)
     {

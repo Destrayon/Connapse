@@ -202,6 +202,8 @@ builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceVisibility>(sp => sp.GetRequiredService<Connapse.Web.Services.PrivateSourceVisibility>());
 builder.Services.AddScoped<Connapse.Application.Ports.IOperationAuthorizer, Connapse.Web.Services.OperationAuthorizer>();
+builder.Services.AddScoped<Connapse.Application.Ports.IUserDirectory, Connapse.Web.Services.UserDirectory>();
+builder.Services.AddScoped<Connapse.Application.Ports.IInviteStore, Connapse.Web.Services.InviteStore>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
@@ -483,6 +485,7 @@ var api = app.MapGroup("").DisableAntiforgery()
     .RequireRateLimiting(RateLimitingExtensions.ApiPolicy)
     .WithProblemResults();
 api.MapAuthEndpoints();
+api.MapInviteEndpoints();
 api.MapCloudIdentityEndpoints();
 api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
