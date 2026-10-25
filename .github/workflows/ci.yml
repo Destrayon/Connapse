@@ -184,6 +184,9 @@ jobs:
         # WARN too: oasdiff rates some real breaks only as warnings, such as a change it can't compare
         # exactly inside an allOf.
         fail-on: WARN
+        # One line per intended change, "<METHOD> <path> <oasdiff's message>"; each matches only that
+        # operation's change. Every line is explained in the PR that adds it.
+        err-ignore: .github/oasdiff-err-ignore.txt
         review: 'false'
         github-token: ''
 
