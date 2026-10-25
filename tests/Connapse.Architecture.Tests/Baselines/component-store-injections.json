@@ -13,7 +13,6 @@
   "Pages.Providers -> IProviderCredentialStore",
   "Pages.Providers -> ISettingsStore",
   "Pages.Search -> IContainerStore",
-  "Pages.Search -> ISourceStore",
   "Pages.Settings -> ISettingsStore",
   "Pages.SourceEdit -> IConnectionStore",
   "Pages.Sources -> IConnectionStore",

@@ -850,6 +850,22 @@ Cascade deletes all nested files, subfolders, chunks, vectors, and MinIO objects
 
 **Response**: Same as GET search.
 
+**Errors** (both routes): `400` [`invalid-search`](problems.md#invalid-search) with `field` naming the input
+at fault; `403` when the caller lacks `knowledge:read`; `404` [`search-scope-not-found`](problems.md#search-scope-not-found)
+for an unknown container, or a source id (search a source at its own route).
+
+---
+
+### Search a source
+
+**Endpoint**: `POST /api/sources/{sourceId}/search`
+
+Searches a source as a container is searched, with the same request body and response as
+`POST /api/containers/{id}/search`. Every hit is checked for the caller. A source the caller may not
+know exists returns `404`, except one whose every hit is checked against its provider for them (a
+Confluence space, a Jira project, a permission-checked custom source): that one is searched, and
+returns `404` only when the caller can read nothing in it. A container id returns `404`.
+
 ---
 
 ## Container Reindex API

@@ -41,6 +41,8 @@ public static class SourceOperationsSetup
     {
         public Task<Func<Connapse.Core.Source, bool>> ForAsync(ClaimsPrincipal? caller, CancellationToken ct = default) =>
             Task.FromResult<Func<Connapse.Core.Source, bool>>(_ => true);
+
+        public bool IsSearchableWhenHidden(Connapse.Core.Source source) => PrivateSourceVisibility.IsSearchableWhenHidden(source);
     }
 
     private sealed class SignedIn : AuthenticationStateProvider

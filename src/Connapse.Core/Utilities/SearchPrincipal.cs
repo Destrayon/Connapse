@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace Connapse.Web.Services;
+namespace Connapse.Core.Utilities;
 
 /// <summary>
 /// Works out which person a search is running for.
@@ -41,9 +41,9 @@ public static class SearchPrincipal
         if (principal?.Identity?.IsAuthenticated != true)
             return null;
 
-        string? claim = principal.FindFirstValue(ActorTypeClaim) == "agent"
-            ? principal.FindFirstValue(OnBehalfOfClaim)
-            : principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        string? claim = principal.FindFirst(ActorTypeClaim)?.Value == "agent"
+            ? principal.FindFirst(OnBehalfOfClaim)?.Value
+            : principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
         return Guid.TryParse(claim, out var id) ? id : null;
     }

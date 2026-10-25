@@ -25,6 +25,7 @@ namespace Connapse.Web.Tests.Components;
 [Trait("Category", "Unit")]
 public class SearchPageSourceBadgeTests : IDisposable
 {
+    private static readonly Guid ContainerId = Guid.NewGuid();
     private readonly BunitContext ctx = new();
 
     public SearchPageSourceBadgeTests()
@@ -32,8 +33,9 @@ public class SearchPageSourceBadgeTests : IDisposable
         ctx.AddAuthorization().SetAuthorized("viewer");
 
         var containers = Substitute.For<IContainerStore>();
-        containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns([new Container("c1", "docs", null, DateTime.UtcNow, DateTime.UtcNow)]);
+        var docs = new Container(ContainerId.ToString(), "docs", null, DateTime.UtcNow, DateTime.UtcNow);
+        containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([docs]);
+        containers.GetAsync(ContainerId, Arg.Any<CancellationToken>()).Returns(docs);
         var sources = Substitute.For<ISourceStore>();
         sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
         var search = Substitute.For<IKnowledgeSearch>();
@@ -53,6 +55,7 @@ public class SearchPageSourceBadgeTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<IOptionsMonitor<EmbeddingSettings>>());
         ctx.Services.AddSingleton(new VectorModelDiscovery(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance));
+        ctx.Services.AddSourceOperations();
     }
 
     public void Dispose() => ctx.Dispose();
@@ -61,7 +64,7 @@ public class SearchPageSourceBadgeTests : IDisposable
     public void Result_FileNameBadge_RendersFileNameUnchanged()
     {
         var cut = ctx.Render<SearchPage>();
-        cut.Find("select.form-select").Change("c1");
+        cut.Find("select.form-select").Change(ContainerId.ToString());
         cut.Find("input.form-control-lg").Input("anything");
         cut.Find("button.btn-primary").Click();
 

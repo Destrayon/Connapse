@@ -161,9 +161,9 @@
     "IsEmpty": false
   },
   "Pages/Search.razor": {
-    "CodeLines": 163,
-    "Injects": 8,
-    "Complexity": 42,
+    "CodeLines": 143,
+    "Injects": 7,
+    "Complexity": 37,
     "MarkupLogic": 16,
     "IsEmpty": false
   },

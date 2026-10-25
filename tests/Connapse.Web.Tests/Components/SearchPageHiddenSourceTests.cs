@@ -54,6 +54,7 @@ public class SearchPageHiddenSourceTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<IOptionsMonitor<EmbeddingSettings>>());
         ctx.Services.AddSingleton(new VectorModelDiscovery(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance));
+        ctx.Services.AddSourceOperations();
     }
 
     public void Dispose() => ctx.Dispose();
@@ -94,9 +95,10 @@ public class SearchPageHiddenSourceTests : IDisposable
     {
         Seed("""{"kind":"confluence-space","spaceKey":"ENG"}""");
 
-        var cut = SearchFor(Guid.NewGuid());
+        var missing = Guid.NewGuid();
+        var cut = SearchFor(missing);
 
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("No results found"));
+        cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain($"Container or source '{missing}' not found"));
         cut.Markup.Should().Contain("Source from link");
         search.DidNotReceiveWithAnyArgs().SearchAsync(default!, default!, default);
     }
@@ -108,7 +110,8 @@ public class SearchPageHiddenSourceTests : IDisposable
 
         var cut = SearchFor(source.Id);
 
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("No results found"));
+        // The same answer as an id that doesn't exist, so the page can't tell the two apart.
+        cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain($"Container or source '{source.Id}' not found"));
         cut.Markup.Should().NotContain("secret-space-name");
         search.DidNotReceiveWithAnyArgs().SearchAsync(default!, default!, default);
     }

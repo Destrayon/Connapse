@@ -3,6 +3,7 @@ using System.Text.Json;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.CloudScope;
 using Microsoft.AspNetCore.Authorization;
 
@@ -104,6 +105,8 @@ public sealed class PrivateSourceVisibility(
     /// <remarks>A connected custom source is the same: every hit is checked live with its provider.</remarks>
     public static bool IsSearchableWhenHidden(Source source) =>
         IsAtlassianContent(source.ScopeJson) || CustomSourceScope.TryParse(source.ScopeJson) is not null;
+
+    bool ISourceVisibility.IsSearchableWhenHidden(Source source) => IsSearchableWhenHidden(source);
 
     /// <summary>A Confluence space or a Jira project: an Atlassian kind whose hits are checked live per user.</summary>
     private static bool IsAtlassianContent(string? scopeJson) =>
