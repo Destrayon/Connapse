@@ -10,6 +10,7 @@ using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Client;
 
 namespace Connapse.Integration.Tests;
 
@@ -44,6 +45,33 @@ public class OAuthRefreshScopeTests(SharedWebAppFixture fixture)
         var claims = new JwtSecurityTokenHandler().ReadJwtToken(refreshed.GetProperty("access_token").GetString()).Claims.ToList();
         claims.Where(c => c.Type == "scope").Select(c => c.Value).Should().Equal("knowledge:read");
         claims.Should().Contain(c => c.Type == "client_id" && c.Value == clientId);
+    }
+
+    [Fact]
+    public async Task Refresh_ClientGrantedKnowledgeRead_IsOfferedNoWriteOrDeleteTool()
+    {
+        // MCP has no admin-only tool; the tools above knowledge:read are the write and delete ones, which a refreshed
+        // read-only token used to get because it read as the administrator's sign-in.
+        using var anonymous = fixture.Factory.CreateClient();
+        string clientId = await RegisterAsync(anonymous);
+        var granted = await GrantAsync(anonymous, clientId, "knowledge:read");
+        var refreshed = await TokenAsync(anonymous, new()
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = granted.GetProperty("refresh_token").GetString()!,
+            ["client_id"] = clientId,
+        });
+        using var http = Bearer(refreshed.GetProperty("access_token").GetString()!);
+        var transport = new HttpClientTransport(
+            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
+            http);
+        await using var mcp = await McpClient.CreateAsync(transport);
+
+        var tools = (await mcp.ListToolsAsync()).Select(t => t.Name).ToList();
+
+        tools.Should().Contain("container_list", "the token still has knowledge:read");
+        tools.Should().NotContain(["container_create", "container_delete", "upload_file", "delete_file"],
+            "each needs knowledge:write, which the client wasn't granted");
     }
 
     [Fact]
