@@ -141,13 +141,13 @@ public class UploadService(
 
         var contentType = request.ContentType ?? InferContentType(request.FileName);
 
+        // The folder comes before the file, so a folder delete that lands anywhere after this point either sees the
+        // document and removes it, stored file included, or makes the store below refuse it (CON-86).
+        var folderPath = PathUtilities.GetParentPath(virtualFilePath);
+        Folder? folder = folderPath == "/" ? null : await folderStore.EnsureAsync(request.ContainerId, folderPath, ct);
+
         // Write file
         await connector.WriteFileAsync(relativePath, request.Content, contentType, ct);
-
-        // Ensure intermediate folders
-        var folderPath = PathUtilities.GetParentPath(virtualFilePath);
-        if (folderPath != "/")
-            await EnsureIntermediateFoldersAsync(folderStore, request.ContainerId, folderPath, ct);
 
         // Cancel any in-flight ingestion for an existing document at the same path.
         var existingDoc = await documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
@@ -157,7 +157,7 @@ public class UploadService(
         // Eagerly create/update the document row. The upsert atomically increments
         // the generation counter, so any in-flight job for a prior generation will
         // detect it's stale and skip chunk insertion.
-        var storeResult = await documentStore.StoreAsync(new Document(
+        var document = new Document(
             documentId,
             request.ContainerId.ToString(),
             request.FileName,
@@ -170,7 +170,17 @@ public class UploadService(
                 ["OriginalFileName"] = request.FileName,
                 ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
                 ["IngestedVia"] = request.IngestedVia
-            }), ct);
+            });
+        var storeResult = folder is null
+            ? await documentStore.StoreAsync(document, ct)
+            : await documentStore.StoreInFolderAsync(document, Guid.Parse(folder.Id), ct);
+
+        // The folder was deleted while the file was uploading: the upload goes with it, stored file included.
+        if (storeResult is null)
+        {
+            await connector.DeleteFileAsync(relativePath, CancellationToken.None);
+            return new UploadResult(false, Error: "Upload not allowed: the folder was deleted while the file was uploading.");
+        }
 
         // Use the winning document ID (may differ from our generated one if upsert hit an existing row)
         var winnerDocId = storeResult.DocumentId;
@@ -219,22 +229,5 @@ public class UploadService(
     {
         var ext = Path.GetExtension(fileName);
         return ext is not null && ContentTypeMap.TryGetValue(ext, out var ct) ? ct : "application/octet-stream";
-    }
-
-    private static async Task EnsureIntermediateFoldersAsync(
-        IFolderStore folderStore, Guid containerId, string normalizedFolderPath, CancellationToken ct)
-    {
-        if (normalizedFolderPath == "/")
-            return;
-
-        var segments = normalizedFolderPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var currentPath = "/";
-
-        foreach (var segment in segments)
-        {
-            currentPath += segment + "/";
-            if (!await folderStore.ExistsAsync(containerId, currentPath, ct))
-                await folderStore.CreateAsync(containerId, currentPath, ct);
-        }
     }
 }

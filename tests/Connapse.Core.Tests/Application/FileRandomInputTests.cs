@@ -38,7 +38,8 @@ public class FileRandomInputTests
         public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IFolderStore Folders = Substitute.For<IFolderStore>();
-        public readonly IKnowledgeFileSystem Files = Substitute.For<IKnowledgeFileSystem>();
+        public readonly IWritableConnector Files = Substitute.For<IWritableConnector>();
+        public readonly IManagedStorageProvider Storage = Substitute.For<IManagedStorageProvider>();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly IDocumentAccess Access = Substitute.For<IDocumentAccess>();
@@ -46,6 +47,7 @@ public class FileRandomInputTests
 
         public World(bool reader, bool writer, bool containerExists)
         {
+            Storage.CreateConnector(Arg.Any<string>()).Returns(Files);
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(reader);
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Writer).Returns(writer);
             Containers.GetAsync(Here, Arg.Any<CancellationToken>())
@@ -66,7 +68,7 @@ public class FileRandomInputTests
             Documents.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "DeleteAsync" or "StoreAsync")
             || Queue.ReceivedCalls().Any() || Files.ReceivedCalls().Any() || Audit.ReceivedCalls().Any();
 
-        public DeleteFile Delete() => new(Containers, Documents, Folders, Files, Queue, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
+        public DeleteFile Delete() => new(Containers, Documents, Folders, Storage, Queue, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
     }
 
     /// <summary>A document reference: this container's file by id or path, another container's, or none at all.</summary>
@@ -237,10 +239,10 @@ public class FileRandomInputTests
                 var world = new World(reader: true, writer, exists);
                 world.Holds([Own, Other]);
                 if (storageFails)
-                    world.Files.DeleteAsync(Own.Path, Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("disk"));
+                    world.Files.DeleteFileAsync(Own.Path, Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("disk"));
                 string fileId = RefFor(kind, Own, Other);
 
-                var deleted = await new DeleteFile(world.Containers, world.Documents, world.Folders, world.Files, world.Queue, world.Audit, world.Authorizer,
+                var deleted = await new DeleteFile(world.Containers, world.Documents, world.Folders, world.Storage, world.Queue, world.Audit, world.Authorizer,
                     NullLogger<DeleteFile>.Instance).RunAsync(caller, Here, fileId);
 
                 FileStatus expected = !writer ? FileStatus.Forbidden

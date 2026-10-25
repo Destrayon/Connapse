@@ -3,6 +3,13 @@
 public interface IDocumentStore
 {
     Task<StoreResult> StoreAsync(Document document, CancellationToken ct = default);
+
+    /// <summary>
+    /// Stores a document as <see cref="StoreAsync"/> does, but only while the folder it lands in still exists; null,
+    /// with nothing stored, when a folder delete removed that folder first. The folder stays locked against a delete
+    /// until the document is stored, so a delete that comes after sees the document and removes it.
+    /// </summary>
+    Task<StoreResult?> StoreInFolderAsync(Document document, Guid folderId, CancellationToken ct = default);
     Task<Document?> GetAsync(string documentId, CancellationToken ct = default);
     Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, int skip = 0, int take = 50, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);

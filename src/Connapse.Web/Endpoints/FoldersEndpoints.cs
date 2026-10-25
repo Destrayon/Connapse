@@ -65,7 +65,6 @@ public static class FoldersEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IFolderStore folderStore,
             [FromServices] IDocumentStore documentStore,
-            [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue ingestionQueue,
             CancellationToken ct) =>
         {
@@ -81,24 +80,17 @@ public static class FoldersEndpoints
             if (!await folderStore.ExistsAsync(containerId, normalizedPath, ct))
                 return ApiProblem.NotFound($"Folder '{normalizedPath}' not found");
 
-            // Get documents before deletion so we can cancel jobs and clean up storage
+            // Get documents before deletion so we can cancel jobs
             var documents = await documentStore.ListAsync(containerId, pathPrefix: normalizedPath, take: int.MaxValue, ct: ct);
-            var filePaths = documents.Select(d => d.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
 
             // Cancel any in-flight ingestion jobs for documents in this folder
             foreach (var doc in documents)
                 await ingestionQueue.CancelJobForDocumentAsync(doc.Id);
 
+            // The folder store removes stored files too, including any upload that landed after the list above.
             var deleted = await folderStore.DeleteAsync(containerId, normalizedPath, ct);
             if (!deleted)
                 return ApiProblem.BadRequest("Folder is not empty. Use cascade=true to delete contents.");
-
-            // Clean up file storage (best effort)
-            foreach (var filePath in filePaths)
-            {
-                try { await fileSystem.DeleteAsync(filePath, ct); }
-                catch { /* File already deleted or not found */ }
-            }
 
             return Results.NoContent();
         })

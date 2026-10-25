@@ -49,7 +49,7 @@ internal static class McpCaller
         var access = services.GetService(typeof(DocumentReadGuard)) is DocumentReadGuard guard
             ? (IDocumentAccess)new DocumentAccess(guard)
             : ListsEverything();
-        var delete = new DeleteFile(containers, documents, Get<IFolderStore>(), Get<IKnowledgeFileSystem>(), Get<IIngestionQueue>(), Get<IAuditLogger>(), Allowed,
+        var delete = new DeleteFile(containers, documents, Get<IFolderStore>(), Get<IManagedStorageProvider>(), Get<IIngestionQueue>(), Get<IAuditLogger>(), Allowed,
             Get<Microsoft.Extensions.Logging.ILogger<DeleteFile>>());
         var parsers = (IEnumerable<IDocumentParser>?)services.GetService(typeof(IEnumerable<IDocumentParser>)) ?? [];
         return new FileTools(

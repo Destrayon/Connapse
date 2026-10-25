@@ -3,6 +3,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
@@ -37,7 +38,31 @@ public class PostgresDocumentStore : IDocumentStore
         ArgumentNullException.ThrowIfNull(document);
 
         await using var context = await _factory.CreateDbContextAsync(ct);
+        return await UpsertAsync(context, document, ct);
+    }
 
+    public async Task<StoreResult?> StoreInFolderAsync(Document document, Guid folderId, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+
+        // FOR KEY SHARE is the lock Postgres's own foreign-key checks take on a referenced row: a folder delete's
+        // FOR UPDATE waits for it, and under Read Committed a lock that waited on a delete finds no row at all.
+        var folder = await context.Database
+            .SqlQuery<Guid>($"SELECT id AS \"Value\" FROM folders WHERE id = {folderId} FOR KEY SHARE")
+            .ToListAsync(ct);
+        if (folder.Count == 0)
+            return null;
+
+        var stored = await UpsertAsync(context, document, ct);
+        await transaction.CommitAsync(ct);
+        return stored;
+    }
+
+    private async Task<StoreResult> UpsertAsync(KnowledgeDbContext context, Document document, CancellationToken ct)
+    {
         var docId = string.IsNullOrEmpty(document.Id) ? Guid.NewGuid() : Guid.Parse(document.Id);
         var containerId = Guid.Parse(document.ContainerId);
         var metadata = document.Metadata ?? new Dictionary<string, string>();
@@ -49,8 +74,10 @@ public class PostgresDocumentStore : IDocumentStore
         // On conflict, increments generation so stale ingestion jobs can detect they're outdated.
         // Returns the winning row's id and generation.
         var conn = context.Database.GetDbConnection();
-        await conn.OpenAsync(ct);
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
+        cmd.Transaction = context.Database.CurrentTransaction?.GetDbTransaction();
         cmd.CommandText = """
             INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, ingestion_status, status_changed_at, created_at, metadata)
             VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Queued', now(), @created, @meta::jsonb)
