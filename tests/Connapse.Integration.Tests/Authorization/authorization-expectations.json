@@ -35,6 +35,11 @@
       "risk": "destructive",
       "scope": "knowledge:write"
     },
+    "DELETE /api/containers/{containerId:guid}/settings": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "DELETE /api/containers/{containerId:guid}/files/{fileId}": {
       "requires": "editor",
       "risk": "destructive",
@@ -686,6 +691,11 @@
       "scope": null
     },
     "PUT /api/containers/{containerId:guid}/settings": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "PATCH /api/containers/{containerId:guid}": {
       "requires": "editor",
       "risk": "write",
       "scope": "knowledge:write"

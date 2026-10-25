@@ -13,11 +13,11 @@ declared slug has an entry here.
 
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
 changing needs Administrator. Containers: reading needs the Viewer role (over MCP, an agent key
-with `knowledge:read` may read too), creating, renaming and deleting need Editor. The audit log:
-reading needs Administrator, and a token needs `admin:audit`. OAuth clients: listing and revoking need
-Administrator, and a token needs `admin:oauth-clients`. Account links: reading needs a person or their
-own token with `knowledge:read`; unlinking needs the person signed in themselves, never a personal
-access token or agent key.
+with `knowledge:read` may read too), and changing them needs Editor (over MCP, an agent key granted
+`knowledge:write` may change them too). The audit log: reading needs Administrator, and a token needs
+`admin:audit`. OAuth clients: listing and revoking need Administrator, and a token needs
+`admin:oauth-clients`. Account links: reading needs a person or their own token with `knowledge:read`;
+unlinking needs the person signed in themselves, never a personal access token or agent key.
 
 ## invalid-link-provider
 

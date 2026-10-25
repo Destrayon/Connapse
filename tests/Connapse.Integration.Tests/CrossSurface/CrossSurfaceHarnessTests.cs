@@ -110,9 +110,8 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
 
         outcome.Result.Should().Be("ok");
         outcome.State.Should().Equal("container {name} description=made in the UI");
-        // Known gap, measured rather than fixed here: REST writes container.created for the same
-        // action and the Home page writes nothing. #792's comparisons list it.
-        outcome.Audit.Should().BeEmpty();
+        // The Home page creates through the same operation as REST, so it writes the same audit row.
+        outcome.Audit.Should().ContainSingle().Which.Should().StartWith("container.created container {id1} actor={admin}");
     }
 
     [Fact]
@@ -347,10 +346,7 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
         string viaMcp = Surfaces.Result(await mcp.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = containerId }));
 
         rest.Should().Be("error:validation");
-        // Known gap, measured rather than fixed here: MCP's container_delete throws on a non-empty
-        // container instead of returning its "is not empty" message, so the SDK answers with a
-        // generic error. #792's comparisons list it.
-        viaMcp.Should().Be("error:unknown");
+        viaMcp.Should().Be(rest);
     }
 
     [Fact]

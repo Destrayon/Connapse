@@ -27,7 +27,12 @@ public class EndpointAuthorizationTests(SharedWebAppFixture fixture)
         var violations = endpoints
             .Select(e => (e.Key, Expected: table[e.Key].Requires, Declared: AuthzExpectations.Declared(e.Value)))
             .Where(e => e.Expected != e.Declared)
-            .Select(e => $"declared {e.Key}: expects {e.Expected}, declares {e.Declared}");
+            .Select(e => $"declared {e.Key}: expects {e.Expected}, declares {e.Declared}")
+            // A route that checks a token's scope must check the one its entry names.
+            .Concat(endpoints
+                .Select(e => (e.Key, Scopes: AuthzExpectations.DeclaredScopes(e.Value)))
+                .Where(e => e.Scopes.Count > 0 && !e.Scopes.SequenceEqual(new[] { table[e.Key].Scope ?? "" }))
+                .Select(e => $"declared {e.Key}: expects scope {table[e.Key].Scope}, declares {string.Join("+", e.Scopes)}"));
 
         AuthzExpectations.ShouldMatchKnown(violations, "declared ");
     }

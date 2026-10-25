@@ -27,7 +27,7 @@ public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLo
     public async Task<Attempt<ContainerSettingsOverrides, ContainerStatus>> RunAsync(
         OperationContext context, Guid containerId, ContainerSettingsOverrides overrides, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Editor))
+        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Attempt<ContainerSettingsOverrides, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to change containers.");
         if (!await containers.ExistsAsync(containerId, ct))
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
@@ -44,7 +44,7 @@ public sealed class ResetContainerSettings(IContainerStore containers, IAuditLog
 {
     public async Task<Attempt<ContainerSettingsOverrides, ContainerStatus>> RunAsync(OperationContext context, Guid containerId, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Editor))
+        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Attempt<ContainerSettingsOverrides, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to change containers.");
         if (!await containers.ExistsAsync(containerId, ct))
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));

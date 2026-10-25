@@ -73,7 +73,11 @@ public static class AuthzExpectations
         if (data.Count == 0 && policies.Count == 0)
             return "anonymous";
 
-        var named = data.Select(d => d.Policy).OfType<string>().Distinct().Order().ToList();
+        // A scope policy narrows a token, not the role; DeclaredScopes compares it with the table's scope.
+        var named = data.Select(d => d.Policy).OfType<string>().Where(p => !p.StartsWith("Scope:", StringComparison.Ordinal))
+            .Distinct().Order().ToList();
+        if (named.Count == 0 && data.Any(d => d.Policy?.StartsWith("Scope:", StringComparison.Ordinal) == true) && policies.Count == 0)
+            return "user";
         if (named.Count == 0 && policies.Count == 0 && data.All(d => string.IsNullOrEmpty(d.Roles)))
             return "user";
 
@@ -95,6 +99,13 @@ public static class AuthzExpectations
         }).Concat(data.Select(d => d.Roles).OfType<string>().Where(r => r.Length > 0).Select(r => $"roles:{r}"))
           .Concat(policies.Count > 0 ? ["inline-policy"] : []));
     }
+
+    /// <summary>The scopes an endpoint's Scope:* policies demand, in the table's words: Scope:KnowledgeWrite is knowledge:write.</summary>
+    public static IReadOnlyList<string> DeclaredScopes(Endpoint endpoint) =>
+        endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(d => d.Policy).OfType<string>()
+            .Where(p => p.StartsWith("Scope:", StringComparison.Ordinal))
+            .Select(p => System.Text.RegularExpressions.Regex.Replace(p["Scope:".Length..], "(?<=[a-z])(?=[A-Z])", ":").ToLowerInvariant())
+            .Distinct().Order().ToList();
 
     /// <summary>
     /// A file MapStaticAssets serves from the build's asset manifest. Recognised by the descriptor

@@ -1,8 +1,6 @@
 {
   "search_knowledge/invalid/mcp": "MCP search_knowledge accepts an empty query and returns no results; REST and the page refuse it",
   "search_knowledge/under-scoped/ui": "the Search page searches for a user with no role; REST and MCP refuse them",
-  "list_files/invalid/ui": "the file browser shows a missing container as an empty folder instead of not found",
-  "list_files/under-scoped/ui": "the file browser lists files to a user with no role; REST and MCP refuse them",
   "upload_file/valid/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
   "upload_file/invalid/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
   "upload_file/under-scoped/ui": "absent: the page uploads from browser JavaScript straight to the REST route",
@@ -20,7 +18,6 @@
   "bulk_delete/under-scoped/rest": "absent: REST has no bulk delete route",
   "bulk_delete/preflight/rest": "absent: REST has no bulk delete route",
   "bulk_delete/invalid/ui": "the file browser can only select files it lists, so an unknown file id can't be part of a bulk delete there",
-  "get_document/under-scoped/ui": "the file browser shows a document's details to a user with no role; REST and MCP refuse them",
   "get_document/valid/ui": "the file browser's detail panel shows a document's details but not its text, which REST's content route and MCP get_document return",
   "sources_list/valid/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
   "sources_list/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",

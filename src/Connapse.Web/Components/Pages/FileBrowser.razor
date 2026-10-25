@@ -645,7 +645,7 @@
         await LoadContainer();
         // A container that didn't load (missing, or the caller may not see it) has no files to list.
         if (container is null)
-            errorMessage = containerError;
+            (errorMessage, isLoading) = (containerError, false);
         else
             await LoadEntries();
 

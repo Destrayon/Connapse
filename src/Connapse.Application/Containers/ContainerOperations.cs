@@ -120,7 +120,7 @@ public sealed class CreateContainer(IContainerStore containers, IAuditLogger aud
         static Attempt<Container, ContainerStatus> Fail(ContainerStatus status, string detail, string? field = null) =>
             Attempt<Container, ContainerStatus>.Fail(status, detail, field);
 
-        if (!await authorizer.AllowsAsync(context.User, Policies.Editor))
+        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Fail(ContainerStatus.Forbidden, "You don't have permission to create containers.");
         string name = request.Name?.Trim() ?? "";
         if (name.Length == 0)
@@ -158,10 +158,10 @@ public sealed class RenameContainer(IContainerStore containers, IAuditLogger aud
         static Attempt<Container, ContainerStatus> Fail(ContainerStatus status, string detail, string? field = null) =>
             Attempt<Container, ContainerStatus>.Fail(status, detail, field);
 
-        if (!await authorizer.AllowsAsync(context.User, Policies.Editor))
+        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Fail(ContainerStatus.Forbidden, "You don't have permission to change containers.");
         if (changes.Name is null && changes.Description is null)
-            return Fail(ContainerStatus.Invalid, "Give a new name or description");
+            return Fail(ContainerStatus.Invalid, "A new name or description is required");
 
         string? name = changes.Name?.Trim();
         if (name is not null && !PathUtilities.IsValidContainerName(name))
@@ -196,7 +196,7 @@ public sealed class DeleteContainer(IContainerStore containers, IAuditLogger aud
 {
     public async Task<Attempt<Container, ContainerStatus>> RunAsync(OperationContext context, ContainerKey key, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Editor))
+        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Attempt<Container, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to delete containers.");
 
         var container = await ContainerRules.FindAsync(containers, key, ct);

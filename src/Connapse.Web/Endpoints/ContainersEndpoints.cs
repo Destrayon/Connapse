@@ -115,7 +115,8 @@ public static class ContainersEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("UpdateContainer")
         .WithDescription("Rename a container or change its description. Its files stay where they are.")
-        .RequireAuthorization("RequireEditor");
+        // The scope too, so an Editor's knowledge:read token can't write; known-authz-violations.json lists the older routes that don't check it yet.
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         // DELETE /api/containers/{containerId} - Delete container (must be empty)
         group.MapDelete("/{containerId:guid}", async (
@@ -198,7 +199,7 @@ public static class ContainersEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("ResetContainerSettings")
         .WithDescription("Clear per-container settings overrides, so the container follows the global settings")
-        .RequireAuthorization("RequireEditor");
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         // POST /api/containers/{containerId}/reindex - Reindex documents in container
         group.MapPost("/{containerId:guid}/reindex", async (

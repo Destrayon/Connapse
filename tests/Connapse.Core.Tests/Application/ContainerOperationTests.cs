@@ -93,7 +93,7 @@ public class ContainerOperationTests
     [Fact]
     public async Task Create_NotAnEditor_IsForbiddenAndCreatesNothing()
     {
-        Deny(Policies.Editor);
+        Deny(Policies.Writer);
 
         var created = await Create().RunAsync(Caller, new CreateContainerRequest("docs"));
 
@@ -241,7 +241,7 @@ public class ContainerOperationTests
     [Fact]
     public async Task Delete_NotAnEditor_IsForbiddenAndReadsNothing()
     {
-        Deny(Policies.Editor);
+        Deny(Policies.Writer);
 
         var deleted = await Delete().RunAsync(Caller, ContainerKey.ById(Guid.NewGuid()));
 
@@ -299,7 +299,7 @@ public class ContainerOperationTests
     [Fact]
     public async Task UpdateSettings_NotAnEditor_IsForbiddenAndSavesNothing()
     {
-        Deny(Policies.Editor);
+        Deny(Policies.Writer);
 
         var saved = await new UpdateContainerSettings(_containers, _audit, _authorizer)
             .RunAsync(Caller, Guid.NewGuid(), new ContainerSettingsOverrides());

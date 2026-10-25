@@ -358,6 +358,12 @@ public static class IdentityServiceExtensions
             // knowledge:read list and describe containers, so an operation's read check must too.
             .AddPolicy("RequireReader", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor", "Viewer", "Agent"))
+            // Changing knowledge from any surface that admits agent keys: an agent key granted
+            // knowledge:write may create and delete containers over MCP, as an Editor may anywhere.
+            .AddPolicy("RequireWriter", policy =>
+                policy.RequireAssertion(context =>
+                    context.User.IsInRole("Owner") || context.User.IsInRole("Admin") || context.User.IsInRole("Editor")
+                    || (context.User.IsInRole("Agent") && context.User.HasClaim("scope", "knowledge:write"))))
             .AddPolicy("RequireAgent", policy =>
                 policy.RequireRole("Owner", "Admin", "Agent"))
             .AddPolicy("Scope:KnowledgeRead", policy =>

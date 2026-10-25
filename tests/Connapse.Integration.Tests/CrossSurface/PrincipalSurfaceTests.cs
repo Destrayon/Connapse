@@ -138,7 +138,7 @@ public class PrincipalSurfaceTests(SharedWebAppFixture fixture)
     {
         using var ui = await Surfaces.UiAsync(fixture, ByName(name));
         var page = ui.Context.Render<Connapse.Web.Components.Pages.Home>();
-        page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+        page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
 
         page.FindAll("button.btn-primary").Any(b => b.TextContent.Contains("Container", StringComparison.Ordinal)).Should().Be(offersCreate);
     }

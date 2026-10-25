@@ -38,7 +38,7 @@ public class McpTools
             ContainerStatus.Success => $"Container '{created.Result!.Name}' created.\n\nID: {created.Result.Id}",
             ContainerStatus.Invalid => "Error: Container name must be 2-128 chars, lowercase alphanumeric and hyphens.",
             ContainerStatus.Conflict => $"Error: Container '{name.Trim()}' already exists.",
-            _ => $"Error: {created.Detail}",
+            _ => Refused(created),
         };
     }
 
@@ -53,7 +53,7 @@ public class McpTools
     {
         var listed = await list.RunAsync(Mcp(http), new ListContainersQuery(), ct);
         if (!listed.Succeeded)
-            return $"Error: {listed.Detail}";
+            return Refused(listed);
         var containers = listed.Result!.Items;
 
         var sourceStore = services.GetRequiredService<ISourceStore>();
@@ -115,7 +115,7 @@ public class McpTools
             ContainerStatus.Success => $"Container '{containerId}' deleted.",
             ContainerStatus.NotFound => $"Error: Container '{containerId}' not found.",
             ContainerStatus.NotEmpty => $"Error: Container '{containerId}' is not empty. Delete all files first.",
-            _ => $"Error: {deleted.Detail}",
+            _ => Refused(deleted),
         };
     }
 
@@ -771,7 +771,7 @@ public class McpTools
         if (read.Status == ContainerStatus.NotFound)
             return $"Error: Container '{containerId}' not found.";
         if (!read.Succeeded)
-            return $"Error: {read.Detail}";
+            return Refused(read);
         var (container, stats, models) = (read.Result!.Container, read.Result.Stats, read.Result.Models);
 
         var text = $"Container: {container.Name}\n";
@@ -816,7 +816,7 @@ public class McpTools
         // A container through its operation; anything else may still be a source, read as before.
         var read = await getStats.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
         if (!read.Succeeded && read.Status != ContainerStatus.NotFound)
-            return $"Error: {read.Detail}";
+            return Refused(read);
 
         SearchableOwner? owner;
         Connapse.Core.Container? container = null;
@@ -877,6 +877,10 @@ public class McpTools
 
         return text;
     }
+
+    /// <summary>An operation's refusal as a tool's error text; its detail names the reason, as REST's problem body does.</summary>
+    private static string Refused<TResult, TStatus>(Attempt<TResult, TStatus> attempt) where TStatus : struct, Enum =>
+        $"Error: {attempt.Detail}";
 
     /// <summary>The MCP caller, as an operation reads it.</summary>
     private static OperationContext Mcp(IHttpContextAccessor http) =>
