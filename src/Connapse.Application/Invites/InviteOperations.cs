@@ -85,6 +85,8 @@ public sealed class CreateInvite(IInviteStore store, IOperationAuthorizer author
 {
     public const string CreatedEvent = "invite.created";
 
+    private const string OwnerOnly = "Only the Owner can invite users with the Admin role.";
+
     public async Task<Attempt<CreatedInvite, InviteStatus>> RunAsync(OperationContext context, CreateInviteRequest request, CancellationToken ct = default)
     {
         if (!await InviteRules.MayManageAsync(authorizer, context) || UserRules.CallerId(context.User) is not Guid callerId)
@@ -105,9 +107,11 @@ public sealed class CreateInvite(IInviteStore store, IOperationAuthorizer author
             return Attempt<CreatedInvite, InviteStatus>.Fail(InviteStatus.InvalidInvite,
                 $"'{role}' is an invalid role. Roles: {string.Join(", ", UserRules.Assignable)}.", "role");
         if (!await store.MayInviteAsync(callerId, assignable, ct))
-            return Attempt<CreatedInvite, InviteStatus>.Fail(InviteStatus.Forbidden, "Only the Owner can invite users with the Admin role.");
+            return Attempt<CreatedInvite, InviteStatus>.Fail(InviteStatus.Forbidden, OwnerOnly);
 
         var created = await store.CreateAsync(email, assignable, callerId, ct);
+        if (created.Outcome == InviteWrite.Forbidden)
+            return Attempt<CreatedInvite, InviteStatus>.Fail(InviteStatus.Forbidden, OwnerOnly);
         if (created.Outcome == InviteWrite.UserExists)
             return Attempt<CreatedInvite, InviteStatus>.Fail(InviteStatus.UserExists, $"A user with email '{email}' already exists.", "email");
         if (created.Outcome == InviteWrite.PendingExists)

@@ -12,6 +12,7 @@ public sealed class InviteStore(
     InviteService invites,
     IInviteAuthorizationPolicy policy,
     UserManager<ConnapseUser> users,
+    ConnapseIdentityDbContext db,
     IDbContextFactory<ConnapseIdentityDbContext> factory) : IInviteStore
 {
     public async Task<InvitePage> ListPendingAsync(int skip, int? take, CancellationToken ct = default)
@@ -31,17 +32,27 @@ public sealed class InviteStore(
 
     public async Task<InviteCreation> CreateAsync(string email, string role, Guid createdBy, CancellationToken ct = default)
     {
+        // One create per address at a time, so two can't both pass the pending check and each make a link.
+        // The service, the user manager and this context share the request's DbContext, so its checks and
+        // insert run inside this transaction, under the lock.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtext(lower({email})))", ct);
+
         if (await users.FindByEmailAsync(email) is not null)
             return new InviteCreation(InviteWrite.UserExists, null, null);
+        if (await db.UserInvitations.AnyAsync(i => i.Email == email && i.AcceptedAt == null && i.ExpiresAt > DateTime.UtcNow, ct))
+            return new InviteCreation(InviteWrite.PendingExists, null, null);
         try
         {
             var (token, invitation) = await invites.CreateInviteAsync(email, role, createdBy);
+            await transaction.CommitAsync(ct);
             return new InviteCreation(InviteWrite.Done, Of(invitation), token);
         }
         catch (InvalidOperationException)
         {
-            // The service refuses an address with a pending invite, or one that gained an account since the check above.
-            return new InviteCreation(await users.FindByEmailAsync(email) is not null ? InviteWrite.UserExists : InviteWrite.PendingExists, null, null);
+            // Under the lock the account and pending checks above still hold, so what's left to refuse is the
+            // policy, asked again at the write.
+            return new InviteCreation(InviteWrite.Forbidden, null, null);
         }
     }
 
