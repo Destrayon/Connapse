@@ -1,15 +1,14 @@
 @page "/admin/users"
 @attribute [Authorize(Policy = "RequireAdmin")]
-@using Microsoft.AspNetCore.Identity
-@using Microsoft.EntityFrameworkCore
+@using Connapse.Application
+@using Connapse.Application.Users
 @using Connapse.Identity.Data.Entities
 @using Connapse.Identity.Services
-@inject UserManager<ConnapseUser> UserManager
+@inject UserOperations Users
 @inject InviteService InviteService
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
-@inject Connapse.Core.Interfaces.ICustomLinkRemovalStore CustomLinkRemovals
 @rendermode InteractiveServer
 
 <PageTitle>User Management - Connapse</PageTitle>
@@ -229,6 +228,7 @@
     private bool statusSuccess;
     private bool isProcessing;
     private Guid? confirmDeleteUserId;
+    private OperationContext context = null!;
 
     private List<UserInvitation> pendingInvites = new();
     private List<UserViewModel> users = new();
@@ -236,6 +236,7 @@
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        context = new OperationContext(authState.User, OperationSurface.Ui);
         isOwner = authState.User.IsInRole("Owner");
         var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (userIdStr is not null)
@@ -245,28 +246,26 @@
 
     private async Task LoadDataAsync()
     {
-        pendingInvites = await InviteService.ListPendingInvitesAsync();
-
-        var allUsers = await UserManager.Users
-            .OrderBy(u => u.CreatedAt)
-            .ToListAsync();
-
-        users = new List<UserViewModel>();
-        foreach (var user in allUsers)
+        var listed = await Users.List.RunAsync(context, new ListUsersQuery());
+        if (!listed.Succeeded)
         {
-            var roles = await UserManager.GetRolesAsync(user);
-            var primaryRole = roles.FirstOrDefault() ?? "Viewer";
-            users.Add(new UserViewModel
-            {
-                Id = user.Id,
-                Email = user.Email ?? "",
-                DisplayName = user.DisplayName,
-                Roles = roles.ToList(),
-                SelectedRole = primaryRole,
-                CreatedAt = user.CreatedAt,
-                LastLoginAt = user.LastLoginAt,
-            });
+            users = new List<UserViewModel>();
+            statusMessage = listed.Detail;
+            statusSuccess = false;
+            return;
         }
+
+        pendingInvites = await InviteService.ListPendingInvitesAsync();
+        users = listed.Result!.Items.Select(user => new UserViewModel
+        {
+            Id = user.Id,
+            Email = user.Email,
+            DisplayName = user.DisplayName,
+            Roles = user.Roles.ToList(),
+            SelectedRole = user.Roles.FirstOrDefault() ?? "Viewer",
+            CreatedAt = user.CreatedAt,
+            LastLoginAt = user.LastLoginAt,
+        }).ToList();
     }
 
     private bool CanManageUser(UserViewModel user)
@@ -286,59 +285,11 @@
         statusMessage = null;
         try
         {
-            var user = await UserManager.FindByIdAsync(userId.ToString());
-            if (user is null)
-            {
-                statusMessage = "User not found.";
-                statusSuccess = false;
-                return;
-            }
-
-            var currentRoles = await UserManager.GetRolesAsync(user);
-
-            // Permission check: admin can't change admin roles
-            if (!isOwner && currentRoles.Contains("Admin"))
-            {
-                statusMessage = "Only the Owner can change Admin roles.";
-                statusSuccess = false;
-                return;
-            }
-
-            // Don't allow assigning Owner or Agent roles via user management
-            if (newRole is "Owner" or "Agent")
-            {
-                statusMessage = $"The '{newRole}' role cannot be assigned to users.";
-                statusSuccess = false;
-                return;
-            }
-
-            // Only Owner can assign Admin role
-            if (newRole == "Admin" && !isOwner)
-            {
-                statusMessage = "Only the Owner can assign the Admin role.";
-                statusSuccess = false;
-                return;
-            }
-
-            var removeResult = await UserManager.RemoveFromRolesAsync(user, currentRoles);
-            if (!removeResult.Succeeded)
-            {
-                statusMessage = "Failed to update roles.";
-                statusSuccess = false;
-                return;
-            }
-
-            var addResult = await UserManager.AddToRoleAsync(user, newRole);
-            if (!addResult.Succeeded)
-            {
-                statusMessage = "Failed to assign new role.";
-                statusSuccess = false;
-                return;
-            }
-
-            statusMessage = $"Role for {user.Email} changed to {newRole}.";
-            statusSuccess = true;
-            await LoadDataAsync();
+            var set = await Users.SetRoles.RunAsync(context, new SetUserRolesRequest(userId, [newRole]));
+            statusSuccess = set.Succeeded;
+            statusMessage = set.Succeeded ? $"Role for {set.Result!.Email} changed to {newRole}." : set.Detail;
+            if (set.Succeeded)
+                await LoadDataAsync();
         }
         finally
         {
@@ -353,42 +304,11 @@
         confirmDeleteUserId = null;
         try
         {
-            var user = await UserManager.FindByIdAsync(userId.ToString());
-            if (user is null)
-            {
-                statusMessage = "User not found.";
-                statusSuccess = false;
-                return;
-            }
-
-            var roles = await UserManager.GetRolesAsync(user);
-
-            // Permission check: admin can't delete admins
-            if (!isOwner && roles.Contains("Admin"))
-            {
-                statusMessage = "Only the Owner can delete Admins.";
-                statusSuccess = false;
-                return;
-            }
-
-            // Custom providers keep their links in their own middle men, so each is owed an unlink. Queued
-            // first but held until the deletion succeeds, so a crash cannot lose it and a failed deletion
-            // never unlinks a user who still exists; the removal job settles anything left waiting.
-            await CustomLinkRemovals.EnqueueForUserAsync(userId);
-            var result = await UserManager.DeleteAsync(user);
-            if (result.Succeeded)
-                await CustomLinkRemovals.ActivateForUserAsync(userId);
-            else
-            {
-                await CustomLinkRemovals.CancelForUserAsync(userId);
-                statusMessage = "Failed to delete user.";
-                statusSuccess = false;
-                return;
-            }
-
-            statusMessage = $"User {user.Email} has been deleted.";
-            statusSuccess = true;
-            await LoadDataAsync();
+            var deleted = await Users.Delete.RunAsync(context, userId);
+            statusSuccess = deleted.Succeeded;
+            statusMessage = deleted.Succeeded ? $"User {deleted.Result!.Email} has been deleted." : deleted.Detail;
+            if (deleted.Succeeded)
+                await LoadDataAsync();
         }
         finally
         {

@@ -56,9 +56,9 @@
     "IsEmpty": false
   },
   "Pages/Admin/UserManagement.razor": {
-    "CodeLines": 237,
-    "Injects": 6,
-    "Complexity": 37,
+    "CodeLines": 170,
+    "Injects": 5,
+    "Complexity": 28,
     "MarkupLogic": 26,
     "IsEmpty": false
   },

@@ -33,6 +33,15 @@ public static class Policies
     /// </summary>
     public const string KnowledgeRead = "Scope:KnowledgeRead";
 
+    /// <summary>The instance's Owner: the one account that manages other administrators.</summary>
+    public const string Owner = "RequireOwner";
+
+    /// <summary>
+    /// The admin:users scope. A sign-in holds it through its role; a token issued with scopes holds it only if
+    /// it was given it, so an administrator's knowledge:read token can't manage users.
+    /// </summary>
+    public const string AdminUsersScope = "Scope:AdminUsers";
+
     /// <summary>A person's own account, through any sign-in or their own token; never an agent key.</summary>
     public const string Account = "RequireAccount";
 

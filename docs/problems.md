@@ -181,3 +181,18 @@ upload, each such file is reported in its place and the rest are still uploaded.
 ## container-not-writable
 
 The container's storage doesn't take uploads.
+
+## user-not-found
+
+No user has that id.
+
+## invalid-roles
+
+The roles asked for can't be given: none at all (a user keeps at least one), one that isn't a role
+(the roles are `Viewer`, `Editor` and `Admin`), or `Owner` or `Agent`, which are never assigned.
+`field` is `roles`.
+
+## user-not-changed
+
+The user's account store refused the change, so nothing was changed. The detail says why when it
+can.

@@ -754,6 +754,11 @@
       "requires": "admin",
       "risk": "write",
       "scope": null
+    },
+    "DELETE /api/v1/auth/users/{id:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:users"
     }
   },
   "tools": {
