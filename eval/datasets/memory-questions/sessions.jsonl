@@ -1,0 +1,246 @@
+{"session": "HAL-2026-01-05", "project": "Halcyon", "code": "HAL", "date": "2026-01-05", "log": "- Kickoff for Halcyon. Starting setup: database MariaDB 11; deploy region ca-central-1; tech lead Tamsin Quarrell; CI system GitHub Actions; cache Memcached 1.6; public API rate limit 1000 requests/minute; alert channel #hal-oncall; current release v0.3.0."}
+{"session": "HAL-2026-01-08", "project": "Halcyon", "code": "HAL", "date": "2026-01-08", "log": "- Opened HAL-16: plan to move the alert channel from #hal-oncall to #hal-alerts after an outage review; not done yet."}
+{"session": "HAL-2026-01-16", "project": "Halcyon", "code": "HAL", "date": "2026-01-16", "log": "- Triaged three bug reports from support (HAL-28)."}
+{"session": "HAL-2026-01-17", "project": "Halcyon", "code": "HAL", "date": "2026-01-17", "log": "- HAL-16 done: the alert channel changed from #hal-oncall to #hal-alerts after an outage review."}
+{"session": "HAL-2026-01-21", "project": "Halcyon", "code": "HAL", "date": "2026-01-21", "log": "- Released v1.0.0 (HAL-17)."}
+{"session": "HAL-2026-01-26", "project": "Halcyon", "code": "HAL", "date": "2026-01-26", "log": "- Profiled the search endpoint; nothing alarming (HAL-29)."}
+{"session": "HAL-2026-01-31", "project": "Halcyon", "code": "HAL", "date": "2026-01-31", "log": "- Triaged three bug reports from support (HAL-30)."}
+{"session": "HAL-2026-02-21", "project": "Halcyon", "code": "HAL", "date": "2026-02-21", "log": "- Released v1.1.0 (HAL-18)."}
+{"session": "HAL-2026-02-25", "project": "Halcyon", "code": "HAL", "date": "2026-02-25", "log": "- Sprint planning: no scope changes (HAL-31)."}
+{"session": "HAL-2026-03-21", "project": "Halcyon", "code": "HAL", "date": "2026-03-21", "log": "- Opened HAL-20: plan to move the deploy region from ca-central-1 to us-west-2 at the customer's request; not done yet."}
+{"session": "HAL-2026-03-24", "project": "Halcyon", "code": "HAL", "date": "2026-03-24", "log": "- HAL-19 done: the database changed from MariaDB 11 to MySQL 8.0 to match the platform team's standard."}
+{"session": "HAL-2026-04-03", "project": "Halcyon", "code": "HAL", "date": "2026-04-03", "log": "- HAL-20 done: the deploy region changed from ca-central-1 to us-west-2 at the customer's request."}
+{"session": "HAL-2026-04-08", "project": "Halcyon", "code": "HAL", "date": "2026-04-08", "log": "- HAL-21 done: the database changed from MySQL 8.0 to MariaDB 11 to match the platform team's standard."}
+{"session": "HAL-2026-04-22", "project": "Halcyon", "code": "HAL", "date": "2026-04-22", "log": "- HAL-22 done: the alert channel changed from #hal-alerts to #hal-oncall after an outage review."}
+{"session": "HAL-2026-05-06", "project": "Halcyon", "code": "HAL", "date": "2026-05-06", "log": "- HAL-23 done: the public API rate limit changed from 1000 requests/minute to 100 requests/minute to match the platform team's standard."}
+{"session": "HAL-2026-05-08", "project": "Halcyon", "code": "HAL", "date": "2026-05-08", "log": "- Rotated the staging TLS certificate (HAL-32)."}
+{"session": "HAL-2026-05-16", "project": "Halcyon", "code": "HAL", "date": "2026-05-16", "log": "- Released v1.2.0 (HAL-24)."}
+{"session": "HAL-2026-06-02", "project": "Halcyon", "code": "HAL", "date": "2026-06-02", "log": "- Investigated a memory spike in the worker; a leaky cache key (HAL-33)."}
+{"session": "HAL-2026-06-13", "project": "Halcyon", "code": "HAL", "date": "2026-06-13", "log": "- HAL-25 done: the tech lead changed from Tamsin Quarrell to Ines Coldwater because the old one is end-of-life.\n- Cleaned up unused feature flags (HAL-34)."}
+{"session": "HAL-2026-06-17", "project": "Halcyon", "code": "HAL", "date": "2026-06-17", "log": "- Paired on the billing webhook retry logic (HAL-35)."}
+{"session": "HAL-2026-06-20", "project": "Halcyon", "code": "HAL", "date": "2026-06-20", "log": "- HAL-26 done: the CI system changed from GitHub Actions to GitLab CI because the old one is end-of-life."}
+{"session": "HAL-2026-06-23", "project": "Halcyon", "code": "HAL", "date": "2026-06-23", "log": "- HAL-27 done: the deploy region changed from us-west-2 to eu-west-1 for latency to the main customer."}
+{"session": "BRM-2026-01-05", "project": "Bramblewood", "code": "BRM", "date": "2026-01-05", "log": "- Kickoff for Bramblewood. Starting setup: database MySQL 8.0; deploy region ca-central-1; tech lead Caspian Oduya; CI system GitHub Actions; cache Redis 7; public API rate limit 1000 requests/minute; alert channel #brm-pager; current release v1.5.0."}
+{"session": "BRM-2026-01-16", "project": "Bramblewood", "code": "BRM", "date": "2026-01-16", "log": "- BRM-4 done: the alert channel changed from #brm-pager to #brm-oncall at the customer's request."}
+{"session": "BRM-2026-01-26", "project": "Bramblewood", "code": "BRM", "date": "2026-01-26", "log": "- Profiled the search endpoint; nothing alarming (BRM-15)."}
+{"session": "BRM-2026-01-29", "project": "Bramblewood", "code": "BRM", "date": "2026-01-29", "log": "- Reviewed the security questionnaire answers (BRM-16)."}
+{"session": "BRM-2026-02-03", "project": "Bramblewood", "code": "BRM", "date": "2026-02-03", "log": "- BRM-5 done: the cache changed from Redis 7 to Valkey 8 to simplify on-call."}
+{"session": "BRM-2026-02-08", "project": "Bramblewood", "code": "BRM", "date": "2026-02-08", "log": "- BRM-6 done: the CI system changed from GitHub Actions to GitLab CI because the old one is end-of-life."}
+{"session": "BRM-2026-02-10", "project": "Bramblewood", "code": "BRM", "date": "2026-02-10", "log": "- Cleaned up unused feature flags (BRM-17)."}
+{"session": "BRM-2026-03-17", "project": "Bramblewood", "code": "BRM", "date": "2026-03-17", "log": "- BRM-7 done: the tech lead changed from Caspian Oduya to Ilario Brandtmoss to cut costs."}
+{"session": "BRM-2026-03-22", "project": "Bramblewood", "code": "BRM", "date": "2026-03-22", "log": "- Released v1.6.0 (BRM-8).\n- Reviewed the security questionnaire answers (BRM-18)."}
+{"session": "BRM-2026-04-12", "project": "Bramblewood", "code": "BRM", "date": "2026-04-12", "log": "- Cleaned up unused feature flags (BRM-19)."}
+{"session": "BRM-2026-04-13", "project": "Bramblewood", "code": "BRM", "date": "2026-04-13", "log": "- Opened BRM-9: plan to move the public API rate limit from 1000 requests/minute to 100 requests/minute after an outage review; not done yet."}
+{"session": "BRM-2026-04-23", "project": "Bramblewood", "code": "BRM", "date": "2026-04-23", "log": "- BRM-9 done: the public API rate limit changed from 1000 requests/minute to 100 requests/minute after an outage review."}
+{"session": "BRM-2026-04-29", "project": "Bramblewood", "code": "BRM", "date": "2026-04-29", "log": "- Released v2.0.0 (BRM-10)."}
+{"session": "BRM-2026-05-24", "project": "Bramblewood", "code": "BRM", "date": "2026-05-24", "log": "- Investigated a memory spike in the worker; a leaky cache key (BRM-20)."}
+{"session": "BRM-2026-05-30", "project": "Bramblewood", "code": "BRM", "date": "2026-05-30", "log": "- BRM-11 done: the deploy region changed from ca-central-1 to us-east-2 to cut costs."}
+{"session": "BRM-2026-06-01", "project": "Bramblewood", "code": "BRM", "date": "2026-06-01", "log": "- BRM-12 done: the cache changed from Valkey 8 to Redis 7 at the customer's request."}
+{"session": "BRM-2026-06-06", "project": "Bramblewood", "code": "BRM", "date": "2026-06-06", "log": "- Profiled the search endpoint; nothing alarming (BRM-21)."}
+{"session": "BRM-2026-06-13", "project": "Bramblewood", "code": "BRM", "date": "2026-06-13", "log": "- Wrote the runbook for restoring a backup (BRM-22)."}
+{"session": "BRM-2026-06-21", "project": "Bramblewood", "code": "BRM", "date": "2026-06-21", "log": "- BRM-13 done: the public API rate limit changed from 100 requests/minute to 250 requests/minute for latency to the main customer."}
+{"session": "BRM-2026-06-24", "project": "Bramblewood", "code": "BRM", "date": "2026-06-24", "log": "- Released v2.1.0 (BRM-14)."}
+{"session": "QFT-2026-01-05", "project": "Quillfeather", "code": "QFT", "date": "2026-01-05", "log": "- Kickoff for Quillfeather. Starting setup: database MariaDB 11; deploy region us-west-2; tech lead Signe Morrow-Dale; CI system CircleCI; cache no cache; public API rate limit 250 requests/minute; alert channel #qft-pager; current release v2.6.0."}
+{"session": "QFT-2026-01-19", "project": "Quillfeather", "code": "QFT", "date": "2026-01-19", "log": "- Cleaned up unused feature flags (QFT-30)."}
+{"session": "QFT-2026-02-01", "project": "Quillfeather", "code": "QFT", "date": "2026-02-01", "log": "- Released v2.7.0 (QFT-16)."}
+{"session": "QFT-2026-02-02", "project": "Quillfeather", "code": "QFT", "date": "2026-02-02", "log": "- Cleaned up unused feature flags (QFT-31)."}
+{"session": "QFT-2026-02-13", "project": "Quillfeather", "code": "QFT", "date": "2026-02-13", "log": "- QFT-17 done: the deploy region changed from us-west-2 to eu-central-1 to match the platform team's standard."}
+{"session": "QFT-2026-02-18", "project": "Quillfeather", "code": "QFT", "date": "2026-02-18", "log": "- QFT-18 done: the database changed from MariaDB 11 to CockroachDB 23.2 for latency to the main customer."}
+{"session": "QFT-2026-02-25", "project": "Quillfeather", "code": "QFT", "date": "2026-02-25", "log": "- Sprint planning: no scope changes (QFT-32)."}
+{"session": "QFT-2026-03-16", "project": "Quillfeather", "code": "QFT", "date": "2026-03-16", "log": "- Released v2.8.0 (QFT-19)."}
+{"session": "QFT-2026-03-24", "project": "Quillfeather", "code": "QFT", "date": "2026-03-24", "log": "- QFT-20 done: the CI system changed from CircleCI to GitHub Actions at the customer's request."}
+{"session": "QFT-2026-03-25", "project": "Quillfeather", "code": "QFT", "date": "2026-03-25", "log": "- Opened QFT-22: plan to move the tech lead from Signe Morrow-Dale to Caspian Oduya to match the platform team's standard; not done yet."}
+{"session": "QFT-2026-03-27", "project": "Quillfeather", "code": "QFT", "date": "2026-03-27", "log": "- Fixed a flaky test in the export job (QFT-33)."}
+{"session": "QFT-2026-03-30", "project": "Quillfeather", "code": "QFT", "date": "2026-03-30", "log": "- Reviewed the security questionnaire answers (QFT-34)."}
+{"session": "QFT-2026-04-01", "project": "Quillfeather", "code": "QFT", "date": "2026-04-01", "log": "- QFT-21 done: the cache changed from no cache to Redis 7 at the customer's request."}
+{"session": "QFT-2026-04-12", "project": "Quillfeather", "code": "QFT", "date": "2026-04-12", "log": "- Cleaned up unused feature flags (QFT-35)."}
+{"session": "QFT-2026-04-14", "project": "Quillfeather", "code": "QFT", "date": "2026-04-14", "log": "- QFT-22 done: the tech lead changed from Signe Morrow-Dale to Caspian Oduya to match the platform team's standard."}
+{"session": "QFT-2026-04-23", "project": "Quillfeather", "code": "QFT", "date": "2026-04-23", "log": "- Opened QFT-23: plan to move the deploy region from eu-central-1 to us-west-2 to cut costs; not done yet.\n- Reviewed the security questionnaire answers (QFT-36)."}
+{"session": "QFT-2026-04-29", "project": "Quillfeather", "code": "QFT", "date": "2026-04-29", "log": "- QFT-23 done: the deploy region changed from eu-central-1 to us-west-2 to cut costs."}
+{"session": "QFT-2026-05-01", "project": "Quillfeather", "code": "QFT", "date": "2026-05-01", "log": "- Released v2.9.0 (QFT-24)."}
+{"session": "QFT-2026-05-12", "project": "Quillfeather", "code": "QFT", "date": "2026-05-12", "log": "- QFT-25 done: the database changed from CockroachDB 23.2 to PostgreSQL 15 after the load test."}
+{"session": "QFT-2026-05-19", "project": "Quillfeather", "code": "QFT", "date": "2026-05-19", "log": "- QFT-26 done: the tech lead changed from Caspian Oduya to Marisol Ternby to match the platform team's standard."}
+{"session": "QFT-2026-05-20", "project": "Quillfeather", "code": "QFT", "date": "2026-05-20", "log": "- Opened QFT-27: plan to move the cache from Redis 7 to no cache for latency to the main customer; not done yet."}
+{"session": "QFT-2026-05-30", "project": "Quillfeather", "code": "QFT", "date": "2026-05-30", "log": "- QFT-27 done: the cache changed from Redis 7 to no cache for latency to the main customer."}
+{"session": "QFT-2026-06-01", "project": "Quillfeather", "code": "QFT", "date": "2026-06-01", "log": "- Paired on the billing webhook retry logic (QFT-37)."}
+{"session": "QFT-2026-06-03", "project": "Quillfeather", "code": "QFT", "date": "2026-06-03", "log": "- Released v2.10.0 (QFT-28)."}
+{"session": "QFT-2026-06-16", "project": "Quillfeather", "code": "QFT", "date": "2026-06-16", "log": "- QFT-29 done: the tech lead changed from Marisol Ternby to Teodor Klyne after the load test."}
+{"session": "MRW-2026-01-05", "project": "Marrowgate", "code": "MRW", "date": "2026-01-05", "log": "- Kickoff for Marrowgate. Starting setup: database PostgreSQL 15; deploy region eu-west-1; tech lead Priya Laskin; CI system GitLab CI; cache Valkey 8; public API rate limit 100 requests/minute; alert channel #mrw-oncall; current release v2.6.0."}
+{"session": "MRW-2026-01-16", "project": "Marrowgate", "code": "MRW", "date": "2026-01-16", "log": "- MRW-6 done: the cache changed from Valkey 8 to no cache for latency to the main customer."}
+{"session": "MRW-2026-01-19", "project": "Marrowgate", "code": "MRW", "date": "2026-01-19", "log": "- Released v2.7.0 (MRW-7)."}
+{"session": "MRW-2026-01-23", "project": "Marrowgate", "code": "MRW", "date": "2026-01-23", "log": "- MRW-8 done: the alert channel changed from #mrw-oncall to #mrw-alerts because the old one is end-of-life."}
+{"session": "MRW-2026-01-26", "project": "Marrowgate", "code": "MRW", "date": "2026-01-26", "log": "- MRW-9 done: the CI system changed from GitLab CI to Jenkins at the customer's request.\n- MRW-10 done: the public API rate limit changed from 100 requests/minute to 500 requests/minute after the load test."}
+{"session": "MRW-2026-02-01", "project": "Marrowgate", "code": "MRW", "date": "2026-02-01", "log": "- Opened MRW-11: plan to move the tech lead from Priya Laskin to Anouk Vasquell to simplify on-call; not done yet."}
+{"session": "MRW-2026-02-03", "project": "Marrowgate", "code": "MRW", "date": "2026-02-03", "log": "- Investigated a memory spike in the worker; a leaky cache key (MRW-22)."}
+{"session": "MRW-2026-02-19", "project": "Marrowgate", "code": "MRW", "date": "2026-02-19", "log": "- MRW-11 done: the tech lead changed from Priya Laskin to Anouk Vasquell to simplify on-call."}
+{"session": "MRW-2026-02-22", "project": "Marrowgate", "code": "MRW", "date": "2026-02-22", "log": "- MRW-12 done: the deploy region changed from eu-west-1 to ca-central-1 after the load test."}
+{"session": "MRW-2026-02-25", "project": "Marrowgate", "code": "MRW", "date": "2026-02-25", "log": "- Profiled the search endpoint; nothing alarming (MRW-23)."}
+{"session": "MRW-2026-02-27", "project": "Marrowgate", "code": "MRW", "date": "2026-02-27", "log": "- Released v2.8.0 (MRW-13)."}
+{"session": "MRW-2026-03-07", "project": "Marrowgate", "code": "MRW", "date": "2026-03-07", "log": "- Paired on the billing webhook retry logic (MRW-24)."}
+{"session": "MRW-2026-03-08", "project": "Marrowgate", "code": "MRW", "date": "2026-03-08", "log": "- MRW-14 done: the deploy region changed from ca-central-1 to us-west-2 to cut costs."}
+{"session": "MRW-2026-03-16", "project": "Marrowgate", "code": "MRW", "date": "2026-03-16", "log": "- MRW-15 done: the alert channel changed from #mrw-alerts to #mrw-oncall at the customer's request."}
+{"session": "MRW-2026-03-30", "project": "Marrowgate", "code": "MRW", "date": "2026-03-30", "log": "- Cleaned up unused feature flags (MRW-25)."}
+{"session": "MRW-2026-04-10", "project": "Marrowgate", "code": "MRW", "date": "2026-04-10", "log": "- Reviewed the security questionnaire answers (MRW-26)."}
+{"session": "MRW-2026-04-11", "project": "Marrowgate", "code": "MRW", "date": "2026-04-11", "log": "- Released v2.9.0 (MRW-16)."}
+{"session": "MRW-2026-04-25", "project": "Marrowgate", "code": "MRW", "date": "2026-04-25", "log": "- MRW-17 done: the CI system changed from Jenkins to GitLab CI to match the platform team's standard."}
+{"session": "MRW-2026-04-26", "project": "Marrowgate", "code": "MRW", "date": "2026-04-26", "log": "- Investigated a memory spike in the worker; a leaky cache key (MRW-27)."}
+{"session": "MRW-2026-05-09", "project": "Marrowgate", "code": "MRW", "date": "2026-05-09", "log": "- Opened MRW-20: plan to move the CI system from GitLab CI to CircleCI to cut costs; not done yet."}
+{"session": "MRW-2026-05-13", "project": "Marrowgate", "code": "MRW", "date": "2026-05-13", "log": "- MRW-18 done: the public API rate limit changed from 500 requests/minute to 1000 requests/minute because the old one is end-of-life."}
+{"session": "MRW-2026-05-21", "project": "Marrowgate", "code": "MRW", "date": "2026-05-21", "log": "- MRW-19 done: the alert channel changed from #mrw-oncall to #mrw-pager because the old one is end-of-life."}
+{"session": "MRW-2026-05-23", "project": "Marrowgate", "code": "MRW", "date": "2026-05-23", "log": "- MRW-20 done: the CI system changed from GitLab CI to CircleCI to cut costs."}
+{"session": "MRW-2026-05-26", "project": "Marrowgate", "code": "MRW", "date": "2026-05-26", "log": "- Investigated a memory spike in the worker; a leaky cache key (MRW-28)."}
+{"session": "MRW-2026-05-31", "project": "Marrowgate", "code": "MRW", "date": "2026-05-31", "log": "- MRW-21 done: the tech lead changed from Anouk Vasquell to Teodor Klyne after the load test."}
+{"session": "MRW-2026-06-15", "project": "Marrowgate", "code": "MRW", "date": "2026-06-15", "log": "- Investigated a memory spike in the worker; a leaky cache key (MRW-29)."}
+{"session": "TDW-2026-01-05", "project": "Tidewater", "code": "TDW", "date": "2026-01-05", "log": "- Kickoff for Tidewater. Starting setup: database PostgreSQL 16; deploy region ap-southeast-1; tech lead Ilario Brandtmoss; CI system GitLab CI; cache Valkey 8; public API rate limit 250 requests/minute; alert channel #tdw-alerts; current release v2.2.0."}
+{"session": "TDW-2026-01-08", "project": "Tidewater", "code": "TDW", "date": "2026-01-08", "log": "- Opened TDW-21: plan to move the cache from Valkey 8 to no cache because the old one is end-of-life; not done yet."}
+{"session": "TDW-2026-01-15", "project": "Tidewater", "code": "TDW", "date": "2026-01-15", "log": "- Sprint planning: no scope changes (TDW-32)."}
+{"session": "TDW-2026-01-22", "project": "Tidewater", "code": "TDW", "date": "2026-01-22", "log": "- Released v2.3.0 (TDW-18)."}
+{"session": "TDW-2026-01-24", "project": "Tidewater", "code": "TDW", "date": "2026-01-24", "log": "- TDW-19 done: the CI system changed from GitLab CI to CircleCI to cut costs."}
+{"session": "TDW-2026-01-25", "project": "Tidewater", "code": "TDW", "date": "2026-01-25", "log": "- TDW-20 done: the public API rate limit changed from 250 requests/minute to 100 requests/minute because the old one is end-of-life."}
+{"session": "TDW-2026-01-26", "project": "Tidewater", "code": "TDW", "date": "2026-01-26", "log": "- TDW-21 done: the cache changed from Valkey 8 to no cache because the old one is end-of-life."}
+{"session": "TDW-2026-01-30", "project": "Tidewater", "code": "TDW", "date": "2026-01-30", "log": "- Profiled the search endpoint; nothing alarming (TDW-33)."}
+{"session": "TDW-2026-02-02", "project": "Tidewater", "code": "TDW", "date": "2026-02-02", "log": "- TDW-22 done: the tech lead changed from Ilario Brandtmoss to Marisol Ternby because the old one is end-of-life."}
+{"session": "TDW-2026-02-08", "project": "Tidewater", "code": "TDW", "date": "2026-02-08", "log": "- Opened TDW-24: plan to move the public API rate limit from 100 requests/minute to 250 requests/minute to simplify on-call; not done yet.\n- TDW-23 done: the alert channel changed from #tdw-alerts to #tdw-pager at the customer's request."}
+{"session": "TDW-2026-02-09", "project": "Tidewater", "code": "TDW", "date": "2026-02-09", "log": "- Fixed a flaky test in the export job (TDW-34)."}
+{"session": "TDW-2026-02-14", "project": "Tidewater", "code": "TDW", "date": "2026-02-14", "log": "- TDW-24 done: the public API rate limit changed from 100 requests/minute to 250 requests/minute to simplify on-call."}
+{"session": "TDW-2026-02-21", "project": "Tidewater", "code": "TDW", "date": "2026-02-21", "log": "- Updated the onboarding docs for new contributors (TDW-35)."}
+{"session": "TDW-2026-02-26", "project": "Tidewater", "code": "TDW", "date": "2026-02-26", "log": "- Released v3.0.0 (TDW-25)."}
+{"session": "TDW-2026-03-04", "project": "Tidewater", "code": "TDW", "date": "2026-03-04", "log": "- Reviewed the security questionnaire answers (TDW-36)."}
+{"session": "TDW-2026-03-08", "project": "Tidewater", "code": "TDW", "date": "2026-03-08", "log": "- TDW-26 done: the database changed from PostgreSQL 16 to SQLite 3.45 to simplify on-call."}
+{"session": "TDW-2026-03-09", "project": "Tidewater", "code": "TDW", "date": "2026-03-09", "log": "- Reviewed the security questionnaire answers (TDW-37)."}
+{"session": "TDW-2026-03-16", "project": "Tidewater", "code": "TDW", "date": "2026-03-16", "log": "- TDW-27 done: the deploy region changed from ap-southeast-1 to us-west-2 to match the platform team's standard."}
+{"session": "TDW-2026-04-01", "project": "Tidewater", "code": "TDW", "date": "2026-04-01", "log": "- Released v3.1.0 (TDW-28)."}
+{"session": "TDW-2026-04-02", "project": "Tidewater", "code": "TDW", "date": "2026-04-02", "log": "- Sprint planning: no scope changes (TDW-38)."}
+{"session": "TDW-2026-04-14", "project": "Tidewater", "code": "TDW", "date": "2026-04-14", "log": "- TDW-29 done: the alert channel changed from #tdw-pager to #platform-alerts for latency to the main customer."}
+{"session": "TDW-2026-04-27", "project": "Tidewater", "code": "TDW", "date": "2026-04-27", "log": "- TDW-30 done: the CI system changed from CircleCI to GitLab CI for latency to the main customer."}
+{"session": "TDW-2026-05-24", "project": "Tidewater", "code": "TDW", "date": "2026-05-24", "log": "- Released v4.0.0 (TDW-31)."}
+{"session": "TDW-2026-06-14", "project": "Tidewater", "code": "TDW", "date": "2026-06-14", "log": "- Wrote the runbook for restoring a backup (TDW-39)."}
+{"session": "EMB-2026-01-05", "project": "Emberline", "code": "EMB", "date": "2026-01-05", "log": "- Kickoff for Emberline. Starting setup: database MariaDB 11; deploy region us-east-2; tech lead Signe Morrow-Dale; CI system GitLab CI; cache no cache; public API rate limit 1000 requests/minute; alert channel #emb-oncall; current release v1.7.0."}
+{"session": "EMB-2026-01-28", "project": "Emberline", "code": "EMB", "date": "2026-01-28", "log": "- Opened EMB-21: plan to move the public API rate limit from 1000 requests/minute to 250 requests/minute to match the platform team's standard; not done yet.\n- Opened EMB-22: plan to move the database from MariaDB 11 to SQLite 3.45 to match the platform team's standard; not done yet."}
+{"session": "EMB-2026-01-29", "project": "Emberline", "code": "EMB", "date": "2026-01-29", "log": "- Updated the onboarding docs for new contributors (EMB-35)."}
+{"session": "EMB-2026-01-31", "project": "Emberline", "code": "EMB", "date": "2026-01-31", "log": "- EMB-20 done: the deploy region changed from us-east-2 to ca-central-1 at the customer's request."}
+{"session": "EMB-2026-02-02", "project": "Emberline", "code": "EMB", "date": "2026-02-02", "log": "- Profiled the search endpoint; nothing alarming (EMB-36)."}
+{"session": "EMB-2026-02-09", "project": "Emberline", "code": "EMB", "date": "2026-02-09", "log": "- EMB-21 done: the public API rate limit changed from 1000 requests/minute to 250 requests/minute to match the platform team's standard."}
+{"session": "EMB-2026-02-11", "project": "Emberline", "code": "EMB", "date": "2026-02-11", "log": "- EMB-22 done: the database changed from MariaDB 11 to SQLite 3.45 to match the platform team's standard."}
+{"session": "EMB-2026-02-18", "project": "Emberline", "code": "EMB", "date": "2026-02-18", "log": "- EMB-23 done: the tech lead changed from Signe Morrow-Dale to Jonah Felgate after an outage review."}
+{"session": "EMB-2026-03-12", "project": "Emberline", "code": "EMB", "date": "2026-03-12", "log": "- Released v1.8.0 (EMB-24)."}
+{"session": "EMB-2026-03-20", "project": "Emberline", "code": "EMB", "date": "2026-03-20", "log": "- EMB-25 done: the database changed from SQLite 3.45 to MySQL 8.0 to cut costs."}
+{"session": "EMB-2026-04-02", "project": "Emberline", "code": "EMB", "date": "2026-04-02", "log": "- Investigated a memory spike in the worker; a leaky cache key (EMB-37)."}
+{"session": "EMB-2026-04-15", "project": "Emberline", "code": "EMB", "date": "2026-04-15", "log": "- Wrote the runbook for restoring a backup (EMB-38)."}
+{"session": "EMB-2026-04-17", "project": "Emberline", "code": "EMB", "date": "2026-04-17", "log": "- EMB-26 done: the alert channel changed from #emb-oncall to #emb-alerts at the customer's request."}
+{"session": "EMB-2026-04-20", "project": "Emberline", "code": "EMB", "date": "2026-04-20", "log": "- Investigated a memory spike in the worker; a leaky cache key (EMB-39)."}
+{"session": "EMB-2026-04-21", "project": "Emberline", "code": "EMB", "date": "2026-04-21", "log": "- EMB-27 done: the public API rate limit changed from 250 requests/minute to 1000 requests/minute for latency to the main customer."}
+{"session": "EMB-2026-05-06", "project": "Emberline", "code": "EMB", "date": "2026-05-06", "log": "- EMB-28 done: the CI system changed from GitLab CI to Jenkins to match the platform team's standard."}
+{"session": "EMB-2026-05-07", "project": "Emberline", "code": "EMB", "date": "2026-05-07", "log": "- EMB-29 done: the public API rate limit changed from 1000 requests/minute to 500 requests/minute at the customer's request."}
+{"session": "EMB-2026-05-17", "project": "Emberline", "code": "EMB", "date": "2026-05-17", "log": "- Sprint planning: no scope changes (EMB-40)."}
+{"session": "EMB-2026-05-22", "project": "Emberline", "code": "EMB", "date": "2026-05-22", "log": "- EMB-30 done: the tech lead changed from Jonah Felgate to Signe Morrow-Dale for latency to the main customer."}
+{"session": "EMB-2026-06-01", "project": "Emberline", "code": "EMB", "date": "2026-06-01", "log": "- Released v2.0.0 (EMB-31)."}
+{"session": "EMB-2026-06-02", "project": "Emberline", "code": "EMB", "date": "2026-06-02", "log": "- Investigated a memory spike in the worker; a leaky cache key (EMB-41)."}
+{"session": "EMB-2026-06-04", "project": "Emberline", "code": "EMB", "date": "2026-06-04", "log": "- EMB-32 done: the database changed from MySQL 8.0 to CockroachDB 23.2 to match the platform team's standard."}
+{"session": "EMB-2026-06-07", "project": "Emberline", "code": "EMB", "date": "2026-06-07", "log": "- Opened EMB-34: plan to move the tech lead from Signe Morrow-Dale to Haruki Belmonde after an outage review; not done yet."}
+{"session": "EMB-2026-06-10", "project": "Emberline", "code": "EMB", "date": "2026-06-10", "log": "- EMB-33 done: the CI system changed from Jenkins to GitLab CI to match the platform team's standard."}
+{"session": "EMB-2026-06-21", "project": "Emberline", "code": "EMB", "date": "2026-06-21", "log": "- Sprint planning: no scope changes (EMB-42)."}
+{"session": "EMB-2026-06-25", "project": "Emberline", "code": "EMB", "date": "2026-06-25", "log": "- EMB-34 done: the tech lead changed from Signe Morrow-Dale to Haruki Belmonde after an outage review."}
+{"session": "SLT-2026-01-05", "project": "Saltmarsh", "code": "SLT", "date": "2026-01-05", "log": "- Kickoff for Saltmarsh. Starting setup: database PostgreSQL 15; deploy region us-west-2; tech lead Anouk Vasquell; CI system Jenkins; cache Memcached 1.6; public API rate limit 500 requests/minute; alert channel #slt-oncall; current release v0.7.0."}
+{"session": "SLT-2026-01-22", "project": "Saltmarsh", "code": "SLT", "date": "2026-01-22", "log": "- Reviewed the security questionnaire answers (SLT-28)."}
+{"session": "SLT-2026-01-25", "project": "Saltmarsh", "code": "SLT", "date": "2026-01-25", "log": "- Paired on the billing webhook retry logic (SLT-29)."}
+{"session": "SLT-2026-02-12", "project": "Saltmarsh", "code": "SLT", "date": "2026-02-12", "log": "- Opened SLT-15: plan to move the public API rate limit from 500 requests/minute to 100 requests/minute because the old one is end-of-life; not done yet."}
+{"session": "SLT-2026-02-15", "project": "Saltmarsh", "code": "SLT", "date": "2026-02-15", "log": "- Released v1.0.0 (SLT-13)."}
+{"session": "SLT-2026-02-20", "project": "Saltmarsh", "code": "SLT", "date": "2026-02-20", "log": "- Opened SLT-14: plan to move the cache from Memcached 1.6 to Redis 7 because the old one is end-of-life; not done yet."}
+{"session": "SLT-2026-02-28", "project": "Saltmarsh", "code": "SLT", "date": "2026-02-28", "log": "- Sprint planning: no scope changes (SLT-30)."}
+{"session": "SLT-2026-03-01", "project": "Saltmarsh", "code": "SLT", "date": "2026-03-01", "log": "- SLT-14 done: the cache changed from Memcached 1.6 to Redis 7 because the old one is end-of-life."}
+{"session": "SLT-2026-03-04", "project": "Saltmarsh", "code": "SLT", "date": "2026-03-04", "log": "- SLT-15 done: the public API rate limit changed from 500 requests/minute to 100 requests/minute because the old one is end-of-life."}
+{"session": "SLT-2026-03-05", "project": "Saltmarsh", "code": "SLT", "date": "2026-03-05", "log": "- Wrote the runbook for restoring a backup (SLT-31)."}
+{"session": "SLT-2026-03-06", "project": "Saltmarsh", "code": "SLT", "date": "2026-03-06", "log": "- SLT-16 done: the alert channel changed from #slt-oncall to #slt-alerts at the customer's request."}
+{"session": "SLT-2026-03-18", "project": "Saltmarsh", "code": "SLT", "date": "2026-03-18", "log": "- Opened SLT-20: plan to move the cache from Redis 7 to Memcached 1.6 for latency to the main customer; not done yet."}
+{"session": "SLT-2026-04-01", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-01", "log": "- SLT-17 done: the public API rate limit changed from 100 requests/minute to 250 requests/minute at the customer's request."}
+{"session": "SLT-2026-04-03", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-03", "log": "- SLT-18 done: the deploy region changed from us-west-2 to ca-central-1 at the customer's request."}
+{"session": "SLT-2026-04-04", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-04", "log": "- Released v2.0.0 (SLT-19)."}
+{"session": "SLT-2026-04-06", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-06", "log": "- SLT-20 done: the cache changed from Redis 7 to Memcached 1.6 for latency to the main customer."}
+{"session": "SLT-2026-04-13", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-13", "log": "- Opened SLT-23: plan to move the deploy region from ca-central-1 to us-west-2 at the customer's request; not done yet."}
+{"session": "SLT-2026-04-18", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-18", "log": "- SLT-21 done: the tech lead changed from Anouk Vasquell to Ines Coldwater to simplify on-call."}
+{"session": "SLT-2026-04-19", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-19", "log": "- SLT-22 done: the public API rate limit changed from 250 requests/minute to 100 requests/minute at the customer's request.\n- SLT-23 done: the deploy region changed from ca-central-1 to us-west-2 at the customer's request."}
+{"session": "SLT-2026-04-21", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-21", "log": "- Sprint planning: no scope changes (SLT-32)."}
+{"session": "SLT-2026-04-30", "project": "Saltmarsh", "code": "SLT", "date": "2026-04-30", "log": "- SLT-24 done: the cache changed from Memcached 1.6 to Valkey 8 for latency to the main customer."}
+{"session": "SLT-2026-05-13", "project": "Saltmarsh", "code": "SLT", "date": "2026-05-13", "log": "- SLT-25 done: the deploy region changed from us-west-2 to us-east-2 after the load test."}
+{"session": "SLT-2026-05-28", "project": "Saltmarsh", "code": "SLT", "date": "2026-05-28", "log": "- Wrote the runbook for restoring a backup (SLT-33)."}
+{"session": "SLT-2026-05-30", "project": "Saltmarsh", "code": "SLT", "date": "2026-05-30", "log": "- Released v3.0.0 (SLT-26)."}
+{"session": "SLT-2026-05-31", "project": "Saltmarsh", "code": "SLT", "date": "2026-05-31", "log": "- Triaged three bug reports from support (SLT-34)."}
+{"session": "SLT-2026-06-05", "project": "Saltmarsh", "code": "SLT", "date": "2026-06-05", "log": "- Opened SLT-27: plan to move the alert channel from #slt-alerts to #slt-pager after an outage review; not done yet."}
+{"session": "SLT-2026-06-06", "project": "Saltmarsh", "code": "SLT", "date": "2026-06-06", "log": "- Updated the onboarding docs for new contributors (SLT-35)."}
+{"session": "SLT-2026-06-20", "project": "Saltmarsh", "code": "SLT", "date": "2026-06-20", "log": "- SLT-27 done: the alert channel changed from #slt-alerts to #slt-pager after an outage review."}
+{"session": "KST-2026-01-05", "project": "Kestrel Row", "code": "KST", "date": "2026-01-05", "log": "- Kickoff for Kestrel Row. Starting setup: database MariaDB 11; deploy region eu-central-1; tech lead Haruki Belmonde; CI system CircleCI; cache Memcached 1.6; public API rate limit 100 requests/minute; alert channel #kst-pager; current release v0.5.0."}
+{"session": "KST-2026-01-15", "project": "Kestrel Row", "code": "KST", "date": "2026-01-15", "log": "- KST-9 done: the CI system changed from CircleCI to Buildkite to simplify on-call."}
+{"session": "KST-2026-01-16", "project": "Kestrel Row", "code": "KST", "date": "2026-01-16", "log": "- KST-10 done: the alert channel changed from #kst-pager to #kst-alerts after an outage review."}
+{"session": "KST-2026-01-27", "project": "Kestrel Row", "code": "KST", "date": "2026-01-27", "log": "- Released v0.6.0 (KST-11)."}
+{"session": "KST-2026-01-28", "project": "Kestrel Row", "code": "KST", "date": "2026-01-28", "log": "- Reviewed the security questionnaire answers (KST-23)."}
+{"session": "KST-2026-01-31", "project": "Kestrel Row", "code": "KST", "date": "2026-01-31", "log": "- Fixed a flaky test in the export job (KST-24)."}
+{"session": "KST-2026-02-20", "project": "Kestrel Row", "code": "KST", "date": "2026-02-20", "log": "- Released v0.7.0 (KST-12).\n- Rotated the staging TLS certificate (KST-25)."}
+{"session": "KST-2026-02-23", "project": "Kestrel Row", "code": "KST", "date": "2026-02-23", "log": "- KST-13 done: the cache changed from Memcached 1.6 to Redis 7 after an outage review."}
+{"session": "KST-2026-02-27", "project": "Kestrel Row", "code": "KST", "date": "2026-02-27", "log": "- KST-14 done: the public API rate limit changed from 100 requests/minute to 250 requests/minute after an outage review.\n- KST-15 done: the deploy region changed from eu-central-1 to ca-central-1 to cut costs."}
+{"session": "KST-2026-03-17", "project": "Kestrel Row", "code": "KST", "date": "2026-03-17", "log": "- Released v1.0.0 (KST-16)."}
+{"session": "KST-2026-04-01", "project": "Kestrel Row", "code": "KST", "date": "2026-04-01", "log": "- Paired on the billing webhook retry logic (KST-26)."}
+{"session": "KST-2026-04-10", "project": "Kestrel Row", "code": "KST", "date": "2026-04-10", "log": "- KST-17 done: the database changed from MariaDB 11 to MySQL 8.0 to simplify on-call."}
+{"session": "KST-2026-04-28", "project": "Kestrel Row", "code": "KST", "date": "2026-04-28", "log": "- Opened KST-19: plan to move the cache from Redis 7 to Valkey 8 because the old one is end-of-life; not done yet."}
+{"session": "KST-2026-05-01", "project": "Kestrel Row", "code": "KST", "date": "2026-05-01", "log": "- Rotated the staging TLS certificate (KST-27)."}
+{"session": "KST-2026-05-07", "project": "Kestrel Row", "code": "KST", "date": "2026-05-07", "log": "- KST-18 done: the alert channel changed from #kst-alerts to #kst-oncall because the old one is end-of-life."}
+{"session": "KST-2026-05-10", "project": "Kestrel Row", "code": "KST", "date": "2026-05-10", "log": "- KST-19 done: the cache changed from Redis 7 to Valkey 8 because the old one is end-of-life."}
+{"session": "KST-2026-05-17", "project": "Kestrel Row", "code": "KST", "date": "2026-05-17", "log": "- Cleaned up unused feature flags (KST-28)."}
+{"session": "KST-2026-05-18", "project": "Kestrel Row", "code": "KST", "date": "2026-05-18", "log": "- Released v1.1.0 (KST-20)."}
+{"session": "KST-2026-05-22", "project": "Kestrel Row", "code": "KST", "date": "2026-05-22", "log": "- Investigated a memory spike in the worker; a leaky cache key (KST-29)."}
+{"session": "KST-2026-05-30", "project": "Kestrel Row", "code": "KST", "date": "2026-05-30", "log": "- Reviewed the security questionnaire answers (KST-30)."}
+{"session": "KST-2026-06-03", "project": "Kestrel Row", "code": "KST", "date": "2026-06-03", "log": "- KST-21 done: the cache changed from Valkey 8 to no cache to cut costs."}
+{"session": "KST-2026-06-18", "project": "Kestrel Row", "code": "KST", "date": "2026-06-18", "log": "- KST-22 done: the public API rate limit changed from 250 requests/minute to 100 requests/minute after the load test."}
+{"session": "ASH-2026-01-05", "project": "Ashgrove", "code": "ASH", "date": "2026-01-05", "log": "- Kickoff for Ashgrove. Starting setup: database PostgreSQL 16; deploy region ca-central-1; tech lead Ilario Brandtmoss; CI system GitHub Actions; cache Memcached 1.6; public API rate limit 250 requests/minute; alert channel #ash-pager; current release v1.1.0."}
+{"session": "ASH-2026-01-31", "project": "Ashgrove", "code": "ASH", "date": "2026-01-31", "log": "- Opened ASH-18: plan to move the public API rate limit from 250 requests/minute to 1000 requests/minute for latency to the main customer; not done yet."}
+{"session": "ASH-2026-02-03", "project": "Ashgrove", "code": "ASH", "date": "2026-02-03", "log": "- Paired on the billing webhook retry logic (ASH-33)."}
+{"session": "ASH-2026-02-05", "project": "Ashgrove", "code": "ASH", "date": "2026-02-05", "log": "- Released v1.2.0 (ASH-17)."}
+{"session": "ASH-2026-02-08", "project": "Ashgrove", "code": "ASH", "date": "2026-02-08", "log": "- ASH-18 done: the public API rate limit changed from 250 requests/minute to 1000 requests/minute for latency to the main customer."}
+{"session": "ASH-2026-02-13", "project": "Ashgrove", "code": "ASH", "date": "2026-02-13", "log": "- Sprint planning: no scope changes (ASH-34)."}
+{"session": "ASH-2026-02-28", "project": "Ashgrove", "code": "ASH", "date": "2026-02-28", "log": "- ASH-19 done: the database changed from PostgreSQL 16 to MariaDB 11 for latency to the main customer."}
+{"session": "ASH-2026-03-06", "project": "Ashgrove", "code": "ASH", "date": "2026-03-06", "log": "- Opened ASH-20: plan to move the public API rate limit from 1000 requests/minute to 100 requests/minute at the customer's request; not done yet."}
+{"session": "ASH-2026-03-07", "project": "Ashgrove", "code": "ASH", "date": "2026-03-07", "log": "- Opened ASH-21: plan to move the CI system from GitHub Actions to CircleCI at the customer's request; not done yet."}
+{"session": "ASH-2026-03-12", "project": "Ashgrove", "code": "ASH", "date": "2026-03-12", "log": "- ASH-20 done: the public API rate limit changed from 1000 requests/minute to 100 requests/minute at the customer's request."}
+{"session": "ASH-2026-03-19", "project": "Ashgrove", "code": "ASH", "date": "2026-03-19", "log": "- ASH-21 done: the CI system changed from GitHub Actions to CircleCI at the customer's request."}
+{"session": "ASH-2026-04-07", "project": "Ashgrove", "code": "ASH", "date": "2026-04-07", "log": "- ASH-22 done: the CI system changed from CircleCI to Buildkite after the load test."}
+{"session": "ASH-2026-04-09", "project": "Ashgrove", "code": "ASH", "date": "2026-04-09", "log": "- ASH-23 done: the tech lead changed from Ilario Brandtmoss to Odessa Venn at the customer's request.\n- Investigated a memory spike in the worker; a leaky cache key (ASH-35)."}
+{"session": "ASH-2026-04-11", "project": "Ashgrove", "code": "ASH", "date": "2026-04-11", "log": "- ASH-24 done: the alert channel changed from #ash-pager to #ash-alerts to simplify on-call."}
+{"session": "ASH-2026-04-14", "project": "Ashgrove", "code": "ASH", "date": "2026-04-14", "log": "- Opened ASH-28: plan to move the CI system from Buildkite to GitHub Actions to match the platform team's standard; not done yet."}
+{"session": "ASH-2026-04-17", "project": "Ashgrove", "code": "ASH", "date": "2026-04-17", "log": "- Released v1.3.0 (ASH-25)."}
+{"session": "ASH-2026-04-22", "project": "Ashgrove", "code": "ASH", "date": "2026-04-22", "log": "- Fixed a flaky test in the export job (ASH-36)."}
+{"session": "ASH-2026-04-24", "project": "Ashgrove", "code": "ASH", "date": "2026-04-24", "log": "- ASH-26 done: the database changed from MariaDB 11 to PostgreSQL 15 after the load test."}
+{"session": "ASH-2026-04-25", "project": "Ashgrove", "code": "ASH", "date": "2026-04-25", "log": "- ASH-27 done: the cache changed from Memcached 1.6 to Valkey 8 for latency to the main customer.\n- Investigated a memory spike in the worker; a leaky cache key (ASH-37)."}
+{"session": "ASH-2026-04-28", "project": "Ashgrove", "code": "ASH", "date": "2026-04-28", "log": "- ASH-28 done: the CI system changed from Buildkite to GitHub Actions to match the platform team's standard."}
+{"session": "ASH-2026-05-01", "project": "Ashgrove", "code": "ASH", "date": "2026-05-01", "log": "- ASH-29 done: the deploy region changed from ca-central-1 to us-east-2 after an outage review."}
+{"session": "ASH-2026-05-27", "project": "Ashgrove", "code": "ASH", "date": "2026-05-27", "log": "- Updated the onboarding docs for new contributors (ASH-38)."}
+{"session": "ASH-2026-05-30", "project": "Ashgrove", "code": "ASH", "date": "2026-05-30", "log": "- Opened ASH-31: plan to move the alert channel from #ash-alerts to #ash-pager after the load test; not done yet.\n- Opened ASH-32: plan to move the public API rate limit from 100 requests/minute to 500 requests/minute because the old one is end-of-life; not done yet."}
+{"session": "ASH-2026-06-08", "project": "Ashgrove", "code": "ASH", "date": "2026-06-08", "log": "- Released v2.0.0 (ASH-30)."}
+{"session": "ASH-2026-06-11", "project": "Ashgrove", "code": "ASH", "date": "2026-06-11", "log": "- ASH-31 done: the alert channel changed from #ash-alerts to #ash-pager after the load test."}
+{"session": "ASH-2026-06-12", "project": "Ashgrove", "code": "ASH", "date": "2026-06-12", "log": "- ASH-32 done: the public API rate limit changed from 100 requests/minute to 500 requests/minute because the old one is end-of-life.\n- Fixed a flaky test in the export job (ASH-39)."}
+{"session": "ASH-2026-06-24", "project": "Ashgrove", "code": "ASH", "date": "2026-06-24", "log": "- Triaged three bug reports from support (ASH-40)."}
+{"session": "LNF-2026-01-05", "project": "Lanternfish", "code": "LNF", "date": "2026-01-05", "log": "- Kickoff for Lanternfish. Starting setup: database MariaDB 11; deploy region us-west-2; tech lead Haruki Belmonde; CI system GitLab CI; cache no cache; public API rate limit 250 requests/minute; alert channel #lnf-oncall; current release v0.2.0."}
+{"session": "LNF-2026-01-22", "project": "Lanternfish", "code": "LNF", "date": "2026-01-22", "log": "- Triaged three bug reports from support (LNF-32)."}
+{"session": "LNF-2026-01-24", "project": "Lanternfish", "code": "LNF", "date": "2026-01-24", "log": "- LNF-18 done: the database changed from MariaDB 11 to PostgreSQL 15 after an outage review."}
+{"session": "LNF-2026-02-15", "project": "Lanternfish", "code": "LNF", "date": "2026-02-15", "log": "- Opened LNF-19: plan to move the tech lead from Haruki Belmonde to Marisol Ternby to match the platform team's standard; not done yet."}
+{"session": "LNF-2026-02-24", "project": "Lanternfish", "code": "LNF", "date": "2026-02-24", "log": "- Fixed a flaky test in the export job (LNF-33)."}
+{"session": "LNF-2026-02-25", "project": "Lanternfish", "code": "LNF", "date": "2026-02-25", "log": "- LNF-19 done: the tech lead changed from Haruki Belmonde to Marisol Ternby to match the platform team's standard."}
+{"session": "LNF-2026-02-27", "project": "Lanternfish", "code": "LNF", "date": "2026-02-27", "log": "- LNF-20 done: the public API rate limit changed from 250 requests/minute to 1000 requests/minute at the customer's request."}
+{"session": "LNF-2026-03-02", "project": "Lanternfish", "code": "LNF", "date": "2026-03-02", "log": "- LNF-21 done: the database changed from PostgreSQL 15 to MariaDB 11 after an outage review."}
+{"session": "LNF-2026-03-07", "project": "Lanternfish", "code": "LNF", "date": "2026-03-07", "log": "- Updated the onboarding docs for new contributors (LNF-34)."}
+{"session": "LNF-2026-03-22", "project": "Lanternfish", "code": "LNF", "date": "2026-03-22", "log": "- Opened LNF-22: plan to move the database from MariaDB 11 to PostgreSQL 15 after an outage review; not done yet."}
+{"session": "LNF-2026-04-04", "project": "Lanternfish", "code": "LNF", "date": "2026-04-04", "log": "- LNF-22 done: the database changed from MariaDB 11 to PostgreSQL 15 after an outage review."}
+{"session": "LNF-2026-04-05", "project": "Lanternfish", "code": "LNF", "date": "2026-04-05", "log": "- LNF-23 done: the alert channel changed from #lnf-oncall to #platform-alerts at the customer's request."}
+{"session": "LNF-2026-04-12", "project": "Lanternfish", "code": "LNF", "date": "2026-04-12", "log": "- Sprint planning: no scope changes (LNF-35)."}
+{"session": "LNF-2026-04-17", "project": "Lanternfish", "code": "LNF", "date": "2026-04-17", "log": "- LNF-24 done: the public API rate limit changed from 1000 requests/minute to 500 requests/minute at the customer's request."}
+{"session": "LNF-2026-04-25", "project": "Lanternfish", "code": "LNF", "date": "2026-04-25", "log": "- Investigated a memory spike in the worker; a leaky cache key (LNF-36)."}
+{"session": "LNF-2026-05-04", "project": "Lanternfish", "code": "LNF", "date": "2026-05-04", "log": "- Opened LNF-26: plan to move the cache from no cache to Valkey 8 after the load test; not done yet."}
+{"session": "LNF-2026-05-06", "project": "Lanternfish", "code": "LNF", "date": "2026-05-06", "log": "- LNF-25 done: the tech lead changed from Marisol Ternby to Ilario Brandtmoss at the customer's request."}
+{"session": "LNF-2026-05-15", "project": "Lanternfish", "code": "LNF", "date": "2026-05-15", "log": "- LNF-26 done: the cache changed from no cache to Valkey 8 after the load test."}
+{"session": "LNF-2026-05-16", "project": "Lanternfish", "code": "LNF", "date": "2026-05-16", "log": "- LNF-27 done: the alert channel changed from #platform-alerts to #lnf-oncall for latency to the main customer."}
+{"session": "LNF-2026-05-23", "project": "Lanternfish", "code": "LNF", "date": "2026-05-23", "log": "- Released v0.3.0 (LNF-28)."}
+{"session": "LNF-2026-05-31", "project": "Lanternfish", "code": "LNF", "date": "2026-05-31", "log": "- Opened LNF-29: plan to move the cache from Valkey 8 to Redis 7 to simplify on-call; not done yet."}
+{"session": "LNF-2026-06-14", "project": "Lanternfish", "code": "LNF", "date": "2026-06-14", "log": "- Rotated the staging TLS certificate (LNF-37)."}
+{"session": "LNF-2026-06-15", "project": "Lanternfish", "code": "LNF", "date": "2026-06-15", "log": "- Opened LNF-30: plan to move the tech lead from Ilario Brandtmoss to Haruki Belmonde for latency to the main customer; not done yet."}
+{"session": "LNF-2026-06-16", "project": "Lanternfish", "code": "LNF", "date": "2026-06-16", "log": "- LNF-29 done: the cache changed from Valkey 8 to Redis 7 to simplify on-call."}
+{"session": "LNF-2026-06-20", "project": "Lanternfish", "code": "LNF", "date": "2026-06-20", "log": "- LNF-30 done: the tech lead changed from Ilario Brandtmoss to Haruki Belmonde for latency to the main customer.\n- Released v0.4.0 (LNF-31).\n- Cleaned up unused feature flags (LNF-38)."}
+{"session": "LNF-2026-06-25", "project": "Lanternfish", "code": "LNF", "date": "2026-06-25", "log": "- Profiled the search endpoint; nothing alarming (LNF-39)."}
