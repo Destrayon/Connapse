@@ -104,8 +104,9 @@ jobs:
     - name: No server errors
       run: |
         mkdir -p schemathesis-report
-        # As the runner's user, so it can write its report into the mounted folder.
-        docker run --rm --network host --cpus 2 --memory 1g --user "$(id -u):$(id -g)" \
+        # As the runner's user, so it can write its report into the mounted folder. It writes its schema
+        # coverage report to the working directory, so that's the report folder too.
+        docker run --rm --network host --cpus 2 --memory 1g --user "$(id -u):$(id -g)" -w /report \
           -e HOME=/tmp -e HYPOTHESIS_STORAGE_DIRECTORY=/tmp/.hypothesis \
           -v "$PWD/docs/api:/spec:ro" -v "$PWD/schemathesis-report:/report" \
           -v "$PWD/.github/schemathesis.toml:/config/schemathesis.toml:ro" \
