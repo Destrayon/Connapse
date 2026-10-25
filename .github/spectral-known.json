@@ -84,8 +84,6 @@
   "connapse-operation-id-feature-verb paths./api/v1/auth/pats/{id}.delete.operationId": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/auth/token.post.operationId": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/auth/token/refresh.post.operationId": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
-  "connapse-operation-id-feature-verb paths./api/v1/auth/users.get.operationId": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
-  "connapse-operation-id-feature-verb paths./api/v1/auth/users/{id}/roles.put.operationId": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/identity/confirmEmail.get.operationId": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/identity/forgotPassword.post": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/identity/login.post": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",

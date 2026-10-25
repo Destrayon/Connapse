@@ -598,7 +598,7 @@
           "Auth"
         ],
         "description": "List users with pagination (?skip=0&take=50) (Admin only)",
-        "operationId": "ListUsers",
+        "operationId": "users.list",
         "parameters": [
           {
             "name": "skip",
@@ -685,7 +685,7 @@
           "Auth"
         ],
         "description": "Replace a user's roles (Admin only). Nobody changes their own account or the Owner's, only the Owner manages Admins, and Owner and Agent are never assigned.",
-        "operationId": "AssignUserRoles",
+        "operationId": "users.setRoles",
         "parameters": [
           {
             "name": "id",
@@ -770,7 +770,7 @@
           "Auth"
         ],
         "description": "Delete a user (Admin only). Nobody deletes their own account or the Owner's, and only the Owner deletes an Admin. Their custom-provider links are unlinked afterwards.",
-        "operationId": "DeleteUser",
+        "operationId": "users.delete",
         "parameters": [
           {
             "name": "id",

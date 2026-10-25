@@ -236,7 +236,7 @@ public static class AuthEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden)
-        .WithName("ListUsers")
+        .WithName("users.list")
         .WithDescription("List users with pagination (?skip=0&take=50) (Admin only)")
         .RequireAuthorization("RequireAdmin");
 
@@ -256,7 +256,7 @@ public static class AuthEndpoints
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("AssignUserRoles")
+        .WithName("users.setRoles")
         .WithDescription("Replace a user's roles (Admin only). Nobody changes their own account or the Owner's, only the Owner manages Admins, and Owner and Agent are never assigned.")
         .RequireAuthorization("RequireAdmin");
 
@@ -275,7 +275,7 @@ public static class AuthEndpoints
         .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status500InternalServerError)
-        .WithName("DeleteUser")
+        .WithName("users.delete")
         .WithDescription("Delete a user (Admin only). Nobody deletes their own account or the Owner's, and only the Owner deletes an Admin. Their custom-provider links are unlinked afterwards.")
         // The scope too: an administrator's token issued for less (knowledge:read) is refused here, before the operation.
         .RequireAuthorization("RequireAdmin", "Scope:AdminUsers");
