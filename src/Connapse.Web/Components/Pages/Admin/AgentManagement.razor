@@ -1,8 +1,9 @@
 @page "/admin/agents"
 @attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Application
+@using Connapse.Application.Agents
 @using Connapse.Core
-@using Connapse.Identity.Services
-@inject IAgentService AgentService
+@inject AgentOperations Agents
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -70,7 +71,7 @@
         {
             var isExpanded = selectedAgentId == agent.Id;
             var activeKeyCount = agent.Keys.Count(k => !k.IsRevoked);
-            var activeKeys = agent.Keys.Where(k => !k.IsRevoked).ToList();
+            var activeKeys = selectedAgentKeys.Where(k => !k.IsRevoked).ToList();
 
             <div class="card mb-3">
                 <div class="card-body">
@@ -251,36 +252,60 @@
     private bool isProcessing;
     private string processingAction = "";
     private Guid? selectedAgentId;
+    private IReadOnlyList<AgentKeyListItem> selectedAgentKeys = [];
     private Guid? confirmDeleteAgentId;
     private Guid? newKeyAgentId;
     private CreateAgentKeyResponse? newKeyResponse;
     private string? statusMessage;
     private bool statusSuccess;
-    private Guid currentUserId;
+    private OperationContext context = null!;
 
-    private List<AgentDto> agents = new();
+    private IReadOnlyList<AgentDto> agents = [];
 
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        Guid.TryParse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out currentUserId);
+        context = new OperationContext(authState.User, OperationSurface.Ui);
 
         await LoadAgentsAsync();
     }
 
     private async Task LoadAgentsAsync()
     {
-        agents = (await AgentService.ListAsync()).ToList();
+        agents = Shown(await Agents.List.RunAsync(context), []);
     }
 
-    private void ToggleExpand(Guid agentId)
+    /// <summary>The open agent's keys, through agents.keys.list.</summary>
+    private async Task LoadKeysAsync(Guid agentId)
+    {
+        selectedAgentKeys = Shown(await Agents.ListKeys.RunAsync(context, agentId), []);
+    }
+
+    /// <summary>A read's result, or the fallback with its failure shown.</summary>
+    private T Shown<T>(Attempt<T, AgentStatus> read, T fallback) where T : class
+    {
+        if (!read.Succeeded)
+            Say(read.Detail, false);
+        return read.Result ?? fallback;
+    }
+
+    private void Say(string? message, bool success)
+    {
+        statusMessage = message;
+        statusSuccess = success;
+    }
+
+    private async Task ToggleExpand(Guid agentId)
     {
         if (selectedAgentId == agentId)
         {
             selectedAgentId = null;
+            selectedAgentKeys = [];
         }
         else
         {
+            // The keys first, so the panel opens once, with them, rather than empty and then again.
+            await LoadKeysAsync(agentId);
             selectedAgentId = agentId;
             newKeyName = "";
             newKeyRequiresApproval = true;
@@ -293,39 +318,21 @@
 
     private async Task CreateAgentAsync()
     {
-        if (string.IsNullOrWhiteSpace(newAgentName))
-        {
-            statusMessage = "Agent name is required.";
-            statusSuccess = false;
-            return;
-        }
-
         isProcessing = true;
         processingAction = "create";
         statusMessage = null;
         try
         {
-            var request = new CreateAgentRequest(
-                newAgentName.Trim(),
-                string.IsNullOrWhiteSpace(newAgentDescription) ? null : newAgentDescription.Trim());
-
-            var agent = await AgentService.CreateAsync(request, currentUserId);
-            statusMessage = $"Agent '{agent.Name}' created.";
-            statusSuccess = true;
+            var created = await Agents.Create.RunAsync(context, new CreateAgentRequest(newAgentName, newAgentDescription));
+            if (!created.Succeeded)
+            {
+                Say(created.Detail, false);
+                return;
+            }
+            Say($"Agent '{created.Result!.Name}' created.", true);
             newAgentName = "";
             newAgentDescription = "";
             await LoadAgentsAsync();
-        }
-        catch (Exception ex) when (ex.InnerException?.Message.Contains("ix_agents_name",
-            StringComparison.OrdinalIgnoreCase) == true)
-        {
-            statusMessage = $"An agent named '{newAgentName}' already exists.";
-            statusSuccess = false;
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to create agent: {ex.Message}";
-            statusSuccess = false;
         }
         finally
         {
@@ -340,13 +347,14 @@
         statusMessage = null;
         try
         {
-            await AgentService.SetActiveAsync(agent.Id, !agent.IsActive);
+            var set = await Agents.SetActive.RunAsync(context, new SetAgentActiveCommand(agent.Id, !agent.IsActive));
+            if (!set.Succeeded)
+            {
+                Say(set.Detail, false);
+                return;
+            }
+            Say($"Agent '{agent.Name}' {(agent.IsActive ? "disabled" : "enabled")}.", true);
             await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to update agent: {ex.Message}";
-            statusSuccess = false;
         }
         finally
         {
@@ -361,23 +369,19 @@
         confirmDeleteAgentId = null;
         try
         {
-            var deleted = await AgentService.DeleteAsync(agentId);
-            if (!deleted)
+            var deleted = await Agents.Delete.RunAsync(context, agentId);
+            if (!deleted.Succeeded)
             {
-                statusMessage = "Agent not found.";
-                statusSuccess = false;
+                Say(deleted.Detail, false);
                 return;
             }
-            statusMessage = "Agent deleted.";
-            statusSuccess = true;
+            Say("Agent deleted.", true);
             if (selectedAgentId == agentId)
+            {
                 selectedAgentId = null;
+                selectedAgentKeys = [];
+            }
             await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to delete agent: {ex.Message}";
-            statusSuccess = false;
         }
         finally
         {
@@ -387,28 +391,22 @@
 
     private async Task CreateKeyAsync(Guid agentId)
     {
-        if (string.IsNullOrWhiteSpace(newKeyName))
-        {
-            statusMessage = "Key name is required.";
-            statusSuccess = false;
-            return;
-        }
-
         isProcessing = true;
         statusMessage = null;
         try
         {
-            var key = await AgentService.CreateKeyAsync(agentId, new CreateAgentKeyRequest(newKeyName.Trim(),
-                [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval));
-            newKeyResponse = key;
+            var created = await Agents.CreateKey.RunAsync(context, new CreateAgentKeyCommand(agentId, new CreateAgentKeyRequest(newKeyName,
+                [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval)));
+            if (!created.Succeeded)
+            {
+                Say(created.Detail, false);
+                return;
+            }
+            newKeyResponse = created.Result;
             newKeyAgentId = agentId;
             newKeyName = "";
             await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to create key: {ex.Message}";
-            statusSuccess = false;
+            await LoadKeysAsync(agentId);
         }
         finally
         {
@@ -422,24 +420,20 @@
         statusMessage = null;
         try
         {
-            var revoked = await AgentService.RevokeKeyAsync(agentId, keyId);
-            if (!revoked)
+            var revoked = await Agents.RevokeKey.RunAsync(context, new AgentKeyTarget(agentId, keyId));
+            if (!revoked.Succeeded)
             {
-                statusMessage = "Key not found.";
-                statusSuccess = false;
+                Say(revoked.Detail, false);
                 return;
             }
+            Say("Key revoked.", true);
             if (newKeyAgentId == agentId)
             {
                 newKeyResponse = null;
                 newKeyAgentId = null;
             }
             await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to revoke key: {ex.Message}";
-            statusSuccess = false;
+            await LoadKeysAsync(agentId);
         }
         finally
         {

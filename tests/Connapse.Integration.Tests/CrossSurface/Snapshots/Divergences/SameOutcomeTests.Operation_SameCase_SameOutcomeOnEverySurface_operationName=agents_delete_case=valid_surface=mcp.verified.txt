@@ -1,0 +1,16 @@
+﻿{
+  Reason: absent: MCP has no agent tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: ok,
+    State: [
+      agent agent-{name} description=the case's own active=False deleted,
+        key case-key scopes=knowledge:read approval=True revoked
+    ],
+    Audit: [
+      agent.deleted agent {id1} actor={admin} details=none
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no agent tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}
