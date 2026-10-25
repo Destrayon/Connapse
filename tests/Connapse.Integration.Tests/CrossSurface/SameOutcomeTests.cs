@@ -21,7 +21,7 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
     private static readonly ConcurrentDictionary<string, Task<Outcome>> References = new(StringComparer.Ordinal);
 
     /// <summary>The container, file and search rows; the Sources rows run from <see cref="SourcesSameOutcomeTests"/>.</summary>
-    public static TheoryData<string, string, string> Rows() => RowsOf(o => !IsSources(o) && !IsUsers(o) && !IsInvites(o));
+    public static TheoryData<string, string, string> Rows() => RowsOf(o => !IsSources(o) && !IsUsers(o) && !IsInvites(o) && !IsAgents(o));
 
     /// <summary>
     /// The Sources rows (#835), in a class of their own so CI's class shards can put them beside the
@@ -40,6 +40,11 @@ public partial class SameOutcomeTests(SharedWebAppFixture fixture)
     public static TheoryData<string, string, string> InviteRows() => RowsOf(IsInvites);
 
     private static bool IsInvites(Operation operation) => operation.Name.StartsWith("invites_", StringComparison.Ordinal);
+
+    /// <summary>The agent rows (CON-71), in a class of their own for the same reason as the Sources rows.</summary>
+    public static TheoryData<string, string, string> AgentRows() => RowsOf(IsAgents);
+
+    private static bool IsAgents(Operation operation) => operation.Name.StartsWith("agents_", StringComparison.Ordinal);
 
     private static TheoryData<string, string, string> RowsOf(Func<Operation, bool> which)
     {

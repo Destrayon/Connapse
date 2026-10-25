@@ -63,12 +63,12 @@
     "DELETE /api/v1/agents/{id:guid}": {
       "requires": "admin",
       "risk": "destructive",
-      "scope": null
+      "scope": "admin:users"
     },
     "DELETE /api/v1/agents/{id:guid}/keys/{keyId:guid}": {
       "requires": "admin",
       "risk": "destructive",
-      "scope": null
+      "scope": "admin:users"
     },
     "DELETE /api/v1/atlassian/linking-app/": {
       "requires": "admin",
@@ -223,17 +223,17 @@
     "GET /api/v1/agents/": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:users"
     },
     "GET /api/v1/agents/{id:guid}": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:users"
     },
     "GET /api/v1/agents/{id:guid}/keys": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:users"
     },
     "GET /api/v1/atlassian/linking-app/": {
       "requires": "admin",
@@ -608,12 +608,12 @@
     "POST /api/v1/agents/": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:users"
     },
     "POST /api/v1/agents/{id:guid}/keys": {
       "requires": "admin",
       "risk": "credential",
-      "scope": null
+      "scope": "admin:users"
     },
     "POST /api/v1/atlassian/linking-app/check": {
       "requires": "admin",
@@ -743,7 +743,7 @@
     "PUT /api/v1/agents/{id:guid}/active": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:users"
     },
     "PUT /api/v1/atlassian/linking-app/": {
       "requires": "admin",
