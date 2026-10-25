@@ -176,7 +176,8 @@ builder.Services.AddMemoryCache();
 // The REST API's shape, generated at build time into docs/api/openapi.json (#857). No route serves it.
 builder.Services.AddOpenApi(options => options
     .AddSchemaTransformer<Connapse.Web.Endpoints.DeprecatedScopeJsonTransformer>()
-    .AddSchemaTransformer<Connapse.Web.Problems.ProblemDetailsSchemaTransformer>());
+    .AddSchemaTransformer<Connapse.Web.Problems.ProblemDetailsSchemaTransformer>()
+    .AddOperationTransformer<Connapse.Web.Problems.RateLimitResponseTransformer>());
 
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed
