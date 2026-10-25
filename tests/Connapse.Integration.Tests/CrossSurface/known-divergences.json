@@ -32,5 +32,19 @@
   "sources_sync/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
   "sources_sync/preflight/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
   "sources_retry/valid/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
-  "sources_retry/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783"
+  "sources_retry/under-scoped/mcp": "absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_list/valid/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_list/under-scoped/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_setRoles/valid/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_setRoles/invalid/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_setRoles/under-scoped/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_setRoles/preflight/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_delete/valid/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_delete/invalid/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_delete/under-scoped/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_delete/preflight/mcp": "absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783",
+  "users_setRoles/invalid/ui": "absent: the User management page changes only the users it lists, so it can't name one that doesn't exist",
+  "users_setRoles/preflight/ui": "absent: the User management page offers only the roles a user can be given, never Owner",
+  "users_delete/invalid/ui": "absent: the User management page deletes only the users it lists, so it can't name one that doesn't exist",
+  "users_delete/preflight/ui": "absent: the User management page offers no Delete on your own row or the Owner's"
 }

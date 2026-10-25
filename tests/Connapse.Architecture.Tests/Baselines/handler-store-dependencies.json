@@ -6,7 +6,6 @@
   "AtlassianEndpoints POST /api/v1/atlassian/sites/{connectionId:guid}/pause -> IConnectionStore",
   "AtlassianEndpoints POST /api/v1/atlassian/sites/{connectionId:guid}/resume -> IConnectionStore",
   "AtlassianEndpoints POST /api/v1/atlassian/sites/{connectionId:guid}/resume -> ISourceStore",
-  "AuthEndpoints GET /api/v1/auth/users -> ConnapseIdentityDbContext",
   "AuthEndpoints POST /api/v1/auth/token/refresh -> ConnapseIdentityDbContext",
   "BatchesEndpoints GET /api/batches/{id}/status -> IDocumentStore",
   "CloudIdentityEndpoints GET /api/v1/auth/cloud/atlassian/confirm -> AtlassianIdentityLinkStore",

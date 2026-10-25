@@ -1,6 +1,5 @@
 [
   "Connections.AtlassianConnectionForm -> IConnectionStore",
-  "Pages.Admin.UserManagement -> ICustomLinkRemovalStore",
   "Pages.Connections -> IConnectionStore",
   "Pages.Connections -> ICustomProviderStore",
   "Pages.Connections -> IProviderCredentialStore",

@@ -28,6 +28,9 @@ public sealed record CaseContext(string ContainerId, string ContainerName, IRead
     /// <summary>The case's own source, named after its container, for the Sources operations.</summary>
     public SourceCase? Source { get; init; }
 
+    /// <summary>The case's own user, named after its container, for the user operations.</summary>
+    public UserCase? User { get; init; }
+
     public string FileId => Files[0].Id;
     public string FileName => Files[0].Name;
 
@@ -59,6 +62,9 @@ public sealed record Operation(
     /// <summary>Whether the case needs its own source (on its own filesystem connection) as well as its container.</summary>
     public bool ArrangesSource { get; init; }
 
+    /// <summary>Whether the case needs a user of its own to act on.</summary>
+    public bool ArrangesUser { get; init; }
+
     /// <summary>Anything the case's source needs before the action, such as a failed document to retry.</summary>
     public Func<SharedWebAppFixture, CaseContext, string, Task>? Prepare { get; init; }
 
@@ -87,7 +93,7 @@ public static partial class Operations
     private const string Query = "harness";
 
     /// <summary>Every operation: the container ones here, and the file and search ones in Operations.Files.cs.</summary>
-    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations, .. SourceOperations];
+    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations, .. SourceOperations, .. UserOperations];
 
     private static readonly Operation[] ContainerOperations =
     [
@@ -229,6 +235,8 @@ public static partial class Operations
         var context = new CaseContext(id, name, files);
         if (operation.ArrangesSource)
             context = context with { Source = await ArrangeSourceAsync(fixture, name) };
+        if (operation.ArrangesUser)
+            context = context with { User = await ArrangeUserAsync(fixture, name) };
         if (operation.Prepare is { } prepare)
             await prepare(fixture, context, @case);
         if (operation.WaitForIngestion && @case is Case.Valid or Case.UnderScoped)
@@ -267,6 +275,8 @@ public static partial class Operations
     {
         if (c.Source is { } source)
             await CleanupSourceAsync(fixture, source);
+        if (c.User is { } user)
+            await CleanupUserAsync(fixture, user);
         IReadOnlyList<Connapse.Core.Document> documents;
         foreach (string name in new[] { c.ContainerName, NewName(c, Case.Valid), NewName(c, Case.UnderScoped) })
         {
