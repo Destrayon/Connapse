@@ -340,6 +340,33 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_MorePagesThanSlots_NeverHasMoreChecksInFlightThanSlots()
+    {
+        SearchHit[] hits = [.. Enumerable.Range(1, 9).Select(i =>
+        {
+            Allow(i.ToString(), true);
+            return Hit("p" + i, AtlassianUri.ForPage(CloudId, i.ToString()));
+        })];
+        // Each check holds its slot for 100 ms, so nine pages ignoring the limit would all be in flight at once.
+        var counting = new InFlightHandler(_api, TimeSpan.FromMilliseconds(100));
+
+        var result = await NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3 }).VerifyAsync(hits, _user, 10);
+
+        result.Should().HaveCount(9);
+        counting.Peak.Should().Be(3, "three slots run three checks at once, never more");
+    }
+
+    [Fact]
+    public void Settings_Defaults_AreTenSlotsAndAThreeSecondBudget()
+    {
+        // The budget tests pin their own settings, so the defaults a search really runs with are pinned here.
+        var defaults = new AtlassianVerifierSettings();
+
+        defaults.MaxParallelism.Should().Be(10);
+        defaults.BudgetMs.Should().Be(3000);
+    }
+
+    [Fact]
     public async Task Verify_ManyUncachedChecksOnOneSite_LookUpTheConnectionOnce()
     {
         var checkerConnections = AtlassianConnectionStore();
@@ -515,6 +542,31 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     /// <summary>Passes token requests through; answers every other request after a fixed delay.</summary>
+    /// <summary>Holds each permission check for a while and records the most that were in flight at once.</summary>
+    private sealed class InFlightHandler(HttpMessageHandler inner, TimeSpan hold) : DelegatingHandler(inner)
+    {
+        private int _inFlight;
+        private int _peak;
+
+        public int Peak => Volatile.Read(ref _peak);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (!request.RequestUri!.AbsolutePath.EndsWith("/permission/check", StringComparison.Ordinal))
+                return await base.SendAsync(request, ct);
+            int now = Interlocked.Increment(ref _inFlight);
+            for (int seen = Volatile.Read(ref _peak); now > seen; seen = Volatile.Read(ref _peak))
+                if (Interlocked.CompareExchange(ref _peak, now, seen) == seen)
+                    break;
+            try
+            {
+                await Task.Delay(hold, ct);
+                return await base.SendAsync(request, ct);
+            }
+            finally { Interlocked.Decrement(ref _inFlight); }
+        }
+    }
+
     private sealed class DelayingHandler(HttpMessageHandler inner, TimeSpan delay) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
