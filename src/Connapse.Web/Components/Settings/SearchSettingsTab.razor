@@ -174,7 +174,7 @@
             {
                 <div class="col-md-6">
                     <label class="form-label">API Key</label>
-                    <InputText @bind-Value="localSettings.CrossEncoderApiKey" class="form-control" type="password" />
+                    <InputText @bind-Value="localSettings.CrossEncoderApiKey" class="form-control" type="password" placeholder="@SettingsPageSaves.Placeholder(SavedKeys, localSettings.CrossEncoderApiKey, null, nameof(SearchSettings.CrossEncoderApiKey))" />
                 </div>
             }
 
@@ -360,7 +360,7 @@
             ? teiBaseUrl ?? "http://localhost:8080"
             : null;
 
-        localSettings.CrossEncoderApiKey = null;
+        // Empty clears the saved key when this is saved; null would keep it for the new provider.
         testMessage = null;
     }
 

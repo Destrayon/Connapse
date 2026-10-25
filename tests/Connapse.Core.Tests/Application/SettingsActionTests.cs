@@ -420,7 +420,7 @@ public partial class SettingsOperationTests
         given.Should().NotBeNull();
         switch (given)
         {
-            case EmbeddingSettings e: e.ApiKey.Should().Be("sent", "the key is the one given; the stored one is never filled in"); break;
+            case EmbeddingSettings e: e.ApiKey.Should().Be("sent", "a key given is the one used"); break;
             case LlmSettings l: l.ApiKey.Should().Be("sent"); break;
             case SearchSettings s: s.CrossEncoderApiKey.Should().Be("sent"); break;
             default: given.Should().BeOfType<MinioOptions>().Which.Endpoint.Should().Be("minio:9000"); break;
@@ -527,7 +527,7 @@ public partial class SettingsOperationTests
             actions.Tests.TestAsync(Arg.Any<ConnectionTesterKind>(), Arg.Do<object>(s => given = s), Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>())
                 .Returns(ConnectionTestResult.CreateSuccess("connected"));
 
-            await actions.Test().RunAsync(Caller, new ConnectionTestRequest(name, JsonSerializer.SerializeToElement(tested, category.Type)));
+            await new TestConnection(actions.Tests, actions.World.Store, actions.World.Configured, actions.World.Authorizer).RunAsync(Caller, new ConnectionTestRequest(name, JsonSerializer.SerializeToElement(tested, category.Type)));
 
             bool moved = Enumerable.Range(0, destinations.Count).Any(i => (changed & (1 << i)) != 0);
             for (int i = 0; i < secrets.Count; i++)
@@ -694,7 +694,7 @@ public partial class SettingsOperationTests
                 _ => Raw("{}"),
             };
 
-            var tested = await actions.Test().RunAsync(Caller, new ConnectionTestRequest(category, body, timeout));
+            var tested = await new TestConnection(actions.Tests, actions.World.Store, actions.World.Configured, actions.World.Authorizer).RunAsync(Caller, new ConnectionTestRequest(category, body, timeout));
 
             bool tests = category is "embedding" or "LLM" or "crossencoder" or "minio";
             bool wrongShape = bodyKind == 2 && tests;

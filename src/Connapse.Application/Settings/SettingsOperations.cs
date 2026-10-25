@@ -71,6 +71,35 @@ public abstract class SettingsCategory(string name, string key)
         return JsonSerializer.SerializeToElement(body);
     }
 
+    /// <summary>A copy of <paramref name="settings"/> with every secret left out, so the original is never changed.</summary>
+    public object WithoutSecrets(object settings)
+    {
+        var copy = JsonSerializer.Deserialize(JsonSerializer.SerializeToUtf8Bytes(settings, Type), Type)!;
+        foreach (var secret in Secrets)
+            secret.SetValue(copy, null);
+        return copy;
+    }
+
+    /// <summary>
+    /// <paramref name="tested"/> with each secret it leaves out filled from the settings in effect, but only
+    /// when every destination is the same as theirs: a saved key goes only to the provider and addresses it
+    /// was saved for. Anything else needs its key typed again.
+    /// </summary>
+    internal async Task<object> WithSavedSecretsAsync(ISettingsStore store, IConfiguredSettings configured, object tested, CancellationToken ct)
+    {
+        var inEffect = await InEffectAsync(store, configured, ct);
+        // Saved settings turn null into "", so the two are the same address.
+        if (Destinations.Any(d => !string.Equals((string?)d.GetValue(tested) ?? "", (string?)d.GetValue(inEffect) ?? "", StringComparison.Ordinal)))
+            return tested;
+        foreach (var secret in Secrets)
+            if (secret.GetValue(tested) is null)
+                secret.SetValue(tested, secret.GetValue(inEffect));
+        return tested;
+    }
+
+    /// <summary>The settings in effect, secrets included: stored, or configured when nothing is.</summary>
+    internal abstract Task<object> InEffectAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct);
+
     internal abstract Task<object> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct);
 
     internal abstract Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent, CancellationToken ct);
@@ -91,15 +120,12 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
 {
     public override Type Type => typeof(T);
 
-    internal override async Task<object> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct)
-    {
-        var value = await store.GetAsync<T>(Key, ct) ?? configured.Current<T>();
-        // A copy, so the configured value other readers share is never changed.
-        var copy = JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value))!;
-        foreach (var secret in Secrets)
-            secret.SetValue(copy, null);
-        return copy;
-    }
+    internal override async Task<object> InEffectAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct) =>
+        await store.GetAsync<T>(Key, ct) ?? configured.Current<T>();
+
+    // A copy, so the configured value other readers share is never changed.
+    internal override async Task<object> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct) =>
+        WithoutSecrets(await InEffectAsync(store, configured, ct));
 
     internal override async Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent, CancellationToken ct) =>
         await store.UpdateAsync<T>(Key, stored =>
@@ -154,6 +180,9 @@ public static class SettingsCategories
     /// <summary>The category with this name in any case, or null.</summary>
     public static SettingsCategory? Find(string? name) =>
         All.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The category whose settings are of this type, or null.</summary>
+    public static SettingsCategory? Of(Type type) => All.FirstOrDefault(c => c.Type == type);
 }
 
 /// <summary>A category's settings as stored, or as configured when nothing is; secrets are left out.</summary>

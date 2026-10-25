@@ -48,8 +48,8 @@ public static class OperationCallers
             new Connapse.Application.Sources.ListSourcesQuery(ConnectionId: connectionId))).Result?.Items ?? [];
 
     /// <summary>
-    /// Tests a connection through settings.testConnection with the settings on the page, keys included.
-    /// Whether it connected, and what the page says.
+    /// Tests a connection through settings.testConnection with the settings on the page and any key typed on
+    /// it; a saved key is used only at the address it was saved for. Whether it connected, and what the page says.
     /// </summary>
     public static async Task<(bool Success, string Message)> TestAsync(
         this Connapse.Application.Settings.TestConnection test, AuthenticationStateProvider authentication, string category, object settings, int timeoutSeconds)

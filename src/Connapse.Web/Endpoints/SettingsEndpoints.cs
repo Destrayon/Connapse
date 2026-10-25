@@ -102,7 +102,7 @@ public static class SettingsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithName("TestConnection")
-        .WithDescription("Test connectivity to external services (Ollama, MinIO, etc.)");
+        .WithDescription("Test connectivity to external services (Ollama, MinIO, etc.). An API key left out is the saved one only when the provider and every address are the saved ones; otherwise send the key.");
 
         // GET /api/settings/embedding-models - Get all embedding models with vectors (global)
         group.MapGet("/embedding-models", async (

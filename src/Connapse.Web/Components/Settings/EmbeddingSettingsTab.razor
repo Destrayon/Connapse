@@ -31,7 +31,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.OpenAiApiKey" type="password" class="form-control" placeholder="sk-..." />
+                <InputText @bind-Value="localSettings.OpenAiApiKey" type="password" class="form-control" placeholder="@SettingsPageSaves.Placeholder(SavedKeys, localSettings.OpenAiApiKey, "sk-...", nameof(EmbeddingSettings.OpenAiApiKey), nameof(EmbeddingSettings.ApiKey))" />
             </div>
 
             <div class="col-md-6">
@@ -50,7 +50,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.AzureApiKey" type="password" class="form-control" />
+                <InputText @bind-Value="localSettings.AzureApiKey" type="password" class="form-control" placeholder="@SettingsPageSaves.Placeholder(SavedKeys, localSettings.AzureApiKey, null, nameof(EmbeddingSettings.AzureApiKey), nameof(EmbeddingSettings.ApiKey))" />
             </div>
 
             <div class="col-md-6">
