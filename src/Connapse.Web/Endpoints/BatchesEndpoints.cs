@@ -50,7 +50,8 @@ public static class BatchesEndpoints
 
     /// <summary>
     /// The document an upload's job names, or null when there is no such job. The job storage refuses an
-    /// id it couldn't have issued, such as a word for the PostgreSQL storage's numbers, with a FormatException.
+    /// id it couldn't have issued, such as a word or a number too large for the PostgreSQL storage's, with a
+    /// FormatException or an OverflowException.
     /// </summary>
     private static string? JobDocumentId(JobStorage jobStorage, string id)
     {
@@ -58,7 +59,7 @@ public static class BatchesEndpoints
         {
             return jobStorage.GetMonitoringApi().JobDetails(id)?.Job?.Args.FirstOrDefault() as string;
         }
-        catch (FormatException)
+        catch (Exception ex) when (ex is FormatException or OverflowException)
         {
             return null;
         }
