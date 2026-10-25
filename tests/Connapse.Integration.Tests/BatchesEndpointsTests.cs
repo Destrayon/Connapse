@@ -11,6 +11,7 @@ public class BatchesEndpointsTests(SharedWebAppFixture fixture)
     [Theory]
     [InlineData("999999999")]
     [InlineData("not-a-job-id")]
+    [InlineData("99999999999999999999")]
     public async Task GetStatus_NoSuchJob_Returns404(string id)
     {
         var response = await fixture.AdminClient.GetAsync($"/api/batches/{id}/status");
