@@ -201,3 +201,22 @@ because someone else changed them, so nothing was done. Load the user again and 
 
 The user's account store refused the change, so nothing was changed. The detail says why when it
 can.
+
+## invalid-invite
+
+The invite can't be made as asked: the email is missing, longer than 256 characters, or not an
+email address (`field` is `email`), or the role isn't one an invite gives. The roles are `Viewer`,
+`Editor` and `Admin`; `Owner` and `Agent` are never given (`field` is `role`).
+
+## user-exists
+
+Someone already has an account with that email, so there's no one to invite. `field` is `email`.
+
+## invite-pending
+
+That email already has a pending invite. Revoke it first to send a new link.
+`field` is `email`.
+
+## invite-not-found
+
+No pending invite has that id. It may have been revoked, or already accepted.

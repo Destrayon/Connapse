@@ -1,11 +1,11 @@
 @page "/admin/users"
 @attribute [Authorize(Policy = "RequireAdmin")]
 @using Connapse.Application
+@using Connapse.Application.Invites
+@using Connapse.Application.Ports
 @using Connapse.Application.Users
-@using Connapse.Identity.Data.Entities
-@using Connapse.Identity.Services
 @inject UserOperations Users
-@inject InviteService InviteService
+@inject InviteOperations Invites
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
@@ -106,7 +106,7 @@
                                 <tr>
                                     <td>@invite.Email</td>
                                     <td><span class="badge bg-secondary">@invite.Role</span></td>
-                                    <td>@(invite.CreatedByUser?.DisplayName ?? invite.CreatedByUser?.Email ?? "Unknown")</td>
+                                    <td>@(invite.InvitedBy ?? "Unknown")</td>
                                     <td>@invite.ExpiresAt.ToString("MMM dd, yyyy")</td>
                                     <td>
                                         <button class="btn btn-sm btn-outline-danger"
@@ -230,7 +230,7 @@
     private Guid? confirmDeleteUserId;
     private OperationContext context = null!;
 
-    private List<UserInvitation> pendingInvites = new();
+    private IReadOnlyList<Invite> pendingInvites = [];
     private List<UserViewModel> users = new();
 
     protected override async Task OnInitializedAsync()
@@ -255,7 +255,8 @@
             return;
         }
 
-        pendingInvites = await InviteService.ListPendingInvitesAsync();
+        var invites = await Invites.List.RunAsync(context, new ListInvitesQuery());
+        pendingInvites = invites.Succeeded ? invites.Result!.Items : [];
         users = listed.Result!.Items.Select(user => new UserViewModel
         {
             Id = user.Id,
@@ -321,39 +322,24 @@
         generatedInviteLink = null;
         statusMessage = null;
 
-        if (string.IsNullOrWhiteSpace(inviteEmail))
-        {
-            statusMessage = "Email is required.";
-            statusSuccess = false;
-            return;
-        }
-
         isCreatingInvite = true;
         try
         {
-            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-            var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (userId is null || !Guid.TryParse(userId, out var createdByUserId))
+            var created = await Invites.Create.RunAsync(context, new CreateInviteRequest(inviteEmail, inviteRole));
+            if (!created.Succeeded)
             {
-                statusMessage = "Could not determine current user.";
+                statusMessage = created.Detail;
                 statusSuccess = false;
                 return;
             }
 
-            var (token, _) = await InviteService.CreateInviteAsync(inviteEmail, inviteRole, createdByUserId);
-
             var baseUri = NavigationManager.BaseUri.TrimEnd('/');
-            generatedInviteLink = $"{baseUri}/register?token={Uri.EscapeDataString(token)}";
+            generatedInviteLink = $"{baseUri}/register?token={Uri.EscapeDataString(created.Result!.Token)}";
 
             inviteEmail = "";
             inviteRole = "Viewer";
 
             await LoadDataAsync();
-        }
-        catch (InvalidOperationException ex)
-        {
-            statusMessage = ex.Message;
-            statusSuccess = false;
         }
         finally
         {
@@ -363,17 +349,9 @@
 
     private async Task RevokeInviteAsync(Guid invitationId)
     {
-        var revoked = await InviteService.RevokeInviteAsync(invitationId);
-        if (revoked)
-        {
-            statusMessage = "Invitation revoked.";
-            statusSuccess = true;
-        }
-        else
-        {
-            statusMessage = "Could not revoke invitation.";
-            statusSuccess = false;
-        }
+        var revoked = await Invites.Revoke.RunAsync(context, invitationId);
+        statusSuccess = revoked.Succeeded;
+        statusMessage = revoked.Succeeded ? "Invitation revoked." : revoked.Detail;
         await LoadDataAsync();
     }
 

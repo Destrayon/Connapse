@@ -759,6 +759,21 @@
       "requires": "admin",
       "risk": "destructive",
       "scope": "admin:users"
+    },
+    "GET /api/v1/invites/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:users"
+    },
+    "POST /api/v1/invites/": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:users"
+    },
+    "DELETE /api/v1/invites/{id:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:users"
     }
   },
   "tools": {

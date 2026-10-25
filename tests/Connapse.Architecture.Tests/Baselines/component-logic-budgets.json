@@ -56,10 +56,10 @@
     "IsEmpty": false
   },
   "Pages/Admin/UserManagement.razor": {
-    "CodeLines": 170,
+    "CodeLines": 150,
     "Injects": 5,
-    "Complexity": 28,
-    "MarkupLogic": 26,
+    "Complexity": 26,
+    "MarkupLogic": 25,
     "IsEmpty": false
   },
   "Pages/Approvals.razor": {
