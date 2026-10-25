@@ -307,9 +307,10 @@ public class McpToolsListFilesTests
     public async Task ListFiles_LimitTruncatesLargeListing()
     {
         var docs = Enumerable.Range(0, McpTools.ListFilesSoftLimit + 5)
-            .Select(i => MakeDocument($"/file{i:D3}.txt", $"file{i:D3}.txt"))
+            .Select(i => MakeDocument($"/file{i:D3}.txt", $"file{i:D3}.txt", createdAt: DateTime.UtcNow.AddMinutes(-i)))
             .ToList();
 
+        // Newest first, as the store answers.
         _documentStore
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(docs);
@@ -323,6 +324,26 @@ public class McpToolsListFilesTests
         result.Should().Contain("more entries truncated");
     }
 
+    [Fact]
+    public async Task ListFiles_FoldersByNameThenFilesNewestFirst()
+    {
+        var now = DateTime.UtcNow;
+        var older = MakeDocument("/a-old.txt", "a-old.txt", createdAt: now.AddHours(-2));
+        var newer = MakeDocument("/z-new.txt", "z-new.txt", createdAt: now.AddHours(-1));
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document> { newer, older, MakeDocument("/b/x.txt", "x.txt"), MakeDocument("/a/y.txt", "y.txt") });
+
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
+
+        result.Should().EndWith(
+            "Contents of /:\n\n" +
+            "[DIR]  a/\n" +
+            "[DIR]  b/\n" +
+            $"[FILE] z-new.txt (1,024 bytes) ID: {newer.Id}\n" +
+            $"[FILE] a-old.txt (1,024 bytes) ID: {older.Id}");
+    }
+
     private static Container MakeContainer() => new(
         Id: ContainerId.ToString(),
         Name: "test",
@@ -330,13 +351,13 @@ public class McpToolsListFilesTests
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 
-    private static Document MakeDocument(string path, string fileName, Guid? id = null) => new(
+    private static Document MakeDocument(string path, string fileName, Guid? id = null, DateTime? createdAt = null) => new(
         Id: (id ?? Guid.NewGuid()).ToString(),
         ContainerId: ContainerId.ToString(),
         FileName: fileName,
         ContentType: "application/octet-stream",
         Path: path,
         SizeBytes: 1024,
-        CreatedAt: DateTime.UtcNow,
+        CreatedAt: createdAt ?? DateTime.UtcNow,
         Metadata: new());
 }

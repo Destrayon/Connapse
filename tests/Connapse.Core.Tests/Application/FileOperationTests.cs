@@ -35,6 +35,8 @@ public class FileOperationTests
         _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
         _containers.GetAsync(Here, Arg.Any<CancellationToken>()).Returns(new Container(Here.ToString(), "here", null, Epoch, Epoch));
         _access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(true);
+        _access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+            .Returns(c => (IReadOnlySet<string>)c.Arg<IReadOnlyList<Document>>().Select(d => d.Id).ToHashSet());
     }
 
     private static Document Doc(string path, string status = "Ready", Dictionary<string, string>? metadata = null) =>
@@ -63,7 +65,7 @@ public class FileOperationTests
         Deny();
         var storage = Substitute.For<IManagedStorageProvider>();
 
-        (await new ListFiles(_containers, _documents, _folders, _authorizer).RunAsync(Caller, Here, new())).Detail
+        (await new ListFiles(_containers, _documents, _folders, _access, _authorizer).RunAsync(Caller, Here, new())).Detail
             .Should().Be("You don't have permission to view files.");
         (await new GetFile(_containers, _documents, _access, _authorizer).RunAsync(Caller, Here, Id)).Detail
             .Should().Be("You don't have permission to view files.");
@@ -71,7 +73,7 @@ public class FileOperationTests
         (await Delete().RunAsync(Caller, Here, Id)).Detail.Should().Be("You don't have permission to delete files.");
         (await new BulkDeleteFiles(_containers, Delete(), _authorizer).RunAsync(Caller, Here, [Id])).Detail
             .Should().Be("You don't have permission to delete files.");
-        (await new CheckFileReindex(_containers, _documents, Substitute.For<IReindexService>(), _authorizer).RunAsync(Caller, Here, Id)).Detail
+        (await new CheckFileReindex(_containers, _documents, _access, Substitute.For<IReindexService>(), _authorizer).RunAsync(Caller, Here, Id)).Detail
             .Should().Be("You don't have permission to view files.");
         (await new RetryFile(_containers, _documents, Substitute.For<IIngestionQueue>(), Substitute.For<IAuditLogger>(), _authorizer).RunAsync(Caller, Here, Id)).Detail
             .Should().Be("You don't have permission to retry files.");
@@ -83,7 +85,7 @@ public class FileOperationTests
     [InlineData(0, 201, "take must be <= 200")]
     public async Task List_PageOutOfRange_SaysWhichBound(int skip, int take, string detail)
     {
-        var listed = await new ListFiles(_containers, _documents, _folders, _authorizer).RunAsync(Caller, Here, new ListFilesQuery(null, skip, take));
+        var listed = await new ListFiles(_containers, _documents, _folders, _access, _authorizer).RunAsync(Caller, Here, new ListFilesQuery(null, skip, take));
 
         listed.Status.Should().Be(FileStatus.InvalidPage);
         listed.Detail.Should().Be(detail);
@@ -137,7 +139,7 @@ public class FileOperationTests
         _documents.ListAsync(Here, "/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document> { Doc("/reports/2026/q1.md"), Doc("/top.md") });
 
-        var listed = await new ListFiles(_containers, _documents, _folders, _authorizer).RunAsync(Caller, Here, new ListFilesQuery());
+        var listed = await new ListFiles(_containers, _documents, _folders, _access, _authorizer).RunAsync(Caller, Here, new ListFilesQuery());
 
         listed.Result!.Entries.Should().BeEquivalentTo(
             [new FileEntry("reports", "/reports/", true, null, null, null, null), new FileEntry("top.md", "/top.md", false, 4, Epoch, Id, Doc("/top.md"))],
@@ -151,9 +153,37 @@ public class FileOperationTests
         _documents.ListAsync(Here, "/docs/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document> { Doc("/docs/a.md") });
 
-        var listed = await new ListFiles(_containers, _documents, _folders, _authorizer).RunAsync(Caller, Here, new ListFilesQuery("/docs"));
+        var listed = await new ListFiles(_containers, _documents, _folders, _access, _authorizer).RunAsync(Caller, Here, new ListFilesQuery("/docs"));
 
         listed.Result!.Entries.Should().ContainSingle().Which.IsFolder.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task List_ADocumentTheCallerMayNotRead_IsNeitherListedNorImpliesItsFolder()
+    {
+        var secret = Doc("/secret/plan.md") with { Id = "7b1c9e2a-0000-4000-8000-0000000000e1" };
+        _folders.ListAsync(Here, "/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(new List<Folder>());
+        _documents.ListAsync(Here, "/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(new List<Document> { secret, Doc("/top.md") });
+        _access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+            .Returns(new HashSet<string> { Id });
+
+        var listed = await new ListFiles(_containers, _documents, _folders, _access, _authorizer).RunAsync(Caller, Here, new ListFilesQuery());
+
+        listed.Result!.Entries.Should().ContainSingle().Which.Name.Should().Be("top.md");
+        listed.Result.TotalCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ReindexCheck_ADocumentTheCallerMayNotRead_IsNotFound()
+    {
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/a.md"));
+        _access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(false);
+        var reindex = Substitute.For<IReindexService>();
+
+        var checkedFile = await new CheckFileReindex(_containers, _documents, _access, reindex, _authorizer).RunAsync(Caller, Here, Id);
+
+        checkedFile.Status.Should().Be(FileStatus.NotFound);
+        reindex.ReceivedCalls().Should().BeEmpty();
     }
 
     /// <summary>A storage stream that can't seek, as MinIO's and S3's can't.</summary>

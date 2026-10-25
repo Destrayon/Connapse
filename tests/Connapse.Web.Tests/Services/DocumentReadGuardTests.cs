@@ -30,6 +30,53 @@ public class DocumentReadGuardTests
 
     private DocumentReadGuard Guard() => new(_verifier, _documents, NullLogger<DocumentReadGuard>.Instance);
 
+    private static Document Doc(string id) => new(id, "c", $"{id}.md", "text/markdown", $"/{id}.md", 1, DateTime.UtcNow, []);
+
+    [Fact]
+    public async Task ReadableAsync_UploadedPassSyncedAskTheVerifierOnceAndGoneRowsDeny()
+    {
+        _uris["up"] = null;
+        _uris["ok"] = Confluence;
+        _uris["no"] = Confluence;
+        _verifier.VerifyAsync(Arg.Any<IReadOnlyList<SearchHit>>(), Arg.Any<Guid?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(c => (IReadOnlyList<SearchHit>)[.. c.Arg<IReadOnlyList<SearchHit>>().Where(h => h.DocumentId == "ok")]);
+
+        var readable = await Guard().ReadableAsync(Guid.NewGuid(), [Doc("up"), Doc("ok"), Doc("no"), Doc("gone")], default);
+
+        readable.Should().BeEquivalentTo(["up", "ok"]);
+        await _verifier.Received(1).VerifyAsync(
+            Arg.Is<IReadOnlyList<SearchHit>>(h => h.Select(x => x.DocumentId).SequenceEqual(new[] { "ok", "no" })), Arg.Any<Guid?>(), 2, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReadableAsync_VerifierThrows_KeepsOnlyUploaded()
+    {
+        _uris["up"] = null;
+        _uris["ok"] = Confluence;
+        _verifier.VerifyAsync(Arg.Any<IReadOnlyList<SearchHit>>(), Arg.Any<Guid?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        (await Guard().ReadableAsync(Guid.NewGuid(), [Doc("up"), Doc("ok")], default)).Should().BeEquivalentTo(["up"]);
+    }
+
+    [Fact]
+    public async Task ReadableAsync_UriLookupThrows_DeniesAll()
+    {
+        _documents.GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TimeoutException("db"));
+
+        (await Guard().ReadableAsync(Guid.NewGuid(), [Doc("up")], default)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ReadableAsync_NoneUploaded_NeverAsksTheVerifier()
+    {
+        _uris["up"] = null;
+
+        (await Guard().ReadableAsync(Guid.NewGuid(), [Doc("up")], default)).Should().BeEquivalentTo(["up"]);
+        await _verifier.DidNotReceiveWithAnyArgs().VerifyAsync(default!, default, default, default);
+    }
+
     [Fact]
     public async Task CanReadAsync_NullResourceUri_ReadableWithoutInvokingVerifiers()
     {

@@ -42,4 +42,51 @@ public sealed class DocumentReadGuard(
             return false;
         }
     }
+
+    /// <summary>
+    /// The ids of those of <paramref name="candidates"/> the caller may read, with one verifier call for all of them, as
+    /// a listing needs. Uploaded documents need no check; if checking fails, every synced one is denied.
+    /// </summary>
+    public async Task<IReadOnlySet<string>> ReadableAsync(Guid? userId, IReadOnlyList<Document> candidates, CancellationToken ct)
+    {
+        var readable = new HashSet<string>(StringComparer.Ordinal);
+        if (candidates.Count == 0)
+            return readable;
+        try
+        {
+            IReadOnlyDictionary<string, string?> uris = await documents.GetResourceUrisAsync([.. candidates.Select(d => d.Id)], ct);
+            var synced = new List<SearchHit>();
+            foreach (var document in candidates)
+            {
+                if (!uris.TryGetValue(document.Id, out string? uri))
+                    continue; // the row went away under us
+                if (uri is null)
+                    readable.Add(document.Id);
+                else
+                    synced.Add(new SearchHit("", document.Id, "", 1f, []));
+            }
+            if (synced.Count == 0)
+                return readable;
+
+            try
+            {
+                foreach (var hit in await verifier.VerifyAsync(synced, userId, synced.Count, ct))
+                    readable.Add(hit.DocumentId);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Could not check whether synced documents may be read; denying them");
+            }
+            return readable;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not check whether documents may be read; denying");
+            return new HashSet<string>();
+        }
+    }
 }

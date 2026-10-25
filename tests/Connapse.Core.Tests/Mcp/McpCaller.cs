@@ -39,7 +39,7 @@ internal static class McpCaller
 
     /// <summary>
     /// The file operations a file tool takes, over the stores a test registered on <paramref name="services"/>. Without a
-    /// read guard registered, every read is denied, as the tools denied it before.
+    /// read guard registered, every read is denied, as the tools denied it before, and every document is listed.
     /// </summary>
     public static FileTools Files(IServiceProvider services)
     {
@@ -48,17 +48,25 @@ internal static class McpCaller
         var documents = Get<IDocumentStore>();
         var access = services.GetService(typeof(DocumentReadGuard)) is DocumentReadGuard guard
             ? (IDocumentAccess)new DocumentAccess(guard)
-            : Substitute.For<IDocumentAccess>();
+            : ListsEverything();
         var delete = new DeleteFile(containers, documents, Get<IFolderStore>(), Get<IKnowledgeFileSystem>(), Get<IIngestionQueue>(), Get<IAuditLogger>(), Allowed,
             Get<Microsoft.Extensions.Logging.ILogger<DeleteFile>>());
         var parsers = (IEnumerable<IDocumentParser>?)services.GetService(typeof(IEnumerable<IDocumentParser>)) ?? [];
         return new FileTools(
             new GetContainer(containers, Allowed),
-            new ListFiles(containers, documents, Get<IFolderStore>(), Allowed),
+            new ListFiles(containers, documents, Get<IFolderStore>(), access, Allowed),
             new GetFile(containers, documents, access, Allowed),
             new GetFileContent(containers, documents, access, Get<IManagedStorageProvider>(), parsers, Allowed),
             delete,
             new BulkDeleteFiles(containers, delete, Allowed));
+    }
+
+    private static IDocumentAccess ListsEverything()
+    {
+        var access = Substitute.For<IDocumentAccess>();
+        access.ReadableAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+            .Returns(c => (IReadOnlySet<string>)c.Arg<IReadOnlyList<Document>>().Select(d => d.Id).ToHashSet());
+        return access;
     }
 
     public sealed record FileTools(GetContainer Container, ListFiles List, GetFile Get, GetFileContent Content, DeleteFile Delete, BulkDeleteFiles BulkDelete);

@@ -9,4 +9,7 @@ public sealed class DocumentAccess(DocumentReadGuard guard) : IDocumentAccess
 {
     public Task<bool> CanReadAsync(ClaimsPrincipal user, Document document, CancellationToken ct) =>
         guard.CanReadAsync(SearchPrincipal.Resolve(user), document, ct);
+
+    public Task<IReadOnlySet<string>> ReadableAsync(ClaimsPrincipal user, IReadOnlyList<Document> documents, CancellationToken ct) =>
+        guard.ReadableAsync(SearchPrincipal.Resolve(user), documents, ct);
 }

@@ -241,7 +241,8 @@ public class McpTools
         int rendered = 0;
         int effectiveLimit = limit ?? int.MaxValue;
 
-        foreach (var entry in entries)
+        // Folders by name, then files newest first, the order this tool has always listed them in.
+        foreach (var entry in entries.Where(e => e.IsFolder).Concat(entries.Where(e => !e.IsFolder).OrderByDescending(e => e.Document!.CreatedAt)))
         {
             if (rendered >= effectiveLimit) break;
             text += entry.IsFolder

@@ -105,7 +105,7 @@ internal static class FileRules
 /// directly in it. Open to viewers, and to agent keys that may read.
 /// </summary>
 [Operation("files.list", Scope = "knowledge:read", Risk = RiskTier.Read)]
-public sealed class ListFiles(IContainerStore containers, IDocumentStore documents, IFolderStore folders, IOperationAuthorizer authorizer)
+public sealed class ListFiles(IContainerStore containers, IDocumentStore documents, IFolderStore folders, IDocumentAccess access, IOperationAuthorizer authorizer)
 {
     public const int MaxTake = 200;
 
@@ -133,7 +133,10 @@ public sealed class ListFiles(IContainerStore containers, IDocumentStore documen
                 entries.Add(new FileEntry(name, folder.Path, IsFolder: true, null, folder.CreatedAt, folder.Id, null));
         }
 
-        foreach (var document in await documents.ListAsync(containerId, pathPrefix: level, take: int.MaxValue, ct: ct))
+        // Only documents the caller may read: one they may not read is neither listed nor lets its folder be inferred.
+        var found = await documents.ListAsync(containerId, pathPrefix: level, take: int.MaxValue, ct: ct);
+        var readable = await access.ReadableAsync(context.User, found, ct);
+        foreach (var document in found.Where(d => readable.Contains(d.Id)))
         {
             if (string.Equals(PathUtilities.GetParentPath(document.Path), level, StringComparison.OrdinalIgnoreCase))
             {
@@ -330,7 +333,7 @@ public sealed class BulkDeleteFiles(IContainerStore containers, DeleteFile delet
 
 /// <summary>Whether one document needs reindexing, and why. Open to viewers and reading agent keys.</summary>
 [Operation("files.reindexCheck", Scope = "knowledge:read", Risk = RiskTier.Read, Mcp = McpExposure.Generic)]
-public sealed class CheckFileReindex(IContainerStore containers, IDocumentStore documents, IReindexService reindex, IOperationAuthorizer authorizer)
+public sealed class CheckFileReindex(IContainerStore containers, IDocumentStore documents, IDocumentAccess access, IReindexService reindex, IOperationAuthorizer authorizer)
 {
     public async Task<Attempt<ReindexCheck, FileStatus>> RunAsync(OperationContext context, Guid containerId, string fileId, CancellationToken ct = default)
     {
@@ -338,9 +341,10 @@ public sealed class CheckFileReindex(IContainerStore containers, IDocumentStore 
             return FileRules.Fail<ReindexCheck>(FileStatus.Forbidden, "You don't have permission to view files.");
         if (await containers.GetAsync(containerId, ct) is null)
             return FileRules.ContainerNotFound<ReindexCheck>(containerId);
-        // Only a document of this container: the route names the container, so another's can't be checked through it.
+        // Only a document of this container the caller may read: the route names the container, so another's can't be
+        // checked through it, and one they may not read is answered as missing, as files.get answers it.
         var document = await documents.GetAsync(fileId, ct);
-        if (document is null || document.ContainerId != containerId.ToString())
+        if (document is null || document.ContainerId != containerId.ToString() || !await access.CanReadAsync(context.User, document, ct))
             return FileRules.FileNotFound<ReindexCheck>(containerId, fileId);
 
         return Attempt<ReindexCheck, FileStatus>.Succeed(await reindex.CheckDocumentAsync(fileId, ct));

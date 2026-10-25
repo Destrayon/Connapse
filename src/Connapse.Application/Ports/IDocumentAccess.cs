@@ -10,4 +10,7 @@ namespace Connapse.Application.Ports;
 public interface IDocumentAccess
 {
     Task<bool> CanReadAsync(ClaimsPrincipal user, Document document, CancellationToken ct);
+
+    /// <summary>The ids of those of <paramref name="documents"/> the caller may read, checked together.</summary>
+    Task<IReadOnlySet<string>> ReadableAsync(ClaimsPrincipal user, IReadOnlyList<Document> documents, CancellationToken ct);
 }

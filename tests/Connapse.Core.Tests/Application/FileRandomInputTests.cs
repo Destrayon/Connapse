@@ -97,10 +97,10 @@ public class FileRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(ListFiles))]
     public Task List_AnyFolder_AnswersItsFoldersThenFilesByNamePaged() =>
-        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Segment.Array[0, 3], AnyPath.Array[0, 6], Gen.Int[-1, 4], Gen.Int[-1, 205].Nullable())
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Segment.Array[0, 3], AnyPath.Array[0, 6], Gen.Int[-1, 4], Gen.Int[-1, 205].Nullable(), Gen.Int[0, 63])
             .SampleAsync(async t =>
             {
-                var (caller, reader, exists, folderNames, paths, skip, take) = t;
+                var (caller, reader, exists, folderNames, paths, skip, take, deniedBits) = t;
                 var world = new World(reader, writer: false, exists);
                 var folders = folderNames.Select(n => new Folder(Guid.NewGuid().ToString(), Here.ToString(), $"/docs/{n}/", Epoch)).ToList();
                 // The store answers by prefix, as it does: the documents under /docs/.
@@ -108,8 +108,13 @@ public class FileRandomInputTests
                 world.Folders.ListAsync(Here, "/docs/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(folders);
                 world.Documents.ListAsync(Here, "/docs/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                     .Returns(docs.Where(d => d.Path.StartsWith("/docs/", StringComparison.Ordinal)).ToList());
+                // The caller may not read the documents whose bit is set; those are neither listed nor imply a folder.
+                var denied = docs.Where((_, i) => (deniedBits >> i & 1) == 1).Select(d => d.Id).ToHashSet();
+                world.Access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+                    .Returns(c => (IReadOnlySet<string>)c.Arg<IReadOnlyList<Document>>().Select(d => d.Id).Where(id => !denied.Contains(id)).ToHashSet());
+                docs = [.. docs.Where(d => !denied.Contains(d.Id))];
 
-                var listed = await new ListFiles(world.Containers, world.Documents, world.Folders, world.Authorizer)
+                var listed = await new ListFiles(world.Containers, world.Documents, world.Folders, world.Access, world.Authorizer)
                     .RunAsync(caller, Here, new ListFilesQuery("docs", skip, take));
 
                 FileStatus expected = !reader ? FileStatus.Forbidden
@@ -296,21 +301,22 @@ public class FileRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(CheckFileReindex))]
     public Task ReindexCheck_AnyFile_ChecksOnlyThisContainersFile() =>
-        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>().Where(k => k != FileRef.OwnPath), Gen.Bool)
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>().Where(k => k != FileRef.OwnPath), Gen.Bool, Gen.Bool)
             .SampleAsync(async t =>
             {
-                var (caller, reader, exists, kind, needs) = t;
+                var (caller, reader, exists, kind, needs, readable) = t;
                 var world = new World(reader, writer: false, exists);
                 world.Holds([Own, Other]);
+                world.Access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(readable);
                 var reindex = Substitute.For<IReindexService>();
                 reindex.CheckDocumentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
                     .Returns(c => new ReindexCheck(c.Arg<string>(), needs, needs ? ReindexReason.ContentChanged : ReindexReason.Unchanged));
 
-                var checkedFile = await new CheckFileReindex(world.Containers, world.Documents, reindex, world.Authorizer).RunAsync(caller, Here, RefFor(kind, Own, Other));
+                var checkedFile = await new CheckFileReindex(world.Containers, world.Documents, world.Access, reindex, world.Authorizer).RunAsync(caller, Here, RefFor(kind, Own, Other));
 
                 FileStatus expected = !reader ? FileStatus.Forbidden
                     : !exists ? FileStatus.ContainerNotFound
-                    : kind == FileRef.OwnId ? FileStatus.Success
+                    : kind == FileRef.OwnId && readable ? FileStatus.Success
                     : FileStatus.NotFound;
                 checkedFile.Status.Should().Be(expected);
                 if (expected == FileStatus.Success)
