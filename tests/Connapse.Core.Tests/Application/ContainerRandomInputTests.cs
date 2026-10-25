@@ -80,7 +80,7 @@ public class ContainerRandomInputTests
 
     private static bool Names(ContainerKey key, Container container) =>
         key.Id is Guid id ? id.ToString() == container.Id
-        : !string.IsNullOrWhiteSpace(key.Name) && key.Name.Trim().ToLowerInvariant() == container.Name;
+        : !string.IsNullOrWhiteSpace(key.Name) && string.Equals(key.Name.Trim(), container.Name, StringComparison.OrdinalIgnoreCase);
 
     // ── containers.list ───────────────────────────────────────────────────────────────────────────
 
