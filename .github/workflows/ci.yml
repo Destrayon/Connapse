@@ -149,10 +149,54 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  # The API contract (epic #783, Phase 3.2, CON-53). On a PR, oasdiff compares the spec with its base
+  # branch's and fails on a breaking change; Spectral checks .spectral.yaml's style rules on every run,
+  # against the exact-match list in .github/spectral-known.json. Schemathesis runs nightly only.
+  api-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: The base branch's spec
+      id: base
+      if: github.event_name == 'pull_request'
+      run: |
+        if git show "origin/${{ github.base_ref }}:docs/api/openapi.json" > "$RUNNER_TEMP/base-openapi.json" 2>/dev/null; then
+          echo "path=$RUNNER_TEMP/base-openapi.json" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::${{ github.base_ref }} has no committed spec yet, so there is nothing to break"
+        fi
+
+    # review: false keeps both specs in CI; the action otherwise uploads them to oasdiff.com.
+    - name: No breaking API changes
+      if: steps.base.outputs.path != ''
+      uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+      with:
+        base: ${{ steps.base.outputs.path }}
+        revision: docs/api/openapi.json
+        fail-on: ERR
+        review: 'false'
+        github-token: ''
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    # Spectral exits non-zero for any violation; the exact-match list decides.
+    - name: Spec follows the style rules
+      run: |
+        npx --yes @stoplight/spectral-cli@6.17.0 lint docs/api/openapi.json --ruleset .spectral.yaml \
+          --format json --output "$RUNNER_TEMP/spectral.json" || true
+        python3 .github/scripts/spectral_baseline.py --results "$RUNNER_TEMP/spectral.json" --known .github/spectral-known.json
+
   # Keeps the check name the repository already reports, and fails unless every test job passed.
   build-and-test:
     runs-on: ubuntu-latest
-    needs: [small, medium, integration, code-quality, mcp-conformance]
+    needs: [small, medium, integration, code-quality, mcp-conformance, api-contract]
     if: always()
     permissions:
       contents: write
