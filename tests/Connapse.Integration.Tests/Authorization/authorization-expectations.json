@@ -35,6 +35,16 @@
       "risk": "destructive",
       "scope": "knowledge:write"
     },
+    "DELETE /api/containers/{containerId:guid}/settings": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "DELETE /api/containers/{containerId:guid}/summaries": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
     "DELETE /api/containers/{containerId:guid}/files/{fileId}": {
       "requires": "editor",
       "risk": "destructive",
@@ -535,6 +545,11 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "POST /api/containers/{containerId:guid}/summaries": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "POST /api/containers/{containerId:guid}/search/": {
       "requires": "viewer",
       "risk": "read",
@@ -686,6 +701,11 @@
       "scope": null
     },
     "PUT /api/containers/{containerId:guid}/settings": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "PATCH /api/containers/{containerId:guid}": {
       "requires": "editor",
       "risk": "write",
       "scope": "knowledge:write"

@@ -1,8 +1,11 @@
-﻿using Connapse.Core;
+﻿using System.Security.Claims;
+using Connapse.Application.Containers;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Web.Mcp;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -23,6 +26,18 @@ namespace Connapse.Integration.Tests;
 public class McpSourceKindTests(SharedWebAppFixture fixture)
 {
     private static string ShortName(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20];
+
+    /// <summary>The MCP caller: an admin, so the container operations let every tool through.</summary>
+    private static IHttpContextAccessor AsAdmin(IServiceProvider sp)
+    {
+        var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin")], "test")),
+        };
+        return accessor;
+    }
 
     private async Task<Source> SeedSourceAsync(IServiceProvider sp, string? name = null)
     {
@@ -53,7 +68,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
         var container = await SeedContainerAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerList(scope.ServiceProvider);
+        string output = await McpTools.ContainerList(
+            scope.ServiceProvider.GetRequiredService<ListContainers>(), AsAdmin(scope.ServiceProvider), scope.ServiceProvider);
 
         output.Should().Contain($"{source.Name} [source]");
         output.Should().Contain($"{container.Name} [managed]",
@@ -66,7 +82,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerDescribe(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ContainerDescribe(
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), AsAdmin(scope.ServiceProvider), scope.ServiceProvider, source.Id.ToString());
 
         output.Should().Contain($"Source: {source.Name}");
         output.Should().Contain("Kind: source");
@@ -80,7 +97,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerDescribe(scope.ServiceProvider, source.Name);
+        string output = await McpTools.ContainerDescribe(
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), AsAdmin(scope.ServiceProvider), scope.ServiceProvider, source.Name);
 
         output.Should().Contain("Kind: source");
     }
@@ -138,7 +156,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
 
-        string output = await McpTools.ContainerDelete(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ContainerDelete(
+            scope.ServiceProvider.GetRequiredService<DeleteContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain("not found");
 
@@ -165,7 +184,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerStats(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ContainerStats(
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain("not found");
     }

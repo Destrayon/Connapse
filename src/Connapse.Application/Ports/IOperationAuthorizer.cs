@@ -17,6 +17,14 @@ public static class Policies
 {
     public const string Viewer = "RequireViewer";
 
+    public const string Editor = "RequireEditor";
+
+    /// <summary>A Viewer or above, or an agent key: who may read knowledge over MCP.</summary>
+    public const string Reader = "RequireReader";
+
+    /// <summary>An Editor or above, or an agent key granted knowledge:write: who may change knowledge over MCP.</summary>
+    public const string Writer = "RequireWriter";
+
     public const string Admin = "RequireAdmin";
 
     /// <summary>A person's own account, through any sign-in or their own token; never an agent key.</summary>

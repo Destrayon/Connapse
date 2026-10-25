@@ -1,4 +1,5 @@
 ﻿using Connapse.Application;
+using Connapse.Application.Containers;
 using Microsoft.AspNetCore.Authorization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -25,37 +26,37 @@ public class McpTools
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Create a new container for organizing documents. Use when setting up a new knowledge domain or project.")]
     public static async Task<string> ContainerCreate(
-        IServiceProvider services,
+        CreateContainer create,
+        IHttpContextAccessor http,
         [Description("Container name (lowercase alphanumeric and hyphens, 2-128 chars)")] string name,
         [Description("Optional description for the container")] string? description = null,
         CancellationToken ct = default)
     {
-        name = name.Trim();
-
-        if (!PathUtilities.IsValidContainerName(name))
-            return "Error: Container name must be 2-128 chars, lowercase alphanumeric and hyphens.";
-
-        var containerStore = services.GetRequiredService<IContainerStore>();
-
-        var existing = await containerStore.GetByNameAsync(name, ct);
-        if (existing is not null)
-            return $"Error: Container '{name}' already exists.";
-
-        var container = await containerStore.CreateAsync(new CreateContainerRequest(name, description), ct);
-        return $"Container '{container.Name}' created.\n\nID: {container.Id}";
+        var created = await create.RunAsync(Mcp(http), new CreateContainerRequest(name, description), ct);
+        return created.Status switch
+        {
+            ContainerStatus.Success => $"Container '{created.Result!.Name}' created.\n\nID: {created.Result.Id}",
+            ContainerStatus.Invalid => "Error: Container name must be 2-128 chars, lowercase alphanumeric and hyphens.",
+            ContainerStatus.Conflict => $"Error: Container '{name.Trim()}' already exists.",
+            _ => Refused(created),
+        };
     }
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Lists every searchable knowledge scope with its description and document count. Each entry is either kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
+        ListContainers list,
+        IHttpContextAccessor http,
         IServiceProvider services,
         CancellationToken ct = default)
     {
-        var containerStore = services.GetRequiredService<IContainerStore>();
-        var sourceStore = services.GetRequiredService<ISourceStore>();
+        var listed = await list.RunAsync(Mcp(http), new ListContainersQuery(), ct);
+        if (!listed.Succeeded)
+            return Refused(listed);
+        var containers = listed.Result!.Items;
 
-        var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
+        var sourceStore = services.GetRequiredService<ISourceStore>();
         var visible = await VisibleSourcesAsync(services, ct);
         var sources = (await sourceStore.ListAsync(take: int.MaxValue, ct: ct)).Where(visible).ToList();
 
@@ -103,27 +104,19 @@ public class McpTools
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
      Description("Delete a container. It must be emptied first, because deleting one deletes its stored files. External sources are not containers and cannot be deleted here.")]
     public static async Task<string> ContainerDelete(
-        IServiceProvider services,
+        DeleteContainer delete,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         CancellationToken ct = default)
     {
-        var containerStore = services.GetRequiredService<IContainerStore>();
-
-        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
-        if (resolvedId is null)
-            return $"Error: Container '{containerId}' not found.";
-
-        var container = await containerStore.GetAsync(resolvedId.Value, ct);
-
-        var deleted = await containerStore.DeleteAsync(resolvedId.Value, ct);
-        if (!deleted)
-            return $"Error: Container '{containerId}' is not empty. Delete all files first.";
-
-        var auditLogger = services.GetRequiredService<IAuditLogger>();
-        await auditLogger.LogAsync("container.deleted", "container", resolvedId.Value.ToString(),
-            new { Name = container?.Name ?? containerId }, ct);
-
-        return $"Container '{containerId}' deleted.";
+        var deleted = await delete.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
+        return deleted.Status switch
+        {
+            ContainerStatus.Success => $"Container '{containerId}' deleted.",
+            ContainerStatus.NotFound => $"Error: Container '{containerId}' not found.",
+            ContainerStatus.NotEmpty => $"Error: Container '{containerId}' is not empty. Delete all files first.",
+            _ => Refused(deleted),
+        };
     }
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
@@ -769,24 +762,17 @@ public class McpTools
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Get container statistics: document counts, chunk count, storage size, and embedding model info.")]
     public static async Task<string> ContainerStats(
-        IServiceProvider services,
+        GetContainerStats getStats,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         CancellationToken ct = default)
     {
-        var containerStore = services.GetRequiredService<IContainerStore>();
-        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
-        if (resolvedId is null)
+        var read = await getStats.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
+        if (read.Status == ContainerStatus.NotFound)
             return $"Error: Container '{containerId}' not found.";
-
-        var container = await containerStore.GetAsync(resolvedId.Value, ct);
-        if (container is null)
-            return $"Error: Container '{containerId}' not found.";
-
-        var documentStore = services.GetRequiredService<IDocumentStore>();
-        var stats = await documentStore.GetContainerStatsAsync(resolvedId.Value, ct);
-
-        var modelDiscovery = services.GetRequiredService<VectorModelDiscovery>();
-        var models = await modelDiscovery.GetModelsAsync(resolvedId.Value, ct);
+        if (!read.Succeeded)
+            return Refused(read);
+        var (container, stats, models) = (read.Result!.Container, read.Result.Stats, read.Result.Models);
 
         var text = $"Container: {container.Name}\n";
 
@@ -821,25 +807,35 @@ public class McpTools
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Returns an agent-optimized description of a knowledge scope — container or source: its description, auto-generated summary (if available), and document statistics. Use this to understand what a scope covers before querying via search_knowledge, or when container_list output is insufficient to choose between them. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
     public static async Task<string> ContainerDescribe(
+        GetContainerStats getStats,
+        IHttpContextAccessor http,
         IServiceProvider services,
         [Description("Container or source ID (GUID) or name")] string containerId,
         CancellationToken ct = default)
     {
-        var containerStore = services.GetRequiredService<IContainerStore>();
-        var sourceStore = services.GetRequiredService<ISourceStore>();
+        // A container through its operation; anything else may still be a source, read as before.
+        var read = await getStats.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
+        if (!read.Succeeded && read.Status != ContainerStatus.NotFound)
+            return Refused(read);
 
-        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct, await VisibleSourcesAsync(services, ct));
-        if (owner is null)
-            return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
-
-        Guid? resolvedId = owner.Id;
-
-        var container = owner.IsSource ? null : await containerStore.GetAsync(owner.Id, ct);
-        if (!owner.IsSource && container is null)
-            return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
-
-        var documentStore = services.GetRequiredService<IDocumentStore>();
-        var stats = await documentStore.GetContainerStatsAsync(owner.Id, ct);
+        SearchableOwner? owner;
+        Connapse.Core.Container? container = null;
+        ContainerStats stats;
+        if (read.Succeeded)
+        {
+            container = read.Result!.Container;
+            stats = read.Result.Stats;
+            // The store keys containers by GUID, so a container it returned always has one.
+            owner = ToOwner(container) ?? throw new InvalidOperationException($"Container {container.Id} has no GUID id.");
+        }
+        else
+        {
+            var sourceStore = services.GetRequiredService<ISourceStore>();
+            owner = await ResolveSearchableOwnerAsync(containerId, services.GetRequiredService<IContainerStore>(), sourceStore, ct, await VisibleSourcesAsync(services, ct));
+            if (owner is null)
+                return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
+            stats = await services.GetRequiredService<IDocumentStore>().GetContainerStatsAsync(owner.Id, ct);
+        }
 
         var text = $"{(owner.IsSource ? "Source" : "Container")}: {owner.Name}\n";
         text += $"ID: {owner.Id}\n";
@@ -882,6 +878,14 @@ public class McpTools
 
         return text;
     }
+
+    /// <summary>An operation's refusal as a tool's error text; its detail names the reason, as REST's problem body does.</summary>
+    private static string Refused<TResult, TStatus>(Attempt<TResult, TStatus> attempt) where TStatus : struct, Enum =>
+        $"Error: {attempt.Detail}";
+
+    /// <summary>The MCP caller, as an operation reads it.</summary>
+    private static OperationContext Mcp(IHttpContextAccessor http) =>
+        new(http.HttpContext?.User ?? new System.Security.Claims.ClaimsPrincipal(), OperationSurface.Mcp);
 
     private static string FormatBytes(long bytes) => bytes switch
     {

@@ -197,14 +197,14 @@ public static partial class Operations
                 text => McpStats(text)),
             Ui: async (f, c, p, k) =>
             {
-                // The Home card is the one place a page shows a container's file count, and it shows only that.
+                // The file browser's header shows the container's stats, from the same operation as REST and MCP.
                 using var ui = await Surfaces.UiAsync(f, p);
-                var page = ui.Context.Render<Home>();
-                page.WaitForAssertion(() => page.FindAll(".container-grid, .empty-state, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
+                var page = ui.Context.Render<FileBrowser>(ps => ps.Add(x => x.ContainerId, ContainerTarget(c, k)));
+                page.WaitForAssertion(() => page.FindAll(".container-stats, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 if (PageError(page) is { } error)
                     return error;
-                var card = page.FindAll(".container-card").FirstOrDefault(card => card.QuerySelector(".container-card-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.ContainerName));
-                return card is null ? "error:not_found" : $"ok documents={Number(card.QuerySelector(".container-card-meta")!.TextContent, @"(\d+) files?\b")}";
+                string Stat(string name) => Number(page.Find($".container-stats [data-stat='{name}']").TextContent, @"([\d,]+)").Replace(",", "");
+                return $"ok documents={Stat("documents")} ready={Stat("ready")} processing={Stat("processing")} failed={Stat("failed")} chunks={Stat("chunks")}";
             },
             Project: (sp, c) => DocumentsAsync(sp, c)),
     ];

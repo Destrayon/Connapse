@@ -1,11 +1,10 @@
+@using Connapse.Application
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.Llm
-@using Connapse.Background.Jobs
-@using Hangfire
 @inject IDocumentStore DocumentStore
 @inject IContainerStore ContainerStore
-@inject IBackgroundJobClient BackgroundJobs
+@inject Connapse.Application.Containers.ContainerOperations ContainerOps
 
 <div class="settings-tab">
     <h4 class="mb-3">Summary Generation</h4>
@@ -245,6 +244,8 @@
     [Parameter]
     public Guid ContainerId { get; set; } = Guid.Empty;
 
+    [CascadingParameter] private Task<AuthenticationState> Authentication { get; set; } = null!;
+
     private bool isRegenerating;
     private string? regenerateMessage;
     private bool regenerateSuccess;
@@ -382,7 +383,7 @@
 
     public SummarySettings GetCurrentSettings() => BuildSettingsFromLocal();
 
-    private void RegenerateNow()
+    private async Task RegenerateNow()
     {
         if (ContainerId == Guid.Empty) return;
         if (isRegenerating) return;
@@ -391,13 +392,9 @@
         regenerateMessage = null;
         try
         {
-            // Blazor Server runs this on the server, so enqueue the Hangfire job
-            // directly. The old HTTP loopback hit the RequireAdmin endpoint
-            // anonymously — a server-side HttpClient carries no browser auth
-            // cookie — and 401'd.
-            BackgroundJobs.Enqueue<ISummaryJobs>(s => s.RollupContainerAsync(ContainerId, default));
-            regenerateSuccess = true;
-            regenerateMessage = "Summary rollup enqueued.";
+            var queued = await ContainerOps.RegenerateSummaries.RunAsync(new OperationContext((await Authentication).User, OperationSurface.Ui), ContainerId);
+            regenerateSuccess = queued.Succeeded;
+            regenerateMessage = queued.Says("Summary rollup enqueued.");
         }
         catch (Exception ex)
         {
@@ -419,14 +416,9 @@
         clearMessage = null;
         try
         {
-            // Direct service calls — Blazor Server runs on the server, so there's no
-            // need to loop back through the authenticated HTTP API (which 401'd because
-            // the server-side HttpClient sends no browser auth cookie). The
-            // AuthorizeView gate above restricts this to Owner/Admin.
-            int clearedDocs = await DocumentStore.ClearDocumentSummariesAsync(ContainerId);
-            await ContainerStore.UpdateSummaryAsync(ContainerId, null, null, null);
-            clearSuccess = true;
-            clearMessage = $"Cleared {clearedDocs} document summaries. They'll regenerate on the next sweep.";
+            var cleared = await ContainerOps.ClearSummaries.RunAsync(new OperationContext((await Authentication).User, OperationSurface.Ui), ContainerId);
+            clearSuccess = cleared.Succeeded;
+            clearMessage = cleared.Says($"Cleared {cleared.Result} document summaries. They'll regenerate on the next sweep.");
         }
         catch (Exception ex)
         {

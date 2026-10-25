@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application.Containers;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -373,7 +374,8 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var accessor = sp.GetRequiredService<IHttpContextAccessor>();
         accessor.HttpContext = new DefaultHttpContext
         {
-            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")),
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, "Viewer")], "test")),
         };
         try
         {
@@ -426,8 +428,10 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var sp = scope.ServiceProvider;
         var source = await SeedConfluenceSourceAsync(sp);
 
-        string list = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerList(sp));
-        string describe = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerDescribe(sp, source.Id.ToString()));
+        string list = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerList(
+            sp.GetRequiredService<ListContainers>(), sp.GetRequiredService<IHttpContextAccessor>(), sp));
+        string describe = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerDescribe(
+            sp.GetRequiredService<GetContainerStats>(), sp.GetRequiredService<IHttpContextAccessor>(), sp, source.Id.ToString()));
         string byName = await AsUserAsync(sp, AllowedAccount, () => McpSearchAsync(sp, source.Name));
 
         list.Should().NotContain(source.Id.ToString()).And.NotContain(source.Name);

@@ -19,6 +19,11 @@ public static class OperationCallers
         return fallback;
     }
 
+    /// <summary>What a page says after an action: <paramref name="success"/> when the attempt succeeded, otherwise its detail.</summary>
+    public static string Says<TResult, TStatus>(this Attempt<TResult, TStatus> attempt, string success)
+        where TStatus : struct, Enum =>
+        attempt.Succeeded ? success : attempt.Detail ?? "That didn't work.";
+
     /// <summary>
     /// The caller's account links, read through links.list as GET /api/v1/auth/links reads them, except that
     /// custom providers' status is left to each provider's card, which asks its own server.
