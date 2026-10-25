@@ -197,6 +197,24 @@ upload, each such file is reported in its place and the rest are still uploaded.
 
 The container's storage doesn't take uploads.
 
+## folder-not-found
+
+No folder has that path in this container: none is recorded there, and no document's path lies under it.
+
+## invalid-folder
+
+The folder path can't be used: it is required, can't contain `..`, can't be more than 50 levels deep, and can't
+be the root folder. The `field` member names the input at fault.
+
+## folder-exists
+
+A folder already has that path in this container.
+
+## batch-not-found
+
+No ingestion job has that id, or the caller may not read the document it ingests. The id is the job id an upload
+returned.
+
 ## user-not-found
 
 No user has that id.

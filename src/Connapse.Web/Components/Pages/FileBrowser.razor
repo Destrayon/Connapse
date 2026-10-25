@@ -8,9 +8,8 @@
 @using Microsoft.Extensions.Options
 @inject Connapse.Application.Containers.ContainerOperations ContainerOps
 @inject IOptionsMonitor<LlmSettings> LlmOptions
-@inject IDocumentStore DocumentStore
-@inject IFolderStore FolderStore
 @inject Connapse.Application.Files.FileOperations FileOps
+@inject Connapse.Application.Files.FolderOperations FolderOps
 @inject IContainerSettingsResolver SettingsResolver
 @using Connapse.Web.Services
 @inject IngestionProgressNotifier ProgressNotifier
@@ -1008,7 +1007,7 @@
                 // on Pending if ingestion completed during the upload round-trip.
                 try
                 {
-                    var fresh = await DocumentStore.GetAsync(doc.DocumentId);
+                    var fresh = (await FileOps.Get.RunAsync(await AuthStateProvider.OperationContextAsync(), Guid.Parse(ContainerId), doc.DocumentId)).Result;
                     if (fresh is not null)
                     {
                         var idx = entries.FindIndex(e => e.Id == doc.DocumentId);
@@ -1060,15 +1059,12 @@
                 return;
             }
 
-            var folderPath = PathUtilities.NormalizeFolderPath(currentPath + newFolderName.Trim().TrimEnd('/') + "/");
-
+            var created = await FolderOps.Create.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId,
+                currentPath + newFolderName.Trim().TrimEnd('/') + "/");
+            if (!created.Succeeded)
             {
-                if (await FolderStore.ExistsAsync(containerId, folderPath))
-                {
-                    folderError = $"Folder '{folderPath}' already exists.";
-                    return;
-                }
-                await FolderStore.CreateAsync(containerId, folderPath);
+                folderError = created.Detail;
+                return;
             }
 
             showFolderModal = false;
@@ -1148,15 +1144,12 @@
         }
     }
 
+    /// <summary>Deletes a folder through folders.delete; a refusal throws, for the delete's error handling to show.</summary>
     private async Task DeleteFolderEntry(Guid containerId, BrowseEntryDto entry)
     {
-        var normalizedPath = PathUtilities.NormalizeFolderPath(entry.Path);
-
-        // Each document under it as files.delete deletes one, then the folder's own record.
-        foreach (var doc in await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath, take: int.MaxValue))
-            await DeleteDocumentAsync(containerId, doc.Id);
-
-        await FolderStore.DeleteAsync(containerId, normalizedPath);
+        var deleted = await FolderOps.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, entry.Path);
+        if (deleted.Status is not (Connapse.Application.Files.FolderStatus.Success or Connapse.Application.Files.FolderStatus.NotFound))
+            throw new InvalidOperationException(deleted.Detail);
     }
 
     /// <summary>Deletes one document through files.delete; a refusal throws, for the delete's error handling to show.</summary>
