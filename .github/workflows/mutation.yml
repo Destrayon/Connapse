@@ -20,6 +20,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR, or a newer merge into the same branch, replaces the run in progress: a full run
+# holds a runner for about 11 minutes, and on the Free plan's 20 concurrent jobs those slots made CI queue
+# behind it during mass rebases (CON-91).
+concurrency:
+  group: mutation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   mutation:
     runs-on: ubuntu-latest
@@ -27,6 +34,10 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        # A PR checks out its merge commit; depth 2 brings in the merge commit's first parent, the base the
+        # PR is diffed against below.
+        fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
 
     - uses: ./.github/actions/build
       with:
@@ -35,10 +46,38 @@ jobs:
     - name: Restore tools
       run: dotnet tool restore
 
+    - name: Find the PR's base commit
+      id: base
+      if: github.event_name == 'pull_request'
+      run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+
+    # Every full run saves its report as the baseline for PRs into its branch; a PR restores the one saved
+    # at its base commit, or the newest on its base branch (a PR can read its base branch's caches).
+    - name: Restore mutation baseline
+      id: baseline
+      if: github.event_name == 'pull_request'
+      uses: actions/cache/restore@v4
+      with:
+        path: mutation-baseline
+        key: mutation-baseline-${{ github.base_ref }}-${{ steps.base.outputs.sha }}
+        restore-keys: mutation-baseline-${{ github.base_ref }}-
+
+    # A full run tests all of Connapse.Application's mutants, which doubled to about 11 minutes as epic #783
+    # moved endpoints in (CON-91). A PR with a baseline re-tests only the mutants in the files it changes and
+    # those its changed test files cover (--since), and the score step below takes every other mutant's
+    # result from the baseline, so the PR is still held to the whole project's score; Stryker's own break is
+    # off for it because Stryker would score the re-tested mutants alone. Without a baseline it runs in full.
+    # All the runner's CPUs run mutants (Stryker defaults to half), and Release reuses the build above.
     - name: Mutation test Connapse.Application
       id: stryker
       working-directory: tests/Connapse.Core.Tests
-      run: dotnet tool run dotnet-stryker
+      run: |
+        since=()
+        if [ -f ../../mutation-baseline/mutation-report.json ]; then
+          since=("--since:${{ steps.base.outputs.sha }}" --break-at 0)
+          echo "since=true" >> "$GITHUB_OUTPUT"
+        fi
+        dotnet tool run dotnet-stryker --concurrency "$(nproc)" --configuration Release "${since[@]}"
 
     # Stryker writes its reports under StrykerOutput/<date-time>/reports. A run that got as far as
     # scoring always writes them, so a missing report fails this step rather than hiding the score.
@@ -52,6 +91,24 @@ jobs:
         fi
         cat "$reports/mutation-report.md" >> "$GITHUB_STEP_SUMMARY"
         mkdir -p mutation-report && cp "$reports"/mutation-report.* mutation-report/
+
+    - name: Whole-project mutation score
+      if: steps.stryker.outputs.since == 'true' && steps.stryker.outcome == 'success'
+      shell: bash  # -o pipefail, so the script's exit code survives the tee
+      run: |
+        python3 .github/scripts/mutation_score.py --report mutation-report/mutation-report.json \
+          --baseline mutation-baseline/mutation-report.json \
+          --config tests/Connapse.Core.Tests/stryker-config.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Save mutation baseline
+      if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
+      run: mkdir -p mutation-baseline && cp mutation-report/mutation-report.json mutation-baseline/
+
+    - uses: actions/cache/save@v4
+      if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
+      with:
+        path: mutation-baseline
+        key: mutation-baseline-${{ github.ref_name }}-${{ github.sha }}
 
     - name: Upload mutation report
       uses: actions/upload-artifact@v4
