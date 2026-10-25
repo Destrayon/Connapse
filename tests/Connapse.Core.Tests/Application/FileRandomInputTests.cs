@@ -19,6 +19,7 @@ namespace Connapse.Core.Tests.Application;
 /// not by calling the code under test. Every sample builds its own fakes, because CsCheck runs samples in parallel.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class FileRandomInputTests
 {
     private static readonly DateTime Epoch = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
