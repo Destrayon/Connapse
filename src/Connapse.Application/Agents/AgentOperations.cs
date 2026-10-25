@@ -189,12 +189,14 @@ public sealed class CreateAgentKey(IAgentService agents, IOperationAuthorizer au
             return Attempt<CreateAgentKeyResponse, AgentStatus>.Fail(AgentStatus.InvalidKey,
                 $"Agent key name must be {ValidationConstants.MinAgentNameLength}-{ValidationConstants.MaxAgentKeyNameLength} characters.", "name");
 
-        string[] scopes = (request.Scopes ?? []).Distinct(StringComparer.Ordinal).ToArray();
-        if (scopes.FirstOrDefault(s => !TokenScopeChoices.AgentKey.Contains(s, StringComparer.Ordinal)) is { } unknown)
+        string?[] scopes = (request.Scopes ?? []).Distinct(StringComparer.Ordinal).ToArray();
+        // By index, not FirstOrDefault: a null scope would read as "none found" and let the ones after it through.
+        int unknown = Array.FindIndex(scopes, s => s is null || !TokenScopeChoices.AgentKey.Contains(s, StringComparer.Ordinal));
+        if (unknown >= 0)
             return Attempt<CreateAgentKeyResponse, AgentStatus>.Fail(AgentStatus.InvalidKey,
-                $"'{unknown}' is an invalid agent key scope. Scopes: {string.Join(", ", TokenScopeChoices.AgentKey)}.", "scopes");
+                $"'{scopes[unknown]}' is an invalid agent key scope. Scopes: {string.Join(", ", TokenScopeChoices.AgentKey)}.", "scopes");
 
-        if (await agents.CreateKeyAsync(command.AgentId, request with { Name = name, Scopes = scopes }, ct) is not { } key)
+        if (await agents.CreateKeyAsync(command.AgentId, request with { Name = name, Scopes = scopes! }, ct) is not { } key)
             return Attempt<CreateAgentKeyResponse, AgentStatus>.Fail(AgentStatus.NotFound, AgentRules.NotFound);
 
         // The key's name and id, never its token: an audit row is read by every administrator.

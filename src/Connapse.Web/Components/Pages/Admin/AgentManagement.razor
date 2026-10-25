@@ -105,7 +105,8 @@
                         <!-- Actions -->
                         <div class="d-flex gap-2 flex-wrap">
                             <button class="btn btn-sm @(isExpanded ? "btn-secondary" : "btn-outline-secondary")"
-                                    @onclick="() => ToggleExpand(agent.Id)">
+                                    @onclick="() => ToggleExpand(agent.Id)"
+                                    disabled="@isProcessing">
                                 <span class="bi-key me-1"></span>
                                 API Keys
                             </button>
@@ -297,6 +298,9 @@
 
     private async Task ToggleExpand(Guid agentId)
     {
+        // One load at a time: the page's operations share one DbContext, which can't run two queries at once.
+        if (isProcessing)
+            return;
         if (selectedAgentId == agentId)
         {
             selectedAgentId = null;
@@ -305,7 +309,9 @@
         else
         {
             // The keys first, so the panel opens once, with them, rather than empty and then again.
+            isProcessing = true;
             await LoadKeysAsync(agentId);
+            isProcessing = false;
             selectedAgentId = agentId;
             newKeyName = "";
             newKeyRequiresApproval = true;
@@ -353,7 +359,7 @@
                 Say(set.Detail, false);
                 return;
             }
-            Say($"Agent '{agent.Name}' {(agent.IsActive ? "disabled" : "enabled")}.", true);
+            Say($"Agent '{agent.Name}' updated.", true);
             await LoadAgentsAsync();
         }
         finally

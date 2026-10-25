@@ -62,19 +62,14 @@ public static partial class Operations
                 return await WithPayloadAsync(response, body => Found(body.Contains(c.Agent!.Name, StringComparison.Ordinal)));
             },
             Mcp: null,
-            Ui: async (f, c, p, k) =>
-            {
-                if (k == Case.Invalid)
-                    return null;
-                using var ui = await Surfaces.UiAsync(f, p);
-                var page = ui.Context.Render<AgentManagement>();
-                if (AgentsPageError(page) is { } error)
-                    return error;
-                return "ok " + Found(AgentCard(page, c.Agent!.Name) is not null);
-            },
+            Ui: null,
             Project: (sp, c) => AgentStateAsync(sp, c))
         {
-            AbsentReasons = NoAgentTools,
+            // The page shows agents only through agents.list; a card there isn't a read of one agent.
+            AbsentReasons = new Dictionary<string, string>(NoAgentTools)
+            {
+                ["ui"] = "the Agents page has no single-agent view; it shows agents only through agents.list",
+            },
             ArrangesAgent = true,
         },
 
@@ -190,8 +185,10 @@ public static partial class Operations
                 using var rest = await Surfaces.RestAsync(f, p);
                 var response = await rest.PostAsJsonAsync($"/api/v1/agents/{c.Agent!.Id}/keys",
                     new { name = NewKeyName(k), scopes = new[] { "knowledge:read" }, requiresApproval = true });
-                // The key is in the state; its id and one-time token are this surface's alone.
-                return response.IsSuccessStatusCode ? "ok" : await Surfaces.ResultAsync(response);
+                if (!response.IsSuccessStatusCode)
+                    return await Surfaces.ResultAsync(response);
+                using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                return await KeyTokenAsync(f, c, body.RootElement.GetProperty("token").GetString());
             },
             Mcp: null,
             Ui: async (f, c, p, k) =>
@@ -203,7 +200,8 @@ public static partial class Operations
                 await OpenKeysAsync(page, c);
                 await page.InvokeAsync(() => page.Find("input[placeholder='e.g. production']").Change(NewKeyName(k)));
                 await ClickAsync(page, () => page.FindAll("button").First(b => b.TextContent.Trim() == "Add Key"));
-                return AgentsPageOutcome(page);
+                string outcome = AgentsPageOutcome(page);
+                return outcome != "ok" ? outcome : await KeyTokenAsync(f, c, page.Find("#new-agent-key-token").GetAttribute("value"));
             },
             Project: (sp, c) => AgentStateAsync(sp, c))
         {
@@ -253,6 +251,37 @@ public static partial class Operations
     };
 
     private static string NewKeyName(string @case) => @case == Case.Invalid ? "x" : "second-key";
+
+    /// <summary>
+    /// What the token a surface handed back is: the new key's, if it carries that key's prefix and signs in to
+    /// MCP as the agent; unusable otherwise. Its value is this surface's alone, so only that is compared.
+    /// </summary>
+    private static async Task<string> KeyTokenAsync(SharedWebAppFixture fixture, CaseContext c, string? token)
+    {
+        string? prefix;
+        using (var scope = fixture.Factory.Services.CreateScope())
+            prefix = await scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>().AgentApiKeys.AsNoTracking()
+                .Where(key => key.AgentId == c.Agent!.Id && key.Name == NewKeyName(Case.Valid)).Select(key => key.TokenPrefix).SingleOrDefaultAsync();
+        if (token is null || prefix is null || !token.StartsWith(prefix, StringComparison.Ordinal))
+            return "ok token=unusable";
+
+        using var client = fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", token);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+        {
+            Content = JsonContent.Create(new
+            {
+                jsonrpc = "2.0",
+                method = "initialize",
+                @params = new { protocolVersion = "2025-11-05", capabilities = new { }, clientInfo = new { name = "cross-surface", version = "1.0.0" } },
+                id = "1",
+            }),
+        };
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        using var response = await client.SendAsync(request);
+        return response.IsSuccessStatusCode ? "ok token=the-new-key" : "ok token=unusable";
+    }
 
     private static List<string?> AgentNames(string body) =>
         JsonDocument.Parse(body).RootElement.EnumerateArray().Select(a => a.GetProperty("name").GetString()).ToList();

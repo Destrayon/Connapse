@@ -1,0 +1,13 @@
+﻿{
+  Reason: absent: the Agents page has no single-agent view; it shows agents only through agents.list,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      agent agent-{name} description=the case's own active=True live,
+        key case-key scopes=knowledge:read approval=True active
+    ]
+  },
+  Surface: {
+    Result: absent: the Agents page has no single-agent view; it shows agents only through agents.list
+  }
+}

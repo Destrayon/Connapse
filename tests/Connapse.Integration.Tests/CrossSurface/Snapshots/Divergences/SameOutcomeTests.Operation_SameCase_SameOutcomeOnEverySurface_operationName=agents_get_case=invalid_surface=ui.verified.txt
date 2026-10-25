@@ -1,5 +1,5 @@
 ﻿{
-  Reason: absent: the Agents page reads only the agents it lists, so it can't name one that doesn't exist,
+  Reason: absent: the Agents page has no single-agent view; it shows agents only through agents.list,
   Reference: {
     Result: error:not_found,
     State: [
@@ -8,10 +8,6 @@
     ]
   },
   Surface: {
-    Result: absent,
-    State: [
-      agent agent-{name} description=the case's own active=True live,
-        key case-key scopes=knowledge:read approval=True active
-    ]
+    Result: absent: the Agents page has no single-agent view; it shows agents only through agents.list
   }
 }

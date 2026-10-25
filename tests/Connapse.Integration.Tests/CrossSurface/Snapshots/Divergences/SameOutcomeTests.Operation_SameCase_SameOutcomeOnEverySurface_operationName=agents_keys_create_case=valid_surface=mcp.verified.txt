@@ -1,7 +1,7 @@
 ﻿{
   Reason: absent: MCP has no agent tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
   Reference: {
-    Result: ok,
+    Result: ok token=the-new-key,
     State: [
       agent agent-{name} description=the case's own active=True live,
         key case-key scopes=knowledge:read approval=True active,

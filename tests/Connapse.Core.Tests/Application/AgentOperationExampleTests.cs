@@ -229,6 +229,17 @@ public class AgentOperationExampleTests
     }
 
     [Fact]
+    public async Task CreateKey_ANullScopeBeforeAForbiddenOne_IsInvalidKey()
+    {
+        var created = await new CreateAgentKey(_agents, _authorizer, _audit)
+            .RunAsync(Caller(), new(_agentId, new("key", [null!, "admin:users"])));
+
+        created.Status.Should().Be(AgentStatus.InvalidKey);
+        created.Detail.Should().Be("'' is an invalid agent key scope. Scopes: knowledge:read, knowledge:write, agent:ingest.");
+        _agents.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CreateKey_AMissingAgent_IsNotFound()
     {
         var created = await new CreateAgentKey(_agents, _authorizer, _audit).RunAsync(Caller(), new(_agentId, new("key")));
