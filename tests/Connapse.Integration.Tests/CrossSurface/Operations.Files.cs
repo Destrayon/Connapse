@@ -61,7 +61,7 @@ public static partial class Operations
                 {
                     return "error:validation";
                 }
-                await ClickAsync(() => page.Find("button.btn-primary.btn-lg"));
+                await ClickAsync(page, () => page.Find("button.btn-primary.btn-lg"));
                 page.WaitForAssertion(() => page.FindAll(".search-results, .alert-danger").Should().NotBeEmpty(), TimeSpan.FromSeconds(15));
                 if (PageError(page) is { } error)
                     return error;
@@ -121,8 +121,8 @@ public static partial class Operations
                     return "error:not_found";
                 if (Row()!.QuerySelector("button.btn-outline-danger.action-btn") is null)
                     return "error:forbidden";
-                await ClickAsync(() => Row()!.QuerySelector("button.btn-outline-danger.action-btn")!);
-                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-danger"));
+                await ClickAsync(page, () => Row()!.QuerySelector("button.btn-outline-danger.action-btn")!);
+                await ClickAsync(page, () => page.Find(".modal-footer-custom button.btn-danger"));
                 return DialogResult(page);
             },
             Project: (sp, c) => DocumentsAsync(sp, c)),
@@ -165,9 +165,9 @@ public static partial class Operations
                 if (rows[0].QuerySelector("td.col-check") is null)
                     return "error:forbidden";
                 foreach (string name in rows.Take(k == Case.Invalid ? 1 : rows.Count).Select(r => r.QuerySelector(".entry-name")!.TextContent.Trim()).ToList())
-                    await ClickAsync(() => page.FindAll("tr.file-row").First(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == name).QuerySelector("td.col-check")!);
-                await ClickAsync(() => page.Find(".selection-toolbar button.btn-outline-danger"));
-                await ClickAsync(() => page.Find(".modal-footer-custom button.btn-danger"));
+                    await ClickAsync(page, () => page.FindAll("tr.file-row").First(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == name).QuerySelector("td.col-check")!);
+                await ClickAsync(page, () => page.Find(".selection-toolbar button.btn-outline-danger"));
+                await ClickAsync(page, () => page.Find(".modal-footer-custom button.btn-danger"));
                 return DialogResult(page);
             },
             Project: (sp, c) => DocumentsAsync(sp, c))
@@ -195,7 +195,7 @@ public static partial class Operations
                 IElement? Row() => page.FindAll("tr.file-row").FirstOrDefault(r => r.QuerySelector(".entry-name")?.TextContent.Trim() == (k == Case.Invalid ? null : c.FileName));
                 if (Row() is null)
                     return "error:not_found";
-                await ClickAsync(() => Row()!);
+                await ClickAsync(page, () => Row()!);
                 page.WaitForAssertion(() => page.FindAll(".detail-panel").Should().NotBeEmpty(), TimeSpan.FromSeconds(10));
                 // The detail panel shows the document's details, and its text only if it shows the content.
                 return "ok " + Content(page.Find(".detail-panel").TextContent.Contains(Body, StringComparison.Ordinal));
