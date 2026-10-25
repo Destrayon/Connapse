@@ -1,5 +1,7 @@
 ﻿using System.Security.Claims;
 using System.Text;
+using Connapse.Application;
+using Connapse.Application.Files;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -127,76 +129,23 @@ public static class DocumentsEndpoints
 
         // GET /api/containers/{containerId}/files - List files and folders at path (paginated)
         group.MapGet("/", async (
-            HttpContext httpContext,
+            HttpContext http,
             Guid containerId,
             [FromQuery] string? path,
             [FromQuery] int? skip,
             [FromQuery] int? take,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IDocumentStore documentStore,
-            [FromServices] IFolderStore folderStore,
+            [FromServices] ListFiles list,
             CancellationToken ct) =>
         {
-            var effectiveSkip = skip ?? 0;
-            var effectiveTake = take ?? 50;
-            var validationError = PaginationValidator.Validate(effectiveSkip, effectiveTake);
-            if (validationError is not null) return validationError;
+            var listed = await list.RunAsync(Rest(http), containerId, new ListFilesQuery(path, skip ?? 0, take ?? 50), ct);
+            if (!listed.Succeeded)
+                return OperationProblems.Result(listed);
 
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
-
-            var browsePath = PathUtilities.NormalizeFolderPath(path ?? "/");
-            var entries = new List<BrowseEntry>();
-
-            // Get explicit folders at this level (load all — scope filtering is in-memory)
-            var folders = await folderStore.ListAsync(containerId, parentPath: browsePath, take: int.MaxValue, ct: ct);
-            foreach (var folder in folders)
-            {
-                var folderName = PathUtilities.GetFileName(folder.Path.TrimEnd('/'));
-                entries.Add(new BrowseEntry(
-                    Name: folderName,
-                    Path: folder.Path,
-                    IsFolder: true,
-                    SizeBytes: null,
-                    LastModified: folder.CreatedAt,
-                    Status: null,
-                    Id: folder.Id));
-            }
-
-            // Get documents at this path level (load all — parent-path and scope filtering is in-memory)
-            var documents = await documentStore.ListAsync(containerId, pathPrefix: browsePath, take: int.MaxValue, ct: ct);
-            foreach (var doc in documents)
-            {
-                // Only include documents directly at this level (not in subfolders)
-                var docParent = PathUtilities.GetParentPath(doc.Path);
-                if (!string.Equals(docParent, browsePath, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                entries.Add(new BrowseEntry(
-                    Name: doc.FileName,
-                    Path: doc.Path,
-                    IsFolder: false,
-                    SizeBytes: doc.SizeBytes,
-                    LastModified: doc.CreatedAt,
-                    Status: doc.Metadata.GetValueOrDefault("Status"),
-                    Id: doc.Id));
-            }
-
-            // Sort: folders first, then by name
-            entries.Sort((a, b) =>
-            {
-                if (a.IsFolder != b.IsFolder)
-                    return a.IsFolder ? -1 : 1;
-                return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-            });
-
-            // Paginate the combined, sorted result
-            var totalCount = entries.Count;
-            var paged = entries.Skip(effectiveSkip).Take(effectiveTake).ToList();
-            var hasMore = effectiveSkip + effectiveTake < totalCount;
-
-            return Results.Ok(new PagedResponse<BrowseEntry>(paged, totalCount, hasMore));
+            var page = listed.Result!;
+            return Results.Ok(new PagedResponse<BrowseEntry>(
+                [.. page.Entries.Select(e => new BrowseEntry(e.Name, e.Path, e.IsFolder, e.SizeBytes, e.LastModified,
+                    e.Document?.Metadata.GetValueOrDefault("Status"), e.Id))],
+                page.TotalCount, page.HasMore));
         })
         .Produces<PagedResponse<BrowseEntry>>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -207,24 +156,14 @@ public static class DocumentsEndpoints
 
         // GET /api/containers/{containerId}/files/{fileId} - Get file details
         group.MapGet("/{fileId}", async (
-            HttpContext httpContext,
+            HttpContext http,
             Guid containerId,
             string fileId,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IDocumentStore documentStore,
-            [FromServices] DocumentReadGuard readGuard,
+            [FromServices] GetFile get,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
-
-            var document = await documentStore.GetAsync(fileId, ct);
-            if (document is null || document.ContainerId != containerId.ToString()
-                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document, ct))
-                return ApiProblem.NotFound($"File {fileId} not found in container {containerId}");
-
-            return Results.Ok(document);
+            var read = await get.RunAsync(Rest(http), containerId, fileId, ct);
+            return read.Succeeded ? Results.Ok(read.Result) : OperationProblems.Result(read);
         })
         .Produces<Document>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -234,47 +173,14 @@ public static class DocumentsEndpoints
 
         // DELETE /api/containers/{containerId}/files/{fileId} - Delete file
         group.MapDelete("/{fileId}", async (
-            HttpContext httpContext,
+            HttpContext http,
             Guid containerId,
             string fileId,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IDocumentStore documentStore,
-            [FromServices] IFolderStore folderStore,
-            [FromServices] IKnowledgeFileSystem fileSystem,
-            [FromServices] IIngestionQueue ingestionQueue,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] DeleteFile delete,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
-
-            var document = await documentStore.GetAsync(fileId, ct);
-            if (document is null || document.ContainerId != containerId.ToString())
-                return ApiProblem.NotFound($"File {fileId} not found in container {containerId}");
-
-            // Cancel any in-flight ingestion job for this document
-            await ingestionQueue.CancelJobForDocumentAsync(fileId);
-
-            // Delete from database (cascades to chunks and vectors)
-            await documentStore.DeleteAsync(fileId, ct);
-
-            // Clean up empty parent folders
-            if (!string.IsNullOrEmpty(document.Path))
-                await folderStore.DeleteEmptyAncestorsAsync(containerId, document.Path, ct);
-
-            // Delete file from storage (best effort)
-            try
-            {
-                if (!string.IsNullOrEmpty(document.Path))
-                    await fileSystem.DeleteAsync(document.Path, ct);
-            }
-            catch { /* File already deleted or not found */ }
-
-            await auditLogger.LogAsync("doc.deleted", "document", fileId,
-                new { FileName = document.FileName, ContainerId = containerId }, ct);
-
-            return Results.NoContent();
+            var deleted = await delete.RunAsync(Rest(http), containerId, fileId, ct);
+            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -282,104 +188,48 @@ public static class DocumentsEndpoints
         .WithDescription("Delete a file and all associated chunks and vectors")
         .RequireAuthorization("RequireEditor");
 
-        // GET /api/containers/{containerId}/files/{fileId}/content - Get file text content
-        group.MapGet("/{fileId}/content", async (
-            HttpContext httpContext,
+        // POST /api/containers/{containerId}/files/bulk-delete - Delete up to 100 files, each reported on
+        group.MapPost("/bulk-delete", async (
+            HttpContext http,
             Guid containerId,
-            string fileId,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IDocumentStore documentStore,
-            [FromServices] IManagedStorageProvider managedStorage,
-            [FromServices] IEnumerable<IDocumentParser> parsers,
-            [FromServices] DocumentReadGuard readGuard,
+            [FromBody] BulkDeleteFilesRequest request,
+            [FromServices] BulkDeleteFiles bulkDelete,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
+            var deleted = await bulkDelete.RunAsync(Rest(http), containerId, request.FileIds ?? [], ct);
+            if (!deleted.Succeeded)
+                return OperationProblems.Result(deleted);
 
-            var document = await documentStore.GetAsync(fileId, ct);
-            if (document is null || document.ContainerId != containerId.ToString()
-                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document, ct))
-                return ApiProblem.NotFound($"File {fileId} not found in container {containerId}");
+            var items = deleted.Result!;
+            return Results.Ok(new BulkDeleteFilesResponse([.. items], items.Count(i => i.Deleted), items.Count(i => !i.Deleted)));
+        })
+        .Produces<BulkDeleteFilesResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("files.bulkDelete")
+        .WithDescription("Delete up to 100 files in one call. Answers with each file's result; one file failing doesn't fail the others.")
+        // The scope too, so an Editor's knowledge:read token can't delete.
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
-            document.Metadata.TryGetValue("Status", out var status);
-            if (status is "Pending" or "Processing" or "Queued")
-                return ApiProblem.BadRequest("document_not_ready", $"Document is still being ingested (status: {status})");
-            if (status == "Failed")
-            {
-                document.Metadata.TryGetValue("ErrorMessage", out var errorMsg);
-                return ApiProblem.BadRequest("document_failed", $"Document failed ingestion: {errorMsg ?? "unknown error"}");
-            }
+        // GET /api/containers/{containerId}/files/{fileId}/content - Get file text content
+        group.MapGet("/{fileId}/content", async (
+            HttpContext http,
+            Guid containerId,
+            string fileId,
+            [FromServices] GetFileContent content,
+            CancellationToken ct) =>
+        {
+            var read = await content.RunAsync(Rest(http), containerId, fileId, ct);
+            if (!read.Succeeded)
+                return OperationProblems.Result(read);
 
-            // Read file content from storage
-            var connector = managedStorage.CreateConnector(container.Id);
-            string content;
-            try
-            {
-                using var rawStream = await connector.ReadFileAsync(document.Path, ct);
-
-                // Buffer non-seekable streams (MinIO, S3) for parsers
-                MemoryStream? buffered = null;
-                Stream stream;
-                if (!rawStream.CanSeek)
-                {
-                    buffered = new MemoryStream();
-                    await rawStream.CopyToAsync(buffered, ct);
-                    buffered.Position = 0;
-                    stream = buffered;
-                }
-                else
-                {
-                    stream = rawStream;
-                }
-
-                try
-                {
-                    var extension = Path.GetExtension(document.FileName).ToLowerInvariant();
-                    if (IsTextExtension(extension))
-                    {
-                        using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-                        content = await reader.ReadToEndAsync(ct);
-                    }
-                    else
-                    {
-                        var parser = parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
-                        if (parser is null)
-                            return ApiProblem.BadRequest("no_parser", $"No parser available for '{extension}' files");
-
-                        var parsed = await parser.ParseAsync(stream, document.FileName, ct);
-                        content = parsed.Content;
-                    }
-                }
-                finally
-                {
-                    buffered?.Dispose();
-                }
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException)
-            {
-                return ApiProblem.NotFound("file_not_readable", "The backing file could not be read from storage");
-            }
-            finally
-            {
-                (connector as IDisposable)?.Dispose();
-            }
-
+            var (document, text) = read.Result!;
             // Content negotiation
-            if (PrefersPlainText(httpContext.Request.Headers.Accept.ToString()))
-            {
-                return Results.Text(content, "text/plain");
-            }
+            if (PrefersPlainText(http.Request.Headers.Accept.ToString()))
+                return Results.Text(text, "text/plain");
 
             return Results.Ok(new FileContentResponse(
-                document.Id,
-                document.FileName,
-                document.Path,
-                document.ContentType,
-                document.SizeBytes,
-                document.CreatedAt,
-                content));
+                document.Id, document.FileName, document.Path, document.ContentType, document.SizeBytes, document.CreatedAt, text));
         })
         .Produces<FileContentResponse>()
         // Accept: text/plain gets the text alone. A second Produces for the same status would replace
@@ -398,26 +248,27 @@ public static class DocumentsEndpoints
 
         // GET /api/containers/{containerId}/files/{fileId}/reindex-check - Check if file needs reindexing
         group.MapGet("/{fileId}/reindex-check", async (
+            HttpContext http,
             Guid containerId,
             string fileId,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IReindexService reindexService,
+            [FromServices] CheckFileReindex check,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
-                return ApiProblem.NotFound($"Container {containerId} not found");
+            var checkedFile = await check.RunAsync(Rest(http), containerId, fileId, ct);
+            if (!checkedFile.Succeeded)
+                return OperationProblems.Result(checkedFile);
 
-            var check = await reindexService.CheckDocumentAsync(fileId, ct);
+            var result = checkedFile.Result!;
             return Results.Ok(new FileReindexCheckResponse(
-                check.DocumentId,
-                check.NeedsReindex,
-                check.Reason.ToString(),
-                check.CurrentHash,
-                check.StoredHash,
-                check.CurrentChunkingStrategy,
-                check.StoredChunkingStrategy,
-                check.CurrentEmbeddingModel,
-                check.StoredEmbeddingModel));
+                result.DocumentId,
+                result.NeedsReindex,
+                result.Reason.ToString(),
+                result.CurrentHash,
+                result.StoredHash,
+                result.CurrentChunkingStrategy,
+                result.StoredChunkingStrategy,
+                result.CurrentEmbeddingModel,
+                result.StoredEmbeddingModel));
         })
         .Produces<FileReindexCheckResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -425,17 +276,25 @@ public static class DocumentsEndpoints
         .WithDescription("Check if a specific file needs reindexing and why")
         .RequireAuthorization("RequireViewer");
 
+        // POST /api/containers/{containerId}/files/{fileId}/retry - Queue one file's ingestion again
+        group.MapPost("/{fileId}/retry", async (
+            HttpContext http,
+            Guid containerId,
+            string fileId,
+            [FromServices] RetryFile retry,
+            CancellationToken ct) =>
+        {
+            var queued = await retry.RunAsync(Rest(http), containerId, fileId, ct);
+            return queued.Succeeded ? Results.Accepted(value: queued.Result) : OperationProblems.Result(queued);
+        })
+        .Produces<FileRetry>(StatusCodes.Status202Accepted)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("files.retry")
+        .WithDescription("Queue one file's ingestion again, with a fresh attempt budget. Answers with the ingestion job's id.")
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
+
         return app;
     }
-
-    private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".txt", ".md", ".markdown", ".csv", ".log",
-        ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx",
-        ".json", ".xml", ".yaml", ".yml"
-    };
-
-    private static bool IsTextExtension(string extension) => TextExtensions.Contains(extension);
 
     /// <summary>
     /// Whether a file's content goes back as plain text rather than JSON, for this Accept header: when the
@@ -487,6 +346,8 @@ public static class DocumentsEndpoints
         return ApiProblem.BadRequest(error);
     }
 
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
+
     private static Guid? GetUserId(HttpContext httpContext)
     {
         var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -517,6 +378,11 @@ public record FileContentResponse(
     long SizeBytes,
     DateTime CreatedAt,
     string Content);
+
+public record BulkDeleteFilesRequest(List<string>? FileIds);
+
+/// <summary>What a bulk delete did with each file, in the order asked, and how many were deleted.</summary>
+public record BulkDeleteFilesResponse(List<BulkDeleteItem> Results, int DeletedCount, int FailedCount);
 
 public record FileReindexCheckResponse(
     string DocumentId,

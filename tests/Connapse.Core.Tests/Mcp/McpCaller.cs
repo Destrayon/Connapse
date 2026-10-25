@@ -1,4 +1,8 @@
+using Connapse.Application.Containers;
+using Connapse.Application.Files;
 using Connapse.Application.Ports;
+using Connapse.Core.Interfaces;
+using Connapse.Web.Services;
 using Connapse.Storage.Data;
 using Connapse.Storage.Vectors;
 using Microsoft.AspNetCore.Http;
@@ -32,4 +36,30 @@ internal static class McpCaller
         models.GetModelsAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(new List<EmbeddingModelInfo>());
         return models;
     }
+
+    /// <summary>
+    /// The file operations a file tool takes, over the stores a test registered on <paramref name="services"/>. Without a
+    /// read guard registered, every read is denied, as the tools denied it before.
+    /// </summary>
+    public static FileTools Files(IServiceProvider services)
+    {
+        T Get<T>() where T : class => (T?)services.GetService(typeof(T)) ?? Substitute.For<T>();
+        var containers = Get<IContainerStore>();
+        var documents = Get<IDocumentStore>();
+        var access = services.GetService(typeof(DocumentReadGuard)) is DocumentReadGuard guard
+            ? (IDocumentAccess)new DocumentAccess(guard)
+            : Substitute.For<IDocumentAccess>();
+        var delete = new DeleteFile(containers, documents, Get<IFolderStore>(), Get<IKnowledgeFileSystem>(), Get<IIngestionQueue>(), Get<IAuditLogger>(), Allowed,
+            Get<Microsoft.Extensions.Logging.ILogger<DeleteFile>>());
+        var parsers = (IEnumerable<IDocumentParser>?)services.GetService(typeof(IEnumerable<IDocumentParser>)) ?? [];
+        return new FileTools(
+            new GetContainer(containers, Allowed),
+            new ListFiles(containers, documents, Get<IFolderStore>(), Allowed),
+            new GetFile(containers, documents, access, Allowed),
+            new GetFileContent(containers, documents, access, Get<IManagedStorageProvider>(), parsers, Allowed),
+            delete,
+            new BulkDeleteFiles(containers, delete, Allowed));
+    }
+
+    public sealed record FileTools(GetContainer Container, ListFiles List, GetFile Get, GetFileContent Content, DeleteFile Delete, BulkDeleteFiles BulkDelete);
 }

@@ -58,11 +58,13 @@ public partial class McpErrorKindTests
         string tools = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Mcp", "McpTools.cs"));
         PassThrough().Matches(tools).Select(m => m.Value).Should().Equal(["$\"Error: {result.Error}\"", "$\"Error: {attempt.Detail}\""]);
 
-        // The second, Refused(attempt), carries a container operation's detail: each must read as a kind.
-        string containers = string.Concat(Directory.GetFiles(Path.Combine(RepoRoot(), "src", "Connapse.Application", "Containers"), "*.cs")
+        // The second, Refused(attempt), carries a container or file operation's detail: each must read as a kind.
+        string containers = string.Concat(new[] { "Containers", "Files" }
+            .SelectMany(folder => Directory.GetFiles(Path.Combine(RepoRoot(), "src", "Connapse.Application", folder), "*.cs"))
             .Select(File.ReadAllText));
         var details = OperationDetail().Matches(containers).Select(m => "Error: " + Hole().Replace(m.Groups["text"].Value, "x")).ToList();
-        details.Should().Contain("Error: You don't have permission to delete containers.");
+        details.Should().Contain("Error: You don't have permission to delete containers.")
+            .And.Contain("Error: You don't have permission to delete files.");
         details.Where(t => Surfaces.ErrorKind(t) == "error:unknown").Should().BeEmpty();
 
         string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"));
@@ -117,7 +119,7 @@ public partial class McpErrorKindTests
     private static partial Regex ResultError();
 
     /// <summary>A failure detail an operation writes: Fail(ContainerStatus.Forbidden, "..."), or a NameRule-style constant.</summary>
-    [GeneratedRegex(@"(?:ContainerStatus\.\w+, |const string \w+ = )\$?""(?<text>[^""]*)""")]
+    [GeneratedRegex(@"(?:(?:Container|File)Status\.\w+, |const string \w+ = )\$?""(?<text>[^""]*)""")]
     private static partial Regex OperationDetail();
 
     [GeneratedRegex(@"'\{[^}]*\}'")]

@@ -59,7 +59,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/research/competitive-landscape/report.pdf", "report.pdf")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
 
         result.Should().Contain("[DIR]  research/");
         result.Should().NotContain("report.pdf"); // Not a direct child of /
@@ -75,7 +75,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/docs/readme.txt", "readme.txt")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/docs/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/docs/");
 
         result.Should().Contain("[FILE] readme.txt");
     }
@@ -99,7 +99,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/beta/file.txt", "file.txt")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
 
         result.Should().Contain("[DIR]  alpha/");
         result.Should().Contain("[DIR]  beta/");
@@ -123,7 +123,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/research/doc.pdf", "doc.pdf")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
 
         // Should only appear once (HashSet deduplication)
         var count = result.Split("[DIR]  research/").Length - 1;
@@ -145,7 +145,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/docs/readme.txt", "readme.txt")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/docs/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/docs/");
 
         result.Should().Contain("[FILE] readme.txt");
         result.Should().NotContain("Error");
@@ -159,7 +159,7 @@ public class McpToolsListFilesTests
             .ExistsAsync(ContainerId, "/nonexistent/", Arg.Any<CancellationToken>())
             .Returns(false);
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/nonexistent/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/nonexistent/");
 
         result.Should().Contain("Error");
         result.Should().Contain("/nonexistent/");
@@ -176,7 +176,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/notes.md", "notes.md", docId)
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
 
         result.Should().Contain($"ID: {docId}");
         result.Should().Contain($"[FILE] notes.md (1,024 bytes) ID: {docId}");
@@ -194,7 +194,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/readme.md", "readme.md")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
 
         result.Should().StartWith("TIP:");
         result.Should().Contain("search_knowledge");
@@ -216,7 +216,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/notes.md", "notes.md")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
 
         result.Should().NotStartWith("TIP:");
         result.Should().Contain("[FILE] notes.md");
@@ -234,7 +234,7 @@ public class McpToolsListFilesTests
                 MakeDocument("/docs/install.md", "install.md")
             });
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/docs/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/docs/");
 
         result.Should().NotStartWith("TIP:");
         result.Should().Contain("[FILE] readme.md");
@@ -258,7 +258,7 @@ public class McpToolsListFilesTests
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(docs);
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/", limit: badLimit);
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/", limit: badLimit);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("limit");
@@ -277,7 +277,7 @@ public class McpToolsListFilesTests
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(docs);
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/");
 
         result.Should().StartWith("Error:");
         result.Should().Contain("search_knowledge");
@@ -296,7 +296,7 @@ public class McpToolsListFilesTests
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(docs);
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/", limit: null, confirmLarge: true);
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/", limit: null, confirmLarge: true);
 
         result.Should().NotStartWith("Error:");
         result.Should().Contain("[FILE] file0.txt");
@@ -314,7 +314,7 @@ public class McpToolsListFilesTests
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(docs);
 
-        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/", limit: 5);
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "/", limit: 5);
 
         result.Should().NotStartWith("Error:");
         result.Should().Contain("[FILE] file000.txt");

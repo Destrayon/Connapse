@@ -1,5 +1,6 @@
 ﻿using System.Security.Claims;
 using Connapse.Application.Containers;
+using Connapse.Application.Files;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -146,7 +147,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         // ResolveContainerIdAsync, which never resolves a source; teaching that method about
         // sources to make search work would silently turn this into a file-enumeration route
         // over somebody else's S3 bucket.
-        string output = await McpTools.ListFiles(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ListFiles(
+            scope.ServiceProvider.GetRequiredService<ListFiles>(), scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain("not found",
             "a source must be refused outright, not returned as an empty listing");
@@ -158,7 +160,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ListFiles(scope.ServiceProvider, source.Name);
+        string output = await McpTools.ListFiles(
+            scope.ServiceProvider.GetRequiredService<ListFiles>(), scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Name);
 
         output.Should().Contain("not found");
     }
@@ -187,7 +190,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         string output = await McpTools.GetDocument(
-            scope.ServiceProvider, source.Id.ToString(), fileId: "/anything.md");
+            scope.ServiceProvider.GetRequiredService<GetFile>(), scope.ServiceProvider.GetRequiredService<GetFileContent>(),
+            scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString(), fileId: "/anything.md");
 
         output.Should().Contain("not found");
     }

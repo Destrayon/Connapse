@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using Connapse.Application.Containers;
+using Connapse.Application.Files;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -267,13 +268,14 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var accessor = sp.GetRequiredService<IHttpContextAccessor>();
         accessor.HttpContext = new DefaultHttpContext
         {
-            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")),
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, "Viewer")], "test")),
         };
         try
         {
-            string deniedResult = await McpTools.GetDocument(sp, containerId.ToString(), denied);
-            string missingResult = await McpTools.GetDocument(sp, containerId.ToString(), Guid.Empty.ToString());
-            string allowedResult = await McpTools.GetDocument(sp, containerId.ToString(), allowed);
+            string deniedResult = await GetDocumentAsync(sp, containerId.ToString(), denied);
+            string missingResult = await GetDocumentAsync(sp, containerId.ToString(), Guid.Empty.ToString());
+            string allowedResult = await GetDocumentAsync(sp, containerId.ToString(), allowed);
 
             deniedResult.Should().Be(missingResult.Replace(Guid.Empty.ToString(), denied));
             allowedResult.Should().NotContain("not found in this container",
@@ -366,6 +368,11 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         await db.SaveChangesAsync();
         return source;
     }
+
+    /// <summary>MCP get_document as the caller on the scope's HTTP context.</summary>
+    private static Task<string> GetDocumentAsync(IServiceProvider sp, string containerId, string fileId) =>
+        McpTools.GetDocument(sp.GetRequiredService<GetFile>(), sp.GetRequiredService<GetFileContent>(), sp.GetRequiredService<GetContainer>(),
+            sp.GetRequiredService<IHttpContextAccessor>(), containerId, fileId);
 
     /// <summary>Runs <paramref name="call"/> as a non-admin user linked to <paramref name="atlassianAccount"/>.</summary>
     private static async Task<T> AsUserAsync<T>(IServiceProvider sp, string? atlassianAccount, Func<Task<T>> call)
@@ -679,9 +686,9 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         string allowed = await DocumentIdAsync(sp, containerId, "jira-issue.md");
 
         var (deniedResult, missingResult, allowedResult) = await AsUserAsync(sp, DeniedAccount, async () => (
-            await McpTools.GetDocument(sp, containerId.ToString(), denied),
-            await McpTools.GetDocument(sp, containerId.ToString(), Guid.Empty.ToString()),
-            await McpTools.GetDocument(sp, containerId.ToString(), allowed)));
+            await GetDocumentAsync(sp, containerId.ToString(), denied),
+            await GetDocumentAsync(sp, containerId.ToString(), Guid.Empty.ToString()),
+            await GetDocumentAsync(sp, containerId.ToString(), allowed)));
 
         deniedResult.Should().Be(missingResult.Replace(Guid.Empty.ToString(), denied));
         allowedResult.Should().NotContain("not found in this container");

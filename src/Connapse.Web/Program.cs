@@ -205,6 +205,7 @@ builder.Services.AddScoped<Connapse.Application.Ports.IOperationAuthorizer, Conn
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
+builder.Services.AddScoped<Connapse.Application.Ports.IDocumentAccess, Connapse.Web.Services.DocumentAccess>();
 builder.Services.AddScoped<Connapse.Web.Services.GitHubAppUsage>();
 
 // So an MCP tool can name its caller. Tools receive an IServiceProvider and nothing else, so
