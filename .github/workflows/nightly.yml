@@ -95,6 +95,7 @@ jobs:
         mkdir -p schemathesis-report
         # As the runner's user, so it can write its report into the mounted folder.
         docker run --rm --network host --cpus 2 --memory 1g --user "$(id -u):$(id -g)" \
+          -e HOME=/tmp -e HYPOTHESIS_STORAGE_DIRECTORY=/tmp/.hypothesis \
           -v "$PWD/docs/api:/spec:ro" -v "$PWD/schemathesis-report:/report" \
           schemathesis/schemathesis@sha256:30ef2766eb58dabfd26f9785d2e29e366a3ab69c2a40e34a8e56dbef5ce525f6 \
           run /spec/openapi.json --url http://localhost:5001 \
