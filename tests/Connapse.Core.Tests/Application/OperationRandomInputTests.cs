@@ -2,16 +2,24 @@ using System.Reflection;
 using System.Security.Claims;
 using Connapse.Application;
 using Connapse.Application.Approvals;
+using Connapse.Application.Links;
 using Connapse.Application.Ports;
 using Connapse.Application.Sources;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
+using Connapse.Storage.Connectors.Custom;
+using Connapse.Storage.Connectors.GitHub;
 using CsCheck;
 using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Application;
@@ -303,6 +311,37 @@ public class OperationRandomInputTests
         }
     }
 
+    // ── sources.scopeSchema ─────────────────────────────────────────────────────────────────────
+
+    private static readonly Gen<string> AnyProviderText = Gen.OneOf(
+        Gen.Enum<ConnectionProvider>().Select(p => p.ToString()),
+        Gen.Enum<ConnectionProvider>().Select(p => p.ToString().ToUpperInvariant()),
+        Gen.Enum<ConnectionProvider>().Select(p => ((int)p).ToString()),
+        Gen.Int[-3, 12].Select(n => n.ToString()),
+        Gen.String[Gen.Char[" aAbBsS3-"], 0, 6]);
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetScopeSchema))]
+    public Task ScopeSchema_AnyProviderText_AnswersOnlyForAProviderName() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnyProviderText)
+            .SampleAsync(async t =>
+            {
+                var (caller, viewer, provider) = t;
+                var world = new World(viewer, admin: false);
+
+                var read = await new GetScopeSchema(world.Authorizer).RunAsync(caller, provider);
+
+                // A name only, never a number: "3" would otherwise parse as the provider numbered 3.
+                bool named = !int.TryParse(provider, out _)
+                    && Enum.GetNames<ConnectionProvider>().Contains(provider, StringComparer.OrdinalIgnoreCase);
+                ScopeSchemaStatus expected = !viewer ? ScopeSchemaStatus.Forbidden
+                    : named ? ScopeSchemaStatus.Success
+                    : ScopeSchemaStatus.UnknownProvider;
+                read.Status.Should().Be(expected);
+                if (expected == ScopeSchemaStatus.Success)
+                    read.Result!.Provider.ToString().Should().BeEquivalentTo(provider);
+            });
+
     // ── sources.update ──────────────────────────────────────────────────────────────────────────
 
     private static readonly Gen<UpdateSourceRequest> AnyUpdate = Gen.Select(
@@ -322,13 +361,14 @@ public class OperationRandomInputTests
                 world.UpdateRules.CheckUpdateAsync(source, Arg.Any<string>(), Arg.Any<CancellationToken>())
                     .Returns(scopeAllowed ? new ScopeCheck("{\"rewritten\":true}") : ScopeCheck.Refuse("fixed", "scope"));
 
-                var updated = await new UpdateSource(world.Sources, world.UpdateRules, world.Audit, world.Authorizer).RunAsync(caller, source.Id, request);
+                var updated = await new UpdateSource(world.Sources, world.Connections, world.UpdateRules, world.Audit, world.Authorizer).RunAsync(caller, source.Id, request);
 
                 bool jsonOk = string.IsNullOrWhiteSpace(request.ScopeJson) || request.ScopeJson.StartsWith('{') && request.ScopeJson.EndsWith('}');
                 bool refusedScope = request.ScopeJson is not null && jsonOk && exists && !scopeAllowed;
+                bool blankName = request.Name is not null && request.Name.Trim().Length == 0;
                 SourceWriteStatus expected =
                     !admin ? SourceWriteStatus.Forbidden
-                    : !jsonOk || refusedScope || request.Secret is not null ? SourceWriteStatus.Invalid
+                    : blankName || !jsonOk || refusedScope || request.Secret is not null ? SourceWriteStatus.Invalid
                     : !exists ? SourceWriteStatus.NotFound
                     : SourceWriteStatus.Success;
                 updated.Status.Should().Be(expected);
@@ -337,7 +377,9 @@ public class OperationRandomInputTests
                     world.Sources.ReceivedCalls().Should().BeEmpty();
                 if (expected is SourceWriteStatus.Forbidden or SourceWriteStatus.Invalid)
                     world.Wrote.Should().BeFalse();
-                if (request.Secret is not null && admin && jsonOk && !refusedScope)
+                if (admin && blankName)
+                    updated.Field.Should().Be("name");
+                else if (request.Secret is not null && admin && jsonOk && !refusedScope)
                     updated.Field.Should().Be("secret");
 
                 // A scope the provider rewrote is the one saved.
@@ -558,6 +600,200 @@ public class OperationRandomInputTests
                 if (decided.Succeeded)
                     decided.Result.Should().Be(approve);
             }, iter: 2000);
+
+    // ── links.list / links.unlink ───────────────────────────────────────────────────────────────
+
+    /// <summary>A caller the account policy admits or not, with a user id, junk, or none.</summary>
+    private sealed record LinkCaller(bool Allowed, string? NameId)
+    {
+        public OperationContext Context => new(new ClaimsPrincipal(new ClaimsIdentity(
+            NameId is null ? [] : [new Claim(ClaimTypes.NameIdentifier, NameId)], "test")), OperationSurface.Rest);
+
+        public Guid? UserId => Allowed && Guid.TryParse(NameId, out var id) ? id : null;
+    }
+
+    private static readonly Gen<LinkCaller> AnyLinkCaller = Gen.Select(
+        Gen.Bool, Gen.OneOf(Gen.Const((string?)null), Gen.Const((string?)"not-a-guid"), Gen.Guid.Select(g => (string?)g.ToString())),
+        (allowed, nameId) => new LinkCaller(allowed, nameId));
+
+    /// <summary>What a custom provider's source server answers about a link: linked, not linked, or a failure.</summary>
+    public enum CustomAnswer { Linked, NotLinked, Down, Refused, Missing }
+
+    private static CustomProvider Custom(Guid id) => new(
+        id, "bridge", "https://bridge.test", true, 100, true, "https://bridge.test/link", Epoch, Epoch, Epoch, HasLinkSecret: true);
+
+    private static Task<CustomLinkStatus> Answer(CustomAnswer answer) => answer switch
+    {
+        CustomAnswer.Linked => Task.FromResult(new CustomLinkStatus(true, "alice")),
+        CustomAnswer.NotLinked => Task.FromResult(new CustomLinkStatus(false, null)),
+        CustomAnswer.Down => Task.FromException<CustomLinkStatus>(new HttpRequestException("down")),
+        CustomAnswer.Refused => Task.FromException<CustomLinkStatus>(new CustomSourceUnauthorizedException("refused")),
+        _ => Task.FromException<CustomLinkStatus>(new CustomProviderNotFoundException("gone")),
+    };
+
+    /// <summary>An in-memory identity database per sample, as the link stores read and write it.</summary>
+    private static IDbContextFactory<ConnapseIdentityDbContext> IdentityDb()
+    {
+        var options = new DbContextOptionsBuilder<ConnapseIdentityDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        var factory = Substitute.For<IDbContextFactory<ConnapseIdentityDbContext>>();
+        factory.CreateDbContextAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(new ConnapseIdentityDbContext(options)));
+        return factory;
+    }
+
+    private static IOptionsMonitor<T> Unconfigured<T>() where T : class, new()
+    {
+        var monitor = Substitute.For<IOptionsMonitor<T>>();
+        monitor.CurrentValue.Returns(new T());
+        return monitor;
+    }
+
+    [Fact]
+    [RandomInputTestOf(typeof(ListAccountLinks))]
+    public Task ListLinks_AnyCaller_ReadsOnlyTheCallersOwnLinksAndNeverFailsOnABrokenProvider() =>
+        Gen.Select(AnyLinkCaller, Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<CustomAnswer>().Array[0, 3])
+            .SampleAsync(async t =>
+            {
+                var (caller, customStatus, gitHubLinked, atlassianOffered, answers) = t;
+                var aws = Substitute.For<IAwsIdentityLinkService>();
+                var azure = Substitute.For<IAzureIdentityLinkService>();
+                var custom = Substitute.For<ICustomAccountLinks>();
+                var credentials = Substitute.For<IProviderCredentialStore>();
+                var authorizer = Substitute.For<IOperationAuthorizer>();
+                authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Account).Returns(caller.Allowed);
+                var db = IdentityDb();
+                var gitHub = new GitHubIdentityLinkStore(db, TimeProvider.System);
+                var providers = answers.Select(_ => Custom(Guid.NewGuid())).ToList();
+                custom.LinkableAsync(Arg.Any<CancellationToken>()).Returns(providers);
+                for (int i = 0; i < providers.Count; i++)
+                {
+                    var answer = answers[i];
+                    custom.StatusAsync(providers[i].Id, Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(_ => Answer(answer));
+                }
+                credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+                    .Returns(atlassianOffered ? new AtlassianLinkAppRegistration("client") { SignInEnabled = true } : null);
+                if (caller.UserId is Guid owner && gitHubLinked)
+                    await gitHub.SaveAsync(owner, 42, "octo");
+                // Someone else's link, which must never come back.
+                await gitHub.SaveAsync(Guid.NewGuid(), 7, "other");
+                var app = new ConnapseGitHubApp(
+                    new ServiceCollection().AddSingleton(credentials).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+                    Substitute.For<IHttpClientFactory>(), NullLogger<ConnapseGitHubApp>.Instance);
+
+                var read = await new ListAccountLinks(aws, azure, gitHub, new AtlassianIdentityLinkStore(db, TimeProvider.System), custom, app,
+                    credentials, Unconfigured<SamlSignInSettings>(), Unconfigured<AzureAdSignInSettings>(), authorizer)
+                    .RunAsync(caller.Context, new ListAccountLinksQuery(customStatus));
+
+                if (caller.UserId is not Guid userId)
+                {
+                    read.Status.Should().Be(AccountLinkReadStatus.Forbidden);
+                    aws.ReceivedCalls().Should().BeEmpty();
+                    custom.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                read.Status.Should().Be(AccountLinkReadStatus.Success);
+                var links = read.Result!;
+                await aws.Received(1).GetAsync(userId, Arg.Any<CancellationToken>());
+                await azure.Received(1).GetAsync(userId, Arg.Any<CancellationToken>());
+                links.GitHub?.Login.Should().Be("octo");
+                (links.GitHub is not null).Should().Be(gitHubLinked);
+                links.GitHubAvailable.Should().BeFalse("no GitHub App is stored");
+                links.Atlassian.Should().BeNull();
+                links.AtlassianAvailable.Should().Be(atlassianOffered);
+
+                // Every provider is listed; its status only when asked, and unknown when its server failed.
+                links.Custom.Select(c => c.Provider.Id).Should().Equal(providers.Select(p => p.Id));
+                links.Custom.Select(c => c.Linked).Should().Equal(answers.Select(a => !customStatus ? null
+                    : a == CustomAnswer.Linked ? true : a == CustomAnswer.NotLinked ? (bool?)false : null));
+                if (!customStatus)
+                    await custom.DidNotReceiveWithAnyArgs().StatusAsync(default, default, default);
+                else
+                    foreach (var provider in providers)
+                        await custom.Received(1).StatusAsync(provider.Id, userId, Arg.Any<CancellationToken>());
+            }, iter: 500);
+
+    /// <summary>Provider text: each name in any case, numbers, flag lists, "custom", and junk.</summary>
+    private static readonly Gen<string> AnyLinkProvider = Gen.OneOf(
+        Gen.OneOf(Gen.Const("AWS"), Gen.Const("aws"), Gen.Const("Azure"), Gen.Const("AZURE"), Gen.Const("GitHub"), Gen.Const("github")),
+        Gen.Int[-1, 4].Select(n => n.ToString()),
+        Gen.OneOf(Gen.Const("AWS,Azure"), Gen.Const("Azure,GitHub"), Gen.Const(" aws "), Gen.Const("")),
+        Gen.OneOf(Gen.Const("custom"), Gen.Const("Custom")),
+        Gen.String[Gen.Char[" aAbBsS-,"], 0, 6]);
+
+    /// <summary>
+    /// links.unlink over random provider text. Atlassian is left out: its delete takes a Postgres row lock
+    /// the in-memory database can't, so its unlink is tested against Postgres in the integration suite.
+    /// </summary>
+    [Fact]
+    [RandomInputTestOf(typeof(UnlinkAccount))]
+    public Task Unlink_AnyProviderText_RemovesOnlyTheNamedLinkOfTheCaller() =>
+        Gen.Select(AnyLinkCaller, AnyLinkProvider, Gen.Guid.Nullable(), Gen.Bool, Gen.Enum<CustomAnswer>(),
+                Gen.Bool, Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (caller, provider, customId, linked, answer, awsChanged, gitHubLinked) = t;
+                var aws = Substitute.For<IAwsIdentityLinkService>();
+                var azure = Substitute.For<IAzureIdentityLinkService>();
+                var custom = Substitute.For<ICustomAccountLinks>();
+                var audit = Substitute.For<IAuditLogger>();
+                var authorizer = Substitute.For<IOperationAuthorizer>();
+                authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Person).Returns(caller.Allowed);
+                aws.DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                    .Returns(new AwsIdentityLinkDisconnectResult(linked && !awsChanged, awsChanged));
+                azure.DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(linked);
+                custom.UnlinkAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(_ => answer switch
+                {
+                    CustomAnswer.Down => Task.FromException(new HttpRequestException("down")),
+                    CustomAnswer.Refused => Task.FromException(new CustomSourceUnauthorizedException("refused")),
+                    CustomAnswer.Missing => Task.FromException(new CustomProviderNotFoundException("gone")),
+                    _ => Task.CompletedTask,
+                });
+                var gitHub = new GitHubIdentityLinkStore(IdentityDb(), TimeProvider.System);
+                if (caller.UserId is Guid owner && gitHubLinked)
+                    await gitHub.SaveAsync(owner, 42, "octo");
+
+                var unlinked = await new UnlinkAccount(aws, azure, gitHub, new GitHubLinkFlow(new MemoryCache(new MemoryCacheOptions())),
+                    new AtlassianIdentityLinkStore(IdentityDb(), TimeProvider.System), new AtlassianLinkFlow(new MemoryCache(new MemoryCacheOptions())),
+                    custom, Substitute.For<IConnectorScopeCache>(), Substitute.For<ISourceStore>(), Substitute.For<IConnectionStore>(), audit, authorizer)
+                    .RunAsync(caller.Context, new UnlinkAccountRequest(provider, customId));
+
+                string? named = new[] { "AWS", "Azure", "GitHub" }.FirstOrDefault(n => string.Equals(n, provider, StringComparison.OrdinalIgnoreCase));
+                bool toCustom = string.Equals(provider, "custom", StringComparison.OrdinalIgnoreCase) && customId is not null;
+                AccountUnlinkStatus expected =
+                    caller.UserId is null ? AccountUnlinkStatus.Forbidden
+                    : toCustom ? answer switch
+                    {
+                        CustomAnswer.Missing => AccountUnlinkStatus.NotFound,
+                        CustomAnswer.Down or CustomAnswer.Refused => AccountUnlinkStatus.Unavailable,
+                        _ => AccountUnlinkStatus.Success,
+                    }
+                    : named is null ? AccountUnlinkStatus.InvalidProvider
+                    : named == "AWS" ? (awsChanged ? AccountUnlinkStatus.Changed : linked ? AccountUnlinkStatus.Success : AccountUnlinkStatus.NotFound)
+                    : named == "Azure" ? (linked ? AccountUnlinkStatus.Success : AccountUnlinkStatus.NotFound)
+                    : gitHubLinked ? AccountUnlinkStatus.Success : AccountUnlinkStatus.NotFound;
+                unlinked.Status.Should().Be(expected);
+
+                // Only the named provider is touched, and only for the caller.
+                var userId = caller.UserId;
+                if (named == "AWS" && userId is Guid a)
+                    await aws.Received(1).DisconnectAsync(a, Arg.Any<CancellationToken>());
+                else
+                    await aws.DidNotReceiveWithAnyArgs().DisconnectAsync(default);
+                if (named == "Azure" && userId is Guid z)
+                    await azure.Received(1).DisconnectAsync(z, Arg.Any<CancellationToken>());
+                else
+                    await azure.DidNotReceiveWithAnyArgs().DisconnectAsync(default);
+                if (toCustom && userId is Guid c)
+                    await custom.Received(1).UnlinkAsync(customId!.Value, c, Arg.Any<CancellationToken>());
+                else
+                    await custom.DidNotReceiveWithAnyArgs().UnlinkAsync(default, default, default);
+                if (named == "GitHub" && userId is Guid g)
+                    (await gitHub.GetAsync(g)).Should().BeNull();
+                else if (userId is Guid kept && gitHubLinked)
+                    (await gitHub.GetAsync(kept)).Should().NotBeNull();
+
+                if (expected != AccountUnlinkStatus.Success)
+                    audit.ReceivedCalls().Should().BeEmpty();
+            }, iter: 1000);
 
     // ── completeness ────────────────────────────────────────────────────────────────────────────
 
