@@ -22,8 +22,7 @@ public partial class ScheduledOnlyJobsTests
             .ToList();
 
         // containers.summaries.regenerate enqueues the same job, so the job's own concurrency lock covers
-        // both. The capture still leaves the job out, so no snapshot can tell whether that action queued it:
-        // a regenerate row has to check the job some other way.
+        // both. Its audit row names the job, which is how the capture tells it from the sweep's.
         sites.Should().BeEquivalentTo([("SummaryJobs.cs", "ISummaryJobs.RollupContainerAsync"), ("HangfireSummaryRollup.cs", "ISummaryJobs.RollupContainerAsync")],
             "RollupContainerAsync is enqueued only by SweepStaleContainersAsync and containers.summaries.regenerate");
     }

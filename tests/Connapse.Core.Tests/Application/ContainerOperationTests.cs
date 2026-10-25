@@ -8,6 +8,7 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Vectors;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -349,6 +350,9 @@ public class ContainerOperationTests
 
     private readonly IReindexService _reindex = Substitute.For<IReindexService>();
 
+    private IServiceScopeFactory ReindexScopes() =>
+        new ServiceCollection().AddSingleton(_reindex).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
     private Guid Existing()
     {
         var id = Guid.NewGuid();
@@ -410,7 +414,7 @@ public class ContainerOperationTests
         var id = Existing();
         _reindex.RetryFailedAsync(id, Arg.Any<CancellationToken>()).Returns(3);
 
-        var retried = await new RetryFailedContainerDocuments(_containers, _reindex, _audit, _authorizer).RunAsync(Caller, id);
+        var retried = await new RetryFailedContainerDocuments(_containers, ReindexScopes(), _audit, _authorizer).RunAsync(Caller, id);
 
         retried.Result.Should().Be(3);
         await _audit.Received(1).LogAsync("container.retry_failed", "container", id.ToString(), Arg.Any<object?>(), Arg.Any<CancellationToken>());
@@ -419,7 +423,7 @@ public class ContainerOperationTests
     [Fact]
     public async Task RetryFailed_Missing_IsNotFoundAndRetriesNothing()
     {
-        var retried = await new RetryFailedContainerDocuments(_containers, _reindex, _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
+        var retried = await new RetryFailedContainerDocuments(_containers, ReindexScopes(), _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
 
         retried.Status.Should().Be(ContainerStatus.NotFound);
         _reindex.ReceivedCalls().Should().BeEmpty();

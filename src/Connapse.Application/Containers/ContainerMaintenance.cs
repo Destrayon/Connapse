@@ -1,6 +1,7 @@
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace Connapse.Application.Containers;
@@ -57,7 +58,7 @@ public sealed class ReindexContainer(IContainerStore containers, IReindexService
 
 /// <summary>Re-enqueues every document in a container whose ingestion failed, with a fresh attempt budget. Editors and above.</summary>
 [Operation("containers.retryFailed", Scope = "knowledge:write", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
-public sealed class RetryFailedContainerDocuments(IContainerStore containers, IReindexService reindex, IAuditLogger audit, IOperationAuthorizer authorizer)
+public sealed class RetryFailedContainerDocuments(IContainerStore containers, IServiceScopeFactory scopes, IAuditLogger audit, IOperationAuthorizer authorizer)
 {
     /// <returns>How many documents were enqueued.</returns>
     public async Task<Attempt<int, ContainerStatus>> RunAsync(OperationContext context, Guid containerId, CancellationToken ct = default)
@@ -67,7 +68,11 @@ public sealed class RetryFailedContainerDocuments(IContainerStore containers, IR
         if (!await containers.ExistsAsync(containerId, ct))
             return ContainerRules.NotFound<int>(ContainerKey.ById(containerId));
 
-        int enqueued = await reindex.RetryFailedAsync(containerId, ct);
+        // Its own scope: the reindex service holds a DbContext, which a Blazor circuit must not share
+        // across its handlers, and the file browser calls this operation from one.
+        int enqueued;
+        await using (var scope = scopes.CreateAsyncScope())
+            enqueued = await scope.ServiceProvider.GetRequiredService<IReindexService>().RetryFailedAsync(containerId, ct);
         await audit.LogAsync("container.retry_failed", "container", containerId.ToString(), new { enqueued }, ct);
         return Attempt<int, ContainerStatus>.Succeed(enqueued);
     }
