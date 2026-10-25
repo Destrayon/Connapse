@@ -69,6 +69,8 @@ public static class IdentityServiceExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IMcpApprovalStore, McpApprovalStore>();
         services.AddScoped<IAuditLogger, AuditLogger>();
+        services.AddScoped<IAuditLogReader, AuditLogReader>();
+        services.AddScoped<IOAuthClientRegistry, OAuthClientRegistry>();
         services.AddScoped<OAuthAuthCodeService>();
         services.AddHttpClient<OAuthClientService>();
         services.AddScoped<AwsIdentityLinkStore>();
@@ -338,6 +340,16 @@ public static class IdentityServiceExtensions
                 policy.RequireAuthenticatedUser().RequireAssertion(context =>
                     !context.User.IsInRole("Agent")
                     && (!context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "knowledge:read"))))
+            // What users did is an administrator's to read. REST checks no token scopes elsewhere, but a
+            // token of an administrator's reads the audit log only when issued with admin:audit (#880).
+            .AddPolicy("RequireAuditReader", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context =>
+                    !context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "admin:audit")))
+            // Which OAuth clients hold grants, and revoking one, is an administrator's; a token of theirs
+            // only with admin:oauth-clients (#881).
+            .AddPolicy("RequireClientAdmin", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context =>
+                    !context.User.HasClaim(c => c.Type == "scope") || context.User.HasClaim("scope", "admin:oauth-clients")))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

@@ -190,7 +190,7 @@ public static class OAuthEndpoints
         }
 
         var exchangeResult = await authCodeService.ExchangeAsync(code, codeVerifier, redirectUri, clientId, ct);
-        if (exchangeResult is null)
+        if (exchangeResult is null || !await ClientMayHoldGrantsAsync(dbContext, clientId, ct))
             return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
 
         // RFC 8707 §2 / MCP §Token Audience Binding: if the client included a
@@ -245,6 +245,15 @@ public static class OAuthEndpoints
             exchangeResult.Scope));
     }
 
+    /// <summary>
+    /// Whether a client may still be issued tokens. A registered client may only while its registration
+    /// exists, so a code or refresh token minted while it was being revoked (#881) stops working at its next
+    /// use. A client known by its metadata URL never registers; revoking it ends its current grants only.
+    /// </summary>
+    private static async Task<bool> ClientMayHoldGrantsAsync(ConnapseIdentityDbContext dbContext, string clientId, CancellationToken ct) =>
+        Uri.TryCreate(clientId, UriKind.Absolute, out var uri) && (uri.Scheme == "https" || (uri.Scheme == "http" && uri.Host is "127.0.0.1" or "localhost"))
+            || await dbContext.OAuthClients.AnyAsync(c => c.ClientId == clientId, ct);
+
     private static async Task<IResult> HandleRefreshTokenGrant(
         HttpContext ctx,
         IFormCollection form,
@@ -262,8 +271,8 @@ public static class OAuthEndpoints
         var oldTokenHash = ComputeSha256Hex(refreshToken);
         var oldRefreshEntity = await dbContext.RefreshTokens
             .FirstOrDefaultAsync(r => r.TokenHash == oldTokenHash, ct);
-        if (oldRefreshEntity?.ClientId is not null &&
-            !string.Equals(oldRefreshEntity.ClientId, clientId, StringComparison.Ordinal))
+        if (oldRefreshEntity?.ClientId is { } boundClient &&
+            (!string.Equals(boundClient, clientId, StringComparison.Ordinal) || !await ClientMayHoldGrantsAsync(dbContext, boundClient, ct)))
         {
             return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
         }

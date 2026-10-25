@@ -12,8 +12,11 @@ declared slug has an entry here.
 ## forbidden
 
 The caller is signed in but their role doesn't allow this. Sources: reading needs the Viewer role,
-changing needs Administrator. Account links: reading needs a person or their own token with
-`knowledge:read`; unlinking needs the person signed in themselves, never a personal access token or agent key.
+changing needs Administrator. The audit log: reading needs Administrator, and a token needs
+`admin:audit`. OAuth clients: listing and revoking need Administrator, and a token needs
+`admin:oauth-clients`. Account links: reading needs a person or their own token with
+`knowledge:read`; unlinking needs the person signed in themselves, never a personal access token or
+agent key.
 
 ## invalid-link-provider
 
@@ -67,9 +70,20 @@ nothing was started; the running cycle picks up the changes.
 The provider named in the path isn't one Connapse has. Providers are named as the API writes them, such as
 `S3`, `AzureBlob`, `Filesystem`, `Sftp`, `GitHub`, `Atlassian` and `Custom`, in any case.
 
+## invalid-audit-filter
+
+An audit log filter can't match anything: `since` must be before `until`. Both are UTC; a time given
+without a zone is read as UTC.
+
+## oauth-client-not-found
+
+No OAuth client with that id has access: it isn't registered and holds no refresh tokens or pending
+authorization codes. It may already have been revoked.
+
 ## invalid-page
 
-The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200.
+The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200. For the
+audit log, `before` must be a `nextBefore` value the endpoint returned.
 
 ## approval-not-signed-in
 

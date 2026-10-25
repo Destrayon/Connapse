@@ -177,6 +177,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddOpenApi(options => options
     .AddSchemaTransformer<Connapse.Web.Endpoints.DeprecatedScopeJsonTransformer>()
     .AddSchemaTransformer<Connapse.Web.Problems.ProblemDetailsSchemaTransformer>()
+    .AddSchemaTransformer<Connapse.Web.Endpoints.AuditDetailsSchemaTransformer>()
     .AddOperationTransformer<Connapse.Web.Problems.RateLimitResponseTransformer>());
 
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory
@@ -483,6 +484,8 @@ api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapSourcesEndpoints();
+api.MapAuditEndpoints();
+api.MapOAuthClientEndpoints();
 api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();
 api.MapSearchEndpoints();

@@ -24,4 +24,10 @@ public static class Policies
 
     /// <summary>A person signing in: a browser session or their own bearer token, never a personal access token or agent key.</summary>
     public const string Person = "RequirePerson";
+
+    /// <summary>An administrator; a token of theirs only with the admin:audit scope.</summary>
+    public const string AuditReader = "RequireAuditReader";
+
+    /// <summary>An administrator; a token of theirs only with the admin:oauth-clients scope.</summary>
+    public const string ClientAdmin = "RequireClientAdmin";
 }
