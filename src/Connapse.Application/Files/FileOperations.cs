@@ -38,6 +38,12 @@ public enum FileStatus
 
     [Failure(404, "file-not-readable", "File can't be read")]
     NotReadable,
+
+    [Failure(400, "unsupported-file-type", "Unsupported file type")]
+    UnsupportedType,
+
+    [Failure(400, "container-not-writable", "Container not writable")]
+    NotWritable,
 }
 
 /// <summary>

@@ -151,8 +151,9 @@ not read is answered exactly as a missing one, so a request can't learn that it 
 
 ## invalid-file-request
 
-A file request asked for something it can't do: a bulk delete names between 1 and 100 file ids. The `field`
-member names the input at fault.
+A file request asked for something it can't do: a bulk delete names between 1 and 100 file ids, and a bulk
+upload between 1 and 100 files. An uploaded file needs a name of at most 255 characters with no folder in it, a
+folder path with no `..` and at most 50 levels, and some content. The `field` member names the input at fault.
 
 ## file-not-ready
 
@@ -171,3 +172,12 @@ No parser reads this file type, so its text can't be extracted.
 ## file-not-readable
 
 The document is recorded, but its stored file can't be read from storage.
+
+## unsupported-file-type
+
+No parser reads files of this type, so it can't be uploaded. The detail lists the types that can be. In a bulk
+upload, each such file is reported in its place and the rest are still uploaded.
+
+## container-not-writable
+
+The container's storage doesn't take uploads.

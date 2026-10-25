@@ -144,7 +144,7 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         // The single most important assertion in this file. list_files routes through
-        // ResolveContainerIdAsync, which never resolves a source; teaching that method about
+        // containers.get, which never resolves a source; teaching that operation about
         // sources to make search work would silently turn this into a file-enumeration route
         // over somebody else's S3 bucket.
         string output = await McpTools.ListFiles(

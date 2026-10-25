@@ -263,7 +263,10 @@ public class McpTools
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Upload a file to be parsed, chunked, embedded, and made searchable. Provide either 'content' (base64) or 'textContent' (raw text), not both.")]
     public static async Task<string> UploadFile(
-        IServiceProvider services,
+        UploadFile upload,
+        GetContainer getContainer,
+        IFileTypeValidator fileTypeValidator,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("Base64-encoded file content. For binary files (PDF, DOCX, images). Mutually exclusive with textContent.")] string? content = null,
         [Description("Raw text content for text-based files (Markdown, TXT, CSV, JSON, etc.). Mutually exclusive with content.")] string? textContent = null,
@@ -278,7 +281,6 @@ public class McpTools
         if (!PathUtilities.IsValidFileName(fileName))
             return $"Error: invalid filename '{fileName}' — must not contain path separators or '..' segments.";
 
-        var fileTypeValidator = services.GetRequiredService<IFileTypeValidator>();
         if (!fileTypeValidator.IsSupported(fileName))
         {
             var ext = Path.GetExtension(fileName).ToLowerInvariant();
@@ -292,10 +294,9 @@ public class McpTools
         if (content is null && textContent is null)
             return "Error: Provide either 'content' (base64) or 'textContent' (raw text).";
 
-        var containerStore = services.GetRequiredService<IContainerStore>();
-        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        var (resolvedId, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
         if (resolvedId is null)
-            return $"Error: Container '{containerId}' not found.";
+            return missing!;
 
         byte[] fileBytes;
         if (textContent is not null)
@@ -314,20 +315,14 @@ public class McpTools
             }
         }
 
-        var uploadService = services.GetRequiredService<IUploadService>();
-        var stream = new MemoryStream(fileBytes);
-        var request = new UploadRequest(
-            resolvedId.Value, fileName, stream, null, path, null, strategy, "MCP");
-
-        var result = await uploadService.UploadAsync(request, ct);
-        if (!result.Success)
-            return $"Error: {result.Error}";
-
-        var filePath = PathUtilities.NormalizePath(
-            PathUtilities.NormalizeFolderPath(path ?? "/") + fileName);
+        using var stream = new MemoryStream(fileBytes);
+        var uploaded = await upload.RunAsync(Mcp(http), resolvedId.Value, new FileUpload(fileName, stream, path, Strategy: strategy), ct);
+        if (!uploaded.Succeeded)
+            return Refused(uploaded);
+        var (documentId, jobId, _, filePath) = uploaded.Result!;
 
         return $"File '{fileName}' uploaded to {filePath} and queued for ingestion.\n\n" +
-               $"Document ID: {result.DocumentId}\nJob ID: {result.JobId}\n\n" +
+               $"Document ID: {documentId}\nJob ID: {jobId}\n\n" +
                "The file will be parsed, chunked, and embedded in the background.";
     }
 
@@ -411,7 +406,9 @@ public class McpTools
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Upload up to 100 files in one call. Each file is parsed, chunked, and embedded. Returns per-file results.")]
     public static async Task<string> BulkUpload(
-        IServiceProvider services,
+        BulkUploadFiles bulkUpload,
+        GetContainer getContainer,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("JSON array of file objects. Each object: {\"filename\":\"name.txt\", \"content\":\"...\", \"encoding\":\"text|base64\", \"folderPath\":\"/optional/\"}. Max 100.")] string files,
         CancellationToken ct = default)
@@ -436,15 +433,15 @@ public class McpTools
         if (items.Count > 100)
             return "Error: Maximum 100 files per bulk_upload call.";
 
-        var containerStore = services.GetRequiredService<IContainerStore>();
-        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
-        if (resolvedId is null)
-            return $"Error: Container '{containerId}' not found.";
-
-        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+        var found = await getContainer.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
+        if (!found.Succeeded || !Guid.TryParse(found.Result!.Id, out var resolvedId))
+            return found.Status is ContainerStatus.NotFound or ContainerStatus.Success
+                ? $"Error: Container '{containerId}' not found."
+                : Refused(found);
+        var container = found.Result!;
 
         // Pre-validate and decode all items (transport-level concerns)
-        var uploadRequests = new List<UploadRequest>();
+        var uploadRequests = new List<FileUpload>();
         var transportFailures = new List<string>();
 
         for (var i = 0; i < items.Count; i++)
@@ -483,9 +480,7 @@ public class McpTools
                 fileBytes = System.Text.Encoding.UTF8.GetBytes(item.Content);
             }
 
-            uploadRequests.Add(new UploadRequest(
-                resolvedId.Value, item.Filename, new MemoryStream(fileBytes),
-                null, item.FolderPath, null, null, "MCP"));
+            uploadRequests.Add(new FileUpload(item.Filename, new MemoryStream(fileBytes), item.FolderPath));
         }
 
         if (uploadRequests.Count == 0)
@@ -495,18 +490,20 @@ public class McpTools
             return summary;
         }
 
-        var uploadService = services.GetRequiredService<IUploadService>();
-        var bulkRequest = new BulkUploadRequest(resolvedId.Value, uploadRequests);
-        var result = await uploadService.BulkUploadAsync(bulkRequest, ct);
+        var uploaded = await bulkUpload.RunAsync(Mcp(http), resolvedId, uploadRequests, ct);
+        foreach (var request in uploadRequests)
+            await request.Content.DisposeAsync();
+        if (!uploaded.Succeeded)
+            return Refused(uploaded);
 
-        // Merge transport failures with service results
+        // Merge transport failures with the upload's own
         var totalItems = items.Count;
-        var succeeded = result.SuccessCount;
+        var succeeded = uploaded.Result!.UploadedCount;
         var allFailures = new List<string>(transportFailures);
-        foreach (var r in result.Results.Where(r => !r.Success))
-            allFailures.Add(r.Error ?? "Unknown error");
+        foreach (var r in uploaded.Result.Items.Where(r => !r.Uploaded))
+            allFailures.Add(r.Error!);
 
-        var output = $"Uploaded {succeeded} of {totalItems} file(s) to container '{container!.Name}'.";
+        var output = $"Uploaded {succeeded} of {totalItems} file(s) to container '{container.Name}'.";
         if (allFailures.Count > 0)
             output += $"\n\nFailures:\n{string.Join("\n", allFailures.Select(f => $"- {f}"))}";
         else
@@ -724,30 +721,6 @@ public class McpTools
     };
 
     // Helpers
-
-    /// <summary>
-    /// Resolves a name or id to a <b>container</b> only.
-    /// <para>
-    /// Deliberately never resolves a source, and that is load-bearing rather than an
-    /// oversight. Every enumerating and mutating tool routes through this method, so a source
-    /// id handed to <c>list_files</c>, <c>upload_file</c>, or <c>delete_file</c> resolves to
-    /// nothing and the tool reports "not found". Teaching this method about sources would
-    /// silently turn <c>list_files</c> into a file-enumeration route over somebody else's S3
-    /// bucket — the permissions leak epic #348 exists to close. Tools that legitimately
-    /// accept either kind use <see cref="ResolveSearchableOwnerAsync"/> instead.
-    /// </para>
-    /// </summary>
-    private static async Task<Guid?> ResolveContainerIdAsync(string nameOrId, IContainerStore store, CancellationToken ct)
-    {
-        if (Guid.TryParse(nameOrId, out var guid))
-        {
-            var container = await store.GetAsync(guid, ct);
-            return container is not null ? guid : null;
-        }
-
-        var byName = await store.GetByNameAsync(nameOrId.ToLowerInvariant(), ct);
-        return byName is not null && Guid.TryParse(byName.Id, out var id) ? id : null;
-    }
 
     /// <summary>
     /// A knowledge scope that can be searched and described: either a managed container or an

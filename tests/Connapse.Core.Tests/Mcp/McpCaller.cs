@@ -61,6 +61,30 @@ internal static class McpCaller
             new BulkDeleteFiles(containers, delete, Allowed));
     }
 
+    /// <summary>
+    /// The upload operations an upload tool takes, over the stores a test registered on <paramref name="services"/>.
+    /// Without a storage provider registered, every container is managed storage, so writable.
+    /// </summary>
+    public static UploadTools Uploads(IServiceProvider services)
+    {
+        T Get<T>() where T : class => (T?)services.GetService(typeof(T)) ?? Substitute.For<T>();
+        var containers = Get<IContainerStore>();
+        var storage = (IManagedStorageProvider?)services.GetService(typeof(IManagedStorageProvider)) ?? Writable();
+        return new UploadTools(
+            new GetContainer(containers, Allowed),
+            new UploadFile(containers, storage, Get<IFileTypeValidator>(), Get<IUploadService>(), Allowed),
+            new BulkUploadFiles(containers, storage, Get<IFileTypeValidator>(), Get<IUploadService>(), Allowed));
+    }
+
+    private static IManagedStorageProvider Writable()
+    {
+        var storage = Substitute.For<IManagedStorageProvider>();
+        storage.CreateConnector(Arg.Any<string>()).Returns(_ => Substitute.For<IWritableConnector>());
+        return storage;
+    }
+
+    public sealed record UploadTools(GetContainer Container, UploadFile Upload, BulkUploadFiles BulkUpload);
+
     private static IDocumentAccess ListsEverything()
     {
         var access = Substitute.For<IDocumentAccess>();

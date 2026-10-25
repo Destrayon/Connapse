@@ -20,7 +20,6 @@
   "FoldersEndpoints POST /api/containers/{containerId:guid}/folders/ -> IContainerStore",
   "FoldersEndpoints POST /api/containers/{containerId:guid}/folders/ -> IFolderStore",
   "GitHubAppEndpoints GET /api/v1/providers/github/manifest/callback -> IProviderCredentialStore",
-  "McpTools bulk_upload -> IContainerStore",
   "McpTools container_describe -> IContainerStore",
   "McpTools container_describe -> IDocumentStore",
   "McpTools container_describe -> ISourceStore",

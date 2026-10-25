@@ -131,8 +131,6 @@
   "operation connections.resume: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation connections.test: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation connections.update: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation files.bulkUpload: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation files.upload: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation folders.create: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation folders.delete: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation invites.create: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",

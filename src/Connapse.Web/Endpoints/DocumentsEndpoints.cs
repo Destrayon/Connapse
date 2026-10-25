@@ -28,91 +28,42 @@ public static class DocumentsEndpoints
             [FromForm] IFormFileCollection files,
             [FromForm] string? path,
             [FromForm] ChunkingStrategy? strategy,
-            [FromServices] IUploadService uploadService,
+            [FromServices] UploadFile upload,
+            [FromServices] BulkUploadFiles bulkUpload,
             CancellationToken ct) =>
         {
-            if (files.Count == 0)
-                return ApiProblem.BadRequest("No files provided");
-
-            foreach (var f in files)
-            {
-                if (f.FileName.Length > ValidationConstants.MaxFileNameLength)
-                    return ApiProblem.BadRequest("filename_too_long", $"Filename '{f.FileName[..50]}...' exceeds {ValidationConstants.MaxFileNameLength} characters.");
-            }
-
-            var userId = GetUserId(httpContext);
-
             if (files.Count == 1)
             {
                 var file = files[0];
                 using var stream = file.OpenReadStream();
-                var request = new UploadRequest(
-                    containerId, file.FileName, stream, userId, path,
-                    file.ContentType, strategy?.ToString(), "API");
+                var uploaded = await upload.RunAsync(Rest(httpContext), containerId,
+                    new FileUpload(file.FileName, stream, path, file.ContentType, strategy?.ToString()), ct);
+                if (!uploaded.Succeeded)
+                    return OperationProblems.Result(uploaded);
 
-                var result = await uploadService.UploadAsync(request, ct);
-                if (!result.Success)
-                    return MapUploadError(result.Error!);
-
+                var one = uploaded.Result!;
                 return Results.Ok(new UploadResponse(
                     BatchId: null,
-                    Documents: [new UploadedDocumentResponse(
-                        result.DocumentId!, result.JobId!, file.FileName, file.Length,
-                        PathUtilities.NormalizePath(
-                            PathUtilities.NormalizeFolderPath(path ?? "/") + file.FileName))],
+                    Documents: [new UploadedDocumentResponse(one.DocumentId, one.JobId, file.FileName, file.Length, one.Path)],
                     TotalCount: 1,
                     SuccessCount: 1));
             }
 
-            // Multi-file: pre-validate all extensions before starting uploads
-            // (reject the entire batch if any file is unsupported)
-            var fileTypeValidator = httpContext.RequestServices.GetRequiredService<IFileTypeValidator>();
-            foreach (var file in files)
-            {
-                if (!fileTypeValidator.IsSupported(file.FileName))
-                {
-                    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-                    var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
-                    return ApiProblem.BadRequest("unsupported_file_type", $"File type '{ext}' is not supported. Supported types: {supported}");
-                }
-            }
-
-            var uploadRequests = new List<UploadRequest>();
-            var streams = new List<Stream>();
-            foreach (var file in files)
-            {
-                var stream = file.OpenReadStream();
-                streams.Add(stream);
-                uploadRequests.Add(new UploadRequest(
-                    containerId, file.FileName, stream, userId, path,
-                    file.ContentType, strategy?.ToString(), "API"));
-            }
-
+            var streams = files.Select(f => f.OpenReadStream()).ToList();
             try
             {
-                var bulkRequest = new BulkUploadRequest(containerId, uploadRequests);
-                var bulkResult = await uploadService.BulkUploadAsync(bulkRequest, ct);
+                var uploadedAll = await bulkUpload.RunAsync(Rest(httpContext), containerId,
+                    [.. files.Select((f, i) => new FileUpload(f.FileName, streams[i], path, f.ContentType, strategy?.ToString()))], ct);
+                if (!uploadedAll.Succeeded)
+                    return OperationProblems.Result(uploadedAll);
 
-                var docs = new List<UploadedDocumentResponse>();
-                for (var i = 0; i < bulkResult.Results.Count; i++)
-                {
-                    var r = bulkResult.Results[i];
-                    var f = files[i];
-                    docs.Add(new UploadedDocumentResponse(
-                        r.DocumentId ?? Guid.Empty.ToString(),
-                        r.JobId,
-                        f.FileName,
-                        f.Length,
-                        PathUtilities.NormalizePath(
-                            PathUtilities.NormalizeFolderPath(path ?? "/") + f.FileName),
-                        r.Success ? null : r.Error));
-                }
-
+                var batch = uploadedAll.Result!;
                 return Results.Ok(new UploadResponse(
-                    BatchId: bulkResult.BatchId,
-                    Documents: docs,
+                    BatchId: batch.BatchId,
+                    Documents: [.. batch.Items.Select((item, i) => new UploadedDocumentResponse(
+                        item.DocumentId ?? Guid.Empty.ToString(), item.JobId, item.FileName, files[i].Length, item.Path, item.Error))],
                     TotalCount: files.Count,
-                    SuccessCount: bulkResult.SuccessCount));
+                    SuccessCount: batch.UploadedCount));
             }
             finally
             {
@@ -331,28 +282,7 @@ public static class DocumentsEndpoints
         return best;
     }
 
-    private static IResult MapUploadError(string error)
-    {
-        if (error.Contains("not found", StringComparison.OrdinalIgnoreCase))
-            return ApiProblem.NotFound(error);
-        if (error.Contains("read-only", StringComparison.OrdinalIgnoreCase))
-            return ApiProblem.BadRequest("write_denied", error);
-        if (error.Contains("access denied", StringComparison.OrdinalIgnoreCase) || error.Contains("cloud identity", StringComparison.OrdinalIgnoreCase))
-            return ApiProblem.Forbidden("cloud_access_denied", error);
-        if (error.Contains("Unsupported file extension", StringComparison.OrdinalIgnoreCase))
-            return ApiProblem.BadRequest("unsupported_file_type", error);
-        if (error.Contains($"{ValidationConstants.MaxFileNameLength} characters", StringComparison.OrdinalIgnoreCase))
-            return ApiProblem.BadRequest("filename_too_long", error);
-        return ApiProblem.BadRequest(error);
-    }
-
     private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
-
-    private static Guid? GetUserId(HttpContext httpContext)
-    {
-        var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(idClaim, out var userId) ? userId : null;
-    }
 }
 
 // Response DTOs

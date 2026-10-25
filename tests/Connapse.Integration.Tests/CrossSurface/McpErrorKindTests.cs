@@ -29,7 +29,8 @@ public partial class McpErrorKindTests
     public void ErrorKind_IgnoresWhatTheCallerSuppliedInQuotes()
     {
         string tools = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Mcp", "McpTools.cs"));
-        string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"));
+        string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"))
+            + File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Application", "Files", "UploadOperations.cs"));
         var templates = ErrorLiteral().Matches(tools).Select(m => m.Groups["text"].Value)
             .Concat(ReturnedMessage().Matches(upload).Concat(ResultError().Matches(upload)).Select(m => "Error: " + m.Groups["text"].Value))
             .Where(t => QuotedHole().IsMatch(t))
@@ -56,9 +57,9 @@ public partial class McpErrorKindTests
     public void ErrorKind_MapsEveryUploadValidationMessageMcpPassesThrough()
     {
         string tools = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Mcp", "McpTools.cs"));
-        PassThrough().Matches(tools).Select(m => m.Value).Should().Equal(["$\"Error: {result.Error}\"", "$\"Error: {attempt.Detail}\""]);
+        PassThrough().Matches(tools).Select(m => m.Value).Should().Equal(["$\"Error: {attempt.Detail}\""]);
 
-        // The second, Refused(attempt), carries a container or file operation's detail: each must read as a kind.
+        // Refused(attempt) carries a container or file operation's detail: each must read as a kind.
         string containers = string.Concat(new[] { "Containers", "Files" }
             .SelectMany(folder => Directory.GetFiles(Path.Combine(RepoRoot(), "src", "Connapse.Application", folder), "*.cs"))
             .Select(File.ReadAllText));
@@ -67,7 +68,8 @@ public partial class McpErrorKindTests
             .And.Contain("Error: You don't have permission to delete files.");
         details.Where(t => Surfaces.ErrorKind(t) == "error:unknown").Should().BeEmpty();
 
-        string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"));
+        string upload = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Web", "Services", "UploadService.cs"))
+            + File.ReadAllText(Path.Combine(RepoRoot(), "src", "Connapse.Application", "Files", "UploadOperations.cs"));
         var messages = ReturnedMessage().Matches(upload).Concat(ResultError().Matches(upload))
             .Select(m => "Error: " + Hole().Replace(m.Groups["text"].Value, "x"))
             .Distinct()
