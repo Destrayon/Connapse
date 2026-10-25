@@ -9,6 +9,7 @@ using Connapse.Storage.Vectors;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Application;
@@ -344,5 +345,168 @@ public class ContainerOperationTests
 
         cleared.Status.Should().Be(ContainerStatus.NotFound);
         await _containers.DidNotReceiveWithAnyArgs().SaveSettingsOverridesAsync(default, default!);
+    }
+
+    private readonly IReindexService _reindex = Substitute.For<IReindexService>();
+
+    private Guid Existing()
+    {
+        var id = Guid.NewGuid();
+        _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        return id;
+    }
+
+    [Fact]
+    public async Task Reindex_NotAWriter_IsForbiddenAndReindexesNothing()
+    {
+        Deny(Policies.Writer);
+
+        var ran = await new ReindexContainer(_containers, _reindex, _authorizer).RunAsync(Caller, Existing(), new ContainerReindexQuery());
+
+        ran.Status.Should().Be(ContainerStatus.Forbidden);
+        _reindex.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0, null, "maxDocuments")]
+    [InlineData(-3, null, "maxDocuments")]
+    [InlineData(null, "not-an-id", "continueAfter")]
+    public async Task Reindex_BadPage_IsInvalidReindexOnItsField(int? max, string? continueAfter, string field)
+    {
+        var ran = await new ReindexContainer(_containers, _reindex, _authorizer)
+            .RunAsync(Caller, Existing(), new ContainerReindexQuery(MaxDocuments: max, ContinueAfter: continueAfter));
+
+        ran.Status.Should().Be(ContainerStatus.InvalidReindex);
+        ran.Field.Should().Be(field);
+        _reindex.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Reindex_Missing_IsNotFoundBeforeItsPageIsChecked()
+    {
+        var ran = await new ReindexContainer(_containers, _reindex, _authorizer)
+            .RunAsync(Caller, Guid.NewGuid(), new ContainerReindexQuery(MaxDocuments: 0));
+
+        ran.Status.Should().Be(ContainerStatus.NotFound);
+    }
+
+    [Fact]
+    public async Task Reindex_Valid_AsksTheServiceForThisContainerWithItsDefaults()
+    {
+        var id = Existing();
+        _reindex.ReindexAsync(Arg.Any<ReindexOptions>(), Arg.Any<CancellationToken>()).Returns(new ReindexResult { BatchId = "b1" });
+
+        var ran = await new ReindexContainer(_containers, _reindex, _authorizer).RunAsync(Caller, id, new ContainerReindexQuery(DryRun: true));
+
+        ran.Result!.BatchId.Should().Be("b1");
+        await _reindex.Received(1).ReindexAsync(
+            Arg.Is<ReindexOptions>(o => o.ContainerId == id.ToString() && !o.Force && o.DetectSettingsChanges && o.DryRun),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RetryFailed_Valid_EnqueuesAndAuditsTheCount()
+    {
+        var id = Existing();
+        _reindex.RetryFailedAsync(id, Arg.Any<CancellationToken>()).Returns(3);
+
+        var retried = await new RetryFailedContainerDocuments(_containers, _reindex, _audit, _authorizer).RunAsync(Caller, id);
+
+        retried.Result.Should().Be(3);
+        await _audit.Received(1).LogAsync("container.retry_failed", "container", id.ToString(), Arg.Any<object?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RetryFailed_Missing_IsNotFoundAndRetriesNothing()
+    {
+        var retried = await new RetryFailedContainerDocuments(_containers, _reindex, _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
+
+        retried.Status.Should().Be(ContainerStatus.NotFound);
+        _reindex.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Reconcile_RegistersAndQueuesOnlyFilesWithNoDocument()
+    {
+        var container = Named("box");
+        var id = Guid.Parse(container.Id);
+        _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(container);
+        var connector = Substitute.For<IConnector>();
+        connector.ListFilesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(
+            [new ConnectorFile("known.md", 1, Epoch, null), new ConnectorFile("/new.pdf", 2, Epoch, null)]);
+        var storage = Substitute.For<IManagedStorageProvider>();
+        storage.CreateConnector(container.Id).Returns(connector);
+        _documents.ListAsync(id, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([new Document("d1", container.Id, "known.md", null, "/known.md", 1, Epoch, [])]);
+        var queue = Substitute.For<IIngestionQueue>();
+        var chunking = Substitute.For<IOptionsMonitor<ChunkingSettings>>();
+        chunking.CurrentValue.Returns(new ChunkingSettings());
+
+        var synced = await new ReconcileContainer(_containers, storage, _documents, queue, chunking, _audit, _authorizer).RunAsync(Caller, id);
+
+        synced.Result.Should().BeEquivalentTo(new { TotalFiles = 2, EnqueuedCount = 1, SkippedCount = 1 });
+        await _documents.Received(1).StoreAsync(Arg.Is<Document>(d => d.Path == "/new.pdf" && d.ContentType == "application/pdf"), Arg.Any<CancellationToken>());
+        await queue.Received(1).EnqueueAsync(Arg.Is<IngestionJob>(j => j.Options.Path == "/new.pdf" && j.BatchId == synced.Result!.BatchId), Arg.Any<CancellationToken>());
+        await _audit.Received(1).LogAsync("container.synced", "container", id.ToString(), Arg.Any<object?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reconcile_NotAWriter_IsForbiddenAndListsNothing()
+    {
+        Deny(Policies.Writer);
+        var storage = Substitute.For<IManagedStorageProvider>();
+
+        var synced = await new ReconcileContainer(_containers, storage, _documents, Substitute.For<IIngestionQueue>(),
+            Substitute.For<IOptionsMonitor<ChunkingSettings>>(), _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
+
+        synced.Status.Should().Be(ContainerStatus.Forbidden);
+        storage.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RegenerateSummaries_NotAnAdmin_IsForbiddenAndQueuesNothing()
+    {
+        Deny(Policies.Admin);
+        var rollup = Substitute.For<ISummaryRollup>();
+
+        var queued = await new RegenerateContainerSummaries(_containers, rollup, _audit, _authorizer).RunAsync(Caller, Existing());
+
+        queued.Status.Should().Be(ContainerStatus.Forbidden);
+        rollup.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RegenerateSummaries_Valid_QueuesTheRollupAndAnswersItsJob()
+    {
+        var id = Existing();
+        var rollup = Substitute.For<ISummaryRollup>();
+        rollup.Enqueue(id).Returns("job-7");
+
+        var queued = await new RegenerateContainerSummaries(_containers, rollup, _audit, _authorizer).RunAsync(Caller, id);
+
+        queued.Result.Should().Be(new SummaryRegeneration("job-7"));
+        await _audit.Received(1).LogAsync("container.summaries_regenerated", "container", id.ToString(), Arg.Any<object?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ClearSummaries_Valid_ClearsTheDocumentsAndTheContainerAndAudits()
+    {
+        var id = Existing();
+        _documents.ClearDocumentSummariesAsync(id, Arg.Any<CancellationToken>()).Returns(4);
+
+        var cleared = await new ClearContainerSummaries(_containers, _documents, _audit, _authorizer).RunAsync(Caller, id);
+
+        cleared.Result.Should().Be(4);
+        await _containers.Received(1).UpdateSummaryAsync(id, null, null, null, Arg.Any<CancellationToken>());
+        await _audit.Received(1).LogAsync("container.summaries_cleared", "container", id.ToString(), Arg.Any<object?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ClearSummaries_Missing_IsNotFoundAndClearsNothing()
+    {
+        var cleared = await new ClearContainerSummaries(_containers, _documents, _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
+
+        cleared.Status.Should().Be(ContainerStatus.NotFound);
+        _documents.ReceivedCalls().Should().BeEmpty();
     }
 }

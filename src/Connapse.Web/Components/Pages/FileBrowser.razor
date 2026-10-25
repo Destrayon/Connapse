@@ -18,7 +18,6 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
-@inject IServiceScopeFactory ScopeFactory
 @implements IAsyncDisposable
 
 <PageTitle>@(container?.Name ?? "Files") - Connapse</PageTitle>
@@ -681,12 +680,9 @@
     {
         if (!Guid.TryParse(ContainerId, out var containerId)) return;
 
-        // Its own scope: the reindex service holds a DbContext, which a Blazor circuit must not
-        // share across its handlers.
-        await using var scope = ScopeFactory.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<IReindexService>().RetryFailedAsync(containerId, CancellationToken.None);
-
-        failedCount = 0;
+        var retried = await ContainerOps.RetryFailed.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId);
+        // A refusal enqueues none and says why; a retry leaves only what it couldn't enqueue.
+        (failedCount, errorMessage) = (Math.Max(0, failedCount - retried.Result), retried.Detail);
         await RefreshEntries();
     }
 

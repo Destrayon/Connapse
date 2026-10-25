@@ -14,13 +14,18 @@ public partial class ScheduledOnlyJobsTests
     [Fact]
     public void ScheduledOnlyJobs_AreEnqueuedOnlyByTheirSweep()
     {
-        var sites = Directory.EnumerateFiles(Path.Combine(RepoRoot(), "src"), "*.cs", SearchOption.AllDirectories)
+        // Pages too: the Summary tab once enqueued a rollup from its markup, where a scan of .cs missed it.
+        var sites = Directory.EnumerateFiles(Path.Combine(RepoRoot(), "src"), "*.*", SearchOption.AllDirectories)
+            .Where(file => file.EndsWith(".cs", StringComparison.Ordinal) || file.EndsWith(".razor", StringComparison.Ordinal))
             .SelectMany(file => Enqueue().Matches(File.ReadAllText(file)).Select(m => (File: Path.GetFileName(file), Job: $"{m.Groups["type"].Value}.{m.Groups["method"].Value}")))
             .Where(site => SideEffects.ScheduledOnly.Contains(site.Job))
             .ToList();
 
-        sites.Should().Equal([("SummaryJobs.cs", "ISummaryJobs.RollupContainerAsync")],
-            "RollupContainerAsync is enqueued only by SweepStaleContainersAsync");
+        // containers.summaries.regenerate enqueues the same job, so the job's own concurrency lock covers
+        // both. The capture still leaves the job out, so no snapshot can tell whether that action queued it:
+        // a regenerate row has to check the job some other way.
+        sites.Should().BeEquivalentTo([("SummaryJobs.cs", "ISummaryJobs.RollupContainerAsync"), ("HangfireSummaryRollup.cs", "ISummaryJobs.RollupContainerAsync")],
+            "RollupContainerAsync is enqueued only by SweepStaleContainersAsync and containers.summaries.regenerate");
     }
 
     private static string RepoRoot()

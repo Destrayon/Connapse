@@ -28,6 +28,9 @@ public enum ContainerStatus
 
     [Failure(400, "invalid-page", "Invalid page")]
     InvalidPage,
+
+    [Failure(400, "invalid-reindex", "Invalid reindex request")]
+    InvalidReindex,
 }
 
 /// <summary>Names a container by id, or by name as REST's by-name route and MCP's tools accept.</summary>
@@ -241,7 +244,8 @@ public sealed class GetContainerStats(IContainerStore containers, IDocumentStore
 /// <summary>Every container operation in one place, for the pages that offer several of them.</summary>
 public sealed class ContainerOperations(
     ListContainers list, GetContainer get, CreateContainer create, RenameContainer rename, DeleteContainer delete, GetContainerStats stats,
-    GetContainerSettings getSettings, UpdateContainerSettings updateSettings, ResetContainerSettings resetSettings)
+    GetContainerSettings getSettings, UpdateContainerSettings updateSettings, ResetContainerSettings resetSettings,
+    RetryFailedContainerDocuments retryFailed, RegenerateContainerSummaries regenerateSummaries, ClearContainerSummaries clearSummaries)
 {
     public ListContainers List { get; } = list;
 
@@ -260,4 +264,10 @@ public sealed class ContainerOperations(
     public UpdateContainerSettings UpdateSettings { get; } = updateSettings;
 
     public ResetContainerSettings ResetSettings { get; } = resetSettings;
+
+    public RetryFailedContainerDocuments RetryFailed { get; } = retryFailed;
+
+    public RegenerateContainerSummaries RegenerateSummaries { get; } = regenerateSummaries;
+
+    public ClearContainerSummaries ClearSummaries { get; } = clearSummaries;
 }

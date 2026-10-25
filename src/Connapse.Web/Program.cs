@@ -114,6 +114,7 @@ builder.Services.AddSingleton<IIngestionStateBroadcaster, IngestionProgressBroad
 builder.Services.AddSingleton<SourceSyncService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SourceSyncService>());
 builder.Services.AddSingleton<Connapse.Application.Ports.ISourceSync>(sp => sp.GetRequiredService<SourceSyncService>());
+builder.Services.AddScoped<Connapse.Application.Ports.ISummaryRollup, Connapse.Web.Services.HangfireSummaryRollup>();
 
 // Carries an existing deployment's per-user permissions across the upgrade that separated
 // "enforcing" from "configured". Without it, an installation that already had filtering working

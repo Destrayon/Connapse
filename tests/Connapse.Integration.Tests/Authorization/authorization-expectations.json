@@ -40,6 +40,11 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "DELETE /api/containers/{containerId:guid}/summaries": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
     "DELETE /api/containers/{containerId:guid}/files/{fileId}": {
       "requires": "editor",
       "risk": "destructive",
@@ -537,6 +542,11 @@
     },
     "POST /api/containers/{containerId:guid}/retry-failed": {
       "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/summaries": {
+      "requires": "admin",
       "risk": "write",
       "scope": "knowledge:write"
     },

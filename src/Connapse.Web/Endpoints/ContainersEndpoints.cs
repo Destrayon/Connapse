@@ -205,31 +205,16 @@ public static class ContainersEndpoints
         group.MapPost("/{containerId:guid}/reindex", async (
             Guid containerId,
             [FromBody] ContainerReindexRequest? request,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IReindexService reindexService,
+            [FromServices] ReindexContainer reindex,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
-                return ApiProblem.NotFound($"Container {containerId} not found");
+            var ran = await reindex.RunAsync(Rest(http), containerId, new ContainerReindexQuery(
+                request?.Force, request?.DetectSettingsChanges, request?.Strategy, request?.DryRun, request?.MaxDocuments, request?.ContinueAfter), ct);
+            if (!ran.Succeeded)
+                return OperationProblems.Result(ran);
 
-            if (request?.MaxDocuments is <= 0)
-                return ApiProblem.BadRequest("maxDocuments must be a positive number");
-            if (request?.ContinueAfter is not null && !Guid.TryParse(request.ContinueAfter, out _))
-                return ApiProblem.BadRequest("continueAfter must be a document id from a previous reindex response");
-
-            var options = new ReindexOptions
-            {
-                ContainerId = containerId.ToString(),
-                Force = request?.Force ?? false,
-                DetectSettingsChanges = request?.DetectSettingsChanges ?? true,
-                Strategy = request?.Strategy,
-                DryRun = request?.DryRun ?? false,
-                MaxDocuments = request?.MaxDocuments,
-                ContinueAfter = request?.ContinueAfter,
-            };
-
-            var result = await reindexService.ReindexAsync(options, ct);
-
+            var result = ran.Result!;
             return Results.Ok(new ContainerReindexResponse(
                 BatchId: result.BatchId,
                 TotalDocuments: result.TotalDocuments,
@@ -260,18 +245,12 @@ public static class ContainersEndpoints
         // POST /api/containers/{containerId}/retry-failed - Re-enqueue every failed document
         group.MapPost("/{containerId:guid}/retry-failed", async (
             Guid containerId,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IReindexService reindexService,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] RetryFailedContainerDocuments retry,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
-                return ApiProblem.NotFound($"Container {containerId} not found");
-
-            int enqueued = await reindexService.RetryFailedAsync(containerId, ct);
-            await auditLogger.LogAsync("container.retry_failed", "container", containerId.ToString(), new { enqueued }, ct);
-
-            return Results.Ok(new RetryFailedResponse(enqueued));
+            var retried = await retry.RunAsync(Rest(http), containerId, ct);
+            return retried.Succeeded ? Results.Ok(new RetryFailedResponse(retried.Result)) : OperationProblems.Result(retried);
         })
         .Produces<RetryFailedResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -282,108 +261,21 @@ public static class ContainersEndpoints
         // POST /api/containers/{containerId}/sync - Reconcile managed storage with the document table
         group.MapPost("/{containerId:guid}/sync", async (
             Guid containerId,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IManagedStorageProvider managedStorage,
-            [FromServices] IDocumentStore documentStore,
-            [FromServices] IIngestionQueue queue,
-            [FromServices] IOptionsMonitor<ChunkingSettings> chunkingSettings,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] ReconcileContainer reconcile,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
+            var synced = await reconcile.RunAsync(Rest(http), containerId, ct);
+            if (!synced.Succeeded)
+                return OperationProblems.Result(synced);
 
-            // Managed storage directly, rather than through IConnectorFactory. A container has
-            // no connector type to dispatch on any more, and the cloud-scope check that used to
-            // guard this route only ever fired for S3 containers — which are
-            // sources now, synced by SourceSyncService. Kept because objects can still land in
-            // the bucket out of band, and this is the only route that picks them up.
-            var connector = managedStorage.CreateConnector(container.Id);
-            var remoteFiles = await connector.ListFilesAsync(ct: ct);
-
-            var existingDocs = await documentStore.ListAsync(containerId, take: int.MaxValue, ct: ct);
-            var existingByPath = existingDocs.ToDictionary(d => d.Path);
-
-            var batchId = Guid.NewGuid().ToString();
-            int enqueued = 0, skipped = 0;
-
-            var strategy = Enum.TryParse<ChunkingStrategy>(
-                chunkingSettings.CurrentValue.Strategy, ignoreCase: true, out var parsed)
-                ? parsed
-                : ChunkingStrategy.Recursive;
-
-            // Collect jobs to enqueue, pre-registering new documents in the DB first
-            var jobsToEnqueue = new List<IngestionJob>();
-
-            foreach (var file in remoteFiles)
-            {
-                var virtualPath = file.Path.StartsWith('/') ? file.Path : "/" + file.Path;
-
-                // Only files with no document are new. A document that is in flight already has
-                // a job (or the stuck-job sweep will give it one), and enqueueing it again would
-                // supersede that job and repeat its work.
-                if (existingByPath.ContainsKey(virtualPath))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var fileName = Path.GetFileName(virtualPath);
-                var isNew = !existingByPath.TryGetValue(virtualPath, out var doc);
-                var documentId = isNew ? Guid.NewGuid().ToString() : doc!.Id;
-                var contentType = GetContentType(fileName);
-
-                // Pre-register new documents so they appear in the file browser immediately
-                if (isNew)
-                {
-                    await documentStore.StoreAsync(new Document(
-                        Id: documentId,
-                        ContainerId: container.Id,
-                        FileName: fileName,
-                        ContentType: contentType,
-                        Path: virtualPath,
-                        SizeBytes: file.SizeBytes,
-                        CreatedAt: DateTime.UtcNow,
-                        Metadata: new Dictionary<string, string>
-                        {
-                            ["Source"] = "ConnectorSync",
-                            ["SyncedAt"] = DateTime.UtcNow.ToString("O")
-                        }), ct);
-                }
-
-                jobsToEnqueue.Add(new IngestionJob(
-                    DocumentId: documentId,
-                    Options: new IngestionOptions(
-                        DocumentId: documentId,
-                        FileName: fileName,
-                        ContentType: contentType,
-                        ContainerId: container.Id,
-                        Path: virtualPath,
-                        Strategy: strategy,
-                        Metadata: new Dictionary<string, string>
-                        {
-                            ["OriginalFileName"] = fileName,
-                            ["Source"] = "ConnectorSync",
-                            ["SyncedAt"] = DateTime.UtcNow.ToString("O")
-                        }),
-                    BatchId: batchId));
-
-                enqueued++;
-            }
-
-            foreach (var job in jobsToEnqueue)
-                await queue.EnqueueAsync(job, ct);
-
-            await auditLogger.LogAsync("container.synced", "container", containerId.ToString(),
-                new { enqueued, skipped, total = remoteFiles.Count }, ct);
-
+            var result = synced.Result!;
             return Results.Ok(new ContainerSyncResponse(
-                batchId,
-                remoteFiles.Count,
-                enqueued,
-                skipped,
-                $"Sync complete: {enqueued} enqueued, {skipped} skipped"));
+                result.BatchId,
+                result.TotalFiles,
+                result.EnqueuedCount,
+                result.SkippedCount,
+                $"Sync complete: {result.EnqueuedCount} enqueued, {result.SkippedCount} skipped"));
         })
         .Produces<ContainerSyncResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -391,27 +283,41 @@ public static class ContainersEndpoints
         .WithDescription("Reconcile a container's managed storage with the document table. Lists stored objects, compares to DB, enqueues anything new or unfinished.")
         .RequireAuthorization("RequireEditor");
 
+        // POST /api/containers/{containerId}/summaries - Queue a summary rollup
+        group.MapPost("/{containerId:guid}/summaries", async (
+            Guid containerId,
+            [FromServices] RegenerateContainerSummaries regenerate,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var queued = await regenerate.RunAsync(Rest(http), containerId, ct);
+            return queued.Succeeded ? Results.Accepted(value: queued.Result) : OperationProblems.Result(queued);
+        })
+        .Produces<SummaryRegeneration>(StatusCodes.Status202Accepted)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("containers.summaries.regenerate")
+        .WithDescription("Queue a rollup of the container's summary from its documents' summaries. Answers with the background job's id.")
+        // The scope too, so an Administrator's knowledge:read token can't write.
+        .RequireAuthorization("RequireAdmin", "Scope:KnowledgeWrite");
+
+        // DELETE /api/containers/{containerId}/summaries - Clear the container's summaries
+        group.MapDelete("/{containerId:guid}/summaries", async (
+            Guid containerId,
+            [FromServices] ClearContainerSummaries clear,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var cleared = await clear.RunAsync(Rest(http), containerId, ct);
+            return cleared.Succeeded ? Results.NoContent() : OperationProblems.Result(cleared);
+        })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("containers.summaries.clear")
+        .WithDescription("Clear the container's summary and every document summary in it. The next sweep writes them again.")
+        .RequireAuthorization("RequireAdmin", "Scope:KnowledgeWrite");
+
         return app;
     }
-
-    private static string? GetContentType(string fileName) =>
-        Path.GetExtension(fileName).ToLowerInvariant() switch
-        {
-            ".pdf" => "application/pdf",
-            ".txt" => "text/plain",
-            ".md" => "text/markdown",
-            ".html" or ".htm" => "text/html",
-            ".csv" => "text/csv",
-            ".json" => "application/json",
-            ".xml" => "application/xml",
-            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            ".eml" => "message/rfc822",
-            ".msg" => "application/vnd.ms-outlook",
-            ".epub" => "application/epub+zip",
-            _ => null
-        };
 
     private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 }

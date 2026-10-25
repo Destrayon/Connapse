@@ -124,3 +124,9 @@ Another container already has that name. Names are unique across Connapse.
 
 The container still has files. Deleting a container deletes what it stores, so it must be emptied
 first; the detail says how many documents remain.
+
+## invalid-reindex
+
+A container reindex asked for something it can't do: `maxDocuments` must be a positive number, and
+`continueAfter` must be the document id a previous paged reindex returned. The `field` member names
+the input at fault.

@@ -119,8 +119,8 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 853,
-    "Injects": 12,
+    "CodeLines": 851,
+    "Injects": 11,
     "Complexity": 200,
     "MarkupLogic": 80,
     "IsEmpty": false
@@ -301,9 +301,9 @@
     "IsEmpty": false
   },
   "Settings/SummarySettingsTab.razor": {
-    "CodeLines": 230,
+    "CodeLines": 222,
     "Injects": 3,
-    "Complexity": 44,
+    "Complexity": 43,
     "MarkupLogic": 24,
     "IsEmpty": false
   },

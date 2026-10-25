@@ -1,6 +1,4 @@
 [
-  "Components/Pages/FileBrowser.razor: RetryAllFailed uses CreateAsyncScope",
-  "Components/Pages/FileBrowser.razor: RetryAllFailed uses GetRequiredService",
   "Components/Settings/EmbeddingSettingsTab.razor: StartManualReEmbed uses CreateAsyncScope",
   "Components/Settings/EmbeddingSettingsTab.razor: StartManualReEmbed uses GetRequiredService",
   "Components/Settings/EmbeddingSettingsTab.razor: StartReEmbed uses CreateAsyncScope",
@@ -33,7 +31,6 @@
   "McpTools list_files -> IServiceProvider",
   "McpTools search_knowledge -> IServiceProvider",
   "McpTools upload_file -> IServiceProvider",
-  "Pages.FileBrowser -> IServiceScopeFactory",
   "Settings.EmbeddingSettingsTab -> IServiceScopeFactory",
   "SettingsEndpoints GET /api/settings/{category} -> IServiceProvider",
   "SettingsEndpoints POST /api/settings/reindex -> IServiceProvider",
