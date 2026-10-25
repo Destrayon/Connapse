@@ -30,7 +30,8 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-            body.GetProperty("error").GetString().Should().Be("topk_out_of_range");
+            body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
+            body.GetProperty("field").GetString().Should().Be("topK");
         }
         finally
         {
@@ -71,7 +72,8 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-            body.GetProperty("error").GetString().Should().Be("minscore_out_of_range");
+            body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
+            body.GetProperty("field").GetString().Should().Be("minScore");
         }
         finally
         {
@@ -111,7 +113,8 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-            body.GetProperty("error").GetString().Should().Be("query_too_long");
+            body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
+            body.GetProperty("field").GetString().Should().Be("query");
         }
         finally
         {
@@ -150,7 +153,8 @@ public class SearchValidationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-            body.GetProperty("error").GetString().Should().Be("topk_out_of_range");
+            body.GetProperty("type").GetString().Should().EndWith("#invalid-search");
+            body.GetProperty("field").GetString().Should().Be("topK");
         }
         finally
         {

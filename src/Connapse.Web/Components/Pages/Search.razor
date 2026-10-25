@@ -3,13 +3,12 @@
 @attribute [Authorize]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
-@using Connapse.Core.Utilities
+@using Connapse.Application.Search
+@using Connapse.Application.Sources
 @using Microsoft.Extensions.Options
-@using Connapse.Web.Services
 @inject IContainerStore ContainerStore
-@inject ISourceStore SourceStore
-@inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
-@inject IKnowledgeSearch SearchService
+@inject ListSources ListSourcesOperation
+@inject SearchKnowledge SearchOperation
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IOptionsMonitor<SearchSettings> SearchSettings
 @inject Connapse.Storage.Vectors.VectorModelDiscovery ModelDiscovery
@@ -224,15 +223,6 @@
         containers.Any(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase))
         || sources.Any(s => string.Equals(s.Id.ToString(), id, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>
-    /// Whether a scope that is not in this caller's lists may be searched: only a source hidden for
-    /// its name alone (a Confluence space), whose every hit the search still checks per user.
-    /// </summary>
-    private async Task<bool> IsSearchableUnlistedAsync(string id) =>
-        Guid.TryParse(id, out var sourceId)
-        && await SourceStore.GetAsync(sourceId) is { } source
-        && PrivateSourceVisibility.IsSearchableWhenHidden(source);
-
     protected override async Task OnInitializedAsync()
     {
         await LoadContainers();
@@ -244,9 +234,9 @@
         try
         {
             containers = (await ContainerStore.ListAsync(take: int.MaxValue)).ToList();
-            // A private GitHub source names a private repository: listed only to those who may read it.
-            var visible = await PrivateSources.ForAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
-            sources = (await SourceStore.ListAsync(take: int.MaxValue)).Where(visible).ToList();
+            // A private GitHub source names a private repository: sources.list lists it only to those who may read it.
+            sources = (await ListSourcesOperation.RunAsync(await AuthStateProvider.OperationContextAsync(), new ListSourcesQuery()))
+                .Result?.Items.ToList() ?? [];
 
             // Auto-select only when there is exactly one scope in total. Picking the first
             // container while sources also exist would silently narrow the search to storage
@@ -310,15 +300,6 @@
         }
     }
 
-    /// <summary>Who is searching, from the circuit's authentication state.</summary>
-    /// <remarks>
-    /// The one surface with no HttpContext to read, so it reaches the same resolver by way of the
-    /// circuit's own principal. Same answer as the REST and MCP paths, which is the point of there
-    /// being a single resolver rather than a copy per surface.
-    /// </remarks>
-    private async Task<Guid?> CurrentUserIdAsync() =>
-        SearchPrincipal.Resolve((await AuthStateProvider.GetAuthenticationStateAsync()).User);
-
     private async Task PerformSearch()
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -340,33 +321,28 @@
 
         try
         {
-            var filters = new Dictionary<string, string>();
+            string? normalizedPath = null;
             if (!string.IsNullOrWhiteSpace(folderPath))
             {
-                var normalizedPath = folderPath.Trim();
+                normalizedPath = folderPath.Trim();
                 if (!normalizedPath.StartsWith('/'))
                     normalizedPath = "/" + normalizedPath;
                 if (!normalizedPath.EndsWith('/'))
                     normalizedPath += "/";
-                filters["pathPrefix"] = normalizedPath;
             }
 
             var mode = Enum.TryParse<SearchMode>(searchMode, ignoreCase: true, out var parsed)
                 ? parsed
                 : SearchMode.Hybrid;
 
-            var options = new SearchOptions(
-                Mode: mode,
-                TopK: topK,
-                MinScore: (float)SearchSettings.CurrentValue.MinimumScore,
-                ContainerId: selectedContainerId,
-                Filters: filters.Count > 0 ? filters : null,
-                UserId: await CurrentUserIdAsync());
-
-            // Anything else not in the lists searches nothing, and says so as an empty search would.
-            searchResult = IsListed(selectedContainerId) || await IsSearchableUnlistedAsync(selectedContainerId)
-                ? await SearchService.SearchAsync(query, options)
-                : new SearchResult([], 0, TimeSpan.Zero);
+            // The operation REST and MCP search through: it decides whether this caller may search the
+            // scope, and a scope they may not know exists reads as not found, as an unknown id does.
+            var searched = await SearchOperation.RunAsync(await AuthStateProvider.OperationContextAsync(),
+                new SearchScope(selectedContainerId), new SearchRequest(query, mode, topK, Path: normalizedPath));
+            if (searched.Succeeded)
+                searchResult = searched.Result;
+            else
+                errorMessage = searched.Detail;
         }
         catch (Exception ex)
         {

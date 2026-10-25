@@ -1,6 +1,7 @@
 ﻿using Connapse.Application;
 using Connapse.Application.Containers;
 using Microsoft.AspNetCore.Authorization;
+using Connapse.Application.Search;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
+using System.Security.Claims;
 using System.Text;
 
 namespace Connapse.Web.Mcp;
@@ -132,70 +134,27 @@ public class McpTools
         [Description("Minimum similarity score floor (0.0-1.0). Defaults to 0.05.")] float? minScore = null,
         CancellationToken ct = default)
     {
-        var containerStore = services.GetRequiredService<IContainerStore>();
-        var sourceStore = services.GetRequiredService<ISourceStore>();
-
-        // Validated before the scope is resolved, so a bad argument is answered the same way for a
-        // hidden source as for an id that does not exist.
-        if (query.Length > ValidationConstants.MaxQueryLength)
-            throw new ArgumentException($"Query must not exceed {ValidationConstants.MaxQueryLength} characters.");
-
-        if (topK.HasValue && (topK.Value < ValidationConstants.MinTopK || topK.Value > ValidationConstants.MaxTopK))
-            throw new ArgumentException($"topK must be between {ValidationConstants.MinTopK} and {ValidationConstants.MaxTopK}.");
-
-        if (minScore.HasValue && (minScore.Value < ValidationConstants.MinScore || minScore.Value > ValidationConstants.MaxScore))
-            throw new ArgumentException($"minScore must be between {ValidationConstants.MinScore:F1} and {ValidationConstants.MaxScore:F1}.");
-
-        // Accepts either kind: search is scoped by owner_id, which is the same column
-        // whichever kind owns the document, so a source needs no separate search path.
-        // A source hidden from listings but searchable by id (a Confluence space) resolves here
-        // too: who may search it is decided per hit by the verifier, not by who may see its name.
-        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct,
-            await VisibleSourcesAsync(services, ct), PrivateSourceVisibility.IsSearchableWhenHidden);
-        if (owner is null)
-            return $"Error: Container '{containerId}' not found.";
-
-        Guid? resolvedId = owner.Id;
-
         var parsedMode = Enum.TryParse<SearchMode>(mode, ignoreCase: true, out var m) ? m : SearchMode.Hybrid;
-        var effectiveTopK = topK ?? 10;
-
-        float effectiveMinScore;
-        if (minScore.HasValue)
-        {
-            effectiveMinScore = minScore.Value;
-        }
-        else
-        {
-            var searchSettings = services.GetRequiredService<IOptionsMonitor<SearchSettings>>();
-            effectiveMinScore = (float)searchSettings.CurrentValue.MinimumScore;
-        }
-
-        Dictionary<string, string>? filters = null;
-        if (!string.IsNullOrWhiteSpace(path))
-            filters = new Dictionary<string, string> { ["pathPrefix"] = path };
 
         // Through IHttpContextAccessor because an MCP tool is handed only an IServiceProvider.
         // The accessor is registered for this: without it these tools are the one surface that
         // cannot name its caller, and a permission filter is only as good as its weakest entry
         // point.
-        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
+        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User ?? new ClaimsPrincipal();
 
-        var options = new SearchOptions(
-            Mode: parsedMode,
-            TopK: effectiveTopK,
-            MinScore: effectiveMinScore,
-            ContainerId: resolvedId.Value.ToString(),
-            Filters: filters,
-            UserId: SearchPrincipal.Resolve(caller));
-
-        var searchService = services.GetRequiredService<IKnowledgeSearch>();
-        var result = await searchService.SearchAsync(query, options, ct);
-
-        // A hidden source the caller can read nothing in answers exactly as a missing id, so
-        // naming one cannot confirm that it exists.
-        if (result.Hits.Count == 0 && !owner.Discoverable)
-            return $"Error: Container '{containerId}' not found.";
+        // The same operation REST and the page search through: it accepts a container or a source by
+        // id or name, and decides what the caller may search.
+        var searched = await services.GetRequiredService<Connapse.Application.Search.SearchKnowledge>().RunAsync(
+            new OperationContext(caller, OperationSurface.Mcp), new SearchScope(containerId),
+            new SearchRequest(query, parsedMode, topK, minScore, path), ct);
+        if (!searched.Succeeded)
+            return searched.Status switch
+            {
+                SearchStatus.Forbidden => "Error: You don't have permission to search.",
+                SearchStatus.Invalid => $"Error: Invalid search: {searched.Detail}.",
+                _ => $"Error: Container '{containerId}' not found.",
+            };
+        var result = searched.Result!;
 
         if (result.Hits.Count == 0)
             return "No results found.";

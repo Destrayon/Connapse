@@ -1,10 +1,9 @@
-﻿using Connapse.Core;
+﻿using Connapse.Application;
+using Connapse.Application.Search;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
-using System.Security.Claims;
 using Connapse.Web.Problems;
-using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -22,97 +21,43 @@ public static class SearchEndpoints
         // GET /api/containers/{containerId}/search - Simple search with query parameters
         group.MapGet("/", async (
             Guid containerId,
-            [FromQuery] string q,
+            [FromQuery] string? q,
             [FromQuery] string? mode,
             [FromQuery] int? topK,
             [FromQuery] string? path,
             [FromQuery] float? minScore,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IKnowledgeSearch searchService,
-            [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
-            ClaimsPrincipal user,
+            [FromServices] SearchContainer search,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
-
-            if (string.IsNullOrWhiteSpace(q))
-                return ApiProblem.BadRequest("Query parameter 'q' is required");
-
-            var searchParamError = ValidateSearchParams(q, topK, minScore);
-            if (searchParamError is not null) return searchParamError;
-
             var searchMode = Enum.TryParse<SearchMode>(mode, ignoreCase: true, out var parsed)
                 ? parsed
                 : SearchMode.Hybrid;
-
-            var filters = new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(path))
-                filters["pathPrefix"] = path;
-
-            var effectiveMinScore = minScore ?? (float)searchSettings.CurrentValue.MinimumScore;
-
-            var options = new SearchOptions(
-                Mode: searchMode,
-                TopK: topK ?? 10,
-                MinScore: effectiveMinScore,
-                ContainerId: containerId.ToString(),
-                Filters: filters.Count > 0 ? filters : null,
-                UserId: SearchPrincipal.Resolve(user));
-
-            var results = await searchService.SearchAsync(q, options, ct);
-            return Results.Ok(results);
+            var searched = await search.RunAsync(Rest(http), containerId,
+                new SearchRequest(q, searchMode, topK, minScore, path), ct);
+            return searched.Succeeded ? Results.Ok(searched.Result) : OperationProblems.Result(searched);
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("SimpleSearch")
+        .WithName("search.containerByQuery")
         .WithDescription("Search within a container using query string parameters");
 
         // POST /api/containers/{containerId}/search - Advanced search with complex filters
         group.MapPost("/", async (
             Guid containerId,
-            [FromBody] ContainerSearchRequest request,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IKnowledgeSearch searchService,
-            [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
-            ClaimsPrincipal user,
+            [FromBody] SearchApiRequest request,
+            [FromServices] SearchContainer search,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
-
-            if (string.IsNullOrWhiteSpace(request.Query))
-                return ApiProblem.BadRequest("Query is required");
-
-            var searchParamError = ValidateSearchParams(request.Query, request.TopK, request.MinScore);
-            if (searchParamError is not null) return searchParamError;
-
-            var filters = request.Filters ?? new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(request.Path) && !filters.ContainsKey("pathPrefix"))
-                filters["pathPrefix"] = request.Path;
-
-            var effectiveMinScore = request.MinScore ?? (float)searchSettings.CurrentValue.MinimumScore;
-
-            var requestMode = request.Mode ?? SearchMode.Hybrid;
-
-            var options = new SearchOptions(
-                Mode: requestMode,
-                TopK: request.TopK ?? 10,
-                MinScore: effectiveMinScore,
-                ContainerId: containerId.ToString(),
-                Filters: filters.Count > 0 ? filters : null,
-                UserId: SearchPrincipal.Resolve(user));
-
-            var results = await searchService.SearchAsync(request.Query, options, ct);
-            return Results.Ok(results);
+            var searched = await search.RunAsync(Rest(http), containerId, request.ToSearch(), ct);
+            return searched.Succeeded ? Results.Ok(searched.Result) : OperationProblems.Result(searched);
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("AdvancedSearch")
+        .WithName("search.container")
         .WithDescription("Search within a container with advanced filters and options");
 
         // GET /api/containers/{containerId}/search/models - Get embedding models with vectors
@@ -137,43 +82,41 @@ public static class SearchEndpoints
         .WithName("GetEmbeddingModels")
         .WithDescription("Get embedding models with vectors in this container");
 
+        // POST /api/sources/{sourceId}/search - Search a source, as a container is searched (#916)
+        app.MapPost("/api/sources/{sourceId:guid}/search", async (
+            Guid sourceId,
+            [FromBody] SearchApiRequest request,
+            [FromServices] SearchSource search,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var searched = await search.RunAsync(Rest(http), sourceId, request.ToSearch(), ct);
+            return searched.Succeeded ? Results.Ok(searched.Result) : OperationProblems.Result(searched);
+        })
+        .WithTags("Search")
+        .RequireAuthorization("RequireViewer")
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .Produces<SearchResult>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("search.source")
+        .WithDescription("Search a source. Every hit is checked for the caller, as a container search's are; a source the caller may not know exists reads as not found.");
+
         return app;
     }
 
-
-    private static IResult? ValidateSearchParams(string query, int? topK, float? minScore)
-    {
-        if (query.Length > ValidationConstants.MaxQueryLength)
-            return ApiProblem.BadRequest("query_too_long", $"Query must not exceed {ValidationConstants.MaxQueryLength} characters");
-
-        if (topK.HasValue && (topK.Value < ValidationConstants.MinTopK || topK.Value > ValidationConstants.MaxTopK))
-            return ApiProblem.BadRequest("topk_out_of_range", $"topK must be between {ValidationConstants.MinTopK} and {ValidationConstants.MaxTopK}");
-
-        if (minScore.HasValue && (minScore.Value < ValidationConstants.MinScore || minScore.Value > ValidationConstants.MaxScore))
-            return ApiProblem.BadRequest("minscore_out_of_range", $"minScore must be between {ValidationConstants.MinScore:F1} and {ValidationConstants.MaxScore:F1}");
-
-        return null;
-    }
-
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 }
 
-// Request DTO
-public record ContainerSearchRequest(
-    string Query,
+/// <summary>A search's body, for a container or a source.</summary>
+public record SearchApiRequest(
+    string? Query,
     string? Path = null,
     SearchMode? Mode = null,
     int? TopK = null,
     float? MinScore = null,
-    Dictionary<string, string>? Filters = null);
-
-// Response DTOs
-public record ContainerEmbeddingModelsResponse(string CurrentModel, IReadOnlyList<EmbeddingModelUsage> Models);
-
-/// <summary>An embedding model with vectors stored, and whether it is the one configured now.</summary>
-public record EmbeddingModelUsage(string ModelId, int Dimensions, long VectorCount, bool IsCurrent)
+    Dictionary<string, string>? Filters = null)
 {
-    public static IReadOnlyList<EmbeddingModelUsage> From(IEnumerable<EmbeddingModelInfo> models, string currentModel) =>
-        models.Select(m => new EmbeddingModelUsage(
-            m.ModelId, m.Dimensions, m.VectorCount,
-            string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))).ToList();
+    public SearchRequest ToSearch() => new(Query, Mode ?? SearchMode.Hybrid, TopK, MinScore, Path, Filters);
 }
