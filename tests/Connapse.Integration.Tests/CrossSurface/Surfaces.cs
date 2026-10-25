@@ -41,7 +41,8 @@ public static partial class Surfaces
     private static async Task<string> NoApprovalAdminPatAsync(SharedWebAppFixture fixture)
     {
         var response = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
-            new Connapse.Core.PatCreateRequest($"cross-surface-{Guid.NewGuid():N}", RequiresApproval: false));
+            new Connapse.Core.PatCreateRequest($"cross-surface-{Guid.NewGuid():N}",
+                ["knowledge:read", "knowledge:write", "admin:users", "agent:ingest"], RequiresApproval: false));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<Connapse.Core.PatCreateResponse>())!.Token;
     }
