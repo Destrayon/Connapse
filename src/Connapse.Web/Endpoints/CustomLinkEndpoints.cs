@@ -51,7 +51,10 @@ public static class CustomLinkEndpoints
             http.Response.Headers.CacheControl = "no-store";
             http.Response.Headers["Referrer-Policy"] = "no-referrer";
             return Results.Content(AutoPostPage(target.Provider.Name, target.LinkUrl, token), "text/html; charset=utf-8");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces<string>(StatusCodes.Status200OK, "text/html")
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // GET /api/v1/auth/custom/{providerId}/return?code=… — the middle man's redirect after the user signed in
         // there. The session cookie (SameSite=Lax) travels on this top-level GET; without a session the user signs
@@ -89,7 +92,9 @@ public static class CustomLinkEndpoints
 
             await audit.LogAsync(LinkedEvent, "user", userId.ToString(), new { ProviderId = providerId, status.DisplayName }, ct);
             return Results.Redirect("/profile/integrations?linked=custom");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // DELETE /api/v1/auth/custom/{providerId} — removes the signed-in user's link from the middle man.
         group.MapDelete("/", async (
@@ -101,7 +106,12 @@ public static class CustomLinkEndpoints
             // The same links.unlink the provider's card on the profile page runs (#866).
             var unlinked = await unlink.RunAsync(new OperationContext(http.User, OperationSurface.Rest), new UnlinkAccountRequest("custom", providerId), ct);
             return unlinked.Succeeded ? Results.NoContent() : OperationProblems.Result(unlinked);
-        }).RequireAuthorization(Policies.Person);
+        }).RequireAuthorization(Policies.Person)
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status502BadGateway);
 
         return app;
     }
