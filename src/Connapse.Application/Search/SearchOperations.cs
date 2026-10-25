@@ -58,6 +58,9 @@ public sealed record SearchRequest(
 /// scope is looked up, so a bad one is answered the same way for a hidden source as for a missing id. A
 /// source the caller may not see reads as missing, unless search checks its every hit for them (a
 /// Confluence space): then it is searched by id, and reads as missing when they can read nothing in it.
+/// A scope that reads as missing does the same work as one that is found, searching <see cref="Nowhere"/>
+/// instead, so how long the answer takes can't tell a hidden source from an unknown id; and when the search
+/// fails, a scope the caller may not know exists still reads as missing.
 /// </summary>
 [Operation("search.knowledge", Scope = Scope, Risk = RiskTier.Read)]
 public sealed class SearchKnowledge(
@@ -68,6 +71,9 @@ public sealed class SearchKnowledge(
 
     public const int DefaultTopK = 10;
 
+    /// <summary>The scope searched for a scope that reads as missing: no container or source has this id.</summary>
+    public static readonly Guid Nowhere = Guid.Empty;
+
     public async Task<Attempt<SearchResult, SearchStatus>> RunAsync(OperationContext context, SearchScope scope, SearchRequest request, CancellationToken ct = default)
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
@@ -76,23 +82,30 @@ public sealed class SearchKnowledge(
             return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.Invalid, detail, field);
 
         var owner = await ResolveAsync(context, scope, ct);
-        if (owner is not var (ownerId, discoverable))
-            return NotFound(scope);
+        var (ownerId, discoverable) = owner ?? (Nowhere, false);
 
         var filters = request.Filters is null ? [] : new Dictionary<string, string>(request.Filters);
         if (!string.IsNullOrWhiteSpace(request.Path))
             filters.TryAdd("pathPrefix", request.Path);
 
-        var result = await search.SearchAsync(request.Query!, new SearchOptions(
-            TopK: request.TopK ?? DefaultTopK,
-            MinScore: request.MinScore ?? (float)settings.CurrentValue.MinimumScore,
-            ContainerId: ownerId.ToString(),
-            Mode: request.Mode,
-            Filters: filters.Count > 0 ? filters : null,
-            UserId: SearchPrincipal.Resolve(context.User)), ct);
+        SearchResult result;
+        try
+        {
+            result = await search.SearchAsync(request.Query!, new SearchOptions(
+                TopK: request.TopK ?? DefaultTopK,
+                MinScore: request.MinScore ?? (float)settings.CurrentValue.MinimumScore,
+                ContainerId: ownerId.ToString(),
+                Mode: request.Mode,
+                Filters: filters.Count > 0 ? filters : null,
+                UserId: SearchPrincipal.Resolve(context.User)), ct);
+        }
+        catch (Exception ex) when (!discoverable && ex is not OperationCanceledException)
+        {
+            return NotFound(scope);
+        }
 
         // A hidden source the caller can read nothing in answers as a missing id, so naming one can't confirm it exists.
-        return result.Hits.Count == 0 && !discoverable ? NotFound(scope) : Attempt<SearchResult, SearchStatus>.Succeed(result);
+        return owner is null || result.Hits.Count == 0 && !discoverable ? NotFound(scope) : Attempt<SearchResult, SearchStatus>.Succeed(result);
     }
 
     /// <summary>What is wrong with a request, and the field at fault; null when nothing is.</summary>
@@ -123,9 +136,14 @@ public sealed class SearchKnowledge(
         {
             if (containersAllowed && await containers.GetAsync(id, ct) is not null)
                 return (id, true);
-            if (!sourcesAllowed || await sources.GetAsync(id, ct) is not { } source)
+            if (!sourcesAllowed)
                 return null;
-            if ((await visibility.ForAsync(context.User, ct))(source))
+            var source = await sources.FindAsync(id, ct);
+            // Asked for an unknown id too, so a hidden source and a missing one cost the same.
+            var canSee = await visibility.ForAsync(context.User, ct);
+            if (source is null)
+                return null;
+            if (canSee(source))
                 return (id, true);
             // By id only: a name lookup that answered differently for a hidden source would let anyone probe for one.
             return visibility.IsSearchableWhenHidden(source) ? (id, false) : null;
@@ -135,9 +153,11 @@ public sealed class SearchKnowledge(
         string name = scope.IdOrName.ToLowerInvariant();
         if (containersAllowed && await containers.GetByNameAsync(name, ct) is { } container)
             return Guid.TryParse(container.Id, out var containerId) ? (containerId, true) : null;
-        if (sourcesAllowed && await sources.GetByNameAsync(name, ct) is { } named && (await visibility.ForAsync(context.User, ct))(named))
-            return (named.Id, true);
-        return null;
+        if (!sourcesAllowed)
+            return null;
+        var named = await sources.FindByNameAsync(name, ct);
+        var canSeeNamed = await visibility.ForAsync(context.User, ct);
+        return named is not null && canSeeNamed(named) ? (named.Id, true) : null;
     }
 
     private static Attempt<SearchResult, SearchStatus> NotFound(SearchScope scope) =>

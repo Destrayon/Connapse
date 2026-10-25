@@ -46,6 +46,28 @@ public class SourceSearchEndpointTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task FindSource_ByIdAndName_MatchesGetButLeavesTheCountsAtZero()
+    {
+        var sourceId = await SeedSourceAsync();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        using (var content = new MemoryStream("counted document"u8.ToArray()))
+            await scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>().IngestAsync(content,
+                new IngestionOptions(FileName: "counted.md", ContentType: "text/markdown", Path: "/counted.md") { Owner = OwnerRef.ForSource(sourceId) },
+                CancellationToken.None);
+
+        var got = await store.GetAsync(sourceId);
+        var found = await store.FindAsync(sourceId);
+        var foundByName = await store.FindByNameAsync(got!.Name);
+
+        got.DocumentCount.Should().Be(1);
+        found.Should().BeEquivalentTo(got with { DocumentCount = 0, FailedDocumentCount = 0, ProcessingDocumentCount = 0 });
+        foundByName.Should().BeEquivalentTo(found);
+        (await store.FindAsync(Guid.NewGuid())).Should().BeNull();
+        (await store.FindByNameAsync(ShortName("none"))).Should().BeNull();
+    }
+
+    [Fact]
     public async Task SearchSource_UnknownSource_Returns404()
     {
         var response = await fixture.AdminClient.PostAsJsonAsync($"/api/sources/{Guid.NewGuid()}/search", new { query = "anything" });

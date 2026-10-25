@@ -5,6 +5,15 @@ public interface ISourceStore
     Task<Source> CreateAsync(CreateSourceRequest request, CancellationToken ct = default);
     Task<Source?> GetAsync(Guid id, CancellationToken ct = default);
     Task<Source?> GetByNameAsync(string name, CancellationToken ct = default);
+
+    /// <summary>
+    /// The source with its document counts left at zero, so the lookup costs the same however much the source
+    /// holds: for an answer that must take as long for a hidden source as for a missing one.
+    /// </summary>
+    Task<Source?> FindAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>The source by name, as <see cref="FindAsync"/> finds it by id.</summary>
+    Task<Source?> FindByNameAsync(string name, CancellationToken ct = default);
     Task<IReadOnlyList<Source>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default);
     Task<IReadOnlyList<Source>> ListByConnectionAsync(Guid connectionId, CancellationToken ct = default);
     Task<Source?> UpdateAsync(Guid id, UpdateSourceRequest request, CancellationToken ct = default);

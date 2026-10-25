@@ -1,4 +1,5 @@
 using Bunit;
+using Connapse.Application.Search;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -65,6 +66,7 @@ public class SearchPageHiddenSourceTests : IDisposable
             scopeJson, DateTime.UtcNow, DateTime.UtcNow);
         sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([source]);
         sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        sources.FindAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
         return source;
     }
 
@@ -91,7 +93,7 @@ public class SearchPageHiddenSourceTests : IDisposable
     }
 
     [Fact]
-    public void MissingId_LooksLikeAHiddenSourceAndSearchesNothing()
+    public void MissingId_LooksLikeAHiddenSourceAndSearchesNothingReal()
     {
         Seed("""{"kind":"confluence-space","spaceKey":"ENG"}""");
 
@@ -100,11 +102,12 @@ public class SearchPageHiddenSourceTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain($"Container or source '{missing}' not found"));
         cut.Markup.Should().Contain("Source from link");
-        search.DidNotReceiveWithAnyArgs().SearchAsync(default!, default!, default);
+        search.DidNotReceive().SearchAsync(Arg.Any<string>(),
+            Arg.Is<SearchOptions>(o => o.ContainerId != SearchKnowledge.Nowhere.ToString()), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public void HiddenPrivateGitHubSourceById_SearchesNothing()
+    public void HiddenPrivateGitHubSourceById_SearchesNoneOfIt()
     {
         var source = Seed("""{"owner":"acme","repo":"secret","private":true,"repoId":42}""");
 
@@ -113,6 +116,7 @@ public class SearchPageHiddenSourceTests : IDisposable
         // The same answer as an id that doesn't exist, so the page can't tell the two apart.
         cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain($"Container or source '{source.Id}' not found"));
         cut.Markup.Should().NotContain("secret-space-name");
-        search.DidNotReceiveWithAnyArgs().SearchAsync(default!, default!, default);
+        search.DidNotReceive().SearchAsync(Arg.Any<string>(),
+            Arg.Is<SearchOptions>(o => o.ContainerId != SearchKnowledge.Nowhere.ToString()), Arg.Any<CancellationToken>());
     }
 }

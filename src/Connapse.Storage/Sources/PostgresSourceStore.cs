@@ -200,6 +200,22 @@ public class PostgresSourceStore(
         return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount, result.ProcessingDocumentCount);
     }
 
+    public async Task<Source?> FindAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var entity = await context.Sources.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, ct);
+        return entity is null ? null : MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
+    }
+
+    public async Task<Source?> FindByNameAsync(string name, CancellationToken ct = default)
+    {
+        var normalized = name.Trim();
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var entity = await context.Sources.AsNoTracking().FirstOrDefaultAsync(s => s.Name == normalized, ct);
+        return entity is null ? null : MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
+    }
+
     public async Task<IReadOnlyList<Source>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
