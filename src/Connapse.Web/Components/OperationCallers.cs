@@ -46,4 +46,19 @@ public static class OperationCallers
         this Connapse.Application.Sources.SourceOperations operations, AuthenticationStateProvider authentication, Guid connectionId) =>
         (await operations.List.RunAsync(await authentication.OperationContextAsync(),
             new Connapse.Application.Sources.ListSourcesQuery(ConnectionId: connectionId))).Result?.Items ?? [];
+
+    /// <summary>
+    /// Saves a settings category through settings.update, as PUT /api/settings/{category} does: the category's
+    /// rules, its stored key and the embedding index all apply. The page holds every value, keys included, so a
+    /// key it sends empty is one it cleared, as on a provider switch. Whether it saved, and what the page says.
+    /// </summary>
+    public static async Task<(bool Saved, string Message)> SaveAsync(
+        this Connapse.Application.Settings.UpdateSettings update, AuthenticationStateProvider authentication, string category, object settings)
+    {
+        var saved = await update.RunAsync(await authentication.OperationContextAsync(), category,
+            System.Text.Json.JsonSerializer.SerializeToElement(settings, settings.GetType()), Connapse.Application.Settings.UnsentSecrets.Clear);
+        return saved.Succeeded
+            ? (true, $"{category} settings saved successfully!")
+            : (false, $"Failed to save {category} settings: {saved.Detail}");
+    }
 }

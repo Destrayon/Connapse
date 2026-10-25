@@ -53,4 +53,7 @@ public static class Policies
 
     /// <summary>An administrator; a token of theirs only with the admin:oauth-clients scope.</summary>
     public const string ClientAdmin = "RequireClientAdmin";
+
+    /// <summary>An administrator; a token of theirs only with the admin:settings scope.</summary>
+    public const string SettingsAdmin = "RequireSettingsAdmin";
 }

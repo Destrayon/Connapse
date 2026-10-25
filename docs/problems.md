@@ -20,6 +20,8 @@ with `knowledge:read` may read too), and changing them needs Editor (over MCP, a
 unlinking needs the person signed in themselves, never a personal access token or agent key.
 Search needs `knowledge:read`: the Viewer role or above, or an agent key or token with that scope.
 
+Settings: reading, changing and resetting them need Administrator, and a token needs `admin:settings`.
+
 ## invalid-link-provider
 
 Unlinking named a provider Connapse doesn't link accounts with. Built-in providers are `AWS`, `Azure`,
@@ -93,6 +95,16 @@ nothing in it, so naming one doesn't confirm it exists.
 
 The search was refused: the query is missing or over 10,000 characters, `topK` is outside 1 to 100,
 or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
+
+## settings-category-not-found
+
+Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,
+`llm`, `upload` and `summary`, in any case. The provider sign-in categories (`azure`, `azuread`, `samlsignin`, `identitycenter`) are refused here: provider setup owns them.
+
+## invalid-settings
+
+The settings were refused: the body isn't a JSON object, isn't valid JSON, or names a property the
+category doesn't have.
 
 ## invalid-page
 

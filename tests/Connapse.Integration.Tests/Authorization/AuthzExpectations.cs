@@ -95,6 +95,8 @@ public static class AuthzExpectations
             "RequireAuditReader" => "admin",
             // An administrator, whose token also needs admin:oauth-clients (#881).
             "RequireClientAdmin" => "admin",
+            // An administrator, whose token also needs admin:settings (#922).
+            "RequireSettingsAdmin" => "admin",
             "RequireOwner" => "owner",
             "RequireAgent" => "mcp",
             _ => p,

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Connapse.Application;
+using Connapse.Application.Settings;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
@@ -20,13 +22,6 @@ public static class SettingsEndpoints
         PropertyNameCaseInsensitive = true
     };
 
-    // A save also refuses a property its category doesn't have, so another category's settings, which would
-    // otherwise read as all defaults, can't overwrite this one's.
-    private static readonly JsonSerializerOptions SaveJsonOptions = new(JsonOptions)
-    {
-        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
-    };
-
     /// <summary>
     /// Maps and configures settings-related HTTP endpoints under "/api/settings" and applies the "RequireAdmin" authorization policy.
     /// </summary>
@@ -39,136 +34,49 @@ public static class SettingsEndpoints
     public static IEndpointRouteBuilder MapSettingsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/settings").WithTags("Settings")
-            .RequireAuthorization("RequireAdmin")
+            .RequireAuthorization("RequireSettingsAdmin")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // GET /api/settings/{category} - Get settings for a category
-        // Reads from the database first so callers always see the latest saved value.
-        // Falls back to IOptionsMonitor (appsettings.json + env vars) for categories
-        // that have never been persisted to the database.
+        // Reads from the database first so callers always see the latest saved value, and falls back to
+        // configuration (appsettings.json + env vars) for categories never saved. Secrets are left out.
         group.MapGet("/{category}", async (
             [FromRoute] string category,
-            [FromServices] ISettingsStore settingsStore,
-            [FromServices] IServiceProvider serviceProvider,
+            [FromServices] GetSettings get,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var categoryLower = category.ToLowerInvariant();
-
-            return categoryLower switch
-            {
-                "embedding" => Results.Ok(await GetSettingsAsync<EmbeddingSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "chunking" => Results.Ok(await GetSettingsAsync<ChunkingSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "search" => Results.Ok(await GetSettingsAsync<SearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "llm" => Results.Ok(await GetSettingsAsync<LlmSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                _ => ApiProblem.NotFound($"Unknown settings category: {category}")
-            };
+            var read = await get.RunAsync(Rest(http), category, ct);
+            return read.Succeeded ? Results.Ok(read.Result!.Settings) : OperationProblems.Result(read);
         })
         .Produces<object>()
         .AddOpenApiOperationTransformer(DescribeCategoryShapesAsync)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetSettings")
-        .WithDescription("Get settings for a specific category");
+        .WithDescription("Get settings for a specific category. API keys are never returned.");
 
         // PUT /api/settings/{category} - Update settings for a category
         group.MapPut("/{category}", async (
             [FromRoute] string category,
             [FromBody] JsonElement settingsJson,
-            [FromServices] ISettingsStore settingsStore,
-            [FromServices] IServiceProvider serviceProvider,
-            [FromServices] ILoggerFactory loggerFactory,
+            [FromServices] UpdateSettings update,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var categoryLower = category.ToLowerInvariant();
+            var updated = await update.RunAsync(Rest(http), category, settingsJson, UnsentSecrets.Keep, ct);
+            if (!updated.Succeeded)
+                return OperationProblems.Result(updated);
 
-            try
-            {
-                // Deserialize and save with concrete types to preserve generic T
-                // (passing object? erases the type, making JsonSerializer.Serialize<object> fragile)
-                var rawJson = settingsJson.GetRawText();
-                EmbeddingSettings? embeddingSettings = null;
-
-                switch (categoryLower)
-                {
-                    case "embedding":
-                        embeddingSettings = JsonSerializer.Deserialize<EmbeddingSettings>(rawJson, SaveJsonOptions);
-                        if (embeddingSettings != null) await settingsStore.SaveAsync(categoryLower, embeddingSettings, ct);
-                        break;
-                    case "chunking":
-                        var chunking = JsonSerializer.Deserialize<ChunkingSettings>(rawJson, SaveJsonOptions);
-                        if (chunking != null) await settingsStore.SaveAsync(categoryLower, chunking, ct);
-                        break;
-                    case "search":
-                        var search = JsonSerializer.Deserialize<SearchSettings>(rawJson, SaveJsonOptions);
-                        if (search != null) await settingsStore.SaveAsync(categoryLower, search, ct);
-                        break;
-                    case "llm":
-                        var llm = JsonSerializer.Deserialize<LlmSettings>(rawJson, SaveJsonOptions);
-                        if (llm != null) await settingsStore.SaveAsync(categoryLower, llm, ct);
-                        break;
-                    case "upload":
-                        var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, SaveJsonOptions);
-                        if (upload != null) await settingsStore.SaveAsync(categoryLower, upload, ct);
-                        break;
-                    default:
-                        return ApiProblem.NotFound($"Unknown settings category: {category}");
-                }
-
-                // When embedding settings change, reconcile partial IVFFlat indexes
-                // and detect legacy vectors for cross-model search notification.
-                if (embeddingSettings != null)
-                {
-                    var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
-                    var indexLogger = loggerFactory.CreateLogger("SettingsEndpoints.IndexReconciliation");
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await using var scope = scopeFactory.CreateAsyncScope();
-                            var mgr = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
-                            await mgr.EnsureIndexesAsync();
-                        }
-                        catch (Exception ex)
-                        {
-                            // Index reconciliation is best-effort; retried on next startup.
-                            indexLogger.LogError(ex,
-                                "Background index reconciliation failed after embedding settings change");
-                        }
-                    });
-
-                    // Detect legacy vectors for the new model
-                    var discovery = serviceProvider.GetRequiredService<VectorModelDiscovery>();
-                    var models = await discovery.GetModelsAsync(containerId: null, ct);
-                    var legacyModels = models
-                        .Where(m => !string.Equals(m.ModelId, EmbeddingIdentity.For(embeddingSettings), StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    if (legacyModels.Count > 0)
-                    {
-                        return Results.Ok(new SettingsSavedResponse(
-                            Success: true,
-                            Message: $"Settings for '{category}' updated successfully",
-                            LegacyVectorsExist: true,
-                            LegacyModels: legacyModels.Select(m => new LegacyEmbeddingModel(m.ModelId, m.VectorCount)).ToList(),
-                            LegacyVectorCount: legacyModels.Sum(m => m.VectorCount)));
-                    }
-                }
-
-                return Results.Ok(new SettingsSavedResponse(true, $"Settings for '{category}' updated successfully"));
-            }
-            catch (JsonException ex)
-            {
-                return ApiProblem.BadRequest($"Invalid JSON: {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                // The exception's text can carry a connection string or an internal id; it stays in the log.
-                loggerFactory.CreateLogger("SettingsEndpoints").LogError(ex, "Updating settings failed");
-                return Results.Problem(
-                    statusCode: 500,
-                    title: "Failed to update settings");
-            }
+            var legacy = updated.Result!.LegacyModels;
+            return Results.Ok(legacy.Count == 0
+                ? new SettingsSavedResponse(true, $"Settings for '{category}' updated successfully")
+                : new SettingsSavedResponse(
+                    Success: true,
+                    Message: $"Settings for '{category}' updated successfully",
+                    LegacyVectorsExist: true,
+                    LegacyModels: legacy.Select(m => new LegacyEmbeddingModel(m.ModelId, m.VectorCount)).ToList(),
+                    LegacyVectorCount: legacy.Sum(m => m.VectorCount)));
         })
         .Produces<SettingsSavedResponse>()
         .AddOpenApiOperationTransformer(DescribeCategoryShapesAsync)
@@ -176,7 +84,7 @@ public static class SettingsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithName("UpdateSettings")
-        .WithDescription("Update settings for a specific category");
+        .WithDescription("Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it.");
 
         // POST /api/settings/test-connection - Test connection with provided settings
         group.MapPost("/test-connection", async (
@@ -333,21 +241,37 @@ public static class SettingsEndpoints
         .WithName("GetReindexStatus")
         .WithDescription("Get current re-embedding/reindex queue status");
 
+        var v1 = app.MapGroup("/api/v1/settings").WithTags("Settings")
+            .RequireAuthorization("RequireSettingsAdmin")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        // DELETE /api/v1/settings/{category} - Reset a category to what configuration gives it (#922)
+        v1.MapDelete("/{category}", async (
+            [FromRoute] string category,
+            [FromServices] ResetSettings reset,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var done = await reset.RunAsync(Rest(http), category, ct);
+            return done.Succeeded ? Results.NoContent() : OperationProblems.Result(done);
+        })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("settings.reset")
+        .WithDescription("Reset a settings category to its configured defaults by removing what is stored for it.");
+
         return app;
     }
 
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
+
     /// <summary>The settings type each category reads and writes.</summary>
     private static readonly (string Category, Type Type)[] CategoryShapes =
-    [
-        ("embedding", typeof(EmbeddingSettings)),
-        ("chunking", typeof(ChunkingSettings)),
-        ("search", typeof(SearchSettings)),
-        ("llm", typeof(LlmSettings)),
-        ("upload", typeof(UploadSettings)),
-    ];
+        SettingsCategories.All.Select(c => (c.Name, c.Type)).ToArray();
 
     /// <summary>
-    /// GET's answer and PUT's body are the category's settings: anyOf the five shapes, each a component, since
+    /// GET's answer and PUT's body are the category's settings: anyOf every category's shape, each a component, since
     /// they share optional properties and a body can match more than one. The description names which is whose.
     /// </summary>
     private static async Task DescribeCategoryShapesAsync(
@@ -372,23 +296,6 @@ public static class SettingsEndpoints
             && operation.Responses?.TryGetValue("200", out var ok) == true && ok.Content is { } content
             && content.TryGetValue("application/json", out var response))
             response.Schema = shapes;
-    }
-
-    /// <summary>
-    /// Returns the persisted DB value for <typeparamref name="T"/> when one exists,
-    /// otherwise falls back to the IOptionsMonitor in-memory value (from appsettings / env vars).
-    /// Reading from the DB ensures the endpoint always reflects the latest saved settings,
-    /// which is particularly important for integration tests where IOptionsMonitor live-reload
-    /// may not propagate correctly inside WebApplicationFactory.
-    /// </summary>
-    private static async Task<T> GetSettingsAsync<T>(
-        string category,
-        ISettingsStore settingsStore,
-        IServiceProvider serviceProvider,
-        CancellationToken ct) where T : class
-    {
-        var stored = await settingsStore.GetAsync<T>(category, ct);
-        return stored ?? serviceProvider.GetRequiredService<IOptionsMonitor<T>>().CurrentValue;
     }
 
     private static async Task<ConnectionTestResult> TestEmbeddingConnection(

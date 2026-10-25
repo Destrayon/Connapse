@@ -5788,7 +5788,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Get settings for a specific category",
+        "description": "Get settings for a specific category. API keys are never returned.",
         "operationId": "GetSettings",
         "parameters": [
           {
@@ -5841,9 +5841,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/UploadSettings"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SummarySettings"
                     }
                   ],
-                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
+                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, summary: SummarySettings."
                 }
               }
             }
@@ -5874,7 +5877,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Update settings for a specific category",
+        "description": "Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it.",
         "operationId": "UpdateSettings",
         "parameters": [
           {
@@ -5905,9 +5908,12 @@
                   },
                   {
                     "$ref": "#/components/schemas/UploadSettings"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SummarySettings"
                   }
                 ],
-                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
+                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, summary: SummarySettings."
               }
             }
           },
@@ -6230,6 +6236,70 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReindexStatusResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/{category}": {
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "description": "Reset a settings category to its configured defaults by removing what is stored for it.",
+        "operationId": "settings.reset",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }

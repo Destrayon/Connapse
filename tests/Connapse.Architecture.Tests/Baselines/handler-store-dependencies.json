@@ -25,7 +25,5 @@
   "McpTools container_list -> ISourceStore",
   "OAuthEndpoints POST /oauth/token -> ConnapseIdentityDbContext",
   "SearchEndpoints GET /api/containers/{containerId:guid}/search/models -> IContainerStore",
-  "SettingsEndpoints GET /api/settings/{category} -> ISettingsStore",
-  "SettingsEndpoints POST /api/settings/reindex -> ISettingsStore",
-  "SettingsEndpoints PUT /api/settings/{category} -> ISettingsStore"
+  "SettingsEndpoints POST /api/settings/reindex -> ISettingsStore"
 ]
