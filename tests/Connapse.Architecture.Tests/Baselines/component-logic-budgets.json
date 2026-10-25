@@ -169,7 +169,7 @@
   },
   "Pages/Settings.razor": {
     "CodeLines": 72,
-    "Injects": 8,
+    "Injects": 2,
     "Complexity": 10,
     "MarkupLogic": 21,
     "IsEmpty": false
@@ -266,9 +266,9 @@
     "IsEmpty": false
   },
   "Settings/EmbeddingSettingsTab.razor": {
-    "CodeLines": 229,
-    "Injects": 8,
-    "Complexity": 48,
+    "CodeLines": 174,
+    "Injects": 7,
+    "Complexity": 40,
     "MarkupLogic": 16,
     "IsEmpty": false
   },
@@ -280,9 +280,9 @@
     "IsEmpty": false
   },
   "Settings/LlmSettingsTab.razor": {
-    "CodeLines": 87,
-    "Injects": 4,
-    "Complexity": 25,
+    "CodeLines": 77,
+    "Injects": 2,
+    "Complexity": 21,
     "MarkupLogic": 9,
     "IsEmpty": false
   },
@@ -294,16 +294,16 @@
     "IsEmpty": false
   },
   "Settings/SearchSettingsTab.razor": {
-    "CodeLines": 104,
-    "Injects": 7,
-    "Complexity": 26,
+    "CodeLines": 92,
+    "Injects": 3,
+    "Complexity": 22,
     "MarkupLogic": 14,
     "IsEmpty": false
   },
   "Settings/SummarySettingsTab.razor": {
-    "CodeLines": 222,
-    "Injects": 3,
-    "Complexity": 43,
+    "CodeLines": 204,
+    "Injects": 2,
+    "Complexity": 39,
     "MarkupLogic": 24,
     "IsEmpty": false
   },

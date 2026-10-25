@@ -1,6 +1,4 @@
 @using Connapse.Core
-@using Connapse.Core.Interfaces
-@using Connapse.Storage.ConnectionTesters
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -285,14 +283,9 @@
     </div>
 </EditForm>
 
-@inject Connapse.Storage.Vectors.VectorModelDiscovery ModelDiscovery
-@inject IOptionsMonitor<EmbeddingSettings> EmbeddingSettings
-@inject TeiConnectionTester TeiTester
-@inject CohereConnectionTester CohereTester
-@inject JinaConnectionTester JinaTester
-@inject AzureAIFoundryConnectionTester AzureAIFoundryTester
-@inject VoyageConnectionTester VoyageTester
-@using Microsoft.Extensions.Options
+@inject Connapse.Application.Settings.ListEmbeddingModels Models
+@inject Connapse.Application.Settings.TestConnection Test
+@inject AuthenticationStateProvider Authentication
 
 @code {
     [Parameter]
@@ -330,13 +323,12 @@
     {
         try
         {
-            var currentModel = EmbeddingSettings.CurrentValue.Model;
-            var models = await ModelDiscovery.GetModelsAsync();
-            embeddingModels = models.Select(m => new EmbeddingModelDisplay(
+            var listed = await Models.RunAsync(await Authentication.OperationContextAsync());
+            embeddingModels = (listed.Result?.Models ?? []).Select(m => new EmbeddingModelDisplay(
                 m.ModelId,
                 m.Dimensions,
                 m.VectorCount,
-                string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase)
+                m.IsCurrent
             )).ToList();
         }
         catch
@@ -387,20 +379,7 @@
 
         try
         {
-            IConnectionTester tester = localSettings.CrossEncoderProvider switch
-            {
-                "Cohere" => CohereTester,
-                "Jina" => JinaTester,
-                "AzureAIFoundry" => AzureAIFoundryTester,
-                "Voyage" => VoyageTester,
-                _ => TeiTester
-            };
-
-            var result = await tester.TestConnectionAsync(
-                localSettings, TimeSpan.FromSeconds(localSettings.CrossEncoderTimeoutSeconds));
-
-            testSuccess = result.Success;
-            testMessage = result.Message;
+            (testSuccess, testMessage) = await Test.TestAsync(Authentication, "crossencoder", localSettings, localSettings.CrossEncoderTimeoutSeconds);
         }
         catch (Exception ex)
         {

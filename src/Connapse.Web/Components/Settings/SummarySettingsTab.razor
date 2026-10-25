@@ -2,9 +2,8 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.Llm
-@inject IDocumentStore DocumentStore
-@inject IContainerStore ContainerStore
 @inject Connapse.Application.Containers.ContainerOperations ContainerOps
+@inject Connapse.Application.Settings.ClearAllSummaries ClearAll
 
 <div class="settings-tab">
     <h4 class="mb-3">Summary Generation</h4>
@@ -443,27 +442,9 @@
         clearAllMessage = null;
         try
         {
-            // Loop the existing per-container primitives directly (no HTTP loopback).
-            // In multi-tenant deployments ListAsync and the clears are RLS-scoped to the
-            // caller, so "all" means "all containers the caller can see". The
-            // AuthorizeView gate above restricts this to Owner/Admin.
-            const int pageSize = 200;
-            int containersCleared = 0;
-            int clearedDocs = 0;
-            for (int skip = 0; ; skip += pageSize)
-            {
-                var page = await ContainerStore.ListAsync(skip, pageSize);
-                foreach (var c in page)
-                {
-                    if (!Guid.TryParse(c.Id, out var cid)) continue;
-                    clearedDocs += await DocumentStore.ClearDocumentSummariesAsync(cid);
-                    await ContainerStore.UpdateSummaryAsync(cid, null, null, null);
-                    containersCleared++;
-                }
-                if (page.Count < pageSize) break;
-            }
-            clearAllSuccess = true;
-            clearAllMessage = $"Cleared summaries for {containersCleared} container(s). They'll regenerate on the next sweep.";
+            var cleared = await ClearAll.RunAsync(new OperationContext((await Authentication).User, OperationSurface.Ui));
+            clearAllSuccess = cleared.Succeeded;
+            clearAllMessage = cleared.Says($"Cleared summaries for {cleared.Result?.Containers} container(s). They'll regenerate on the next sweep.");
         }
         catch (Exception ex)
         {

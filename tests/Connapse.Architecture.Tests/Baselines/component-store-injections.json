@@ -13,8 +13,5 @@
   "Pages.Providers -> ISettingsStore",
   "Pages.Search -> IContainerStore",
   "Pages.SourceEdit -> IConnectionStore",
-  "Pages.Sources -> IConnectionStore",
-  "Settings.EmbeddingSettingsTab -> ISettingsStore",
-  "Settings.SummarySettingsTab -> IContainerStore",
-  "Settings.SummarySettingsTab -> IDocumentStore"
+  "Pages.Sources -> IConnectionStore"
 ]

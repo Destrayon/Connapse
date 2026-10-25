@@ -6130,7 +6130,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Start background re-embedding of documents with outdated embedding models",
+        "description": "Start re-embedding in the background: without force, only documents whose embedding or chunking settings changed; with force, every document. Cross-model search is turned on meanwhile.",
         "operationId": "TriggerReindex",
         "requestBody": {
           "content": {
@@ -6300,6 +6300,57 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/summaries/clear": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "description": "Clear every container's summary and every document summary; the next sweep writes them again. Embeddings, chunks and documents are kept.",
+        "operationId": "settings.summaries.clear",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummariesCleared"
                 }
               }
             }
@@ -11916,6 +11967,10 @@
               "null",
               "string"
             ]
+          },
+          "force": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -13055,6 +13110,31 @@
             ]
           },
           "withheldDeletions": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SummariesCleared": {
+        "required": [
+          "containers",
+          "documents"
+        ],
+        "type": "object",
+        "properties": {
+          "containers": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "documents": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",

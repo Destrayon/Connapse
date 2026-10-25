@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests;
 
-/// <summary>Every settings category over REST, and resetting one (#922).</summary>
+/// <summary>Every settings category over REST, resetting one (#922), and the settings actions (#950).</summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
 public class SettingsApiTests(SharedWebAppFixture fixture)
@@ -94,5 +94,56 @@ public class SettingsApiTests(SharedWebAppFixture fixture)
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("containerSummaryMethod");
+    }
+
+    [Fact]
+    public async Task ClearAllSummaries_ClearsEveryContainersSummary()
+    {
+        var created = await fixture.AdminClient.PostAsJsonAsync("/api/containers", new { Name = $"clear-all-{Guid.NewGuid():N}"[..30] });
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var id = Guid.Parse((await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!);
+        try
+        {
+            using var scope = fixture.Factory.Services.CreateScope();
+            var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+            await containers.UpdateSummaryAsync(id, "a summary", DateTime.UtcNow, "hash");
+
+            var response = await fixture.AdminClient.PostAsync("/api/v1/settings/summaries/clear", null);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("containers").GetInt32().Should().BeGreaterThanOrEqualTo(1);
+            (await containers.GetAsync(id))!.Summary.Should().BeNull();
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
+        }
+    }
+
+    [Fact]
+    public async Task Reindex_ContainerIdNotAnId_Returns400WithTheField()
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/reindex", new { containerId = "nope" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("containerId");
+    }
+
+    [Fact]
+    public async Task TestConnection_CategoryWithoutATest_IsAFailedTest()
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", new { category = "chunking", settings = new { } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("success").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task EmbeddingModels_NamesTheCurrentModel()
+    {
+        var models = await fixture.AdminClient.GetFromJsonAsync<JsonElement>("/api/settings/embedding-models");
+
+        models.GetProperty("currentModel").GetString().Should().NotBeNullOrEmpty();
+        models.GetProperty("models").ValueKind.Should().Be(JsonValueKind.Array);
     }
 }

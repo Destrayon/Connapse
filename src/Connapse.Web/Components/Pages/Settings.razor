@@ -4,14 +4,8 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Application.Settings
 @using Microsoft.Extensions.Options
-@inject UpdateSettings UpdateOperation
-@inject AuthenticationStateProvider AuthStateProvider
-@inject IOptionsMonitor<EmbeddingSettings> EmbeddingOptions
-@inject IOptionsMonitor<ChunkingSettings> ChunkingOptions
-@inject IOptionsMonitor<SearchSettings> SearchOptions
+@inject SettingsPageSaves Saves
 @inject IOptionsMonitor<LlmSettings> LlmOptions
-@inject IOptionsMonitor<UploadSettings> UploadOptions
-@inject IOptionsMonitor<SummarySettings> SummaryOptions
 @rendermode InteractiveServer
 
 <PageTitle>Settings - Connapse</PageTitle>
@@ -124,12 +118,12 @@
     protected override async Task OnInitializedAsync()
     {
         // Load current settings from IOptionsMonitor (includes DB overrides)
-        embeddingSettings = EmbeddingOptions.CurrentValue;
-        chunkingSettings = ChunkingOptions.CurrentValue;
-        searchSettings = SearchOptions.CurrentValue;
-        llmSettings = LlmOptions.CurrentValue;
-        uploadSettings = UploadOptions.CurrentValue;
-        summarySettings = SummaryOptions.CurrentValue;
+        embeddingSettings = Saves.Open<EmbeddingSettings>("embedding");
+        chunkingSettings = Saves.Open<ChunkingSettings>("chunking");
+        searchSettings = Saves.Open<SearchSettings>("search");
+        llmSettings = Saves.Open<LlmSettings>("llm");
+        uploadSettings = Saves.Open<UploadSettings>("upload");
+        summarySettings = Saves.Open<SummarySettings>("summary");
     }
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
@@ -175,7 +169,7 @@
     {
         try
         {
-            (saveSuccess, saveMessage) = await UpdateOperation.SaveAsync(AuthStateProvider, category, settings);
+            (saveSuccess, saveMessage) = await Saves.SaveAsync(category, settings);
         }
         catch (Exception ex)
         {

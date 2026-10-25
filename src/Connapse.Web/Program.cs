@@ -126,7 +126,7 @@ builder.Services.AddHostedService<Bm25StatsFoldService>();
 builder.Services.AddHostedService<VectorIndexMaintenanceService>();
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
-builder.Services.AddSingleton<ReindexStateService>();
+builder.Services.AddSingleton<Connapse.Application.Settings.ReindexStateService>();
 
 // Add MCP server (official SDK)
 var allowAnonDiscovery = builder.Configuration.GetValue<bool>("Mcp:AllowAnonymousDiscovery");
@@ -206,6 +206,9 @@ builder.Services.AddScoped<Connapse.Application.Ports.IUserDirectory, Connapse.W
 builder.Services.AddScoped<Connapse.Application.Ports.IInviteStore, Connapse.Web.Services.InviteStore>();
 builder.Services.AddScoped<Connapse.Application.Ports.IConfiguredSettings, Connapse.Web.Services.ConfiguredSettings>();
 builder.Services.AddScoped<Connapse.Application.Ports.IVectorIndexReconciler, Connapse.Web.Services.HangfireVectorIndexReconciler>();
+builder.Services.AddSingleton<Connapse.Application.Ports.IBackgroundReindex, Connapse.Web.Services.BackgroundReindex>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionTests, Connapse.Web.Services.ConnectionTests>();
+builder.Services.AddScoped<Connapse.Web.Components.SettingsPageSaves>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
