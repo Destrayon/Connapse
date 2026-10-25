@@ -3,6 +3,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
 using System.Security.Claims;
+using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -14,7 +15,9 @@ public static class SearchEndpoints
     public static IEndpointRouteBuilder MapSearchEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/containers/{containerId:guid}/search").WithTags("Search")
-            .RequireAuthorization("RequireViewer");
+            .RequireAuthorization("RequireViewer")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // GET /api/containers/{containerId}/search - Simple search with query parameters
         group.MapGet("/", async (
@@ -32,10 +35,10 @@ public static class SearchEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             if (string.IsNullOrWhiteSpace(q))
-                return Results.BadRequest(new { error = "Query parameter 'q' is required" });
+                return ApiProblem.BadRequest("Query parameter 'q' is required");
 
             var searchParamError = ValidateSearchParams(q, topK, minScore);
             if (searchParamError is not null) return searchParamError;
@@ -61,6 +64,9 @@ public static class SearchEndpoints
             var results = await searchService.SearchAsync(q, options, ct);
             return Results.Ok(results);
         })
+        .Produces<SearchResult>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("SimpleSearch")
         .WithDescription("Search within a container using query string parameters");
 
@@ -76,10 +82,10 @@ public static class SearchEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             if (string.IsNullOrWhiteSpace(request.Query))
-                return Results.BadRequest(new { error = "Query is required" });
+                return ApiProblem.BadRequest("Query is required");
 
             var searchParamError = ValidateSearchParams(request.Query, request.TopK, request.MinScore);
             if (searchParamError is not null) return searchParamError;
@@ -103,6 +109,9 @@ public static class SearchEndpoints
             var results = await searchService.SearchAsync(request.Query, options, ct);
             return Results.Ok(results);
         })
+        .Produces<SearchResult>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("AdvancedSearch")
         .WithDescription("Search within a container with advanced filters and options");
 
@@ -116,23 +125,15 @@ public static class SearchEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var models = await modelDiscovery.GetModelsAsync(containerId, ct);
             var currentModel = EmbeddingIdentity.For(embeddingSettings.CurrentValue);
 
-            return Results.Ok(new
-            {
-                currentModel,
-                models = models.Select(m => new
-                {
-                    m.ModelId,
-                    m.Dimensions,
-                    m.VectorCount,
-                    isCurrent = string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase)
-                })
-            });
+            return Results.Ok(new ContainerEmbeddingModelsResponse(currentModel, EmbeddingModelUsage.From(models, currentModel)));
         })
+        .Produces<ContainerEmbeddingModelsResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetEmbeddingModels")
         .WithDescription("Get embedding models with vectors in this container");
 
@@ -143,13 +144,13 @@ public static class SearchEndpoints
     private static IResult? ValidateSearchParams(string query, int? topK, float? minScore)
     {
         if (query.Length > ValidationConstants.MaxQueryLength)
-            return Results.BadRequest(new { error = "query_too_long", message = $"Query must not exceed {ValidationConstants.MaxQueryLength} characters" });
+            return ApiProblem.BadRequest("query_too_long", $"Query must not exceed {ValidationConstants.MaxQueryLength} characters");
 
         if (topK.HasValue && (topK.Value < ValidationConstants.MinTopK || topK.Value > ValidationConstants.MaxTopK))
-            return Results.BadRequest(new { error = "topk_out_of_range", message = $"topK must be between {ValidationConstants.MinTopK} and {ValidationConstants.MaxTopK}" });
+            return ApiProblem.BadRequest("topk_out_of_range", $"topK must be between {ValidationConstants.MinTopK} and {ValidationConstants.MaxTopK}");
 
         if (minScore.HasValue && (minScore.Value < ValidationConstants.MinScore || minScore.Value > ValidationConstants.MaxScore))
-            return Results.BadRequest(new { error = "minscore_out_of_range", message = $"minScore must be between {ValidationConstants.MinScore:F1} and {ValidationConstants.MaxScore:F1}" });
+            return ApiProblem.BadRequest("minscore_out_of_range", $"minScore must be between {ValidationConstants.MinScore:F1} and {ValidationConstants.MaxScore:F1}");
 
         return null;
     }
@@ -164,3 +165,15 @@ public record ContainerSearchRequest(
     int? TopK = null,
     float? MinScore = null,
     Dictionary<string, string>? Filters = null);
+
+// Response DTOs
+public record ContainerEmbeddingModelsResponse(string CurrentModel, IReadOnlyList<EmbeddingModelUsage> Models);
+
+/// <summary>An embedding model with vectors stored, and whether it is the one configured now.</summary>
+public record EmbeddingModelUsage(string ModelId, int Dimensions, long VectorCount, bool IsCurrent)
+{
+    public static IReadOnlyList<EmbeddingModelUsage> From(IEnumerable<EmbeddingModelInfo> models, string currentModel) =>
+        models.Select(m => new EmbeddingModelUsage(
+            m.ModelId, m.Dimensions, m.VectorCount,
+            string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))).ToList();
+}

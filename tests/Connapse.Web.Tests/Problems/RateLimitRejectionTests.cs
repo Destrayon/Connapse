@@ -38,10 +38,22 @@ public class RateLimitRejectionTests
 
     [Theory]
     [InlineData("/oauth/token")]
-    [InlineData("/mcp")]
-    public async Task WriteRejectionAsync_ProtocolPath_KeepsItsJsonError(string path)
+    [InlineData("/oauth/register")]
+    public async Task WriteRejectionAsync_OAuthPath_WritesAnOAuthErrorCode(string path)
     {
         var (type, body) = await RejectAsync(path);
+
+        // RFC 6749 §5.2: error is a code a client can act on; the text goes in error_description.
+        type.Should().StartWith("application/json");
+        body.GetProperty("error").GetString().Should().Be("temporarily_unavailable");
+        body.GetProperty("error_description").GetString().Should().Be("Rate limit exceeded. Try again later.");
+        body.TryGetProperty("status", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WriteRejectionAsync_McpPath_KeepsItsJsonError()
+    {
+        var (type, body) = await RejectAsync("/mcp");
 
         type.Should().StartWith("application/json");
         body.GetProperty("error").GetString().Should().Be("Rate limit exceeded. Try again later.");

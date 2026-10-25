@@ -103,6 +103,22 @@ public class OAuthEndpointTests(SharedWebAppFixture fixture)
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Theory]
+    [InlineData("{not json", "application/json")]
+    [InlineData("", "application/json")]
+    [InlineData("client_name=x", "application/x-www-form-urlencoded")]
+    public async Task Register_UnreadableBody_Returns400InvalidClientMetadata(string body, string contentType)
+    {
+        using var client = fixture.Factory.CreateClient();
+
+        var response = await client.PostAsync("/oauth/register", new StringContent(body, System.Text.Encoding.UTF8, contentType));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        var json = await response.Content.ReadFromJsonAsync<JsonDocument>();
+        json!.RootElement.GetProperty("error").GetString().Should().Be("invalid_client_metadata");
+    }
+
     [Fact]
     public async Task Register_NoRedirectUris_Returns400()
     {

@@ -59,6 +59,9 @@ public static class AuthEndpoints
 
             return Results.Ok(tokenResponse);
         })
+        .Produces<TokenResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
         .WithName("GetToken")
         .WithDescription("Exchange email/password for a JWT access token and refresh token")
         .AllowAnonymous()
@@ -80,16 +83,17 @@ public static class AuthEndpoints
             var existingToken = await dbContext.RefreshTokens
                 .FirstOrDefaultAsync(r => r.TokenHash == tokenHash, ct);
             if (existingToken?.ClientId is not null)
-                return Results.Json(new { error = "OAuth tokens must use /oauth/token endpoint" },
-                    statusCode: StatusCodes.Status400BadRequest);
+                return ApiProblem.BadRequest("OAuth tokens must use /oauth/token endpoint");
 
             var tokenResponse = await tokenService.RefreshTokenAsync(request.RefreshToken, cancellationToken: ct);
             if (tokenResponse is null)
-                return Results.Json(new { error = "Invalid or expired refresh token" },
-                    statusCode: StatusCodes.Status401Unauthorized);
+                return ApiProblem.Unauthorized("Invalid or expired refresh token");
 
             return Results.Ok(tokenResponse);
         })
+        .Produces<TokenResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
         .WithName("RefreshToken")
         .WithDescription("Exchange a refresh token for a new JWT access token and refresh token")
         .AllowAnonymous();
@@ -117,6 +121,8 @@ public static class AuthEndpoints
                 roles.ToList(),
                 user.CreatedAt));
         })
+        .Produces<MeResponse>()
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
         .WithName("GetMe")
         .WithDescription("Return the authenticated caller's identity (id, email, display name, roles).")
         .RequireAuthorization();
@@ -132,6 +138,9 @@ public static class AuthEndpoints
                 ? Results.Ok(AccountLinksResponse.From(read.Result!))
                 : OperationProblems.Result(read);
         })
+        .Produces<AccountLinksResponse>()
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .WithName("ListAccountLinks")
         .WithDescription("List the caller's linked accounts (AWS, Entra ID, GitHub, Atlassian, custom providers): whether each is linked, as whom, since when, and whether this server offers linking. Search hides documents that only an unlinked account may read. Linking itself happens in a browser at /profile/integrations.")
         .RequireAuthorization(Policies.Account);
@@ -149,6 +158,8 @@ public static class AuthEndpoints
             var pats = await patService.ListAsync(userId.Value, ct);
             return Results.Ok(pats);
         })
+        .Produces<IReadOnlyList<PatListItem>>()
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
         .WithName("ListPats")
         .WithDescription("List personal access tokens for the authenticated user")
         .RequireAuthorization();
@@ -171,6 +182,9 @@ public static class AuthEndpoints
 
             return Results.Ok(pat);
         })
+        .Produces<PatCreateResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
         .WithName("CreatePat")
         .WithDescription("Create a personal access token (the raw token is returned only on creation)")
         .RequireAuthorization();
@@ -189,11 +203,14 @@ public static class AuthEndpoints
 
             var revoked = await patService.RevokeAsync(userId.Value, id, ct);
             if (!revoked)
-                return Results.NotFound(new { error = "PAT not found or already revoked" });
+                return ApiProblem.NotFound("PAT not found or already revoked");
 
             await auditLogger.LogAsync("pat.revoked", "pat", id.ToString(), null, ct);
             return Results.NoContent();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("RevokePat")
         .WithDescription("Revoke a personal access token by ID")
         .RequireAuthorization();
@@ -244,6 +261,10 @@ public static class AuthEndpoints
 
             return Results.Ok(new PagedResponse<UserListItem>(items, totalCount, effectiveSkip + effectiveTake < totalCount));
         })
+        .Produces<PagedResponse<UserListItem>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .WithName("ListUsers")
         .WithDescription("List users with pagination (?skip=0&take=50) (Admin only)")
         .RequireAuthorization("RequireAdmin");
@@ -258,14 +279,14 @@ public static class AuthEndpoints
         {
             var targetUser = await userManager.FindByIdAsync(id.ToString());
             if (targetUser is null)
-                return Results.NotFound(new { error = "User not found" });
+                return ApiProblem.NotFound("User not found");
 
             // Owner and Agent roles cannot be assigned via this endpoint
             var reservedRoles = new[] { "Owner", "Agent" };
             var blocked = request.Roles.FirstOrDefault(r =>
                 reservedRoles.Contains(r, StringComparer.OrdinalIgnoreCase));
             if (blocked is not null)
-                return Results.BadRequest(new { error = $"The '{blocked}' role cannot be assigned via this endpoint." });
+                return ApiProblem.BadRequest($"The '{blocked}' role cannot be assigned via this endpoint.");
 
             var currentRoles = await userManager.GetRolesAsync(targetUser);
 
@@ -289,7 +310,7 @@ public static class AuthEndpoints
             {
                 var addResult = await userManager.AddToRolesAsync(targetUser, rolesToAdd);
                 if (!addResult.Succeeded)
-                    return Results.BadRequest(new { errors = addResult.Errors.Select(e => e.Description) });
+                    return ApiProblem.BadRequest(addResult.Errors.Select(e => e.Description));
             }
 
             await auditLogger.LogAsync("user.roles.updated", "user", id.ToString(),
@@ -297,6 +318,11 @@ public static class AuthEndpoints
 
             return Results.NoContent();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("AssignUserRoles")
         .WithDescription("Assign roles to a user (Admin only)")
         .RequireAuthorization("RequireAdmin");

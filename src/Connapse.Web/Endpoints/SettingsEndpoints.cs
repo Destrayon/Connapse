@@ -3,9 +3,12 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Vectors;
+using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi;
 
 namespace Connapse.Web.Endpoints;
 
@@ -15,6 +18,13 @@ public static class SettingsEndpoints
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
+    };
+
+    // A save also refuses a property its category doesn't have, so another category's settings, which would
+    // otherwise read as all defaults, can't overwrite this one's.
+    private static readonly JsonSerializerOptions SaveJsonOptions = new(JsonOptions)
+    {
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
     };
 
     /// <summary>
@@ -29,7 +39,9 @@ public static class SettingsEndpoints
     public static IEndpointRouteBuilder MapSettingsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/settings").WithTags("Settings")
-            .RequireAuthorization("RequireAdmin");
+            .RequireAuthorization("RequireAdmin")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // GET /api/settings/{category} - Get settings for a category
         // Reads from the database first so callers always see the latest saved value.
@@ -50,9 +62,12 @@ public static class SettingsEndpoints
                 "search" => Results.Ok(await GetSettingsAsync<SearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "llm" => Results.Ok(await GetSettingsAsync<LlmSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                _ => Results.NotFound(new { error = $"Unknown settings category: {category}" })
+                _ => ApiProblem.NotFound($"Unknown settings category: {category}")
             };
         })
+        .Produces<object>()
+        .AddOpenApiOperationTransformer(DescribeCategoryShapesAsync)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetSettings")
         .WithDescription("Get settings for a specific category");
 
@@ -77,27 +92,27 @@ public static class SettingsEndpoints
                 switch (categoryLower)
                 {
                     case "embedding":
-                        embeddingSettings = JsonSerializer.Deserialize<EmbeddingSettings>(rawJson, JsonOptions);
+                        embeddingSettings = JsonSerializer.Deserialize<EmbeddingSettings>(rawJson, SaveJsonOptions);
                         if (embeddingSettings != null) await settingsStore.SaveAsync(categoryLower, embeddingSettings, ct);
                         break;
                     case "chunking":
-                        var chunking = JsonSerializer.Deserialize<ChunkingSettings>(rawJson, JsonOptions);
+                        var chunking = JsonSerializer.Deserialize<ChunkingSettings>(rawJson, SaveJsonOptions);
                         if (chunking != null) await settingsStore.SaveAsync(categoryLower, chunking, ct);
                         break;
                     case "search":
-                        var search = JsonSerializer.Deserialize<SearchSettings>(rawJson, JsonOptions);
+                        var search = JsonSerializer.Deserialize<SearchSettings>(rawJson, SaveJsonOptions);
                         if (search != null) await settingsStore.SaveAsync(categoryLower, search, ct);
                         break;
                     case "llm":
-                        var llm = JsonSerializer.Deserialize<LlmSettings>(rawJson, JsonOptions);
+                        var llm = JsonSerializer.Deserialize<LlmSettings>(rawJson, SaveJsonOptions);
                         if (llm != null) await settingsStore.SaveAsync(categoryLower, llm, ct);
                         break;
                     case "upload":
-                        var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, JsonOptions);
+                        var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, SaveJsonOptions);
                         if (upload != null) await settingsStore.SaveAsync(categoryLower, upload, ct);
                         break;
                     default:
-                        return Results.NotFound(new { error = $"Unknown settings category: {category}" });
+                        return ApiProblem.NotFound($"Unknown settings category: {category}");
                 }
 
                 // When embedding settings change, reconcile partial IVFFlat indexes
@@ -131,22 +146,20 @@ public static class SettingsEndpoints
 
                     if (legacyModels.Count > 0)
                     {
-                        return Results.Ok(new
-                        {
-                            success = true,
-                            message = $"Settings for '{category}' updated successfully",
-                            legacyVectorsExist = true,
-                            legacyModels = legacyModels.Select(m => new { m.ModelId, m.VectorCount }),
-                            legacyVectorCount = legacyModels.Sum(m => m.VectorCount)
-                        });
+                        return Results.Ok(new SettingsSavedResponse(
+                            Success: true,
+                            Message: $"Settings for '{category}' updated successfully",
+                            LegacyVectorsExist: true,
+                            LegacyModels: legacyModels.Select(m => new LegacyEmbeddingModel(m.ModelId, m.VectorCount)).ToList(),
+                            LegacyVectorCount: legacyModels.Sum(m => m.VectorCount)));
                     }
                 }
 
-                return Results.Ok(new { success = true, message = $"Settings for '{category}' updated successfully" });
+                return Results.Ok(new SettingsSavedResponse(true, $"Settings for '{category}' updated successfully"));
             }
             catch (JsonException ex)
             {
-                return Results.BadRequest(new { error = $"Invalid JSON: {ex.Message}" });
+                return ApiProblem.BadRequest($"Invalid JSON: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -157,6 +170,11 @@ public static class SettingsEndpoints
                     title: "Failed to update settings");
             }
         })
+        .Produces<SettingsSavedResponse>()
+        .AddOpenApiOperationTransformer(DescribeCategoryShapesAsync)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithName("UpdateSettings")
         .WithDescription("Update settings for a specific category");
 
@@ -180,12 +198,12 @@ public static class SettingsEndpoints
         {
             if (string.IsNullOrWhiteSpace(request.Category))
             {
-                return Results.BadRequest(new { error = "Category is required" });
+                return ApiProblem.BadRequest("Category is required");
             }
 
             if (request.Settings.ValueKind == JsonValueKind.Undefined || request.Settings.ValueKind == JsonValueKind.Null)
             {
-                return Results.BadRequest(new { error = "Settings are required" });
+                return ApiProblem.BadRequest("Settings are required");
             }
 
             var categoryLower = request.Category.ToLowerInvariant();
@@ -206,7 +224,7 @@ public static class SettingsEndpoints
             }
             catch (JsonException ex)
             {
-                return Results.BadRequest(new { error = $"Invalid settings JSON: {ex.Message}" });
+                return ApiProblem.BadRequest($"Invalid settings JSON: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -217,6 +235,9 @@ public static class SettingsEndpoints
                     title: "Connection test failed");
             }
         })
+        .Produces<ConnectionTestResult>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithName("TestConnection")
         .WithDescription("Test connectivity to external services (Ollama, MinIO, etc.)");
 
@@ -229,20 +250,12 @@ public static class SettingsEndpoints
             var models = await modelDiscovery.GetModelsAsync(containerId: null, ct);
             var currentModel = EmbeddingIdentity.For(embeddingSettings.CurrentValue);
 
-            return Results.Ok(new
-            {
+            return Results.Ok(new GlobalEmbeddingModelsResponse(
                 currentModel,
-                models = models.Select(m => new
-                {
-                    m.ModelId,
-                    m.Dimensions,
-                    m.VectorCount,
-                    isCurrent = string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase)
-                }),
-                hasLegacyVectors = models.Any(m =>
-                    !string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))
-            });
+                EmbeddingModelUsage.From(models, currentModel),
+                models.Any(m => !string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))));
         })
+        .Produces<GlobalEmbeddingModelsResponse>()
         .WithName("GetGlobalEmbeddingModels")
         .WithDescription("Get all embedding models with vectors across all containers");
 
@@ -292,8 +305,10 @@ public static class SettingsEndpoints
                 }
             });
 
-            return Results.Ok(new { success = true, message = "Re-embedding started in background" });
+            return Results.Ok(new ReindexStartedResponse(true, "Re-embedding started in background"));
         })
+        .Produces<ReindexStartedResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .WithName("TriggerReindex")
         .WithDescription("Start background re-embedding of documents with outdated embedding models");
 
@@ -305,21 +320,58 @@ public static class SettingsEndpoints
         {
             var state = reindexState.Current;
             int queueDepth = await queue.GetQueueDepthAsync(ct);
-            return Results.Ok(new
-            {
+            return Results.Ok(new ReindexStatusResponse(
                 queueDepth,
-                isActive = queueDepth > 0,
-                status = state.Status.ToString(),
-                isFailed = state.Status == ReindexStatus.Failed,
-                lastError = state.LastError,
-                startedAt = state.StartedAt,
-                completedAt = state.CompletedAt
-            });
+                queueDepth > 0,
+                state.Status.ToString(),
+                state.Status == ReindexStatus.Failed,
+                state.LastError,
+                state.StartedAt,
+                state.CompletedAt));
         })
+        .Produces<ReindexStatusResponse>()
         .WithName("GetReindexStatus")
         .WithDescription("Get current re-embedding/reindex queue status");
 
         return app;
+    }
+
+    /// <summary>The settings type each category reads and writes.</summary>
+    private static readonly (string Category, Type Type)[] CategoryShapes =
+    [
+        ("embedding", typeof(EmbeddingSettings)),
+        ("chunking", typeof(ChunkingSettings)),
+        ("search", typeof(SearchSettings)),
+        ("llm", typeof(LlmSettings)),
+        ("upload", typeof(UploadSettings)),
+    ];
+
+    /// <summary>
+    /// GET's answer and PUT's body are the category's settings: anyOf the five shapes, each a component, since
+    /// they share optional properties and a body can match more than one. The description names which is whose.
+    /// </summary>
+    private static async Task DescribeCategoryShapesAsync(
+        OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken ct)
+    {
+        var shapes = new OpenApiSchema
+        {
+            AnyOf = [],
+            Description = "The category's settings: "
+                + string.Join(", ", CategoryShapes.Select(c => $"{c.Category}: {c.Type.Name}")) + ".",
+        };
+        foreach (var (_, type) in CategoryShapes)
+        {
+            var schema = await context.GetOrCreateSchemaAsync(type, null, ct);
+            context.Document!.AddComponent(type.Name, schema);
+            shapes.AnyOf.Add(new OpenApiSchemaReference(type.Name, context.Document));
+        }
+
+        if (operation.RequestBody?.Content is { } body && body.TryGetValue("application/json", out var request))
+            request.Schema = shapes;
+        if (context.Description.HttpMethod == HttpMethods.Get
+            && operation.Responses?.TryGetValue("200", out var ok) == true && ok.Content is { } content
+            && content.TryGetValue("application/json", out var response))
+            response.Schema = shapes;
     }
 
     /// <summary>
@@ -467,3 +519,30 @@ public record TestConnectionRequest(
 
 public record ReindexTriggerRequest(
     string? ContainerId = null);
+
+// Response DTOs
+/// <summary>A settings save. The legacy fields are present only when vectors from other embedding models remain.</summary>
+public record SettingsSavedResponse(
+    bool Success,
+    string Message,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    bool? LegacyVectorsExist = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<LegacyEmbeddingModel>? LegacyModels = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    long? LegacyVectorCount = null);
+
+public record LegacyEmbeddingModel(string ModelId, long VectorCount);
+
+public record GlobalEmbeddingModelsResponse(string CurrentModel, IReadOnlyList<EmbeddingModelUsage> Models, bool HasLegacyVectors);
+
+public record ReindexStartedResponse(bool Success, string Message);
+
+public record ReindexStatusResponse(
+    int QueueDepth,
+    bool IsActive,
+    string Status,
+    bool IsFailed,
+    string? LastError,
+    DateTime? StartedAt,
+    DateTime? CompletedAt);
