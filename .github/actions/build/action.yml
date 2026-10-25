@@ -21,6 +21,8 @@ runs:
       key: pdf-models-250dbad1-d57a942a
 
   - uses: ./.github/actions/restore
+    with:
+      project: ${{ inputs.project }}
 
   - name: Build
     shell: bash

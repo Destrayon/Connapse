@@ -1,5 +1,9 @@
 name: Restore
-description: Restore the whole solution's NuGet packages, from the Actions cache when it has them.
+description: Restore NuGet packages for the solution (or one project), from the Actions cache when it has them.
+inputs:
+  project:
+    description: A project to restore instead of the whole solution.
+    default: ''
 runs:
   using: composite
   steps:
@@ -15,16 +19,24 @@ runs:
       key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.props', 'global.json') }}
       restore-keys: nuget-${{ runner.os }}-
 
-  # The whole solution even for a job that builds one project, so every job reads and saves the same
-  # set. A full restore from nuget.org takes 15-60 s, so one still running at 60 s is stalled on a
-  # download; the second try keeps every package the first one finished.
+  # A full restore from nuget.org takes 15-60 s, so one still running at 60 s is stalled on a download.
+  # Only a timeout (exit 124) is retried, at most twice; each try keeps the packages the last one finished.
   - name: Restore dependencies
     shell: bash
-    run: timeout 60 dotnet restore || dotnet restore
+    run: |
+      for attempt in 1 2 3; do
+        status=0
+        timeout 60 dotnet restore ${{ inputs.project }} || status=$?
+        [ "$status" -ne 124 ] && exit "$status"
+        echo "::warning::dotnet restore stalled past 60 s (attempt $attempt of 3)"
+      done
+      exit 124
 
   # Saved straight after the restore rather than when the job ends, so a failing test still leaves it.
+  # Only a whole-solution restore saves: one project's packages under the shared key would leave every
+  # other job that hits it downloading the rest.
   - name: Save NuGet cache
-    if: steps.nuget.outputs.cache-hit != 'true'
+    if: inputs.project == '' && steps.nuget.outputs.cache-hit != 'true'
     uses: actions/cache/save@v4
     with:
       path: ~/.nuget/packages
