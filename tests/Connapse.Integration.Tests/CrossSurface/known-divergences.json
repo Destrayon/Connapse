@@ -87,5 +87,15 @@
   "agents_setActive/invalid/ui": "absent: the Agents page turns on or off only the agents it lists, so it can't name one that doesn't exist",
   "agents_delete/invalid/ui": "absent: the Agents page deletes only the agents it lists, so it can't name one that doesn't exist",
   "agents_keys_list/invalid/ui": "absent: the Agents page opens the keys only of the agents it lists, so it can't name one that doesn't exist",
-  "agents_keys_revoke/invalid/ui": "absent: the Agents page revokes only the keys it lists, so it can't name one that doesn't exist"
+  "agents_keys_revoke/invalid/ui": "absent: the Agents page revokes only the keys it lists, so it can't name one that doesn't exist",
+  "pats_list/valid/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_list/under-scoped/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_create/valid/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_create/invalid/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_create/under-scoped/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_revoke/valid/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_revoke/invalid/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_revoke/under-scoped/mcp": "absent: MCP never reaches personal access tokens: they are credentials for the caller's own account",
+  "pats_revoke/invalid/ui": "absent: the API Tokens page revokes only the caller's own tokens it lists, so it can't name one that doesn't exist or isn't theirs",
+  "pats_revoke/under-scoped/ui": "absent: the API Tokens page revokes only the caller's own tokens it lists, so it can't name one that doesn't exist or isn't theirs"
 }

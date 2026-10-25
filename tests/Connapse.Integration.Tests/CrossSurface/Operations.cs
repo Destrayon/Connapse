@@ -37,6 +37,9 @@ public sealed record CaseContext(string ContainerId, string ContainerName, IRead
     /// <summary>The case's own agent and its key, named after its container, for the agent operations.</summary>
     public AgentCase? Agent { get; init; }
 
+    /// <summary>The case's own personal access token, the admin's, named after its container, for the token operations.</summary>
+    public TokenCase? Token { get; init; }
+
     public string FileId => Files[0].Id;
     public string FileName => Files[0].Name;
 
@@ -77,6 +80,9 @@ public sealed record Operation(
     /// <summary>Whether the case needs an agent of its own, with a key, to act on.</summary>
     public bool ArrangesAgent { get; init; }
 
+    /// <summary>Whether the case needs a personal access token of its own to act on.</summary>
+    public bool ArrangesToken { get; init; }
+
     /// <summary>Anything the case's source needs before the action, such as a failed document to retry.</summary>
     public Func<SharedWebAppFixture, CaseContext, string, Task>? Prepare { get; init; }
 
@@ -105,7 +111,7 @@ public static partial class Operations
     private const string Query = "harness";
 
     /// <summary>Every operation: the container ones here, and the file and search ones in Operations.Files.cs.</summary>
-    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations, .. SourceOperations, .. UserOperations, .. InviteOperations, .. AgentOperations];
+    public static IReadOnlyList<Operation> All => [.. ContainerOperations, .. FileOperations, .. SourceOperations, .. UserOperations, .. InviteOperations, .. AgentOperations, .. TokenOperations];
 
     private static readonly Operation[] ContainerOperations =
     [
@@ -253,6 +259,8 @@ public static partial class Operations
             context = context with { InviteId = await ArrangeInviteAsync(fixture, context) };
         if (operation.ArrangesAgent)
             context = context with { Agent = await ArrangeAgentAsync(fixture, name) };
+        if (operation.ArrangesToken)
+            context = context with { Token = await ArrangeTokenAsync(fixture, name) };
         if (operation.Prepare is { } prepare)
             await prepare(fixture, context, @case);
         if (operation.WaitForIngestion && @case is Case.Valid or Case.UnderScoped)
@@ -295,6 +303,7 @@ public static partial class Operations
             await CleanupUserAsync(fixture, user);
         await CleanupInvitesAsync(fixture, c);
         await CleanupAgentsAsync(fixture, c);
+        await CleanupTokensAsync(fixture, c);
         IReadOnlyList<Connapse.Core.Document> documents;
         foreach (string name in new[] { c.ContainerName, NewName(c, Case.Valid), NewName(c, Case.UnderScoped) })
         {
