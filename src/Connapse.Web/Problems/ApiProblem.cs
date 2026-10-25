@@ -12,6 +12,17 @@ public static class ApiProblem
     public static IResult BadRequest(string error, string? message = null) =>
         Result(StatusCodes.Status400BadRequest, error, message);
 
+    public static IResult Unauthorized(string error, string? message = null) =>
+        Result(StatusCodes.Status401Unauthorized, error, message);
+
+    /// <summary>A 400 listing several reasons, as <c>new { errors }</c> made one: no detail, an <c>errors</c> array.</summary>
+    public static IResult BadRequest(IEnumerable<string> errors)
+    {
+        var problem = new ProblemDetails { Status = StatusCodes.Status400BadRequest };
+        problem.Extensions["errors"] = errors.ToList();
+        return Results.Problem(problem);
+    }
+
     public static IResult Forbidden(string error, string? message = null) =>
         Result(StatusCodes.Status403Forbidden, error, message);
 

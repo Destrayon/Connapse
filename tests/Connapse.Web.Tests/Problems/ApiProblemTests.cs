@@ -34,5 +34,16 @@ public class ApiProblemTests
             .Should().Be(Filtered(Results.BadRequest(new { error = "document_not_ready", message = "Document is still being ingested" })));
         Body(ApiProblem.Forbidden("cloud_access_denied", "Access denied"))
             .Should().Be(Filtered(Results.Json(new { error = "cloud_access_denied", message = "Access denied" }, statusCode: 403)));
+        Body(ApiProblem.Unauthorized("Invalid or expired refresh token"))
+            .Should().Be(Filtered(Results.Json(new { error = "Invalid or expired refresh token" }, statusCode: 401)));
+    }
+
+    [Fact]
+    public void ApiProblem_Errors_IsTheBodyTheFilterMadeOfTheAnonymousObject()
+    {
+        string[] reasons = ["Role 'Ghost' does not exist.", "Second reason."];
+
+        Body(ApiProblem.BadRequest(reasons))
+            .Should().Be(Filtered(Results.BadRequest(new { errors = reasons.Select(r => r) })));
     }
 }

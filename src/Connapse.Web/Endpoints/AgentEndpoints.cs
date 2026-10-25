@@ -4,6 +4,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
+using Connapse.Web.Problems;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,7 +16,9 @@ public static class AgentEndpoints
     {
         var group = app.MapGroup("/api/v1/agents")
             .WithTags("Agents")
-            .RequireAuthorization("RequireAdmin");
+            .RequireAuthorization("RequireAdmin")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // POST /api/v1/agents — create a new agent
         group.MapPost("/", async (
@@ -33,13 +36,13 @@ public static class AgentEndpoints
             if (trimmedName.Length < ValidationConstants.MinAgentNameLength
                 || trimmedName.Length > ValidationConstants.MaxAgentNameLength
                 || !Regex.IsMatch(trimmedName, ValidationConstants.AgentNamePattern))
-                return Results.BadRequest(new { error = "agent_name_invalid", message = "Agent name must be 2-64 characters, alphanumeric with hyphens and underscores" });
+                return ApiProblem.BadRequest("agent_name_invalid", "Agent name must be 2-64 characters, alphanumeric with hyphens and underscores");
 
             if (request.Description is not null)
             {
                 var trimmedDesc = request.Description.Trim();
                 if (trimmedDesc.Length > ValidationConstants.MaxAgentDescriptionLength)
-                    return Results.BadRequest(new { error = "agent_description_too_long", message = $"Agent description must not exceed {ValidationConstants.MaxAgentDescriptionLength} characters" });
+                    return ApiProblem.BadRequest("agent_description_too_long", $"Agent description must not exceed {ValidationConstants.MaxAgentDescriptionLength} characters");
             }
 
             try
@@ -51,9 +54,12 @@ public static class AgentEndpoints
             }
             catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex, "ix_agents_name"))
             {
-                return Results.Conflict(new { error = $"An agent named '{request.Name}' already exists." });
+                return ApiProblem.Conflict($"An agent named '{request.Name}' already exists.");
             }
         })
+        .Produces<AgentDto>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("CreateAgent")
         .WithDescription("Create a new agent (Admin only)");
 
@@ -65,6 +71,7 @@ public static class AgentEndpoints
             var agents = await agentService.ListAsync(ct);
             return Results.Ok(agents);
         })
+        .Produces<IReadOnlyList<AgentDto>>()
         .WithName("ListAgents")
         .WithDescription("List all agents (Admin only)");
 
@@ -77,6 +84,8 @@ public static class AgentEndpoints
             var agent = await agentService.GetAsync(id, ct);
             return agent is null ? Results.NotFound() : Results.Ok(agent);
         })
+        .Produces<AgentDto>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetAgent")
         .WithDescription("Get agent details (Admin only)");
 
@@ -94,6 +103,8 @@ public static class AgentEndpoints
             await auditLogger.LogAsync("agent.deleted", "agent", id.ToString(), null, ct);
             return Results.NoContent();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("DeleteAgent")
         .WithDescription("Delete an agent and revoke all its API keys (Admin only)");
 
@@ -107,6 +118,9 @@ public static class AgentEndpoints
             var updated = await agentService.SetActiveAsync(id, request.IsActive, ct);
             return updated ? Results.NoContent() : Results.NotFound();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("SetAgentActive")
         .WithDescription("Enable or disable an agent (Admin only)");
 
@@ -119,6 +133,7 @@ public static class AgentEndpoints
             var keys = await agentService.ListKeysAsync(id, ct);
             return Results.Ok(keys);
         })
+        .Produces<IReadOnlyList<AgentKeyListItem>>()
         .WithName("ListAgentKeys")
         .WithDescription("List API keys for an agent (Admin only)");
 
@@ -133,7 +148,7 @@ public static class AgentEndpoints
             var trimmedKeyName = request.Name?.Trim() ?? "";
             if (trimmedKeyName.Length < ValidationConstants.MinAgentNameLength
                 || trimmedKeyName.Length > ValidationConstants.MaxAgentKeyNameLength)
-                return Results.BadRequest(new { error = "agent_key_name_invalid", message = $"Agent key name must be {ValidationConstants.MinAgentNameLength}-{ValidationConstants.MaxAgentKeyNameLength} characters" });
+                return ApiProblem.BadRequest("agent_key_name_invalid", $"Agent key name must be {ValidationConstants.MinAgentNameLength}-{ValidationConstants.MaxAgentKeyNameLength} characters");
 
             try
             {
@@ -144,9 +159,12 @@ public static class AgentEndpoints
             }
             catch (InvalidOperationException ex)
             {
-                return Results.NotFound(new { error = ex.Message });
+                return ApiProblem.NotFound(ex.Message);
             }
         })
+        .Produces<CreateAgentKeyResponse>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("CreateAgentKey")
         .WithDescription("Create an API key for an agent. Token is shown only once. (Admin only)");
 
@@ -166,6 +184,8 @@ public static class AgentEndpoints
                 new { KeyId = keyId }, ct);
             return Results.NoContent();
         })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("RevokeAgentKey")
         .WithDescription("Revoke an agent API key (Admin only)");
 

@@ -1,6 +1,4 @@
 [
-  "Endpoints/AgentEndpoints.cs: POST /api/v1/agents/: 3",
-  "Endpoints/AgentEndpoints.cs: POST /api/v1/agents/{id:guid}/keys: 2",
   "Endpoints/AtlassianEndpoints.cs: DELETE /api/v1/atlassian/linking-app/: 2",
   "Endpoints/AtlassianEndpoints.cs: DELETE /api/v1/atlassian/sites/{connectionId:guid}: 5",
   "Endpoints/AtlassianEndpoints.cs: GET /api/v1/atlassian/linking-app/: 2",
@@ -18,10 +16,7 @@
   "Endpoints/AtlassianEndpoints.cs: PUT /api/v1/atlassian/linking-app/: 5",
   "Endpoints/AtlassianEndpoints.cs: PUT /api/v1/atlassian/linking-app/sign-in: 3",
   "Endpoints/AtlassianEndpoints.cs: PUT /api/v1/atlassian/sites/{connectionId:guid}/credentials: 6",
-  "Endpoints/AuthEndpoints.cs: DELETE /api/v1/auth/pats/{id:guid}: 1",
   "Endpoints/AuthEndpoints.cs: GET /api/v1/auth/users: 1",
-  "Endpoints/AuthEndpoints.cs: POST /api/v1/auth/token/refresh: 2",
-  "Endpoints/AuthEndpoints.cs: PUT /api/v1/auth/users/{id:guid}/roles: 3",
   "Endpoints/OAuthEndpoints.cs: BuildProtectedResourceMetadata: 1",
   "Endpoints/OAuthEndpoints.cs: GET /.well-known/oauth-authorization-server: 1",
   "Endpoints/OAuthEndpoints.cs: GET /oauth/clients/cli.json: 1",
