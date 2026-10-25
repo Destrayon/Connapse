@@ -61,8 +61,10 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
             "each needs a knowledge scope the token wasn't issued with");
     }
 
-    [Fact]
-    public async Task ScopeCheckedRoute_OAuthClientGrantedNoScopes_IsForbidden()
+    [Theory]
+    [InlineData("/api/v1/audit/?take=1")]
+    [InlineData("/api/settings/embedding")]
+    public async Task ScopeCheckedRoute_OAuthClientGrantedNoScopes_IsForbidden(string route)
     {
         // An OAuth client's access token carries its client_id, and no scope claim when it was granted none; it is
         // a token all the same, so the administrator's roles don't stand in for scopes.
@@ -90,7 +92,7 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
             (await exchanged.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("access_token").GetString());
 
-        using var response = await client.GetAsync("/api/v1/audit/?take=1");
+        using var response = await client.GetAsync(route);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
