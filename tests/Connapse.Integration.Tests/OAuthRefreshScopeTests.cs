@@ -78,6 +78,31 @@ public class OAuthRefreshScopeTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task OAuthRefresh_SignInsRefreshToken_IsRefusedAndStillWorksWhereItBelongs()
+    {
+        // A sign-in's refresh token belongs to /api/v1/auth/token/refresh. Sent to /oauth/token with a client_id
+        // it would be rotated and bound to that client with no scope, which no refresh accepts afterwards.
+        using var anonymous = fixture.Factory.CreateClient();
+        string clientId = await RegisterAsync(anonymous);
+        string refreshToken;
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            refreshToken = (await scope.ServiceProvider.GetRequiredService<ITokenService>().GenerateTokenPairAsync(
+                [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, AdminUserId().ToString())], AdminUserId())).RefreshToken;
+
+        using var oauth = await anonymous.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = clientId,
+        }));
+
+        oauth.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await oauth.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString().Should().Be("invalid_grant");
+        using var signIn = await anonymous.PostAsJsonAsync("/api/v1/auth/token/refresh", new { refreshToken });
+        signIn.StatusCode.Should().Be(HttpStatusCode.OK, "the refused request must not have rotated the sign-in's token");
+    }
+
+    [Fact]
     public async Task Migration_AddsANullableScopeColumnToRefreshTokens()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
