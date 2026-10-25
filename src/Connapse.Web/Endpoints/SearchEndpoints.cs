@@ -14,7 +14,9 @@ public static class SearchEndpoints
     public static IEndpointRouteBuilder MapSearchEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/containers/{containerId:guid}/search").WithTags("Search")
-            .RequireAuthorization("RequireViewer");
+            .RequireAuthorization("RequireViewer")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // GET /api/containers/{containerId}/search - Simple search with query parameters
         group.MapGet("/", async (
@@ -37,8 +39,6 @@ public static class SearchEndpoints
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("search.containerByQuery")
         .WithDescription("Search within a container using query string parameters");
@@ -56,8 +56,6 @@ public static class SearchEndpoints
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status401Unauthorized)
-        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("search.container")
         .WithDescription("Search within a container with advanced filters and options");
@@ -121,4 +119,16 @@ public record SearchApiRequest(
     Dictionary<string, string>? Filters = null)
 {
     public SearchRequest ToSearch() => new(Query, Mode ?? SearchMode.Hybrid, TopK, MinScore, Path, Filters);
+}
+
+// Response DTOs
+public record ContainerEmbeddingModelsResponse(string CurrentModel, IReadOnlyList<EmbeddingModelUsage> Models);
+
+/// <summary>An embedding model with vectors stored, and whether it is the one configured now.</summary>
+public record EmbeddingModelUsage(string ModelId, int Dimensions, long VectorCount, bool IsCurrent)
+{
+    public static IReadOnlyList<EmbeddingModelUsage> From(IEnumerable<EmbeddingModelInfo> models, string currentModel) =>
+        models.Select(m => new EmbeddingModelUsage(
+            m.ModelId, m.Dimensions, m.VectorCount,
+            string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))).ToList();
 }
