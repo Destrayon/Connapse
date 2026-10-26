@@ -325,6 +325,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPerSchemeResultVerifier, CustomSearchResultVerifier>();
         services.AddScoped<ISearchResultVerifier>(sp => new CompositeSearchResultVerifier(
             sp.GetServices<IPerSchemeResultVerifier>()));
+        // The link layer's tables. Readers are built per search, for one reader's access.
+        services.AddScoped<Links.PostgresLinkStore>();
+        services.AddScoped<ILinkWriter>(sp => sp.GetRequiredService<Links.PostgresLinkStore>());
+        services.AddScoped<ILinkIndex>(sp => sp.GetRequiredService<Links.PostgresLinkStore>());
         services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
         services.Configure<AtlassianVerifierSettings>(configuration.GetSection(AtlassianVerifierSettings.SectionName));
 

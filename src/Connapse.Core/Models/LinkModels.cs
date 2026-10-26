@@ -42,3 +42,25 @@ public sealed record LinkExpansion(IReadOnlyList<VisibleNode> Nodes, IReadOnlyLi
 {
     public static LinkExpansion DeniedResult { get; } = new([], [], Denied: true);
 }
+
+/// <summary>Which part of a node a <see cref="LinkFact"/> describes.</summary>
+public enum LinkFactField { Kind = 0, Name = 1, Summary = 2 }
+
+/// <summary>One thing a document says about a node: what kind of thing it is, a name for it, or a summary.</summary>
+public sealed record LinkFact(string NodeId, LinkFactField Field, string Text);
+
+/// <summary>
+/// One link a document asserts. Several documents may assert the same <paramref name="EdgeId"/>; each keeps its own
+/// <paramref name="Evidence"/> sentence (empty for a structural link such as "closes").
+/// </summary>
+public sealed record LinkAssertion(string EdgeId, string FromId, string ToId, string Type, string Evidence = "");
+
+/// <summary>
+/// Everything one document contributes to the link layer. Writing it replaces whatever that document said before.
+/// <paramref name="NodeId"/> is the node the document itself stands for (an issue's own key), or null.
+/// </summary>
+public sealed record DocumentLinks(
+    string DocumentId,
+    string? NodeId,
+    IReadOnlyList<LinkFact> Facts,
+    IReadOnlyList<LinkAssertion> Links);
