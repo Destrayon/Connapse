@@ -5,6 +5,7 @@ using Connapse.Identity.Authorization;
 using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NSubstitute;
@@ -69,6 +70,16 @@ public class McpApprovalUnitTests
         var second = User(new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim("client_id", "client-a"));
 
         McpApprovalClaims.TokenKey(first).Should().NotBe(McpApprovalClaims.TokenKey(second));
+    }
+
+    [Fact]
+    public void TokenKey_SignInTokenAndBrowserSessionOfOneUser_Differ()
+    {
+        string user = Guid.NewGuid().ToString();
+        var session = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user)], IdentityConstants.ApplicationScheme));
+        var signIn = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user)], "AuthenticationTypes.Federation"));
+
+        McpApprovalClaims.TokenKey(session).Should().NotBe(McpApprovalClaims.TokenKey(signIn));
     }
 
     [Fact]
