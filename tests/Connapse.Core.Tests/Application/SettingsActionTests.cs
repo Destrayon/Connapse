@@ -44,7 +44,7 @@ public partial class SettingsOperationTests
 
         public ClearAllSummaries Clear() => new(Containers, Documents, World.Audit, World.Authorizer);
 
-        public TestConnection Test() => new(Tests, World.Authorizer);
+        public TestConnection Test() => new(Tests, World.Store, World.Configured, World.Authorizer);
 
         /// <summary>Containers in pages of 200, as ListAsync returns them.</summary>
         public void Holding(params Container[] containers) =>
@@ -420,12 +420,132 @@ public partial class SettingsOperationTests
         given.Should().NotBeNull();
         switch (given)
         {
-            case EmbeddingSettings e: e.ApiKey.Should().Be("sent", "the key is the one given; the stored one is never filled in"); break;
+            case EmbeddingSettings e: e.ApiKey.Should().Be("sent", "a key given is the one used"); break;
             case LlmSettings l: l.ApiKey.Should().Be("sent"); break;
             case SearchSettings s: s.CrossEncoderApiKey.Should().Be("sent"); break;
             default: given.Should().BeOfType<MinioOptions>().Which.Endpoint.Should().Be("minio:9000"); break;
         }
     }
+
+    // ── a saved key goes only where it was saved for ──────────────────────────────────────────
+
+    /// <summary>The settings the tester for <paramref name="kind"/> is given, once the test has run.</summary>
+    private static Func<object?> Given(Actions actions, ConnectionTesterKind kind)
+    {
+        object? given = null;
+        actions.Tests.TestAsync(kind, Arg.Do<object>(s => given = s), Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>())
+            .Returns(ConnectionTestResult.CreateSuccess("connected"));
+        return () => given;
+    }
+
+    [Fact]
+    public async Task Test_KeyLeftOutAtTheSavedAddress_UsesTheSavedKey()
+    {
+        var actions = new Actions();
+        await actions.World.Store.SaveAsync("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "https://api.openai.com/v1", OpenAiApiKey = "saved" });
+        var given = Given(actions, ConnectionTesterKind.OpenAiLlm);
+
+        await actions.Test().RunAsync(Caller, TestOf("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "https://api.openai.com/v1", Model = "gpt-4.1" }));
+
+        given().Should().BeOfType<LlmSettings>().Which.OpenAiApiKey.Should().Be("saved");
+    }
+
+    [Fact]
+    public async Task Test_KeyLeftOutWithNothingStored_UsesTheConfiguredKeyAtItsAddress()
+    {
+        var actions = new Actions();
+        actions.World.Configured.Values[typeof(SearchSettings)] = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderBaseUrl = null, CrossEncoderApiKey = "configured" };
+        var given = Given(actions, ConnectionTesterKind.Cohere);
+
+        await actions.Test().RunAsync(Caller, TestOf("crossencoder", new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderBaseUrl = null }));
+
+        given().Should().BeOfType<SearchSettings>().Which.CrossEncoderApiKey.Should().Be("configured");
+    }
+
+    [Fact]
+    public async Task Test_KeyLeftOutWithAnEmptyOverrideForAMissingOne_SendsNoKey()
+    {
+        // The tester reads OpenAiBaseUrl ?? BaseUrl: saved, that is the proxy; tested, "" is the default endpoint.
+        var actions = new Actions();
+        await actions.World.Store.SaveAsync("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = null, BaseUrl = "https://proxy.internal/v1", OpenAiApiKey = "saved" });
+        var given = Given(actions, ConnectionTesterKind.OpenAiLlm);
+
+        await actions.Test().RunAsync(Caller, TestOf("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "", BaseUrl = "https://proxy.internal/v1" }));
+
+        given().Should().BeOfType<LlmSettings>().Which.OpenAiApiKey.Should().BeNull("an empty override sends the request somewhere other than the saved proxy");
+    }
+
+    [Theory]
+    [InlineData("OpenAI", "https://attacker.example/v1", null)]
+    [InlineData("OpenAI", "https://api.openai.com/v1", "https://attacker.example")]
+    [InlineData("Anthropic", "https://api.openai.com/v1", null)]
+    public async Task Test_KeyLeftOutWithAnotherAddressOrProvider_SendsNoKey(string provider, string openAiBaseUrl, string? baseUrl)
+    {
+        var actions = new Actions();
+        await actions.World.Store.SaveAsync("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "https://api.openai.com/v1", OpenAiApiKey = "saved", ApiKey = "legacy" });
+        object? given = null;
+        actions.Tests.TestAsync(Arg.Any<ConnectionTesterKind>(), Arg.Do<object>(s => given = s), Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>())
+            .Returns(ConnectionTestResult.CreateFailure("no key"));
+
+        await actions.Test().RunAsync(Caller, TestOf("llm", new LlmSettings { Provider = provider, OpenAiBaseUrl = openAiBaseUrl, BaseUrl = baseUrl }));
+
+        var tested = given.Should().BeOfType<LlmSettings>().Subject;
+        (tested.OpenAiApiKey, tested.ApiKey, tested.AnthropicApiKey).Should().Be((null, null, null), "a saved key never goes anywhere but where it was saved for");
+    }
+
+    [Fact]
+    public async Task Test_KeyTypedWithAnotherAddress_UsesTheTypedKey()
+    {
+        var actions = new Actions();
+        await actions.World.Store.SaveAsync("embedding", new EmbeddingSettings { Provider = "AzureOpenAI", AzureEndpoint = "https://ours.openai.azure.com", AzureApiKey = "saved" });
+        var given = Given(actions, ConnectionTesterKind.AzureOpenAiEmbedding);
+
+        await actions.Test().RunAsync(Caller, TestOf("embedding", new EmbeddingSettings { Provider = "AzureOpenAI", AzureEndpoint = "https://new.openai.azure.com", AzureApiKey = "typed" }));
+
+        given().Should().BeOfType<EmbeddingSettings>().Which.AzureApiKey.Should().Be("typed");
+    }
+
+    [Fact]
+    [RandomInputTestOf(typeof(TestConnection))]
+    public Task Test_AnyChangedDestination_SendsOnlyTypedKeys() =>
+        Gen.Select(Gen.Int[0, 2], Gen.Bool, Gen.Int[0, 63], Gen.Int[0, 63]).SampleAsync(async t =>
+        {
+            var (which, stored, changed, typed) = t;
+            var (name, category) = which switch
+            {
+                0 => ("embedding", SettingsCategories.Find("embedding")!),
+                1 => ("llm", SettingsCategories.Find("llm")!),
+                _ => ("crossencoder", SettingsCategories.Find("search")!),
+            };
+            var destinations = category.Destinations;
+            var secrets = category.Secrets;
+            var saved = Activator.CreateInstance(category.Type)!;
+            var tested = Activator.CreateInstance(category.Type)!;
+            for (int i = 0; i < destinations.Count; i++)
+            {
+                destinations[i].SetValue(saved, $"to-{i}");
+                destinations[i].SetValue(tested, (changed & (1 << i)) != 0 ? "elsewhere" : $"to-{i}");
+            }
+            for (int i = 0; i < secrets.Count; i++)
+            {
+                secrets[i].SetValue(saved, $"saved-{i}");
+                secrets[i].SetValue(tested, (typed & (1 << i)) != 0 ? $"typed-{i}" : null);
+            }
+            var actions = new Actions();
+            if (stored)
+                actions.World.Store.Rows[category.Key] = JsonSerializer.Serialize(saved, category.Type);
+            else
+                actions.World.Configured.Values[category.Type] = saved;
+            object? given = null;
+            actions.Tests.TestAsync(Arg.Any<ConnectionTesterKind>(), Arg.Do<object>(s => given = s), Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>())
+                .Returns(ConnectionTestResult.CreateSuccess("connected"));
+
+            await new TestConnection(actions.Tests, actions.World.Store, actions.World.Configured, actions.World.Authorizer).RunAsync(Caller, new ConnectionTestRequest(name, JsonSerializer.SerializeToElement(tested, category.Type)));
+
+            bool moved = Enumerable.Range(0, destinations.Count).Any(i => (changed & (1 << i)) != 0);
+            for (int i = 0; i < secrets.Count; i++)
+                secrets[i].GetValue(given).Should().Be((typed & (1 << i)) != 0 ? $"typed-{i}" : moved ? null : $"saved-{i}", secrets[i].Name);
+        }, iter: 300);
 
     // ── what the Settings page sends ──────────────────────────────────────────────────────────
 
@@ -587,7 +707,7 @@ public partial class SettingsOperationTests
                 _ => Raw("{}"),
             };
 
-            var tested = await new TestConnection(actions.Tests, actions.World.Authorizer).RunAsync(Caller, new ConnectionTestRequest(category, body, timeout));
+            var tested = await new TestConnection(actions.Tests, actions.World.Store, actions.World.Configured, actions.World.Authorizer).RunAsync(Caller, new ConnectionTestRequest(category, body, timeout));
 
             bool tests = category is "embedding" or "LLM" or "crossencoder" or "minio";
             bool wrongShape = bodyKind == 2 && tests;

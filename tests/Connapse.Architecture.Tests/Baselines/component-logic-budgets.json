@@ -168,7 +168,7 @@
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
-    "CodeLines": 72,
+    "CodeLines": 69,
     "Injects": 2,
     "Complexity": 10,
     "MarkupLogic": 21,
@@ -266,7 +266,7 @@
     "IsEmpty": false
   },
   "Settings/EmbeddingSettingsTab.razor": {
-    "CodeLines": 174,
+    "CodeLines": 177,
     "Injects": 7,
     "Complexity": 40,
     "MarkupLogic": 16,
@@ -280,7 +280,7 @@
     "IsEmpty": false
   },
   "Settings/LlmSettingsTab.razor": {
-    "CodeLines": 77,
+    "CodeLines": 80,
     "Injects": 2,
     "Complexity": 21,
     "MarkupLogic": 9,
@@ -294,7 +294,7 @@
     "IsEmpty": false
   },
   "Settings/SearchSettingsTab.razor": {
-    "CodeLines": 92,
+    "CodeLines": 96,
     "Injects": 3,
     "Complexity": 22,
     "MarkupLogic": 14,

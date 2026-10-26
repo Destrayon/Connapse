@@ -37,7 +37,7 @@ public sealed record SummariesCleared(int Containers, int Documents);
 
 /// <summary>
 /// A connection test. <see cref="Category"/> is embedding, llm, crossencoder or minio; <see cref="Settings"/>
-/// is that category's settings as JSON, keys included, since stored keys are never filled in.
+/// is that category's settings as JSON. A key left out is the saved one only at the address it was saved for.
 /// </summary>
 public sealed record ConnectionTestRequest(string? Category, JsonElement Settings, int? TimeoutSeconds = null);
 
@@ -143,11 +143,12 @@ public sealed class ClearAllSummaries(IContainerStore containers, IDocumentStore
 
 /// <summary>
 /// Tests the connection the settings given describe, with the tester for their category and provider.
-/// Nothing is stored, and a key left out is not filled in from the stored one: the settings can name any
-/// address, and a stored key must never be sent to one the caller chose.
+/// Nothing is stored. A key left out is filled in from the saved one only when the provider and every
+/// address are the ones it was saved for: the settings can name any address, and a saved key must never be
+/// sent to one the caller chose (#951).
 /// </summary>
 [Operation("settings.testConnection", Scope = SettingsScope.Name, Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
-public sealed class TestConnection(IConnectionTests tests, IOperationAuthorizer authorizer)
+public sealed class TestConnection(IConnectionTests tests, ISettingsStore store, IConfiguredSettings configured, IOperationAuthorizer authorizer)
 {
     /// <summary>The longest a test may be given, in seconds.</summary>
     public const int MaxTimeoutSeconds = 300;
@@ -187,8 +188,11 @@ public sealed class TestConnection(IConnectionTests tests, IOperationAuthorizer 
             return Attempt<ConnectionTestResult, SettingsStatus>.Succeed(
                 ConnectionTestResult.CreateFailure($"Category '{request.Category}' does not support connection testing"));
 
+        var settings = SettingsCategories.Of(found.Settings.GetType()) is { } category
+            ? await category.WithSavedSecretsAsync(store, configured, found.Settings, ct)
+            : found.Settings;
         var timeout = request.TimeoutSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : (TimeSpan?)null;
-        return Attempt<ConnectionTestResult, SettingsStatus>.Succeed(await tests.TestAsync(found.Kind, found.Settings, timeout, ct));
+        return Attempt<ConnectionTestResult, SettingsStatus>.Succeed(await tests.TestAsync(found.Kind, settings, timeout, ct));
     }
 
     private static (ConnectionTesterKind, object) For(EmbeddingSettings settings) => (settings.Provider switch

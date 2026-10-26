@@ -174,7 +174,7 @@
             {
                 <div class="col-md-6">
                     <label class="form-label">API Key</label>
-                    <InputText @bind-Value="localSettings.CrossEncoderApiKey" class="form-control" type="password" />
+                    <InputText @bind-Value="localSettings.CrossEncoderApiKey" class="form-control" type="password" placeholder="@SettingsPageSaves.Placeholder(SavedKeys, localSettings.CrossEncoderApiKey, null, nameof(SearchSettings.CrossEncoderApiKey))" />
                 </div>
             }
 
@@ -294,6 +294,10 @@
     [Parameter]
     public EventCallback<SearchSettings> OnSave { get; set; }
 
+    /// <summary>The keys saved for these settings, by property name; the page never holds their values.</summary>
+    [Parameter]
+    public IReadOnlySet<string> SavedKeys { get; set; } = new HashSet<string>();
+
     private SearchSettings localSettings = new();
     private List<EmbeddingModelDisplay> embeddingModels = new();
     private bool isTestingConnection;
@@ -356,7 +360,8 @@
             ? teiBaseUrl ?? "http://localhost:8080"
             : null;
 
-        localSettings.CrossEncoderApiKey = null;
+        // Empty clears the saved key when this is saved; null would keep it for the new provider.
+        localSettings.CrossEncoderApiKey = "";
         testMessage = null;
     }
 

@@ -5998,7 +5998,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Test connectivity to external services (Ollama, MinIO, etc.)",
+        "description": "Test connectivity to external services (Ollama, MinIO, etc.). An API key left out is the saved one only when the provider and every address are the saved ones; otherwise send the key.",
         "operationId": "TestConnection",
         "requestBody": {
           "content": {
