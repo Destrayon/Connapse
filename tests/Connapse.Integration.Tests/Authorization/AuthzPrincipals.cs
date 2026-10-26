@@ -27,8 +27,19 @@ public sealed record AuthzPrincipal(string Name, PrincipalKind Kind, string? Rol
     public static readonly AuthzPrincipal AgentRead = new("agent-read", PrincipalKind.Agent, null, ["knowledge:read"]);
     public static readonly AuthzPrincipal AgentWrite = new("agent-write", PrincipalKind.Agent, null, ["knowledge:read", "knowledge:write"]);
 
+    /// <summary>Every scope that grants administration. The REST API lets an admin give one to an agent key, though the form doesn't offer it.</summary>
+    public static readonly IReadOnlyList<string> AdminScopes =
+        ["admin:audit", "admin:manage-admins", "admin:oauth-clients", "admin:settings", "admin:sources", "admin:users"];
+
+    /// <summary>
+    /// An agent key per admin scope, each also holding knowledge:read so that it differs from
+    /// <see cref="AgentRead"/> by that one scope (CON-74).
+    /// </summary>
+    public static readonly IReadOnlyList<AuthzPrincipal> AgentAdmins =
+        [.. AdminScopes.Select(s => new AuthzPrincipal($"agent-{s.Replace(':', '-')}", PrincipalKind.Agent, null, ["knowledge:read", s]))];
+
     public static readonly IReadOnlyList<AuthzPrincipal> All =
-        [Anonymous, NoRole, Viewer, Editor, Admin, Owner, OwnerReadToken, AgentRead, AgentWrite];
+        [Anonymous, NoRole, Viewer, Editor, Admin, Owner, OwnerReadToken, AgentRead, AgentWrite, .. AgentAdmins];
 
     public override string ToString() => Name;
 }
