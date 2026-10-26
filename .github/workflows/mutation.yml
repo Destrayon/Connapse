@@ -20,6 +20,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR, or a newer merge into the same branch, replaces the run in progress: a full run
+# holds a runner for about 11 minutes, and on the Free plan's 20 concurrent jobs those slots made CI queue
+# behind it during mass rebases (CON-91).
+concurrency:
+  group: mutation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   mutation:
     runs-on: ubuntu-latest
@@ -27,6 +34,10 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        # A PR checks out its merge commit; depth 2 brings in the merge commit's first parent, the base the
+        # PR is diffed against below.
+        fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
 
     - uses: ./.github/actions/build
       with:
@@ -35,10 +46,58 @@ jobs:
     - name: Restore tools
       run: dotnet tool restore
 
+    - name: Find the PR's base commit
+      id: base
+      if: github.event_name == 'pull_request'
+      run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+
+    # Every full run saves its report and commit as the baseline for PRs into its branch; a PR restores the
+    # one saved at its base commit, or else the newest on its base branch (a PR can read its base branch's
+    # caches), and diffs against the commit that baseline was made at, whichever it is.
+    - name: Restore mutation baseline
+      if: github.event_name == 'pull_request'
+      uses: actions/cache/restore@v4
+      with:
+        path: mutation-baseline
+        key: mutation-baseline-${{ github.base_ref }}-${{ steps.base.outputs.sha }}
+        restore-keys: mutation-baseline-${{ github.base_ref }}-
+
+    # A full run tests all of Connapse.Application's mutants, which doubled to about 11 minutes as epic #783
+    # moved endpoints in (CON-91). A PR with a baseline re-tests only the mutants in the files changed since
+    # the baseline's commit and those its changed test files cover (--since), and mutation_score.py takes
+    # every other mutant's result from the baseline, so the PR is still held to the whole project's score;
+    # Stryker's own break is off for that run because Stryker would score the re-tested mutants alone. When
+    # the baseline can't settle it (exit 3), or there is none, Stryker runs in full. All the runner's CPUs
+    # run mutants (Stryker defaults to half), and Release reuses the build above.
     - name: Mutation test Connapse.Application
       id: stryker
       working-directory: tests/Connapse.Core.Tests
-      run: dotnet tool run dotnet-stryker
+      shell: bash  # -o pipefail, so the score's exit code survives the tee
+      run: |
+        stryker=(dotnet tool run dotnet-stryker --concurrency "$(nproc)" --configuration Release)
+        baseline=../../mutation-baseline
+        score() {
+          python3 ../../.github/scripts/mutation_score.py "$@" --baseline "$baseline/mutation-report.json" \
+            --config stryker-config.json --changed "$RUNNER_TEMP/changed-files.txt" --repo-root "$GITHUB_WORKSPACE" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+        }
+        if [ -f "$baseline/commit" ] && commit=$(cat "$baseline/commit") \
+            && git fetch --no-tags --depth=1 origin "$commit"; then
+          git diff --name-status --no-renames "$commit" > "$RUNNER_TEMP/changed-files.txt"
+          status=0
+          # Changes whose effect can't be bounded go straight to a full run, before the partial one.
+          score || status=$?
+          if [ "$status" -eq 0 ]; then
+            "${stryker[@]}" "--since:$commit" --break-at 0
+            reports=$(ls -d StrykerOutput/*/reports | tail -1)
+            score --report "$reports/mutation-report.json" || status=$?
+          fi
+          if [ "$status" -ne 3 ]; then
+            exit "$status"
+          fi
+          echo "Running every mutant" | tee -a "$GITHUB_STEP_SUMMARY"
+        fi
+        "${stryker[@]}"
 
     # Stryker writes its reports under StrykerOutput/<date-time>/reports. A run that got as far as
     # scoring always writes them, so a missing report fails this step rather than hiding the score.
@@ -52,6 +111,19 @@ jobs:
         fi
         cat "$reports/mutation-report.md" >> "$GITHUB_STEP_SUMMARY"
         mkdir -p mutation-report && cp "$reports"/mutation-report.* mutation-report/
+
+    - name: Save mutation baseline
+      if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
+      run: |
+        mkdir -p mutation-baseline
+        cp mutation-report/mutation-report.json mutation-baseline/
+        echo "${{ github.sha }}" > mutation-baseline/commit
+
+    - uses: actions/cache/save@v4
+      if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
+      with:
+        path: mutation-baseline
+        key: mutation-baseline-${{ github.ref_name }}-${{ github.sha }}
 
     - name: Upload mutation report
       uses: actions/upload-artifact@v4

@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR replaces the run in progress, so a mass rebase doesn't leave superseded runs
+# holding the Free plan's 20 concurrent jobs while the current ones queue (CON-91). Pushes to main each get
+# their own group and are never cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   # Tests run in three size tiers (epic #783, #788), split into parallel jobs (#789). Small is
   # Category=Unit with no Size trait: no Docker, no models, no child processes. Medium is the slower
