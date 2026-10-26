@@ -124,6 +124,7 @@ public class MinioConnector : IWritableConnector
     /// <summary>
     /// A 404 means either the bucket or the key is missing. GET and DELETE errors carry the S3 error
     /// code; a HEAD error has no body, so its 404 can't say which, and the bucket is asked directly.
+    /// HeadBucket needs only s3:ListBucket, which the documented minimal policy already grants.
     /// </summary>
     private async Task ThrowIfBucketMissingAsync(AmazonS3Exception notFound, CancellationToken ct)
     {
@@ -134,7 +135,7 @@ public class MinioConnector : IWritableConnector
 
         try
         {
-            await _s3.GetBucketLocationAsync(new GetBucketLocationRequest { BucketName = _options.BucketName }, ct);
+            await _s3.HeadBucketAsync(new HeadBucketRequest { BucketName = _options.BucketName }, ct);
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
