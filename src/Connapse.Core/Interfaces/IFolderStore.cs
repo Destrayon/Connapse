@@ -4,6 +4,14 @@ public interface IFolderStore
 {
     Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<IReadOnlyList<Folder>> ListAsync(Guid containerId, string? parentPath = null, int skip = 0, int take = 50, CancellationToken ct = default);
+
+    /// <summary>The folder at the path, creating it and any missing ancestors first.</summary>
+    Task<Folder> EnsureAsync(Guid containerId, string path, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the folder, its sub-folders and every document under them, stored files included. False when there was
+    /// no such folder.
+    /// </summary>
     Task<bool> DeleteAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<bool> ExistsAsync(Guid containerId, string path, CancellationToken ct = default);
 
