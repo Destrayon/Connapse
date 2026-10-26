@@ -61,6 +61,7 @@ public static class IdentityServiceExtensions
 
         // Register services
         services.AddScoped<PatService>();
+        services.AddScoped<IPatService>(sp => sp.GetRequiredService<PatService>());
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<AdminSeedService>();
         services.AddScoped<InviteService>();

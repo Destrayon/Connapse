@@ -68,6 +68,39 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
     {
         // An OAuth client's access token carries its client_id, and no scope claim when it was granted none; it is
         // a token all the same, so the administrator's roles don't stand in for scopes.
+        using var client = await OAuthClientAsync("");
+
+        using var response = await client.GetAsync(route);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("GET", "")]
+    [InlineData("POST", "")]
+    [InlineData("DELETE", "")]
+    [InlineData("GET", "knowledge:read admin:users")]
+    [InlineData("POST", "knowledge:read admin:users")]
+    [InlineData("DELETE", "knowledge:read admin:users")]
+    public async Task PersonalTokenRoute_OAuthClientToken_IsForbidden(string method, string scope)
+    {
+        // RequirePerson admits an OAuth client's token; the operation must not, or the client could mint its user a
+        // personal access token with more scopes than it was granted, and keep it after its own grant is revoked.
+        using var client = await OAuthClientAsync(scope);
+
+        using var response = method switch
+        {
+            "GET" => await client.GetAsync("/api/v1/auth/pats"),
+            "POST" => await client.PostAsJsonAsync("/api/v1/auth/pats", new PatCreateRequest($"oauth-{Guid.NewGuid():N}", ["admin:users"])),
+            _ => await client.DeleteAsync($"/api/v1/auth/pats/{Guid.NewGuid()}"),
+        };
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>A client holding an access token the administrator granted an OAuth client, with the given scopes.</summary>
+    private async Task<HttpClient> OAuthClientAsync(string grantedScopes)
+    {
         const string redirect = "http://127.0.0.1:8765/callback";
         using var anonymous = fixture.Factory.CreateClient();
         using var registered = await anonymous.PostAsJsonAsync("/oauth/register",
@@ -78,7 +111,7 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
         string code;
         await using (var scope = fixture.Factory.Services.CreateAsyncScope())
             code = await scope.ServiceProvider.GetRequiredService<OAuthAuthCodeService>().CreateAsync(
-                AdminUserId(), clientId, Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(verifier))), redirect, "");
+                AdminUserId(), clientId, Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(verifier))), redirect, grantedScopes);
         using var exchanged = await anonymous.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "authorization_code",
@@ -88,13 +121,10 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
             ["client_id"] = clientId,
         }));
         exchanged.EnsureSuccessStatusCode();
-        using var client = fixture.Factory.CreateClient();
+        var client = fixture.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
             (await exchanged.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("access_token").GetString());
-
-        using var response = await client.GetAsync(route);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        return client;
     }
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');

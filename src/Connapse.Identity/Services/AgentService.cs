@@ -14,7 +14,7 @@ public class AgentService(
     ConnapseIdentityDbContext dbContext,
     ILogger<AgentService> logger) : IAgentService
 {
-    public async Task<AgentDto> CreateAsync(
+    public async Task<AgentDto?> CreateAsync(
         CreateAgentRequest request,
         Guid createdByUserId,
         CancellationToken cancellationToken = default)
@@ -29,7 +29,16 @@ public class AgentService(
         };
 
         dbContext.Agents.Add(entity);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("ix_agents_name", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            // The context outlives this call on the Agents page, so the refused agent mustn't stay queued for the next save.
+            dbContext.Entry(entity).State = EntityState.Detached;
+            return null;
+        }
 
         logger.LogInformation("Created agent '{Name}' (Id: {Id}) by user {UserId}",
             LogSanitizer.Sanitize(entity.Name), entity.Id, createdByUserId);
@@ -63,14 +72,15 @@ public class AgentService(
         return agent is null ? null : MapToDto(agent);
     }
 
-    public async Task<CreateAgentKeyResponse> CreateKeyAsync(
+    public async Task<CreateAgentKeyResponse?> CreateKeyAsync(
         Guid agentId,
         CreateAgentKeyRequest request,
         CancellationToken cancellationToken = default)
     {
         var agent = await dbContext.Agents
-            .FirstOrDefaultAsync(a => a.Id == agentId && a.DeletedAt == null, cancellationToken)
-            ?? throw new InvalidOperationException($"Agent {agentId} not found.");
+            .FirstOrDefaultAsync(a => a.Id == agentId && a.DeletedAt == null, cancellationToken);
+        if (agent is null)
+            return null;
 
         var randomBytes = RandomNumberGenerator.GetBytes(32);
         var token = ApiKeyAuthenticationOptions.TokenPrefix + Base64UrlEncode(randomBytes);

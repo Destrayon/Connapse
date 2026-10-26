@@ -253,3 +253,39 @@ That email already has a pending invite. Revoke it first to send a new link.
 ## invite-not-found
 
 No pending invite has that id. It may have been revoked, or already accepted.
+
+## agent-not-found
+
+No live agent has that id. It may have been deleted.
+
+## agent-key-not-found
+
+That agent has no active key with that id. It may have been revoked already.
+
+## invalid-agent
+
+The agent can't be made as asked: the name isn't 2 to 64 letters, digits, hyphens and underscores
+(`field` is `name`), or the description is longer than 500 characters (`field` is `description`).
+
+## invalid-agent-key
+
+The key can't be made as asked: the name isn't 2 to 64 characters (`field` is `name`), or a scope
+isn't one an agent key can hold. The scopes are `knowledge:read`, `knowledge:write` and
+`agent:ingest` (`field` is `scopes`).
+
+## agent-exists
+
+A live agent already has that name. `field` is `name`.
+
+## pat-not-found
+
+You have no active personal access token with that id. It may have been revoked already, or it is
+someone else's: each person sees and revokes only their own.
+
+## invalid-pat
+
+The token can't be made as asked: the name is blank or longer than 256 characters (`field` is
+`name`), a scope isn't one a personal access token can hold (`field` is `scopes`), or the expiry
+isn't in the future (`field` is `expiresAt`). The scopes are `knowledge:read`, `knowledge:write`,
+`agent:ingest`, `admin:users`, `admin:audit`, `admin:oauth-clients` and `admin:settings`. An expiry
+that names no time zone is read as UTC.

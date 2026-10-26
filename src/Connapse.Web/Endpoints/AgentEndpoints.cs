@@ -1,12 +1,8 @@
-using System.Security.Claims;
-using System.Text.RegularExpressions;
+using Connapse.Application;
+using Connapse.Application.Agents;
 using Connapse.Core;
-using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
-using Connapse.Identity.Services;
 using Connapse.Web.Problems;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Connapse.Web.Endpoints;
 
@@ -14,194 +10,166 @@ public static class AgentEndpoints
 {
     public static IEndpointRouteBuilder MapAgentEndpoints(this IEndpointRouteBuilder app)
     {
+        // Agents are identities, so managing them is user management: the scope too, so an administrator's
+        // token issued for less (knowledge:read) can't mint an agent a key.
         var group = app.MapGroup("/api/v1/agents")
             .WithTags("Agents")
-            .RequireAuthorization("RequireAdmin")
+            .RequireAuthorization("RequireAdmin", "Scope:AdminUsers")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // POST /api/v1/agents — create a new agent
         group.MapPost("/", async (
             [FromBody] CreateAgentRequest request,
-            HttpContext httpContext,
-            [FromServices] IAgentService agentService,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] CreateAgent create,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var adminUserId = GetUserId(httpContext);
-            if (adminUserId is null)
-                return Results.Unauthorized();
-
-            var trimmedName = request.Name?.Trim() ?? "";
-            if (trimmedName.Length < ValidationConstants.MinAgentNameLength
-                || trimmedName.Length > ValidationConstants.MaxAgentNameLength
-                || !Regex.IsMatch(trimmedName, ValidationConstants.AgentNamePattern))
-                return ApiProblem.BadRequest("agent_name_invalid", "Agent name must be 2-64 characters, alphanumeric with hyphens and underscores");
-
-            if (request.Description is not null)
-            {
-                var trimmedDesc = request.Description.Trim();
-                if (trimmedDesc.Length > ValidationConstants.MaxAgentDescriptionLength)
-                    return ApiProblem.BadRequest("agent_description_too_long", $"Agent description must not exceed {ValidationConstants.MaxAgentDescriptionLength} characters");
-            }
-
-            try
-            {
-                var agent = await agentService.CreateAsync(request, adminUserId.Value, ct);
-                await auditLogger.LogAsync("agent.created", "agent", agent.Id.ToString(),
-                    new { agent.Name }, ct);
-                return Results.Created($"/api/v1/agents/{agent.Id}", agent);
-            }
-            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex, "ix_agents_name"))
-            {
-                return ApiProblem.Conflict($"An agent named '{request.Name}' already exists.");
-            }
+            var created = await create.RunAsync(Rest(http), request, ct);
+            return created.Succeeded
+                ? Results.Created($"/api/v1/agents/{created.Result!.Id}", created.Result)
+                : Problem(created);
         })
         .Produces<AgentDto>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status409Conflict)
-        .WithName("CreateAgent")
-        .WithDescription("Create a new agent (Admin only)");
+        .WithName("agents.create")
+        .WithDescription("Create a new agent (Admin only). The name is 2-64 letters, digits, hyphens and underscores, unique among agents.");
 
         // GET /api/v1/agents — list all agents
         group.MapGet("/", async (
-            [FromServices] IAgentService agentService,
+            [FromServices] ListAgents list,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var agents = await agentService.ListAsync(ct);
-            return Results.Ok(agents);
+            var listed = await list.RunAsync(Rest(http), ct);
+            return listed.Succeeded ? Results.Ok(listed.Result) : OperationProblems.Result(listed);
         })
         .Produces<IReadOnlyList<AgentDto>>()
-        .WithName("ListAgents")
+        .WithName("agents.list")
         .WithDescription("List all agents (Admin only)");
 
         // GET /api/v1/agents/{id} — get agent details including key list
         group.MapGet("/{id:guid}", async (
             Guid id,
-            [FromServices] IAgentService agentService,
+            [FromServices] GetAgent get,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var agent = await agentService.GetAsync(id, ct);
-            return agent is null ? Results.NotFound() : Results.Ok(agent);
+            var got = await get.RunAsync(Rest(http), id, ct);
+            return got.Succeeded ? Results.Ok(got.Result) : OperationProblems.Result(got);
         })
         .Produces<AgentDto>()
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("GetAgent")
+        .WithName("agents.get")
         .WithDescription("Get agent details (Admin only)");
 
         // DELETE /api/v1/agents/{id} — soft-delete agent and revoke all its keys
         group.MapDelete("/{id:guid}", async (
             Guid id,
-            [FromServices] IAgentService agentService,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] DeleteAgent delete,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var deleted = await agentService.DeleteAsync(id, ct);
-            if (!deleted)
-                return Results.NotFound();
-
-            await auditLogger.LogAsync("agent.deleted", "agent", id.ToString(), null, ct);
-            return Results.NoContent();
+            var deleted = await delete.RunAsync(Rest(http), id, ct);
+            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("DeleteAgent")
+        .WithName("agents.delete")
         .WithDescription("Delete an agent and revoke all its API keys (Admin only)");
 
         // PUT /api/v1/agents/{id}/active — enable or disable an agent
         group.MapPut("/{id:guid}/active", async (
             Guid id,
             [FromBody] SetAgentActiveRequest request,
-            [FromServices] IAgentService agentService,
+            [FromServices] SetAgentActive setActive,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var updated = await agentService.SetActiveAsync(id, request.IsActive, ct);
-            return updated ? Results.NoContent() : Results.NotFound();
+            var set = await setActive.RunAsync(Rest(http), new SetAgentActiveCommand(id, request.IsActive), ct);
+            return set.Succeeded ? Results.NoContent() : OperationProblems.Result(set);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("SetAgentActive")
+        .WithName("agents.setActive")
         .WithDescription("Enable or disable an agent (Admin only)");
 
         // GET /api/v1/agents/{id}/keys — list API keys for an agent
         group.MapGet("/{id:guid}/keys", async (
             Guid id,
-            [FromServices] IAgentService agentService,
+            [FromServices] ListAgentKeys listKeys,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var keys = await agentService.ListKeysAsync(id, ct);
-            return Results.Ok(keys);
+            var listed = await listKeys.RunAsync(Rest(http), id, ct);
+            return listed.Succeeded ? Results.Ok(listed.Result) : OperationProblems.Result(listed);
         })
         .Produces<IReadOnlyList<AgentKeyListItem>>()
-        .WithName("ListAgentKeys")
-        .WithDescription("List API keys for an agent (Admin only)");
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("agents.keys.list")
+        .WithDescription("List API keys for an agent, revoked ones included (Admin only)");
 
         // POST /api/v1/agents/{id}/keys — create a new API key for an agent
         group.MapPost("/{id:guid}/keys", async (
             Guid id,
             [FromBody] CreateAgentKeyRequest request,
-            [FromServices] IAgentService agentService,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] CreateAgentKey createKey,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var trimmedKeyName = request.Name?.Trim() ?? "";
-            if (trimmedKeyName.Length < ValidationConstants.MinAgentNameLength
-                || trimmedKeyName.Length > ValidationConstants.MaxAgentKeyNameLength)
-                return ApiProblem.BadRequest("agent_key_name_invalid", $"Agent key name must be {ValidationConstants.MinAgentNameLength}-{ValidationConstants.MaxAgentKeyNameLength} characters");
-
-            try
-            {
-                var key = await agentService.CreateKeyAsync(id, request, ct);
-                await auditLogger.LogAsync("agent.key.created", "agent", id.ToString(),
-                    new { request.Name, key.KeyId }, ct);
-                return Results.Created($"/api/v1/agents/{id}/keys/{key.KeyId}", key);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return ApiProblem.NotFound(ex.Message);
-            }
+            var created = await createKey.RunAsync(Rest(http), new CreateAgentKeyCommand(id, request), ct);
+            return created.Succeeded
+                ? Results.Created($"/api/v1/agents/{id}/keys/{created.Result!.KeyId}", created.Result)
+                : Problem(created);
         })
         .Produces<CreateAgentKeyResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("CreateAgentKey")
-        .WithDescription("Create an API key for an agent. Token is shown only once. (Admin only)");
+        .WithName("agents.keys.create")
+        .WithDescription("Create an API key for an agent, with scopes from knowledge:read, knowledge:write and agent:ingest. Token is shown only once. (Admin only)");
 
         // DELETE /api/v1/agents/{id}/keys/{keyId} — revoke an API key
         group.MapDelete("/{id:guid}/keys/{keyId:guid}", async (
             Guid id,
             Guid keyId,
-            [FromServices] IAgentService agentService,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] RevokeAgentKey revokeKey,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var revoked = await agentService.RevokeKeyAsync(id, keyId, ct);
-            if (!revoked)
-                return Results.NotFound();
-
-            await auditLogger.LogAsync("agent.key.revoked", "agent", id.ToString(),
-                new { KeyId = keyId }, ct);
-            return Results.NoContent();
+            var revoked = await revokeKey.RunAsync(Rest(http), new AgentKeyTarget(id, keyId), ct);
+            return revoked.Succeeded ? Results.NoContent() : OperationProblems.Result(revoked);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("RevokeAgentKey")
+        .WithName("agents.keys.revoke")
         .WithDescription("Revoke an agent API key (Admin only)");
 
         return app;
     }
 
-    private static Guid? GetUserId(HttpContext httpContext)
-    {
-        // Only return a user ID for human users, not agents
-        if (httpContext.User.FindFirstValue("actor_type") == "agent")
-            return null;
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 
-        var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(idClaim, out var id) ? id : null;
+    /// <summary>
+    /// A failed create's problem. Before agents moved onto their operations (CON-71), a bad name or description
+    /// was answered with these codes in <c>error</c>, which scripts branch on, so they keep them.
+    /// </summary>
+    private static IResult Problem<TResult>(Attempt<TResult, AgentStatus> failed)
+    {
+        var problem = OperationProblems.For(failed.Status, failed.Detail);
+        if (failed.Field is { } field)
+            problem.Extensions["field"] = field;
+        if (ErrorCode(failed.Status, failed.Field) is { } code)
+            problem.Extensions["error"] = code;
+        return Results.Problem(problem);
     }
 
-    private static bool IsUniqueConstraintViolation(DbUpdateException ex, string indexName) =>
-        ex.InnerException?.Message.Contains(indexName, StringComparison.OrdinalIgnoreCase) == true;
+    private static string? ErrorCode(AgentStatus status, string? field) => (status, field) switch
+    {
+        (AgentStatus.InvalidAgent, "name") => "agent_name_invalid",
+        (AgentStatus.InvalidAgent, "description") => "agent_description_too_long",
+        (AgentStatus.InvalidKey, "name") => "agent_key_name_invalid",
+        _ => null,
+    };
 }

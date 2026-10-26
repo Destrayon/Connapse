@@ -439,8 +439,8 @@
         "tags": [
           "Auth"
         ],
-        "description": "List personal access tokens for the authenticated user",
-        "operationId": "ListPats",
+        "description": "List your personal access tokens, newest first, revoked ones included. Only a person signed in themselves may: not a personal access token or agent key.",
+        "operationId": "pats.list",
         "responses": {
           "200": {
             "description": "OK",
@@ -465,6 +465,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
             "content": {
@@ -481,8 +491,8 @@
         "tags": [
           "Auth"
         ],
-        "description": "Create a personal access token (the raw token is returned only on creation)",
-        "operationId": "CreatePat",
+        "description": "Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, agent:ingest, admin:users, admin:audit, admin:oauth-clients and admin:settings, and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.",
+        "operationId": "pats.create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -524,6 +534,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
             "content": {
@@ -542,8 +562,8 @@
         "tags": [
           "Auth"
         ],
-        "description": "Revoke a personal access token by ID",
-        "operationId": "RevokePat",
+        "description": "Revoke one of your personal access tokens by id. Only a person signed in themselves may: not a personal access token or agent key.",
+        "operationId": "pats.revoke",
         "parameters": [
           {
             "name": "id",
@@ -561,6 +581,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1769,8 +1799,8 @@
         "tags": [
           "Agents"
         ],
-        "description": "Create a new agent (Admin only)",
-        "operationId": "CreateAgent",
+        "description": "Create a new agent (Admin only). The name is 2-64 letters, digits, hyphens and underscores, unique among agents.",
+        "operationId": "agents.create",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1849,7 +1879,7 @@
           "Agents"
         ],
         "description": "List all agents (Admin only)",
-        "operationId": "ListAgents",
+        "operationId": "agents.list",
         "responses": {
           "401": {
             "description": "Unauthorized",
@@ -1903,7 +1933,7 @@
           "Agents"
         ],
         "description": "Get agent details (Admin only)",
-        "operationId": "GetAgent",
+        "operationId": "agents.get",
         "parameters": [
           {
             "name": "id",
@@ -1973,7 +2003,7 @@
           "Agents"
         ],
         "description": "Delete an agent and revoke all its API keys (Admin only)",
-        "operationId": "DeleteAgent",
+        "operationId": "agents.delete",
         "parameters": [
           {
             "name": "id",
@@ -2038,7 +2068,7 @@
           "Agents"
         ],
         "description": "Enable or disable an agent (Admin only)",
-        "operationId": "SetAgentActive",
+        "operationId": "agents.setActive",
         "parameters": [
           {
             "name": "id",
@@ -2122,8 +2152,8 @@
         "tags": [
           "Agents"
         ],
-        "description": "List API keys for an agent (Admin only)",
-        "operationId": "ListAgentKeys",
+        "description": "List API keys for an agent, revoked ones included (Admin only)",
+        "operationId": "agents.keys.list",
         "parameters": [
           {
             "name": "id",
@@ -2169,6 +2199,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
             "content": {
@@ -2185,8 +2225,8 @@
         "tags": [
           "Agents"
         ],
-        "description": "Create an API key for an agent. Token is shown only once. (Admin only)",
-        "operationId": "CreateAgentKey",
+        "description": "Create an API key for an agent, with scopes from knowledge:read, knowledge:write and agent:ingest. Token is shown only once. (Admin only)",
+        "operationId": "agents.keys.create",
         "parameters": [
           {
             "name": "id",
@@ -2278,7 +2318,7 @@
           "Agents"
         ],
         "description": "Revoke an agent API key (Admin only)",
-        "operationId": "RevokeAgentKey",
+        "operationId": "agents.keys.revoke",
         "parameters": [
           {
             "name": "id",

@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: the API Tokens page revokes only the caller's own tokens it lists, so it can't name one that doesn't exist or isn't theirs,
+  Reference: {
+    Result: error:not_found,
+    State: [
+      token pat-{name} owner=admin@integration-tests.connapse.io scopes=knowledge:read approval=True expires=never active
+    ]
+  },
+  Surface: {
+    Result: absent,
+    State: [
+      token pat-{name} owner=admin@integration-tests.connapse.io scopes=knowledge:read approval=True expires=never active
+    ]
+  }
+}

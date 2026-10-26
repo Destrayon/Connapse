@@ -44,15 +44,18 @@ public class TokenFormScopeTests(SharedWebAppFixture fixture)
     {
         using var ui = await Surfaces.UiAsync(fixture);
         var agents = ui.Context.Services.GetRequiredService<IAgentService>();
-        var agent = await agents.CreateAsync(new CreateAgentRequest($"form-scopes-{Guid.NewGuid():N}"), await AdminIdAsync(ui));
+        var agent = (await agents.CreateAsync(new CreateAgentRequest($"form-scopes-{Guid.NewGuid():N}"), await AdminIdAsync(ui)))!;
         var page = ui.Context.Render<AgentManagement>();
         page.WaitForAssertion(() => page.FindAll("button").Should().Contain(b => b.TextContent.Contains("API Keys")));
 
-        page.FindAll("button").First(b => b.TextContent.Contains("API Keys") && IsAgentsRow(b, agent.Name)).Click();
-        page.Find($"#new-key-approval-{agent.Id}").Change(false);
-        page.Find($"#new-key-scope-{agent.Id}-agent\\:ingest").Change(true);
-        page.FindAll("input[placeholder='e.g. production']").Single().Change("form-key");
-        page.FindAll("button").Single(b => b.TextContent.Contains("Add Key")).Click();
+        // Each find and its event on the renderer's dispatcher, so a render the page's loads finish with can't come between them.
+        await page.InvokeAsync(() => page.FindAll("button").First(b => b.TextContent.Contains("API Keys") && IsAgentsRow(b, agent.Name)).Click());
+        // The panel opens once the agent's keys have loaded.
+        page.WaitForAssertion(() => page.Find($"#new-key-approval-{agent.Id}"));
+        await page.InvokeAsync(() => page.Find($"#new-key-approval-{agent.Id}").Change(false));
+        await page.InvokeAsync(() => page.Find($"#new-key-scope-{agent.Id}-agent\\:ingest").Change(true));
+        await page.InvokeAsync(() => page.FindAll("input[placeholder='e.g. production']").Single().Change("form-key"));
+        await page.InvokeAsync(() => page.FindAll("button").Single(b => b.TextContent.Contains("Add Key")).Click());
 
         page.WaitForAssertion(() => page.Find("#new-agent-key-token"));
         var keys = await agents.ListKeysAsync(agent.Id);
