@@ -11,9 +11,12 @@ namespace Connapse.Storage.Folders;
 public class PostgresFolderStore(
     IDbContextFactory<KnowledgeDbContext> factory,
     IContainerStore containerStore,
+    IDocumentStore documents,
     IManagedStorageProvider storage,
     ILogger<PostgresFolderStore> logger) : IFolderStore
 {
+    private const int StoredFileDeleteAttempts = 3;
+
     public async Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
@@ -159,14 +162,12 @@ public class PostgresFolderStore(
 
         context.Folders.RemoveRange(foldersToDelete);
         await context.SaveChangesAsync(ct);
-
-        // Stored files go before the commit, while the folders are still locked: a file removed after it could be
-        // one a new upload to the same path had just written. A file that can't be removed throws, rolling the
-        // records back rather than leaving a file nothing points to; the folder then still holds everything not yet
-        // removed, and deleting it again finishes the job. Past this point the delete isn't cancelled, since stopping
-        // halfway would leave records whose files are gone.
-        await DeleteStoredFilesAsync(containerId, documentsToDelete.Select(d => d.Path));
         await transaction.CommitAsync(CancellationToken.None);
+
+        // Stored files go only once the delete is saved, so a delete that fails before then leaves every file its
+        // records point to (CON-94). Past the commit the delete isn't cancelled, since stopping would leave files
+        // nothing points to.
+        await DeleteStoredFilesAsync(containerId, documentsToDelete.Select(d => d.Path));
 
         // If any cascade-deleted doc contributed to the container summary, mark stale so the
         // next sweep tick triggers a re-rollup. Same reason as PostgresDocumentStore.DeleteAsync
@@ -191,11 +192,40 @@ public class PostgresFolderStore(
                 return;
 
             foreach (string path in paths)
-                await writable.DeleteFileAsync(path, CancellationToken.None);
+                await DeleteStoredFileAsync(containerId, writable, path);
         }
         finally
         {
             (connector as IDisposable)?.Dispose();
+        }
+    }
+
+    private async Task DeleteStoredFileAsync(Guid containerId, IWritableConnector writable, string path)
+    {
+        // The folders are no longer locked, so an upload may already have written a new file to the same path. The
+        // file is removed under that path's lock, and only while no record points to it, so the newer upload's stays.
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await documents.RemoveUnrecordedFileAsync(containerId, path,
+                    token => writable.DeleteFileAsync(path, token), CancellationToken.None);
+                return;
+            }
+            catch (Exception ex) when (attempt < StoredFileDeleteAttempts)
+            {
+                logger.LogWarning(ex, "Could not remove the stored file {Path} in container {ContainerId} (attempt {Attempt}), trying again",
+                    LogSanitizer.Sanitize(path), containerId, attempt);
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt));
+            }
+            catch (Exception ex)
+            {
+                // Its record is already gone, so nothing points to the file; it is logged rather than failing a delete
+                // that has been saved.
+                logger.LogError(ex, "Could not remove the stored file {Path} in container {ContainerId} after its folder was deleted",
+                    LogSanitizer.Sanitize(path), containerId);
+                return;
+            }
         }
     }
 
