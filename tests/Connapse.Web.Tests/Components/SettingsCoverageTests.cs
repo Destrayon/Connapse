@@ -39,6 +39,13 @@ public class SettingsCoverageTests
         // which take precedence.
         ["EmbeddingSettings.ApiKey"] = "legacy shared key, superseded by per-provider keys",
         ["LlmSettings.ApiKey"] = "legacy shared key, superseded by per-provider keys",
+        // The link layer ships off by default with no page yet (CON-32); it is set through configuration.
+        ["SearchSettings.EnableLinkSearch"] = "link layer is off by default and has no page yet",
+        ["SearchSettings.LinkWeight"] = "link layer is off by default and has no page yet",
+        ["SearchSettings.LinkMaxHops"] = "link layer is off by default and has no page yet",
+        ["SearchSettings.LinkSeeds"] = "link layer is off by default and has no page yet",
+        ["SearchSettings.UseVectorSearch"] = "per-source choice read only by the link layer, which has no page yet",
+        ["SearchSettings.UseKeywordSearch"] = "per-source choice read only by the link layer, which has no page yet",
     };
 
     private static string TabSource(string file)
