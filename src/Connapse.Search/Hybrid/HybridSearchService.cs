@@ -2,7 +2,10 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Search.Keyword;
+using Connapse.Search.Links;
 using Connapse.Search.Vector;
+using Connapse.Storage.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -135,25 +138,58 @@ public class HybridSearchService : IKnowledgeSearch
 
         scopes = ScopeResolution.Guard(scopes, options.UserId);
 
+        // With the link layer on, the searched container or source chooses which searches run and how much
+        // each counts. Off, none of this is read and search is exactly what it was.
+        SearchSettings effective = searchSettings;
+        if (searchSettings.EnableLinkSearch)
+        {
+            effective = await SourceSearchChoices.ResolveAsync(
+                scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>(), options.ContainerId, searchSettings, ct);
+            mode = SourceSearchChoices.Mode(mode, effective);
+        }
+
         // Sized after resolving: resolvers record which connections exist, and a verifier's multiplier
         // read before that would under-fetch on the first search after start-up.
         int overFetch = Math.Max(1, verifier.CandidateMultiplier);
         SearchOptions retrieveOptions = options with { TopK = options.TopK * overFetch };
 
+        ChunkScorer scoreChunks;
         switch (mode)
         {
             case SearchMode.Semantic:
                 hits = await vectorSearch.SearchAsync(query, retrieveOptions, scopes, ct);
+                scoreChunks = async (ids, token) => await vectorSearch.ScoreChunksAsync(
+                    await vectorSearch.EmbedQueryAsync(query, retrieveOptions, token), ids, token);
                 break;
 
             case SearchMode.Keyword:
                 hits = await keywordSearch.SearchAsync(query, retrieveOptions, scopes, ct);
+                scoreChunks = (ids, token) => keywordSearch.ScoreChunksAsync(query, ids, token);
                 break;
 
             case SearchMode.Hybrid:
             default:
-                hits = await PerformHybridSearchAsync(query, retrieveOptions, scopes, ct);
+                (hits, scoreChunks) = await PerformHybridSearchAsync(query, retrieveOptions, scopes, effective, ct);
                 break;
+        }
+
+        if (effective.EnableLinkSearch && effective.LinkWeight > 0)
+        {
+            try
+            {
+                LinkSearch links = new(
+                    scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>(),
+                    scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>(),
+                    scope.ServiceProvider.GetRequiredService<ILinkIndex>(),
+                    verifier,
+                    _logger);
+                hits = await links.ApplyAsync(hits, effective, retrieveOptions, scopes, scoreChunks, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The other searches' results were admitted on their own; a failed walk adds nothing to them.
+                _logger.LogWarning(ex, "Link search failed; returning the other searches' results alone");
+            }
         }
 
         // Apply reranking if configured
@@ -273,14 +309,13 @@ public class HybridSearchService : IKnowledgeSearch
     /// Performs hybrid search by running vector and keyword search in parallel and merging results.
     /// Each search uses its own scope to avoid DbContext threading issues.
     /// </summary>
-    private async Task<List<SearchHit>> PerformHybridSearchAsync(
+    private async Task<(List<SearchHit> Hits, ChunkScorer ScoreChunks)> PerformHybridSearchAsync(
         string query,
         SearchOptions options,
         SearchScopes scopes,
+        SearchSettings settings,
         CancellationToken ct)
     {
-        var settings = _searchSettingsMonitor.CurrentValue;
-
         // Each side retrieves a pool wider than the page. With only the top few per side, the other
         // side's view of a candidate is mostly missing, and fusion can only guess it as zero.
         SearchOptions poolOptions = options with { TopK = Math.Max(options.TopK, settings.HybridCandidatePool) };
@@ -317,7 +352,8 @@ public class HybridSearchService : IKnowledgeSearch
             query, queryEmbedding, poolOptions, vectorResults, keywordResults, ct);
 
         List<SearchHit> fused;
-        if (string.Equals(settings.FusionMethod, "DBSF", StringComparison.OrdinalIgnoreCase))
+        bool dbsf = string.Equals(settings.FusionMethod, "DBSF", StringComparison.OrdinalIgnoreCase);
+        if (dbsf)
         {
             fused = FuseResultsDbsf(vectorPool, keywordPool, settings.FusionAlpha);
         }
@@ -329,7 +365,70 @@ public class HybridSearchService : IKnowledgeSearch
             fused = FuseResults(vectorPool, keywordPool, settings.FusionAlpha);
         }
 
-        return TagRetrievalSource(fused, vectorResults, keywordResults);
+        // Chunks the link walk reaches are fused on this pool's scale: each side normalised with this pool's
+        // bounds, so a reached chunk scores what it would have had it been retrieved alongside these.
+        Func<float, float> normVector = SideNormalizer(vectorPool, dbsf);
+        Func<float, float> normKeyword = SideNormalizer(keywordPool, dbsf);
+        float alpha = Math.Clamp(settings.FusionAlpha, 0f, 1f);
+        ChunkScorer scoreChunks = async (ids, token) =>
+        {
+            var vectorScores = Task.Run(async () =>
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                return await scope.ServiceProvider.GetRequiredService<VectorSearchService>()
+                    .ScoreChunksAsync(queryEmbedding, ids, token);
+            }, token);
+            var keywordScores = Task.Run(async () =>
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                return await scope.ServiceProvider.GetRequiredService<KeywordSearchService>()
+                    .ScoreChunksAsync(query, ids, token);
+            }, token);
+            await Task.WhenAll(vectorScores, keywordScores);
+
+            Dictionary<string, float> scores = new(StringComparer.Ordinal);
+            foreach (string id in ids)
+            {
+                float v = (await vectorScores).TryGetValue(id, out float vs) ? normVector(vs) : 0f;
+                float k = (await keywordScores).TryGetValue(id, out float ks) ? normKeyword(ks) : 0f;
+                scores[id] = alpha * v + (1f - alpha) * k;
+            }
+            return scores;
+        };
+
+        return (TagRetrievalSource(fused, vectorResults, keywordResults), scoreChunks);
+    }
+
+    /// <summary>
+    /// The normalisation <see cref="FuseResults"/> (min-max) or <see cref="FuseResultsDbsf"/> (mean ± 3σ) applies
+    /// to <paramref name="side"/>, as a function a score from outside the side can be put through, clamped to [0, 1].
+    /// </summary>
+    internal static Func<float, float> SideNormalizer(List<SearchHit> side, bool dbsf)
+    {
+        if (side.Count == 0)
+            return _ => 0f;
+
+        double lower, range;
+        if (dbsf)
+        {
+            double[] scores = side.Select(h => (double)h.Score).ToArray();
+            double mean = scores.Average();
+            double stdDev = Math.Sqrt(scores.Average(s => (s - mean) * (s - mean)));
+            (lower, range) = (mean - 3 * stdDev, 6 * stdDev);
+        }
+        else
+        {
+            float min = side.Min(h => h.Score);
+            (lower, range) = (min, side.Max(h => h.Score) - min);
+        }
+
+        if (range < 1e-9)
+        {
+            // Every score on the side is the same; a score at or above it is a match, as TiedScore treats them.
+            float tied = side[0].Score;
+            return x => tied > 0 && x >= tied ? 1f : 0f;
+        }
+        return x => (float)Math.Clamp((x - lower) / range, 0, 1);
     }
 
     /// <summary>
