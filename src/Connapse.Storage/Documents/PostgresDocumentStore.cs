@@ -42,21 +42,25 @@ public class PostgresDocumentStore : IDocumentStore
     }
 
     public async Task<StoreResult?> StoreInFolderAsync(
-        Document document, Guid folderId, Func<CancellationToken, Task> writeFile, CancellationToken ct = default)
+        Document document, Guid? folderId, Func<CancellationToken, Task> writeFile, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(writeFile);
 
         await using var context = await _factory.CreateDbContextAsync(ct);
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await LockPathAsync(context, Guid.Parse(document.ContainerId), document.Path, ct);
 
-        // FOR KEY SHARE is the lock Postgres's own foreign-key checks take on a referenced row: a folder delete's
-        // FOR UPDATE waits for it, and under Read Committed a lock that waited on a delete finds no row at all.
-        var folder = await context.Database
-            .SqlQuery<Guid>($"SELECT id AS \"Value\" FROM folders WHERE id = {folderId} FOR KEY SHARE")
-            .ToListAsync(ct);
-        if (folder.Count == 0)
-            return null;
+        if (folderId is not null)
+        {
+            // FOR KEY SHARE is the lock Postgres's own foreign-key checks take on a referenced row: a folder delete's
+            // FOR UPDATE waits for it, and under Read Committed a lock that waited on a delete finds no row at all.
+            var folder = await context.Database
+                .SqlQuery<Guid>($"SELECT id AS \"Value\" FROM folders WHERE id = {folderId} FOR KEY SHARE")
+                .ToListAsync(ct);
+            if (folder.Count == 0)
+                return null;
+        }
 
         // Written under the lock: a refused upload has written nothing, so it never has a file to clean up that a
         // newer upload to the same path might have replaced.
@@ -64,6 +68,33 @@ public class PostgresDocumentStore : IDocumentStore
         var stored = await UpsertAsync(context, document, ct);
         await transaction.CommitAsync(ct);
         return stored;
+    }
+
+    public async Task<bool> RemoveUnrecordedFileAsync(
+        Guid containerId, string path, Func<CancellationToken, Task> deleteFile, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(deleteFile);
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await LockPathAsync(context, containerId, path, ct);
+
+        if (await context.Documents.AnyAsync(d => d.OwnerId == containerId && d.Path == path, ct))
+            return false;
+
+        await deleteFile(ct);
+        await transaction.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Holds one container path until the transaction ends. Postgres advisory locks are keyed by a number, so the
+    /// key is a hash of the path, and two paths that share a hash only wait for each other.
+    /// </summary>
+    private static Task LockPathAsync(KnowledgeDbContext context, Guid containerId, string path, CancellationToken ct)
+    {
+        string key = $"{containerId}:{path}";
+        return context.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", ct);
     }
 
     private async Task<StoreResult> UpsertAsync(KnowledgeDbContext context, Document document, CancellationToken ct)
