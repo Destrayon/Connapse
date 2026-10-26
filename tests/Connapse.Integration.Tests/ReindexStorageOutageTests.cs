@@ -67,20 +67,33 @@ public class ReindexStorageOutageTests(SharedWebAppFixture fixture)
         return storage;
     }
 
-    public static TheoryData<string> Calls => new() { "exists", "read" };
+    public static TheoryData<string> Calls => new() { "exists", "read", "mid-read" };
 
     private static IManagedStorageProvider StorageFailingOn(string call) => UnreachableStorage(c =>
     {
         if (call == "exists")
         {
             c.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException(Outage));
+            return;
         }
-        else
-        {
-            c.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        c.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        if (call == "read")
             c.ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException(Outage));
-        }
+        else
+            c.ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => new DroppedStream());
     });
+
+    /// <summary>A download that opens, then loses its connection partway through.</summary>
+    private sealed class DroppedStream : MemoryStream
+    {
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException(Outage);
+        public override int Read(Span<byte> buffer) => throw new IOException(Outage);
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
+            throw new IOException(Outage);
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+            throw new IOException(Outage);
+    }
 
     [Theory]
     [MemberData(nameof(Calls))]
@@ -122,6 +135,27 @@ public class ReindexStorageOutageTests(SharedWebAppFixture fixture)
         check.Reason.Should().Be(ReindexReason.StorageUnavailable);
         check.ErrorMessage.Should().Contain("storage").And.Contain(containerId.ToString()).And.Contain(Outage);
         fileSystem.ReceivedCalls().Should().BeEmpty("an outage must not fall back to the old local path");
+    }
+
+    [Fact]
+    public async Task Reindex_CancelledWhileStorageAnswers_StopsInsteadOfReportingAnError()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (containerId, _) = await SeedAsync(sp);
+        using var cts = new CancellationTokenSource();
+        var storage = UnreachableStorage(c =>
+            c.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns<Task<bool>>(_ =>
+            {
+                cts.Cancel();
+                throw new OperationCanceledException(cts.Token);
+            }));
+
+        await using var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var act = () => Reindexer(sp, ctx, storage, Substitute.For<IKnowledgeFileSystem>())
+            .ReindexAsync(new ReindexOptions { ContainerId = containerId.ToString() }, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
     [Fact]

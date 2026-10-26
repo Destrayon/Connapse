@@ -85,9 +85,9 @@ public class ReindexService : IReindexService
     }
 
     /// <summary>
-    /// Opens the file backing this document, using the container's connector when available.
+    /// Hashes the file backing this document, using the container's connector when available.
     /// </summary>
-    private async Task<Stream> OpenFileAsync(DocumentEntity doc, CancellationToken ct)
+    private async Task<string> HashFileAsync(DocumentEntity doc, CancellationToken ct)
     {
         // Source-owned documents have no container; they fall through to the legacy
         // file system path until the sync engine gives sources their own connector.
@@ -96,9 +96,11 @@ public class ReindexService : IReindexService
             : null;
         if (container is not null)
         {
+            // The hash is inside the boundary: a remote stream can fail mid-read as well as on open.
             try
             {
-                return await _managedStorage.CreateConnector(container.Id).ReadFileAsync(doc.Path, ct);
+                using var remote = await _managedStorage.CreateConnector(container.Id).ReadFileAsync(doc.Path, ct);
+                return await ComputeContentHashAsync(remote, ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -106,7 +108,8 @@ public class ReindexService : IReindexService
             }
         }
 
-        return await _fileSystem.OpenFileAsync(doc.Path, ct);
+        using var stream = await _fileSystem.OpenFileAsync(doc.Path, ct);
+        return await ComputeContentHashAsync(stream, ct);
     }
 
     public async Task<ReindexResult> ReindexAsync(ReindexOptions options, CancellationToken ct = default)
@@ -228,8 +231,7 @@ public class ReindexService : IReindexService
                 }
 
                 // Compute current content hash (via connector for connector-backed containers)
-                using var stream = await OpenFileAsync(doc, ct);
-                currentHash = await ComputeContentHashAsync(stream, ct);
+                currentHash = await HashFileAsync(doc, ct);
             }
             catch (ContainerStorageUnavailableException ex)
             {
@@ -242,7 +244,7 @@ public class ReindexService : IReindexService
                     StoredHash: doc.ContentHash,
                     ErrorMessage: ex.Message);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 _logger.LogWarning(ex, "Failed to compute hash for document {DocumentId}", Sanitize(documentId));
                 return new ReindexCheck(
@@ -412,10 +414,9 @@ public class ReindexService : IReindexService
                 string currentHash;
                 try
                 {
-                    using var stream = await OpenFileAsync(doc, ct);
-                    currentHash = await ComputeContentHashAsync(stream, ct);
+                    currentHash = await HashFileAsync(doc, ct);
                 }
-                catch (Exception ex) when (ex is not ContainerStorageUnavailableException)
+                catch (Exception ex) when (ex is not ContainerStorageUnavailableException && !ct.IsCancellationRequested)
                 {
                     _logger.LogWarning(
                         ex,
@@ -525,7 +526,7 @@ public class ReindexService : IReindexService
                 ReindexReason.StorageUnavailable,
                 ErrorMessage: ex.Message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _logger.LogError(
                 ex,
