@@ -34,10 +34,18 @@ public sealed class IngestionJobs : IIngestionJobs
     ];
 
     /// <summary>
-    /// How long a document may sit Queued or Processing before the sweep checks on its job. Matches
+    /// How long a document may sit Processing before the sweep checks on its job. Matches
     /// Hangfire's invisibility timeout, after which Hangfire itself gives up on a silent worker.
     /// </summary>
     internal static readonly TimeSpan StuckAfter = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// How long a document may sit Queued before the sweep checks on its job. A Queued document is
+    /// without a live job only for the moment between its status and its job being written, unless
+    /// the enqueue failed (CON-96), so it need not wait as long as a Processing one. A job still
+    /// waiting its turn or its retry is live, and is left alone.
+    /// </summary>
+    internal static readonly TimeSpan QueuedStuckAfter = TimeSpan.FromMinutes(5);
 
     /// <summary>Hangfire states in which a job will still run, or is running.</summary>
     private static readonly HashSet<string> LiveJobStates = new(StringComparer.OrdinalIgnoreCase)
@@ -199,13 +207,15 @@ public sealed class IngestionJobs : IIngestionJobs
     [DisableConcurrentExecution(timeoutInSeconds: 300)]
     public async Task RequeueStuckDocumentsAsync(CancellationToken ct)
     {
-        DateTime cutoff = DateTime.UtcNow - StuckAfter;
+        DateTime now = DateTime.UtcNow;
+        DateTime processingCutoff = now - StuckAfter;
+        DateTime queuedCutoff = now - QueuedStuckAfter;
 
         await using var context = await _dbFactory.CreateDbContextAsync(ct);
         var candidates = await context.Documents
             .AsNoTracking()
-            .Where(d => (d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing)
-                        && d.StatusChangedAt < cutoff)
+            .Where(d => (d.IngestionStatus == DocumentStatus.Queued && d.StatusChangedAt < queuedCutoff)
+                        || (d.IngestionStatus == DocumentStatus.Processing && d.StatusChangedAt < processingCutoff))
             .Select(d => new { d.Id, d.JobId })
             .ToListAsync(ct);
 

@@ -221,7 +221,18 @@ public class UploadService(
             },
             BatchId: batchId);
 
-        string? jobId = await ingestionQueue.EnqueueAsync(job, ct);
+        // The file and its record are stored, so the upload has succeeded even if its job cannot start: the record
+        // stays Queued with no job, and the stuck-job sweep starts one (CON-96). Failing here would report an upload
+        // whose document later appears.
+        string? jobId = null;
+        try
+        {
+            jobId = await ingestionQueue.EnqueueAsync(job, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not start indexing document {DocumentId}; the stuck-job sweep will start it", winnerDocId);
+        }
 
         // Audit log
         await auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,
