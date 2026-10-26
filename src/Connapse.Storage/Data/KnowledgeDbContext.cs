@@ -19,6 +19,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<SourceEntity> Sources => Set<SourceEntity>();
     public DbSet<CustomProviderEntity> CustomProviders => Set<CustomProviderEntity>();
     public DbSet<CustomLinkRemovalEntity> CustomLinkRemovals => Set<CustomLinkRemovalEntity>();
+    public DbSet<StoredFileRemovalEntity> StoredFileRemovals => Set<StoredFileRemovalEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,6 +39,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureSources(modelBuilder);
         ConfigureCustomProviders(modelBuilder);
         ConfigureCustomLinkRemovals(modelBuilder);
+        ConfigureStoredFileRemovals(modelBuilder);
     }
 
     private static void ConfigureContainers(ModelBuilder modelBuilder)
@@ -608,6 +610,23 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.AlertedAt).HasColumnName("alerted_at");
             entity.HasIndex(e => new { e.ProviderId, e.UserId }).IsUnique().HasDatabaseName("idx_custom_link_removals_provider_user");
             entity.HasIndex(e => e.NextAttemptAt).HasDatabaseName("idx_custom_link_removals_next_attempt");
+        });
+    }
+
+    private static void ConfigureStoredFileRemovals(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<StoredFileRemovalEntity>(entity =>
+        {
+            entity.ToTable("stored_file_removals");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.Path).HasColumnName("path").IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.Attempts).HasColumnName("attempts");
+            entity.Property(e => e.NextAttemptAt).HasColumnName("next_attempt_at");
+            entity.Property(e => e.LastError).HasColumnName("last_error").HasMaxLength(1000);
+            entity.HasIndex(e => e.NextAttemptAt).HasDatabaseName("idx_stored_file_removals_next_attempt");
         });
     }
 

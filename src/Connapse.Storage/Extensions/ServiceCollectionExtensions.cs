@@ -160,6 +160,7 @@ public static class ServiceCollectionExtensions
 
         // Folder store
         services.AddScoped<IFolderStore, PostgresFolderStore>();
+        services.AddScoped<IStoredFileRemovalStore, Documents.PostgresStoredFileRemovalStore>();
 
         // Document store
         services.AddScoped<IDocumentStore, PostgresDocumentStore>();

@@ -833,6 +833,47 @@ namespace Connapse.Storage.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.StoredFileRemovalEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("path");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("idx_stored_file_removals_next_attempt");
+
+                    b.ToTable("stored_file_removals", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.BatchDocumentEntity", b =>
                 {
                     b.HasOne("Connapse.Storage.Data.Entities.BatchEntity", "Batch")
