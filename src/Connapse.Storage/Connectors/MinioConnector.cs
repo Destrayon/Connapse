@@ -43,6 +43,7 @@ public class MinioConnector : IWritableConnector
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
+            await ThrowIfBucketMissingAsync(ex, ct);
             throw new FileNotFoundException($"File not found in MinIO at '{key}'.", path);
         }
     }
@@ -69,6 +70,7 @@ public class MinioConnector : IWritableConnector
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
+            await ThrowIfBucketMissingAsync(ex, ct);
             // Already deleted — treat as success
         }
     }
@@ -114,7 +116,29 @@ public class MinioConnector : IWritableConnector
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
+            await ThrowIfBucketMissingAsync(ex, ct);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// A 404 means either the bucket or the key is missing. GET and DELETE errors carry the S3 error
+    /// code; a HEAD error has no body, so its 404 can't say which, and the bucket is asked directly.
+    /// </summary>
+    private async Task ThrowIfBucketMissingAsync(AmazonS3Exception notFound, CancellationToken ct)
+    {
+        if (notFound.ErrorCode == "NoSuchBucket")
+            throw new StorageBucketNotFoundException(_options.BucketName, notFound);
+        if (notFound.ErrorCode == "NoSuchKey")
+            return;
+
+        try
+        {
+            await _s3.GetBucketLocationAsync(new GetBucketLocationRequest { BucketName = _options.BucketName }, ct);
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new StorageBucketNotFoundException(_options.BucketName, ex);
         }
     }
 
