@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Pipeline;
 
 namespace Connapse.Web.Services;
 
@@ -142,6 +143,16 @@ public class UploadService(
 
         var contentType = request.ContentType ?? InferContentType(request.FileName);
 
+        // Parse strategy
+        var strategy = ChunkingStrategy.Semantic;
+        bool strategyIsExplicit = false;
+        if (request.Strategy is not null &&
+            Enum.TryParse<ChunkingStrategy>(request.Strategy, true, out var parsed))
+        {
+            strategy = parsed;
+            strategyIsExplicit = true;
+        }
+
         var folderPath = PathUtilities.GetParentPath(virtualFilePath);
         Folder? folder = folderPath == "/" ? null : await folderStore.EnsureAsync(request.ContainerId, folderPath, ct);
 
@@ -167,6 +178,13 @@ public class UploadService(
                 ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
                 ["IngestedVia"] = request.IngestedVia
             });
+        // The caller's strategy goes on the record too, where a job started later by the stuck-job sweep reads it
+        // from, as a reindex does (CON-96). Indexing then records what it actually used.
+        if (strategyIsExplicit)
+        {
+            document.Metadata[IngestionPipeline.MetadataKeyChunkingStrategy] = strategy.ToString();
+            document.Metadata[IngestionPipeline.MetadataKeyStrategyExplicit] = "true";
+        }
         // In a folder, the file is written while the folder is locked against a delete, so a folder delete either
         // waits and removes the file with its record, or comes first and the upload is refused before it writes
         // anything (CON-86).
@@ -190,16 +208,6 @@ public class UploadService(
         // Use the winning document ID (may differ from our generated one if upsert hit an existing row)
         var winnerDocId = storeResult.DocumentId;
 
-        // Parse strategy
-        var strategy = ChunkingStrategy.Semantic;
-        bool strategyIsExplicit = false;
-        if (request.Strategy is not null &&
-            Enum.TryParse<ChunkingStrategy>(request.Strategy, true, out var parsed))
-        {
-            strategy = parsed;
-            strategyIsExplicit = true;
-        }
-
         // Build and enqueue ingestion job with the current generation
         var job = new IngestionJob(
             DocumentId: winnerDocId,
@@ -221,7 +229,18 @@ public class UploadService(
             },
             BatchId: batchId);
 
-        string? jobId = await ingestionQueue.EnqueueAsync(job, ct);
+        // The file and its record are stored, so the upload has succeeded even if its job cannot start: the record
+        // stays Queued with no job, and the stuck-job sweep starts one (CON-96). Failing here would report an upload
+        // whose document later appears.
+        string? jobId = null;
+        try
+        {
+            jobId = await ingestionQueue.EnqueueAsync(job, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not start indexing document {DocumentId}; the stuck-job sweep will start it", winnerDocId);
+        }
 
         // Audit log
         await auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,

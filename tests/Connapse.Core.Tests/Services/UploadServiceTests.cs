@@ -267,6 +267,60 @@ public class UploadServiceTests
         await _connector.DidNotReceive().DeleteFileAsync("a.txt", Arg.Any<CancellationToken>());
     }
 
+    // --- The record is stored but its indexing job fails to start (CON-96) ---
+
+    [Fact]
+    public async Task UploadAsync_JobFailsToStart_ReportsTheStoredDocumentWithNoJob()
+    {
+        var stored = Guid.NewGuid().ToString();
+        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns((StoreResult?)new StoreResult(stored, 1));
+        _ingestionQueue.EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>())
+            .Returns<Task<string?>>(_ => throw new InvalidOperationException("job storage unavailable"));
+
+        var result = await _sut.UploadAsync(MakeRequest());
+
+        // The file and its record are kept; the stuck-job sweep starts the job the upload could not.
+        result.Success.Should().BeTrue();
+        result.DocumentId.Should().Be(stored);
+        result.JobId.Should().BeNull();
+        await _connector.DidNotReceive().DeleteFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _auditLogger.Received(1).LogAsync("doc.uploaded",
+            Arg.Any<string?>(), stored, Arg.Any<object?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("Recursive", "Recursive")]
+    [InlineData(null, null)]
+    public async Task UploadAsync_StoresOnlyACallersChosenStrategyOnTheRecord(string? strategy, string? recorded)
+    {
+        await _sut.UploadAsync(MakeRequest(strategy: strategy));
+
+        // A job started later by the stuck-job sweep reads the strategy from the record.
+        await _documentStore.Received(1).StoreInFolderAsync(
+            Arg.Is<Document>(d =>
+                d.Metadata.GetValueOrDefault("IndexedWith:ChunkingStrategy") == recorded &&
+                d.Metadata.ContainsKey("IndexedWith:StrategyExplicit") == (recorded != null)),
+            Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BulkUploadAsync_OneJobFailsToStart_CountsThatFileAsUploaded()
+    {
+        _ingestionQueue.EnqueueAsync(Arg.Is<IngestionJob>(j => j.Options.FileName == "b.txt"), Arg.Any<CancellationToken>())
+            .Returns<Task<string?>>(_ => throw new InvalidOperationException("job storage unavailable"));
+        var request = new BulkUploadRequest(ContainerId, new[]
+        {
+            new UploadRequest(ContainerId, "a.txt", new MemoryStream("a"u8.ToArray()), UserId, IngestedVia: "MCP"),
+            new UploadRequest(ContainerId, "b.txt", new MemoryStream("b"u8.ToArray()), UserId, IngestedVia: "MCP"),
+        });
+
+        var result = await _sut.BulkUploadAsync(request);
+
+        result.SuccessCount.Should().Be(2);
+        result.Results[1].JobId.Should().BeNull();
+    }
+
     [Theory]
     [InlineData(null, false)]
     [InlineData("FixedSize", true)]
