@@ -1,4 +1,7 @@
+using System.Buffers.Text;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Identity;
 
 namespace Connapse.Identity.Authentication;
@@ -16,12 +19,15 @@ public static class McpApprovalClaims
         !string.Equals(user.FindFirst(RequiresApproval)?.Value, "false", StringComparison.Ordinal);
 
     /// <summary>
-    /// Which token is asking, so an approval binds to it: its PAT or agent key, or for a session or OAuth
-    /// token, the signed-in user.
+    /// Which token is asking, so an approval binds to it: its PAT or agent key, an OAuth token's client and
+    /// user, or for a session, the signed-in user. An OAuth key is hashed because a client_id can be a
+    /// metadata URL longer than the column, and the user is stored beside it anyway.
     /// </summary>
     public static string TokenKey(ClaimsPrincipal user) =>
         user.FindFirst("pat_id")?.Value is { } pat ? $"pat:{pat}"
         : user.FindFirst("agent_key_id")?.Value is { } key ? $"agent_key:{key}"
+        : user.FindFirst("client_id")?.Value is { } client
+            ? $"oauth:{Base64Url.EncodeToString(SHA256.HashData(Encoding.UTF8.GetBytes($"{user.FindFirst(ClaimTypes.NameIdentifier)?.Value}\n{client}")))}"
         : $"user:{user.FindFirst(ClaimTypes.NameIdentifier)?.Value}";
 
     /// <summary>Whether the caller is a PAT or an agent key rather than a person who signed in.</summary>

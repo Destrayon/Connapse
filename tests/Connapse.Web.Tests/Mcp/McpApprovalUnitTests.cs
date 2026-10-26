@@ -51,6 +51,36 @@ public class McpApprovalUnitTests
     }
 
     [Fact]
+    public void TokenKey_TwoOAuthClientsOfOneUser_Differ()
+    {
+        string user = Guid.NewGuid().ToString();
+        var first = User(new Claim(ClaimTypes.NameIdentifier, user), new Claim("client_id", "client-a"));
+        var second = User(new Claim(ClaimTypes.NameIdentifier, user), new Claim("client_id", "client-b"));
+
+        McpApprovalClaims.TokenKey(first).Should().NotBe(McpApprovalClaims.TokenKey(second));
+        McpApprovalClaims.TokenKey(first).Should().Be(McpApprovalClaims.TokenKey(
+            User(new Claim(ClaimTypes.NameIdentifier, user), new Claim("client_id", "client-a"))));
+    }
+
+    [Fact]
+    public void TokenKey_OneOAuthClientOfTwoUsers_Differ()
+    {
+        var first = User(new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim("client_id", "client-a"));
+        var second = User(new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim("client_id", "client-a"));
+
+        McpApprovalClaims.TokenKey(first).Should().NotBe(McpApprovalClaims.TokenKey(second));
+    }
+
+    [Fact]
+    public void TokenKey_LongMetadataUrlClientId_FitsTheColumn()
+    {
+        var client = User(new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()),
+            new Claim("client_id", $"https://client.example.com/{new string('a', 500)}/client.json"));
+
+        McpApprovalClaims.TokenKey(client).Length.Should().BeLessThanOrEqualTo(64);
+    }
+
+    [Fact]
     public void CanonicalArguments_KeyOrderAndWhitespace_HashTheSame()
     {
         var a = Arguments("""{ "b": [1, {"y": 2, "x": 1}], "a": "z" }""");
