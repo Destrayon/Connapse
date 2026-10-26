@@ -36,14 +36,14 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
                 endpointProblem,
                 new Dictionary<string, object> { ["error"] = "Invalid storage account or blob endpoint", ["endpoint"] = cfg.BlobEndpoint ?? "" });
         }
-        endpointUri = endpointUri!;
+        Uri endpoint = endpointUri!;
 
         string where = string.IsNullOrEmpty(cfg.Prefix) ? "" : $" under prefix '{cfg.Prefix}'";
         var stopwatch = Stopwatch.StartNew();
 
         try
         {
-            var service = new BlobServiceClient(endpointUri, credentials);
+            var service = new BlobServiceClient(endpoint, credentials);
             var container = service.GetBlobContainerClient(cfg.ContainerName);
 
             int seen = 0;
@@ -151,7 +151,7 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
             stopwatch.Stop();
             return ConnectionTestResult.CreateFailure(
                 $"Azure did not answer within {limit.TotalSeconds:F0} seconds. Check that this server can "
-                + $"reach {endpointUri.Host}, then try again.",
+                + $"reach {endpoint.Host}, then try again.",
                 new Dictionary<string, object>
                 {
                     ["error"] = "Timeout",
@@ -163,7 +163,7 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
         {
             stopwatch.Stop();
             return Failure(
-                $"Could not reach '{endpointUri.Host}': {ex.Message} Check the storage account name "
+                $"Could not reach '{endpoint.Host}': {ex.Message} Check the storage account name "
                 + "and, if one is set, the blob endpoint.",
                 ex, stopwatch.Elapsed);
         }

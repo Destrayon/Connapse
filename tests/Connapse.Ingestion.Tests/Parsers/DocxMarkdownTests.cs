@@ -132,7 +132,7 @@ public class DocxMarkdownTests
                 new Footnote(Para("Source: the 2025 audit.")) { Id = 1 },
                 new Footnote(Para("A note whose reference was deleted.")) { Id = 2 });
 
-            var body = main.Document.Body!;
+            var body = main.Document!.Body!;
             body.Append(new SectionProperties(
                 new HeaderReference { Type = HeaderFooterValues.Default, Id = main.GetIdOfPart(header) },
                 new FooterReference { Type = HeaderFooterValues.Default, Id = main.GetIdOfPart(footer) }));

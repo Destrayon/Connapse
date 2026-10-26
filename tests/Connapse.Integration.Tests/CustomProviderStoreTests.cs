@@ -34,7 +34,7 @@ public class CustomProviderStoreTests(SharedWebAppFixture fixture)
 
         await using KnowledgeDbContext context = await scope.ServiceProvider
             .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
-        string stored = await context.CustomProviders.Where(p => p.Id == created.Id).Select(p => p.TokenProtected).SingleAsync();
+        string? stored = await context.CustomProviders.Where(p => p.Id == created.Id).Select(p => p.TokenProtected).SingleAsync();
         stored.Should().NotContain("provider-token");
     }
 
