@@ -69,15 +69,15 @@ public class ReindexService : IReindexService
             : null;
         if (container is not null)
         {
+            // No fallback to the legacy file system: it never has a container's files, so an outage
+            // read as a missing file (CON-99).
             try
             {
                 return await _managedStorage.CreateConnector(container.Id).ExistsAsync(doc.Path, ct);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _logger.LogWarning(ex,
-                    "Connector ExistsAsync failed for container {ContainerId}; falling back to legacy file system",
-                    doc.ContainerId);
+                throw new ContainerStorageUnavailableException(container.Id, ex);
             }
         }
 
@@ -100,11 +100,9 @@ public class ReindexService : IReindexService
             {
                 return await _managedStorage.CreateConnector(container.Id).ReadFileAsync(doc.Path, ct);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                _logger.LogWarning(ex,
-                    "Connector ReadFileAsync failed for container {ContainerId}; falling back to legacy file system",
-                    doc.ContainerId);
+                throw new ContainerStorageUnavailableException(container.Id, ex);
             }
         }
 
@@ -216,22 +214,33 @@ public class ReindexService : IReindexService
         string? currentHash = null;
         if (doc.SourceId is null)
         {
-            // Check if file exists (via connector for connector-backed containers)
-            if (!await FileExistsAsync(doc, ct))
+            try
             {
+                // Check if file exists (via connector for connector-backed containers)
+                if (!await FileExistsAsync(doc, ct))
+                {
+                    return new ReindexCheck(
+                        documentId,
+                        NeedsReindex: false,
+                        Reason: ReindexReason.FileNotFound,
+                        CurrentHash: null,
+                        StoredHash: doc.ContentHash);
+                }
+
+                // Compute current content hash (via connector for connector-backed containers)
+                using var stream = await OpenFileAsync(doc, ct);
+                currentHash = await ComputeContentHashAsync(stream, ct);
+            }
+            catch (ContainerStorageUnavailableException ex)
+            {
+                _logger.LogError(ex, "Storage unavailable while checking document {DocumentId}", Sanitize(documentId));
                 return new ReindexCheck(
                     documentId,
                     NeedsReindex: false,
-                    Reason: ReindexReason.FileNotFound,
+                    Reason: ReindexReason.StorageUnavailable,
                     CurrentHash: null,
-                    StoredHash: doc.ContentHash);
-            }
-
-            // Compute current content hash (via connector for connector-backed containers)
-            try
-            {
-                using var stream = await OpenFileAsync(doc, ct);
-                currentHash = await ComputeContentHashAsync(stream, ct);
+                    StoredHash: doc.ContentHash,
+                    ErrorMessage: ex.Message);
             }
             catch (Exception ex)
             {
@@ -406,7 +415,7 @@ public class ReindexService : IReindexService
                     using var stream = await OpenFileAsync(doc, ct);
                     currentHash = await ComputeContentHashAsync(stream, ct);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not ContainerStorageUnavailableException)
                 {
                     _logger.LogWarning(
                         ex,
@@ -501,6 +510,20 @@ public class ReindexService : IReindexService
                 doc.FileName,
                 ReindexAction.Skipped,
                 ReindexReason.Unchanged);
+        }
+        catch (ContainerStorageUnavailableException ex)
+        {
+            _logger.LogError(
+                ex,
+                "Storage unavailable while evaluating document {DocumentId} for reindex",
+                doc.Id);
+
+            return new ReindexDocumentResult(
+                doc.Id.ToString(),
+                doc.FileName,
+                ReindexAction.Failed,
+                ReindexReason.StorageUnavailable,
+                ErrorMessage: ex.Message);
         }
         catch (Exception ex)
         {

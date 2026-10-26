@@ -97,3 +97,13 @@ public class SourceSecretUnavailableException(Guid sourceId, Exception inner)
 {
     public Guid SourceId { get; } = sourceId;
 }
+
+/// <summary>
+/// A container's storage could not be reached, or failed while answering. Distinct from a file that
+/// is not there: the storage never said whether it was, so callers report an error, not a missing file.
+/// </summary>
+public class ContainerStorageUnavailableException(string containerId, Exception inner)
+    : Exception($"The storage for container '{containerId}' could not be reached: {inner.Message}", inner)
+{
+    public string ContainerId { get; } = containerId;
+}
