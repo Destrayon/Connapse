@@ -154,6 +154,36 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task IngestAsync_JobWhoseDocumentWasDeletedAfterItReadTheFile_DoesNotRecreateTheDocument()
+    {
+        // A folder delete removes the record while the job is parsing the file it already read, then removes the
+        // stored file. A job that wrote the record back would leave a document whose file is gone (CON-98).
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
+        var lifecycle = sp.GetRequiredService<IDocumentLifecycle>();
+        int generation = (await lifecycle.EnqueuedAsync(documentId, resetAttempts: true))!.Value;
+        (await lifecycle.TryClaimAsync(documentId, generation)).Should().BeTrue();
+
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (var ctx = await dbFactory.CreateDbContextAsync())
+            await ctx.Documents.Where(d => d.Id == documentId).ExecuteDeleteAsync();
+
+        var result = await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(
+            new MemoryStream("# Deleted\n\nA document deleted while it was being indexed."u8.ToArray()),
+            new IngestionOptions(
+                DocumentId: documentId.ToString(), FileName: "doc.md", ContentType: "text/markdown",
+                ContainerId: containerId.ToString(), Path: "/doc.md", Generation: generation));
+
+        result.ChunkCount.Should().Be(0, "the work was superseded by the delete");
+        await using (var ctx = await dbFactory.CreateDbContextAsync())
+        {
+            (await ctx.Documents.AnyAsync(d => d.Id == documentId)).Should().BeFalse();
+            (await ctx.Chunks.AnyAsync(c => c.DocumentId == documentId)).Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public async Task GetDocumentTextAsync_OverlappingChunks_AreJoinedWithoutRepeatingTheOverlap()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
