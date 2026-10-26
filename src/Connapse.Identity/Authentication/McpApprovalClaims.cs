@@ -20,15 +20,18 @@ public static class McpApprovalClaims
 
     /// <summary>
     /// Which token is asking, so an approval binds to it: its PAT or agent key, an OAuth token's client and
-    /// user, or for a session, the signed-in user. An OAuth key is hashed because a client_id can be a
-    /// metadata URL longer than the column, and the user is stored beside it anyway.
+    /// user, or for a person, the signed-in user and how they signed in: a browser session and a sign-in
+    /// token from the auth API are kept apart, so neither can run a call approved for the other. An OAuth
+    /// key is hashed because a client_id can be a metadata URL longer than the column, and the user is
+    /// stored beside it anyway.
     /// </summary>
     public static string TokenKey(ClaimsPrincipal user) =>
         user.FindFirst("pat_id")?.Value is { } pat ? $"pat:{pat}"
         : user.FindFirst("agent_key_id")?.Value is { } key ? $"agent_key:{key}"
         : user.FindFirst("client_id")?.Value is { } client
             ? $"oauth:{Base64Url.EncodeToString(SHA256.HashData(Encoding.UTF8.GetBytes($"{user.FindFirst(ClaimTypes.NameIdentifier)?.Value}\n{client}")))}"
-        : $"user:{user.FindFirst(ClaimTypes.NameIdentifier)?.Value}";
+        : IsBrowserSession(user) ? $"session:{user.FindFirst(ClaimTypes.NameIdentifier)?.Value}"
+        : $"signin:{user.FindFirst(ClaimTypes.NameIdentifier)?.Value}";
 
     /// <summary>Whether the caller is a PAT or an agent key rather than a person who signed in.</summary>
     public static bool IsToken(ClaimsPrincipal user) =>

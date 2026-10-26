@@ -18,7 +18,7 @@ public class McpApprovalEntity
 {
     public Guid Id { get; set; }
 
-    /// <summary>The token that asked: "pat:{id}", "agent_key:{id}", "oauth:{hash of user and client}" for an OAuth token, or "user:{id}" for a session.</summary>
+    /// <summary>The token that asked: "pat:{id}", "agent_key:{id}", "oauth:{hash of user and client}" for an OAuth token, "session:{id}" for a browser session, or "signin:{id}" for a sign-in token.</summary>
     public string TokenKey { get; set; } = string.Empty;
 
     /// <summary>The person the token acts for: a PAT's user, an agent's creator, or the signed-in user.</summary>

@@ -9,9 +9,14 @@ using Connapse.Application;
 using Connapse.Application.Approvals;
 using Connapse.Core;
 using Connapse.Identity.Authentication;
+using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -109,6 +114,33 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task ContainerDelete_ApprovedForABrowserSession_TheSameUsersSignInTokenStillWaits()
+    {
+        var http = fixture.AdminClient;
+        await using var session = await BrowserSessionAsync();
+        await using var signIn = await McpClientAsync(new AuthenticationHeaderValue("Bearer", fixture.AdminToken));
+        string target = await CreateContainerAsync(http, "approval-session");
+        try
+        {
+            var call = new Dictionary<string, object?> { ["containerId"] = target };
+            Text(await session.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
+            (await DecideAsync((await PendingForAsync("container_delete", target)).Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
+
+            Text(await signIn.CallToolAsync("container_delete", call)).Should().Contain("pending approval",
+                "the approval belongs to the browser session that asked for it, not to the same user's sign-in token");
+            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeTrue();
+
+            var ran = await session.CallToolAsync("container_delete", call);
+            Text(ran).Should().NotContain("pending approval");
+            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeFalse("the session's approval still works");
+        }
+        finally
+        {
+            await http.DeleteAsync($"/api/containers/{target}");
+        }
+    }
+
     /// <summary>An administrator signed in to the UI in a browser, who may decide anyone's request.</summary>
     private static OperationContext Admin(OperationSurface surface, string authenticationType = "Identity.Application") => new(
         new ClaimsPrincipal(new ClaimsIdentity(
@@ -196,6 +228,39 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         var http = fixture.Factory.CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
             (await exchanged.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("access_token").GetString());
+        return await McpClient.CreateAsync(new HttpClientTransport(
+            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
+            http,
+            ownsHttpClient: true));
+    }
+
+    /// <summary>
+    /// An MCP client holding the administrator's browser sign-in cookie, issued the way SignInManager
+    /// issues it, so the request authenticates through the Identity.Application cookie scheme.
+    /// </summary>
+    private async Task<McpClient> BrowserSessionAsync()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
+        var principal = await scope.ServiceProvider.GetRequiredService<SignInManager<ConnapseUser>>()
+            .CreateUserPrincipalAsync((await users.FindByEmailAsync(SharedWebAppFixture.AdminEmail))!);
+        var cookie = scope.ServiceProvider.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(IdentityConstants.ApplicationScheme);
+        string ticket = cookie.TicketDataFormat.Protect(new AuthenticationTicket(principal,
+            new AuthenticationProperties { IssuedUtc = DateTimeOffset.UtcNow, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(1) },
+            IdentityConstants.ApplicationScheme));
+
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Add("Cookie", $"{cookie.Cookie.Name}={ticket}");
+        return await McpClient.CreateAsync(new HttpClientTransport(
+            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
+            http,
+            ownsHttpClient: true));
+    }
+
+    private async Task<McpClient> McpClientAsync(AuthenticationHeaderValue authorization)
+    {
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = authorization;
         return await McpClient.CreateAsync(new HttpClientTransport(
             new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
             http,
