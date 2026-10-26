@@ -108,8 +108,11 @@ public sealed class PostgresLinkReader(IDbContextFactory<KnowledgeDbContext> con
             frontier = next;
         }
 
+        // Rows of one link that disagree on its ends or type are not one link: evidence for one could otherwise
+        // open the other. Such a link is unusable until its writers agree.
         bool Usable(List<LinkEdgeEntity> edge) =>
-            edge.Any(r => readable.Contains(r.DocumentId)) && Visible(edge[0].FromNode) && Visible(edge[0].ToNode);
+            edge.All(r => r.FromNode == edge[0].FromNode && r.ToNode == edge[0].ToNode && r.Type == edge[0].Type)
+            && edge.Any(r => readable.Contains(r.DocumentId)) && Visible(edge[0].FromNode) && Visible(edge[0].ToNode);
 
         List<VisibleNode> nodes = depth.Keys
             .OrderBy(id => depth[id]).ThenBy(id => id, StringComparer.Ordinal)

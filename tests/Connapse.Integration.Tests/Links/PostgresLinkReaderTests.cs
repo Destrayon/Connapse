@@ -94,3 +94,34 @@ public class LinkCleanupTests(SharedWebAppFixture fixture)
             .Should().Equal(kept);
     }
 }
+
+/// <summary>Rows that share a link id but disagree on its ends are not one link; neither opens.</summary>
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
+public class ConflictingLinkRowsTests(SharedWebAppFixture fixture)
+{
+    [Fact]
+    public async Task ExpandAsync_RowsOfOneIdWithDifferentEnds_WalkNeither()
+    {
+        IServiceScope scope = fixture.Factory.Services.CreateScope();
+        IDbContextFactory<KnowledgeDbContext> contexts =
+            scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        string run = Guid.NewGuid().ToString("N");
+        string a = $"a-{run}", b = $"b-{run}", c = $"c-{run}", pub = $"pub-{run}", secret = $"secret-{run}";
+        await new PostgresLinkStore(contexts).ReplaceAsync([
+            new DocumentLinks(a, null, [new LinkFact(a, LinkFactField.Name, "a"), new LinkFact(b, LinkFactField.Name, "b"),
+                new LinkFact(c, LinkFactField.Name, "c")], []),
+            new DocumentLinks(pub, null, [], [new LinkAssertion($"l-{run}", a, b, "closes")]),
+            new DocumentLinks(secret, null, [], [new LinkAssertion($"l-{run}", a, c, "closes")]),
+        ]);
+        DocumentAccessStub access = new();
+        Guid reader = Guid.NewGuid();
+        access.Grant(reader, [a, pub]);
+
+        LinkExpansion answer = await new PostgresLinkReader(contexts, access)
+            .ExpandAsync(new LinkExpandRequest(reader, [a], MaxHops: 2));
+
+        answer.Nodes.Select(n => n.Id).Should().Equal(a);
+        answer.Edges.Should().BeEmpty();
+    }
+}

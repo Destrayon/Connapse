@@ -134,4 +134,46 @@ public class LinkSearchIntegrationTests(SharedWebAppFixture fixture)
 
         on.Hits.Select(h => h.DocumentId).Should().Equal(docs["issue.md"].ToString());
     }
+
+    private sealed class RejectEverything : ISearchResultVerifier
+    {
+        public int CandidateMultiplier => 1;
+
+        public Task<IReadOnlyList<SearchHit>> VerifyAsync(
+            IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<SearchHit>>([]);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_SeedTheVerifierRejects_LendsItsScoreToNothing()
+    {
+        // The seed is a synced document the per-hit verifier rejects; a readable page names its node, and that
+        // node links to a readable record. Nothing may be reached through the rejected seed.
+        (Guid container, Dictionary<string, Guid> docs) = await SeedAsync(
+            ("seed.md", $"{Term} secret design"), ("page.md", "public page"), ("target.md", "linked record"));
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        IDbContextFactory<KnowledgeDbContext> contexts = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using KnowledgeDbContext db = await contexts.CreateDbContextAsync();
+        await db.Documents.Where(d => d.Id == docs["seed.md"])
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.ResourceUri, "azblob://acct/secret/seed.md"));
+
+        string seed = $"S-{Guid.NewGuid():N}", target = $"T-{Guid.NewGuid():N}";
+        await LinkAsync(
+            new DocumentLinks(docs["seed.md"].ToString(), seed, [], []),
+            new DocumentLinks(docs["page.md"].ToString(), null, [new LinkFact(seed, LinkFactField.Name, "design")],
+                [new LinkAssertion($"{seed}-{target}", seed, target, "mentions")]),
+            Record(docs["target.md"], target));
+
+        Guid chunk = await db.Chunks.Where(c => c.DocumentId == docs["seed.md"]).Select(c => c.Id).SingleAsync();
+        List<SearchHit> hits = [new(chunk.ToString(), docs["seed.md"].ToString(), "", 1f, [])];
+        Connapse.Search.Links.LinkSearch links = new(
+            db, contexts, scope.ServiceProvider.GetRequiredService<ILinkIndex>(), new RejectEverything(),
+            NullLogger.Instance);
+
+        List<SearchHit> result = await links.ApplyAsync(
+            hits, new SearchSettings { EnableLinkSearch = true }, Keyword(container), SearchScopes.Unrestricted,
+            (_, _) => Task.FromResult<IReadOnlyDictionary<string, float>>(new Dictionary<string, float>()), default);
+
+        result.Should().BeSameAs(hits);
+    }
 }

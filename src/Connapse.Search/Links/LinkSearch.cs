@@ -50,7 +50,15 @@ internal sealed class LinkSearch(
         if (!seedNodes.Any())
             return hits;
 
+        // Hits are not verified yet: a seed the per-hit verifier would drop must not lend its score to anything.
         SearchDocumentAccess access = new(context, verifier, options, scopes);
+        IReadOnlySet<string> readableSeeds = await access.ReadableAsync(
+            options.UserId, [.. seedNodes.Select(g => g.Key)], ct);
+        seedNodes = seedNodes.Where(g => readableSeeds.Contains(g.Key))
+            .SelectMany(g => g.Select(node => (Doc: g.Key, Node: node)))
+            .ToLookup(x => x.Doc, x => x.Node, StringComparer.Ordinal);
+        if (!seedNodes.Any())
+            return hits;
         Dictionary<string, float> nodeSeeds = new(StringComparer.Ordinal);
         foreach (IGrouping<string, string> doc in seedNodes)
             foreach (string node in doc)

@@ -153,6 +153,14 @@ public class LinkSearchTests
     }
 
     [Fact]
+    public void Parse_OverrideSavedBeforeTheLinkLayer_IsNotApplied()
+    {
+        using JsonDocument json = JsonDocument.Parse("""{"search":{"fusionAlpha":0.1,"mode":"Keyword"}}""");
+
+        SourceSearchChoices.Parse(json).Should().BeNull();
+    }
+
+    [Fact]
     public void Defaults_LinkSearchIsOff()
     {
         SearchSettings defaults = new();

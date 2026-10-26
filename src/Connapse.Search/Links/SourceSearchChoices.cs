@@ -47,9 +47,18 @@ internal static class SourceSearchChoices
             };
     }
 
+    /// <summary>
+    /// The owner's search settings, but only when they name one of the link layer's choices. Search overrides
+    /// saved before the link layer were never applied at search time; honouring them now (a stale fusion weight)
+    /// would change searches the moment the layer is turned on, links or not.
+    /// </summary>
     internal static SearchSettings? Parse(JsonDocument? json)
     {
-        if (json is null)
+        if (json is null
+            || json.RootElement.ValueKind != JsonValueKind.Object
+            || !TryGetProperty(json.RootElement, "search", out JsonElement search)
+            || search.ValueKind != JsonValueKind.Object
+            || !search.EnumerateObject().Any(p => ChoiceNames.Contains(p.Name)))
             return null;
         try
         {
@@ -59,6 +68,25 @@ internal static class SourceSearchChoices
         {
             return null;
         }
+    }
+
+    private static readonly HashSet<string> ChoiceNames = new(
+        [nameof(SearchSettings.UseVectorSearch), nameof(SearchSettings.UseKeywordSearch), nameof(SearchSettings.LinkWeight),
+         nameof(SearchSettings.LinkMaxHops), nameof(SearchSettings.LinkSeeds)],
+        StringComparer.OrdinalIgnoreCase);
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (JsonProperty property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+        value = default;
+        return false;
     }
 
     /// <summary>
