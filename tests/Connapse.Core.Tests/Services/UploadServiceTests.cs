@@ -289,6 +289,21 @@ public class UploadServiceTests
             Arg.Any<string?>(), stored, Arg.Any<object?>(), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData("Recursive", "Recursive")]
+    [InlineData(null, null)]
+    public async Task UploadAsync_StoresOnlyACallersChosenStrategyOnTheRecord(string? strategy, string? recorded)
+    {
+        await _sut.UploadAsync(MakeRequest(strategy: strategy));
+
+        // A job started later by the stuck-job sweep reads the strategy from the record.
+        await _documentStore.Received(1).StoreInFolderAsync(
+            Arg.Is<Document>(d =>
+                d.Metadata.GetValueOrDefault("IndexedWith:ChunkingStrategy") == recorded &&
+                d.Metadata.ContainsKey("IndexedWith:StrategyExplicit") == (recorded != null)),
+            Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task BulkUploadAsync_OneJobFailsToStart_CountsThatFileAsUploaded()
     {

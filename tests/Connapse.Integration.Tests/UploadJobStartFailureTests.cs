@@ -35,7 +35,7 @@ public class UploadJobStartFailureTests(SharedWebAppFixture fixture)
         var containerId = await CreateContainerAsync();
         try
         {
-            var result = await UploadWithFailingJobCreationAsync(containerId);
+            var result = await UploadWithFailingJobCreationAsync(containerId, strategy: "FixedSize");
 
             result.Success.Should().BeTrue("the file and its record are stored");
             result.JobId.Should().BeNull();
@@ -49,6 +49,11 @@ public class UploadJobStartFailureTests(SharedWebAppFixture fixture)
             var after = await DocumentAsync(result.DocumentId!);
             after.JobId.Should().NotBeNull("the sweep enqueues the job the upload could not");
             after.Generation.Should().BeGreaterThan(before.Generation);
+            // The recovered job indexes the file the way its uploader asked.
+            using var connection = fixture.Factory.Services.GetRequiredService<JobStorage>().GetConnection();
+            var options = connection.GetJobData(after.JobId!)!.Job.Args[1].Should().BeOfType<IngestionOptions>().Subject;
+            options.Strategy.Should().Be(ChunkingStrategy.FixedSize);
+            options.StrategyIsExplicit.Should().BeTrue();
         }
         finally
         {
@@ -110,7 +115,7 @@ public class UploadJobStartFailureTests(SharedWebAppFixture fixture)
         }
     }
 
-    private async Task<UploadResult> UploadWithFailingJobCreationAsync(string containerId)
+    private async Task<UploadResult> UploadWithFailingJobCreationAsync(string containerId, string? strategy = null)
     {
         using var scope = fixture.Factory.Services.CreateScope();
         var services = scope.ServiceProvider;
@@ -129,7 +134,7 @@ public class UploadJobStartFailureTests(SharedWebAppFixture fixture)
 
         return await uploads.UploadAsync(new UploadRequest(
             Guid.Parse(containerId), "stranded.txt", new MemoryStream(Encoding.UTF8.GetBytes("waiting for a job")),
-            Guid.NewGuid(), null, "text/plain", IngestedVia: "API"));
+            Guid.NewGuid(), null, "text/plain", strategy, IngestedVia: "API"));
     }
 
     private async Task RunSweepAsync()
