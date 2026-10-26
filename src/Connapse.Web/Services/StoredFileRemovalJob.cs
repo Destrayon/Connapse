@@ -56,9 +56,11 @@ public sealed class StoredFileRemovalJob(
         IConnector connector = storage.CreateConnector(removal.ContainerId.ToString());
         try
         {
-            // Managed storage is always writable; anything else has no file Connapse could remove.
+            // Managed storage is always writable. A connector that isn't can't remove the file, so the entry stays
+            // owed rather than being dropped with the file still there.
             if (connector is not IWritableConnector writable)
-                return;
+                throw new InvalidOperationException(
+                    $"Storage for container {removal.ContainerId} can't remove files ({connector.GetType().Name}).");
 
             await documents.RemoveUnrecordedFileAsync(removal.ContainerId, removal.Path,
                 token => writable.DeleteFileAsync(removal.Path, token), ct);

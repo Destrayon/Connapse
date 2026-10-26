@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Folders;
@@ -120,6 +121,31 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task StoredFileRemovalJob_StorageCannotRemoveFiles_KeepsTheEntry()
+    {
+        var containerId = await CreateContainerAsync();
+        try
+        {
+            (await UploadAsync(containerId, "a.txt", "/docs")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+            using var scope = fixture.Factory.Services.CreateScope();
+            (await FolderStore(scope.ServiceProvider, StorageFailingDeletes()).DeleteAsync(Guid.Parse(containerId), "/docs/")).Should().BeTrue();
+
+            var readOnly = Substitute.For<IManagedStorageProvider>();
+            readOnly.CreateConnector(Arg.Any<string>()).Returns(_ => Substitute.For<IConnector>());
+            await Job(scope.ServiceProvider, readOnly, PastGrace).RunAsync(CancellationToken.None);
+
+            (await OwedAsync(containerId)).Should().ContainSingle().Which.Attempts.Should().Be(1,
+                "storage that can't remove the file leaves the removal owed");
+            (await StoredPathsAsync(containerId)).Should().Equal(["/docs/a.txt"]);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
     public async Task StoredFileRemovalJob_PathUploadedAgain_KeepsTheNewFile()
     {
         var containerId = await CreateContainerAsync();
@@ -209,7 +235,31 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
         file.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(file, "files", fileName);
         multipart.Add(new StringContent(path), "path");
-        return await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", multipart);
+        var response = await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", multipart);
+        if (response.IsSuccessStatusCode)
+            await WaitForIngestionAsync(containerId);
+        return response;
+    }
+
+    /// <summary>
+    /// Ingestion still running when the folder is deleted can save the document's record again (CON-98), and a file
+    /// a record points to is rightly not removed, so each upload settles before the test goes on.
+    /// </summary>
+    private async Task WaitForIngestionAsync(string containerId)
+    {
+        Guid id = Guid.Parse(containerId);
+        DateTime deadline = DateTime.UtcNow.AddSeconds(90);
+        while (DateTime.UtcNow < deadline)
+        {
+            using var scope = fixture.Factory.Services.CreateScope();
+            await using var context = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            if (!await context.Documents.AnyAsync(d => d.ContainerId == id
+                    && (d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing)))
+                return;
+            await Task.Delay(250);
+        }
+
+        throw new TimeoutException($"Ingestion in container {containerId} did not finish within 90 s");
     }
 
     private async Task<List<string>> StoredPathsAsync(string containerId)
