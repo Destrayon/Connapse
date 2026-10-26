@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests;
 
@@ -167,6 +169,47 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await _fixture.AdminClient.DeleteAsync($"/api/containers/{otherContainer.Id}");
     }
 
+    [Fact]
+    public async Task Reindex_UploadedFileChangedInContainerStorage_IndexesTheNewContent()
+    {
+        // CON-93: a container keeps its files under its own storage prefix (#957 found deletes
+        // missing it). The new text exists only there, so finding it after a reindex proves the
+        // reindex read the file where the container stores it.
+        var documentId = await UploadDocument("stored-doc.txt", "Original wording about glaciers.");
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
+        var doc = await GetDocument(documentId);
+
+        var connector = (IWritableConnector)_fixture.Factory.Services
+            .GetRequiredService<IManagedStorageProvider>().CreateConnector(_containerId);
+        using (var changed = new MemoryStream(Encoding.UTF8.GetBytes("Replacement wording about marmalade.")))
+            await connector.WriteFileAsync(doc.Path, changed, "text/plain");
+
+        var reindexResponse = await _fixture.AdminClient.PostAsJsonAsync(
+            $"/api/containers/{_containerId}/reindex",
+            new { });
+        reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>(JsonOptions);
+
+        reindexResult!.EnqueuedCount.Should().Be(1);
+        reindexResult.ReasonCounts.Should().ContainKey(nameof(ReindexReason.ContentChanged),
+            "the reindex hashed the file in the container's storage and saw it change");
+
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
+
+        var search = await _fixture.AdminClient.GetAsync(
+            $"/api/containers/{_containerId}/search?q=marmalade&mode=Keyword&topK=5");
+        search.StatusCode.Should().Be(HttpStatusCode.OK);
+        var hits = (await search.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions))!.Hits;
+        hits.Should().Contain(h => h.DocumentId == documentId && h.Content.Contains("marmalade"));
+
+        var stale = await _fixture.AdminClient.GetAsync(
+            $"/api/containers/{_containerId}/search?q=glaciers&mode=Keyword&topK=5");
+        (await stale.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions))!.Hits
+            .Should().NotContain(h => h.DocumentId == documentId, "the old content was replaced");
+
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
+    }
+
     private async Task<string> UploadDocument(string fileName, string content)
     {
         return await UploadDocumentToContainer(_containerId, fileName, content);
@@ -277,6 +320,10 @@ public class ReindexIntegrationTests : IAsyncLifetime
         int FailedCount,
         Dictionary<string, int> ReasonCounts,
         string Message);
+
+    private record SearchResultDto(List<SearchHitDto> Hits, int TotalMatches);
+
+    private record SearchHitDto(string ChunkId, string DocumentId, string Content, float Score);
 
     private record ReindexCheckDto(
         string DocumentId,
