@@ -1,7 +1,6 @@
-using Connapse.Core;
-using Connapse.Core.Interfaces;
+using Connapse.Application;
+using Connapse.Application.Files;
 using Connapse.Web.Problems;
-using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Connapse.Web.Endpoints;
@@ -17,31 +16,18 @@ public static class BatchesEndpoints
 
         // GET /api/batches/{id}/status - Get the progress of an upload's ingestion job
         group.MapGet("/{id}/status", async (
+            HttpContext http,
             string id,
-            [FromServices] JobStorage jobStorage,
-            [FromServices] IDocumentStore documentStore,
+            [FromServices] GetBatchStatus status,
             CancellationToken ct) =>
         {
-            // The id is the job id an upload returned. The job names its document; the document
-            // row holds the status, which outlives the job and any retries that replaced it.
-            string? documentId = JobDocumentId(jobStorage, id);
-            Document? document = documentId is null ? null : await documentStore.GetAsync(documentId, ct);
-            if (document is null)
-                return ApiProblem.NotFound($"Batch {id} not found");
+            var read = await status.RunAsync(new OperationContext(http.User, OperationSurface.Rest), id, ct);
+            if (!read.Succeeded)
+                return OperationProblems.Result(read);
 
+            var batch = read.Result!;
             return Results.Ok(new BatchStatusResponse(
-                JobId: id,
-                DocumentId: document.Id,
-                ContainerId: document.ContainerId,
-                State: document.Status switch
-                {
-                    DocumentStatus.Queued => "Queued",
-                    DocumentStatus.Processing => "Processing",
-                    DocumentStatus.Ready => "Completed",
-                    _ => "Failed",
-                },
-                PercentComplete: document.Status == DocumentStatus.Ready ? 100 : 0,
-                ErrorMessage: document.Metadata.GetValueOrDefault("ErrorMessage")));
+                batch.JobId, batch.DocumentId, batch.ContainerId, batch.State, batch.PercentComplete, batch.ErrorMessage));
         })
         .Produces<BatchStatusResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -49,23 +35,6 @@ public static class BatchesEndpoints
         .WithDescription("Get the status of a batch upload operation");
 
         return app;
-    }
-
-    /// <summary>
-    /// The document an upload's job names, or null when there is no such job. The job storage refuses an
-    /// id it couldn't have issued, such as a word or a number too large for the PostgreSQL storage's, with a
-    /// FormatException or an OverflowException.
-    /// </summary>
-    private static string? JobDocumentId(JobStorage jobStorage, string id)
-    {
-        try
-        {
-            return jobStorage.GetMonitoringApi().JobDetails(id)?.Job?.Args.FirstOrDefault() as string;
-        }
-        catch (Exception ex) when (ex is FormatException or OverflowException)
-        {
-            return null;
-        }
     }
 }
 

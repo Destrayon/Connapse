@@ -27,7 +27,8 @@ public class FolderValidationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-            body.GetProperty("error").GetString().Should().Be("path_too_deep");
+            body.GetProperty("type").GetString().Should().EndWith("#invalid-folder");
+            body.GetProperty("field").GetString().Should().Be("path");
         }
         finally
         {

@@ -119,8 +119,8 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 808,
-    "Injects": 10,
+    "CodeLines": 805,
+    "Injects": 9,
     "Complexity": 194,
     "MarkupLogic": 80,
     "IsEmpty": false

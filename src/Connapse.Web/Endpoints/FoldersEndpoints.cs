@@ -1,7 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Connapse.Application;
+using Connapse.Application.Files;
 using Connapse.Core;
-using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
 using Connapse.Web.Problems;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,37 +18,18 @@ public static class FoldersEndpoints
 
         // POST /api/containers/{containerId}/folders - Create folder
         group.MapPost("/", async (
+            HttpContext http,
             Guid containerId,
             [FromBody] CreateFolderRequest request,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IFolderStore folderStore,
+            [FromServices] CreateFolder create,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
+            var created = await create.RunAsync(Rest(http), containerId, request.Path, ct);
+            if (!created.Succeeded)
+                return OperationProblems.Result(created);
 
-            if (string.IsNullOrWhiteSpace(request.Path))
-                return ApiProblem.BadRequest("Folder path is required");
-
-            // Reject path traversal attempts
-            if (PathUtilities.ContainsPathTraversal(request.Path))
-                return ApiProblem.BadRequest("Path must not contain '..' segments");
-
-            var pathSegments = request.Path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (pathSegments.Length > ValidationConstants.MaxPathDepth)
-                return ApiProblem.BadRequest("path_too_deep", $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels");
-
-            var normalizedPath = PathUtilities.NormalizeFolderPath(request.Path);
-
-            if (normalizedPath == "/")
-                return ApiProblem.BadRequest("Cannot create root folder");
-
-            if (await folderStore.ExistsAsync(containerId, normalizedPath, ct))
-                return ApiProblem.Conflict($"Folder '{normalizedPath}' already exists");
-
-            var folder = await folderStore.CreateAsync(containerId, normalizedPath, ct);
-            return Results.Created($"/api/containers/{containerId}/folders?path={normalizedPath}", folder);
+            var folder = created.Result!;
+            return Results.Created($"/api/containers/{containerId}/folders?path={folder.Path}", folder);
         })
         .Produces<Folder>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -59,40 +40,16 @@ public static class FoldersEndpoints
 
         // DELETE /api/containers/{containerId}/folders - Delete folder
         group.MapDelete("/", async (
+            HttpContext http,
             Guid containerId,
             [FromQuery] string path,
+            // Kept so older clients' requests still bind: a folder delete always takes everything inside it.
             [FromQuery] bool cascade,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IFolderStore folderStore,
-            [FromServices] IDocumentStore documentStore,
-            [FromServices] IIngestionQueue ingestionQueue,
+            [FromServices] DeleteFolder delete,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return ApiProblem.NotFound($"Container {containerId} not found");
-
-            if (string.IsNullOrWhiteSpace(path))
-                return ApiProblem.BadRequest("Folder path is required");
-
-            var normalizedPath = PathUtilities.NormalizeFolderPath(path);
-
-            if (!await folderStore.ExistsAsync(containerId, normalizedPath, ct))
-                return ApiProblem.NotFound($"Folder '{normalizedPath}' not found");
-
-            // Get documents before deletion so we can cancel jobs
-            var documents = await documentStore.ListAsync(containerId, pathPrefix: normalizedPath, take: int.MaxValue, ct: ct);
-
-            // Cancel any in-flight ingestion jobs for documents in this folder
-            foreach (var doc in documents)
-                await ingestionQueue.CancelJobForDocumentAsync(doc.Id);
-
-            // The folder store removes stored files too, including any upload that landed after the list above.
-            var deleted = await folderStore.DeleteAsync(containerId, normalizedPath, ct);
-            if (!deleted)
-                return ApiProblem.BadRequest("Folder is not empty. Use cascade=true to delete contents.");
-
-            return Results.NoContent();
+            var deleted = await delete.RunAsync(Rest(http), containerId, path, ct);
+            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -102,6 +59,8 @@ public static class FoldersEndpoints
 
         return app;
     }
+
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 }
 
 public record CreateFolderRequest([Required(ErrorMessage = "Folder path is required")] string Path);
