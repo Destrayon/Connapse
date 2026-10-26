@@ -24,8 +24,10 @@ the one the question describes, one or two links away. Part of suite `links-v1` 
 
 1. `build_link_suite.py packets` sampled link paths with a fixed seed (20261024). A record starts at most one
    question; scarce two-step kinds were sampled first. Lists of more than 10 answers were skipped.
-2. The split was fixed in the same step, before any question existed: within each kind, alternate questions
-   are dev (tuning) and test (held-out). Headline numbers are the test split's.
+2. The split is fixed in the same step: questions that share a record, as start or answer, form one group,
+   and each group goes whole to dev (tuning) or test (held-out), in a seeded order, so no record is in both.
+   Headline numbers are the test split's. (The first split alternated questions within each kind, which let 30
+   held-out questions share an answer with a tuning question; it was redone on 2026-10-26, before any tuning.)
 3. Each question was written by a model that saw only the start record's title, its body (first 1,500
    characters, no comments) and what to ask for. It never saw the answers, other records or search results.
 4. `build_link_suite.py questions` rejected any question that names a record number, key or URL, repeats

@@ -351,6 +351,41 @@ def candidates(source, records, links):
     return out
 
 
+def split_by_component(rows):
+    """Splits the questions into tuning and held-out halves so that no record is in both. Questions that share
+    a record, as start or answer, form one group, and a whole group goes to whichever half is smaller, in a
+    seeded order. Splitting question by question let a held-out answer be a tuning question's start or answer."""
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for r in rows:
+        for record in r["answers"]:
+            parent[find(record)] = find(r["start"])
+    groups = {}
+    for r in rows:
+        groups.setdefault(find(r["start"]), []).append(r)
+    order = sorted(groups)
+    random.Random(SEED + 1).shuffle(order)
+    size = {"dev": 0, "test": 0}
+    for root in order:
+        half = "dev" if size["dev"] <= size["test"] else "test"
+        for r in groups[root]:
+            r["split"] = half
+        size[half] += len(groups[root])
+    seen = {"dev": set(), "test": set()}
+    for r in rows:
+        seen[r["split"]].update([r["start"], *r["answers"]])
+    if seen["dev"] & seen["test"]:
+        raise SystemExit(f"records in both halves: {sorted(seen['dev'] & seen['test'])[:5]}")
+    print(f"split: {size['dev']} tuning, {size['test']} held-out, in {len(groups)} groups")
+
+
 def packets():
     rng = random.Random(SEED)
     for name, source in ((GITHUB[0], "github"), (JIRA[0], "jira")):
@@ -365,17 +400,17 @@ def packets():
                           if start in records and 0 < len(answers) <= MAX_ANSWERS)
             rng.shuffle(pool)
             chosen = [(s, a) for s, a in pool if s not in used][:quota]
-            for index, (start, answers) in enumerate(chosen):
+            for start, answers in chosen:
                 used.add(start)
                 title, body = text_of(records[start])
                 rows.append({
                     "id": f"{kind}-{len(rows) + 1:04d}", "kind": kind, "hops": hops,
-                    # Alternating after the seeded shuffle splits each kind evenly, before anything is written or run.
-                    "split": "dev" if index % 2 == 0 else "test",
+                    "split": None,
                     "start": start, "answers": answers,
                     "packet": {"title": title, "body": body[:BODY_CHARS], "ask": ask},
                 })
             print(f"{name}: {kind}: {len(chosen)} of {len(pool)} available (quota {quota})")
+        split_by_component(rows)
         path = os.path.join(ROOT, "eval", ".cache", "link-packets", f"{name}.jsonl")
         write_jsonl(path, rows)
         # What a question writer gets: the start record's text and the ask, never the answers.
