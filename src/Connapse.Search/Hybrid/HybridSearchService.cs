@@ -6,6 +6,7 @@ using Connapse.Search.Links;
 using Connapse.Search.Vector;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -141,11 +142,17 @@ public class HybridSearchService : IKnowledgeSearch
         // With the link layer on, the searched container or source chooses which searches run and how much
         // each counts. Off, none of this is read and search is exactly what it was.
         SearchSettings effective = searchSettings;
+        bool walkLinks = false;
         if (searchSettings.EnableLinkSearch)
         {
             effective = await SourceSearchChoices.ResolveAsync(
-                scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>(), options.ContainerId, searchSettings, ct);
+                scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>(),
+                scope.ServiceProvider.GetRequiredService<IMemoryCache>(),
+                options.ContainerId, searchSettings, ct);
             mode = SourceSearchChoices.Mode(mode, effective);
+            // A deployment with no links skips the walk without asking per search.
+            walkLinks = effective.LinkWeight > 0
+                && await scope.ServiceProvider.GetRequiredService<ILinkIndex>().AnyAsync(ct);
         }
 
         // Sized after resolving: resolvers record which connections exist, and a verifier's multiplier
@@ -173,7 +180,7 @@ public class HybridSearchService : IKnowledgeSearch
                 break;
         }
 
-        if (effective.EnableLinkSearch && effective.LinkWeight > 0)
+        if (walkLinks)
         {
             try
             {

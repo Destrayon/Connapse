@@ -23,7 +23,7 @@ public class PostgresLinkReaderContractTests(SharedWebAppFixture fixture) : Link
         await using (KnowledgeDbContext context = await contexts.CreateDbContextAsync())
             await context.Database.ExecuteSqlRawAsync("TRUNCATE link_edges, link_node_facts, link_node_documents");
 
-        await new PostgresLinkStore(contexts).ReplaceAsync(ToDocuments(world));
+        await scope.ServiceProvider.GetRequiredService<PostgresLinkStore>().ReplaceAsync(ToDocuments(world));
         return new PostgresLinkReader(contexts, access);
     };
 
@@ -75,7 +75,7 @@ public class LinkCleanupTests(SharedWebAppFixture fixture)
         await db.SaveChangesAsync();
 
         string gone = ids[0].ToString(), kept = ids[1].ToString();
-        await new PostgresLinkStore(contexts).ReplaceAsync([
+        await scope.ServiceProvider.GetRequiredService<PostgresLinkStore>().ReplaceAsync([
             new DocumentLinks(gone, $"n:{gone}", [new LinkFact($"n:{gone}", LinkFactField.Name, "issue")],
                 [new LinkAssertion($"l:{gone}", $"n:{gone}", $"n:{kept}", "closes")]),
             new DocumentLinks(kept, $"n:{kept}", [new LinkFact($"n:{kept}", LinkFactField.Name, "pr")],
@@ -108,7 +108,7 @@ public class ConflictingLinkRowsTests(SharedWebAppFixture fixture)
             scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         string run = Guid.NewGuid().ToString("N");
         string a = $"a-{run}", b = $"b-{run}", c = $"c-{run}", pub = $"pub-{run}", secret = $"secret-{run}";
-        await new PostgresLinkStore(contexts).ReplaceAsync([
+        await scope.ServiceProvider.GetRequiredService<PostgresLinkStore>().ReplaceAsync([
             new DocumentLinks(a, null, [new LinkFact(a, LinkFactField.Name, "a"), new LinkFact(b, LinkFactField.Name, "b"),
                 new LinkFact(c, LinkFactField.Name, "c")], []),
             new DocumentLinks(pub, null, [], [new LinkAssertion($"l-{run}", a, b, "closes")]),
@@ -123,5 +123,29 @@ public class ConflictingLinkRowsTests(SharedWebAppFixture fixture)
 
         answer.Nodes.Select(n => n.Id).Should().Equal(a);
         answer.Edges.Should().BeEmpty();
+    }
+}
+
+/// <summary>A cached "no links" never hides links written after it.</summary>
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
+public class LinkIndexAnyTests(SharedWebAppFixture fixture)
+{
+    [Fact]
+    public async Task AnyAsync_CachedEmptyThenAWrite_SeesTheWriteAtOnce()
+    {
+        using IServiceScope scope = fixture.Factory.Services.CreateScope();
+        await using (KnowledgeDbContext context = await scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync())
+            await context.Database.ExecuteSqlRawAsync("TRUNCATE link_edges, link_node_facts, link_node_documents");
+        PostgresLinkStore store = scope.ServiceProvider.GetRequiredService<PostgresLinkStore>();
+        // The truncate went around the store, so an earlier "yes" may still be cached; a write clears either.
+        await store.ReplaceAsync([new DocumentLinks($"d-{Guid.NewGuid():N}", null, [], [])]);
+        (await store.AnyAsync()).Should().BeFalse();
+
+        string doc = $"d-{Guid.NewGuid():N}";
+        await store.ReplaceAsync([new DocumentLinks(doc, $"n-{doc}", [new LinkFact($"n-{doc}", LinkFactField.Name, "n")], [])]);
+
+        (await store.AnyAsync()).Should().BeTrue();
     }
 }

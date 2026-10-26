@@ -3,6 +3,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Connapse.Storage.Links;
 
@@ -10,8 +11,30 @@ namespace Connapse.Storage.Links;
 /// The link layer's write side and node/document lookups, in plain PostgreSQL tables. Reads that show links go
 /// through <see cref="PostgresLinkReader"/>, which checks access.
 /// </summary>
-public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> contextFactory) : ILinkWriter, ILinkIndex
+public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> contextFactory, IMemoryCache cache)
+    : ILinkWriter, ILinkIndex
 {
+    private const string AnyKey = "link-layer:any";
+
+    /// <summary>How long <see cref="AnyAsync"/> may answer from the cache.</summary>
+    internal static readonly TimeSpan AnyCacheFor = TimeSpan.FromSeconds(10);
+
+    // Bumped by every write, so an answer read while a write committed is not cached over it.
+    private static long _writes;
+
+    public async Task<bool> AnyAsync(CancellationToken ct = default)
+    {
+        if (cache.TryGetValue(AnyKey, out bool any))
+            return any;
+
+        long writes = Interlocked.Read(ref _writes);
+        await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        any = await context.LinkNodeDocuments.AnyAsync(ct);
+        if (Interlocked.Read(ref _writes) == writes)
+            cache.Set(AnyKey, any, AnyCacheFor);
+        return any;
+    }
+
     public async Task ReplaceAsync(IReadOnlyList<DocumentLinks> documents, CancellationToken ct = default)
     {
         if (documents.Count == 0)
@@ -53,6 +76,8 @@ public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> cont
 
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        Interlocked.Increment(ref _writes);
+        cache.Remove(AnyKey);
     }
 
     public async Task<ILookup<string, string>> NodesOfAsync(IReadOnlyCollection<string> documentIds, CancellationToken ct = default)

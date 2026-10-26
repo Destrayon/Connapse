@@ -17,6 +17,12 @@ public interface ILinkWriter
 /// </summary>
 public interface ILinkIndex
 {
+    /// <summary>
+    /// Whether any document stands for a node. May answer from a short-lived cache: a write clears it at once, but a
+    /// delete or another server's write can leave the old answer for a few seconds.
+    /// </summary>
+    Task<bool> AnyAsync(CancellationToken ct = default);
+
     /// <summary>For each document among <paramref name="documentIds"/> that stands for a node, the nodes.</summary>
     Task<ILookup<string, string>> NodesOfAsync(IReadOnlyCollection<string> documentIds, CancellationToken ct = default);
 
