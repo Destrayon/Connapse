@@ -123,7 +123,15 @@
     }
 
     <!-- Token list -->
-    @if (tokens.Count == 0)
+    @if (!loaded)
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <span class="spinner-border" role="status"></span>
+            </div>
+        </div>
+    }
+    else if (tokens.Count == 0)
     {
         <div class="card">
             <div class="card-body text-center py-5 text-muted">
@@ -236,6 +244,7 @@
     private OperationContext context = null!;
 
     private IReadOnlyList<PatListItem> tokens = [];
+    private bool loaded;
 
     private IEnumerable<PatListItem> DisplayedTokens =>
         showRevoked ? tokens : tokens.Where(t => !t.IsRevoked);
@@ -266,6 +275,7 @@
         if (!listed.Succeeded)
             Say(listed.Detail, false);
         tokens = listed.Result ?? [];
+        loaded = true;
     }
 
     private void Say(string? message, bool success)
