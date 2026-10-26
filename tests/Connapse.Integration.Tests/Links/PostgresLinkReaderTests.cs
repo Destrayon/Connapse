@@ -64,8 +64,13 @@ public class LinkCleanupTests(SharedWebAppFixture fixture)
         foreach (Guid id in ids)
             db.Documents.Add(new Connapse.Storage.Data.Entities.DocumentEntity
             {
-                Id = id, ContainerId = container.Id, FileName = $"{id}.md", Path = $"/{id}.md",
-                ContentHash = id.ToString("N"), CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = id,
+                ContainerId = container.Id,
+                FileName = $"{id}.md",
+                Path = $"/{id}.md",
+                ContentHash = id.ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             });
         await db.SaveChangesAsync();
 

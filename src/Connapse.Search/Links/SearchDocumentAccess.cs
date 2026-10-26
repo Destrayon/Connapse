@@ -49,10 +49,10 @@ internal sealed class SearchDocumentAccess(
         }
         ScopePredicate.Append(where, parameters, scopes);
 
+        // Only placeholders and fixed SQL are spliced in; every value is a parameter.
+        string sql = $"SELECT d.id AS \"Id\", d.resource_uri AS \"ResourceUri\" FROM documents d WHERE {string.Join(" AND ", where)}";
         List<AdmittedDocument> admitted = await context.Database
-            .SqlQueryRaw<AdmittedDocument>(
-                $"SELECT d.id AS \"Id\", d.resource_uri AS \"ResourceUri\" FROM documents d WHERE {string.Join(" AND ", where)}",
-                [.. parameters])
+            .SqlQueryRaw<AdmittedDocument>(sql, [.. parameters])
             .ToListAsync(ct);
 
         HashSet<string> readable = admitted
