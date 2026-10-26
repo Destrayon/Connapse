@@ -2,10 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Amazon.S3;
+using Amazon.S3.Model;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.FileSystem;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Connapse.Integration.Tests;
 
@@ -173,16 +177,31 @@ public class ReindexIntegrationTests : IAsyncLifetime
     public async Task Reindex_UploadedFileChangedInContainerStorage_IndexesTheNewContent()
     {
         // CON-93: a container keeps its files under its own storage prefix (#957 found deletes
-        // missing it). The new text exists only there, so finding it after a reindex proves the
-        // reindex read the file where the container stores it.
+        // missing it). The object keys are written straight to the bucket, not through the
+        // connector under test, so a connector that lost the prefix could not pass: the new text
+        // exists only under the prefix, and a decoy waits at the unprefixed key.
         var documentId = await UploadDocument("stored-doc.txt", "Original wording about glaciers.");
         await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
         var doc = await GetDocument(documentId);
 
-        var connector = (IWritableConnector)_fixture.Factory.Services
-            .GetRequiredService<IManagedStorageProvider>().CreateConnector(_containerId);
-        using (var changed = new MemoryStream(Encoding.UTF8.GetBytes("Replacement wording about marmalade.")))
-            await connector.WriteFileAsync(doc.Path, changed, "text/plain");
+        var s3 = _fixture.Factory.Services.GetRequiredService<IAmazonS3>();
+        string bucket = _fixture.Factory.Services.GetRequiredService<IOptions<MinioOptions>>().Value.BucketName;
+        string unprefixedKey = doc.Path.TrimStart('/');
+        string containerKey = $"{_containerId}/{unprefixedKey}";
+
+        await s3.GetObjectMetadataAsync(bucket, containerKey); // the upload landed under the prefix
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = bucket,
+            Key = containerKey,
+            ContentBody = "Replacement wording about marmalade.",
+        });
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = bucket,
+            Key = unprefixedKey,
+            ContentBody = "Decoy wording about tangerines.",
+        });
 
         var reindexResponse = await _fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{_containerId}/reindex",
@@ -207,6 +226,12 @@ public class ReindexIntegrationTests : IAsyncLifetime
         (await stale.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions))!.Hits
             .Should().NotContain(h => h.DocumentId == documentId, "the old content was replaced");
 
+        var decoy = await _fixture.AdminClient.GetAsync(
+            $"/api/containers/{_containerId}/search?q=tangerines&mode=Keyword&topK=5");
+        (await decoy.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions))!.Hits
+            .Should().NotContain(h => h.DocumentId == documentId, "the file outside the container's prefix was not read");
+
+        await s3.DeleteObjectAsync(bucket, unprefixedKey);
         await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
