@@ -107,3 +107,13 @@ public class ContainerStorageUnavailableException(string containerId, Exception 
 {
     public string ContainerId { get; } = containerId;
 }
+
+/// <summary>
+/// The storage bucket a connector is configured to use does not exist. A setup problem, not a
+/// missing file: every file in the bucket would otherwise read as lost (CON-101).
+/// </summary>
+public class StorageBucketNotFoundException(string bucketName, Exception? inner = null)
+    : Exception($"The storage bucket '{bucketName}' does not exist. Check the configured bucket name.", inner)
+{
+    public string BucketName { get; } = bucketName;
+}
