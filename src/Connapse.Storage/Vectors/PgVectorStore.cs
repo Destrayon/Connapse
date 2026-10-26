@@ -420,8 +420,9 @@ public class PgVectorStore : IVectorStore
             return await query();
 
         await using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        await _context.Database.ExecuteSqlRawAsync(
-            $"SET LOCAL hnsw.ef_search = {Math.Clamp(efSearch, 1, 1000)}; SET LOCAL hnsw.iterative_scan = relaxed_order;", ct);
+        // SET takes no bind parameters, so the value is inlined; it is a clamped int, never user text.
+        string settings = $"SET LOCAL hnsw.ef_search = {Math.Clamp(efSearch, 1, 1000)}; SET LOCAL hnsw.iterative_scan = relaxed_order;";
+        await _context.Database.ExecuteSqlRawAsync(settings, ct);
         T result = await query();
         await transaction.CommitAsync(ct);
         return result;

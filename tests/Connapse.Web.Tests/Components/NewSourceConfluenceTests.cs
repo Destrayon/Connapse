@@ -514,12 +514,12 @@ public class NewSourceConfluenceTests : IDisposable
     }
 
     [Fact]
-    public void ListSpaces_AtlassianRefusesTheAccount_IsUnavailableWithoutTheSecret()
+    public async Task ListSpaces_AtlassianRefusesTheAccount_IsUnavailableWithoutTheSecret()
     {
         stub.RejectToken = true;
         var sites = ctx.Services.GetRequiredService<AtlassianSiteService>();
 
-        var result = sites.ListSpacesAsync(connection.Id, false).GetAwaiter().GetResult();
+        var result = await sites.ListSpacesAsync(connection.Id, false);
 
         result.Outcome.Should().Be(AtlassianSpacesOutcome.Unavailable);
         result.Error.Should().NotBeNullOrEmpty().And.NotContain("the-secret");

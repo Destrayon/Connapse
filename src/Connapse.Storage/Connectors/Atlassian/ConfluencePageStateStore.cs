@@ -101,7 +101,7 @@ internal sealed class ConfluencePageStateStore(string root)
     public IEnumerable<string> Ids() =>
         Directory.Exists(PagesDir)
             ? Directory.EnumerateFiles(PagesDir, "*.json")
-                .Select(Path.GetFileNameWithoutExtension)
+                .Select(path => Path.GetFileNameWithoutExtension(path))
                 .Where(id => id is not null && IsContentId(id))!
             : [];
 

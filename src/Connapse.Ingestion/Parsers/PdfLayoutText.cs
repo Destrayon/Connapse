@@ -225,8 +225,8 @@ internal static partial class PdfLayoutText
             if (current.Count == 0)
                 return;
             words.Add(new StreamWord(string.Concat(current.Select(l => l.Value)),
-                current.Min(l => l.GlyphRectangle.Left), current.Max(l => l.GlyphRectangle.Right),
-                current.Min(l => l.GlyphRectangle.Bottom), current.Max(l => l.GlyphRectangle.Top),
+                current.Min(l => l.BoundingBox.Left), current.Max(l => l.BoundingBox.Right),
+                current.Min(l => l.BoundingBox.Bottom), current.Max(l => l.BoundingBox.Top),
                 current[0].StartBaseLine.Y, start));
             current.Clear();
         }
