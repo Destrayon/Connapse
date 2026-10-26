@@ -2,7 +2,6 @@ using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
-using Microsoft.Extensions.Logging;
 
 namespace Connapse.Application.Files;
 
@@ -76,20 +75,20 @@ public sealed class CreateFolder(IContainerStore containers, IFolderStore folder
 
 /// <summary>
 /// Deletes a folder with everything under it: its sub-folders, and every document in them with its ingestion
-/// cancelled and its stored file removed. A folder with no record of its own, one only its documents' paths imply,
-/// is deleted by deleting those documents as files.delete does. Editors and above, and agent keys that may write.
+/// cancelled and its stored file removed. A recorded folder goes through the folder store, which locks it against
+/// uploads and removes the stored files before it commits, so an upload landing meanwhile is removed whole too. A
+/// folder with no record of its own, one only its documents' paths imply, is deleted by deleting those documents as
+/// files.delete does. Editors and above, and agent keys that may write.
 /// </summary>
 [Operation("folders.delete", Scope = "knowledge:write", Risk = RiskTier.Destructive, Mcp = McpExposure.Generic)]
 public sealed class DeleteFolder(
     IContainerStore containers,
     IDocumentStore documents,
     IFolderStore folders,
-    IKnowledgeFileSystem files,
     IIngestionQueue queue,
     DeleteFile deleteFile,
     IAuditLogger audit,
-    IOperationAuthorizer authorizer,
-    ILogger<DeleteFolder> logger)
+    IOperationAuthorizer authorizer)
 {
     public async Task<Attempt<FolderDeletion, FolderStatus>> RunAsync(OperationContext context, Guid containerId, string? path, CancellationToken ct = default)
     {
@@ -112,22 +111,10 @@ public sealed class DeleteFolder(
             foreach (var document in inside)
                 await queue.CancelJobForDocumentAsync(document.Id);
 
-            // The folder store deletes the records under it, documents included, in one go.
+            // The folder store deletes the records under it and their stored files in one go; a stored file that
+            // won't go throws and rolls the delete back, so nothing is left half-deleted to report.
             if (!await folders.DeleteAsync(containerId, normalized, ct))
                 return NotFound(normalized);
-
-            foreach (string filePath in inside.Select(d => d.Path).Where(p => !string.IsNullOrEmpty(p)))
-            {
-                try
-                {
-                    await files.DeleteAsync(filePath, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    logger.LogWarning(ex, "Failed to delete backing file {Path}", filePath);
-                    cleanupFailed = true;
-                }
-            }
         }
         else
         {

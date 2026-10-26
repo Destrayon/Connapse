@@ -38,7 +38,8 @@ public class FolderOperationTests
         public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IFolderStore Folders = Substitute.For<IFolderStore>();
-        public readonly IKnowledgeFileSystem Files = Substitute.For<IKnowledgeFileSystem>();
+        public readonly IWritableConnector Files = Substitute.For<IWritableConnector>();
+        public readonly IManagedStorageProvider Storage = Substitute.For<IManagedStorageProvider>();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly IIngestionJobs Jobs = Substitute.For<IIngestionJobs>();
@@ -47,6 +48,7 @@ public class FolderOperationTests
 
         public World(bool allowed = true, bool containerExists = true)
         {
+            Storage.CreateConnector(Arg.Any<string>()).Returns(Files);
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(allowed);
             Containers.GetAsync(Here, Arg.Any<CancellationToken>())
                 .Returns(containerExists ? new Container(Here.ToString(), "here", null, Epoch, Epoch) : null);
@@ -68,9 +70,9 @@ public class FolderOperationTests
 
         public CreateFolder Create() => new(Containers, Folders, Audit, Authorizer);
 
-        public DeleteFile DeleteFile() => new(Containers, Documents, Folders, Files, Queue, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
+        public DeleteFile DeleteFile() => new(Containers, Documents, Folders, Storage, Queue, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
 
-        public DeleteFolder Delete() => new(Containers, Documents, Folders, Files, Queue, DeleteFile(), Audit, Authorizer, NullLogger<DeleteFolder>.Instance);
+        public DeleteFolder Delete() => new(Containers, Documents, Folders, Queue, DeleteFile(), Audit, Authorizer);
 
         public GetBatchStatus Batch() => new(Jobs, Documents, Access, Authorizer);
     }
@@ -137,8 +139,8 @@ public class FolderOperationTests
                 // The folder store says false when a delete elsewhere removed the folder first.
                 world.Folders.DeleteAsync(Here, "/docs/", Arg.Any<CancellationToken>()).Returns(storeDeletes);
 
-                var deleted = await new DeleteFolder(world.Containers, world.Documents, world.Folders, world.Files, world.Queue, world.DeleteFile(),
-                    world.Audit, world.Authorizer, NullLogger<DeleteFolder>.Instance).RunAsync(caller, Here, PathFor(kind));
+                var deleted = await new DeleteFolder(world.Containers, world.Documents, world.Folders, world.Queue, world.DeleteFile(),
+                    world.Audit, world.Authorizer).RunAsync(caller, Here, PathFor(kind));
 
                 FolderStatus expected = !writer ? FolderStatus.Forbidden
                     : !Valid(kind) ? FolderStatus.Invalid
@@ -159,7 +161,8 @@ public class FolderOperationTests
                 foreach (var doc in docs)
                 {
                     await world.Queue.Received(1).CancelJobForDocumentAsync(doc.Id);
-                    await world.Files.Received(1).DeleteAsync(doc.Path, Arg.Any<CancellationToken>());
+                    // A recorded folder's stored files are the folder store's to remove, under its lock.
+                    await world.Files.Received(recorded ? 0 : 1).DeleteFileAsync(doc.Path, Arg.Any<CancellationToken>());
                 }
                 // A recorded folder's records go in one delete; an implied one's documents one at a time, as files.delete does.
                 await world.Folders.Received(recorded ? 1 : 0).DeleteAsync(Here, "/docs/", Arg.Any<CancellationToken>());
@@ -230,14 +233,12 @@ public class FolderOperationTests
     }
 
     [Fact]
-    public async Task Delete_StoredFileThatWontGo_IsReportedNotFailed()
+    public async Task Delete_ImpliedFoldersStoredFileThatWontGo_IsReportedNotFailed()
     {
         var world = new World();
         var doc = Doc("/docs/a.md");
         world.Holds([doc]);
-        world.Folders.ExistsAsync(Here, "/docs/", Arg.Any<CancellationToken>()).Returns(true);
-        world.Folders.DeleteAsync(Here, "/docs/", Arg.Any<CancellationToken>()).Returns(true);
-        world.Files.DeleteAsync(doc.Path, Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("locked"));
+        world.Files.DeleteFileAsync(doc.Path, Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("locked"));
 
         var deleted = await world.Delete().RunAsync(Caller, Here, "docs");
 
