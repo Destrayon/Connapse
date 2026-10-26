@@ -1,7 +1,7 @@
 {
   "stryker-config": {
     "project": "Connapse.Application.csproj",
-    "test-projects": [ "Connapse.Core.Tests.csproj" ],
+    "test-projects": [ "." ],
     "test-case-filter": "Category=Unit&Size!=Large&(Size!=Medium|FullyQualifiedName~Connapse.Core.Tests.Application.)",
     "coverage-analysis": "perTest",
     "mutation-level": "Standard",
