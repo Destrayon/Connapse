@@ -63,11 +63,15 @@ public sealed class EvalHost : IAsyncDisposable
             .WithPassword("eval");
         if (snapshotVolume is not null)
             postgresBuilder = postgresBuilder.WithVolumeMount(snapshotVolume, SnapshotMount);
-        PostgreSqlContainer postgres = postgresBuilder.Build();
+        PostgreSqlContainer postgres = postgresBuilder.WithCreateParameterModifier(ApplyResourceLimits).Build();
         // Chainguard's MinIO runs as a non-root user that cannot write /data, so run it as root.
         MinioContainer minio = new MinioBuilder()
             .WithImage("cgr.dev/chainguard/minio")
-            .WithCreateParameterModifier(parameters => parameters.User = "0")
+            .WithCreateParameterModifier(parameters =>
+            {
+                parameters.User = "0";
+                ApplyResourceLimits(parameters);
+            })
             .Build();
         try
         {
@@ -153,6 +157,24 @@ public sealed class EvalHost : IAsyncDisposable
             + $" && PGPASSWORD=eval pg_dump -h localhost -U eval -d connapse_eval -Fd -j 8 -Z 0 -f {SnapshotMount}/{generation}/db"
             + $" && touch {SnapshotMount}/{generation}/complete",
             ct);
+    }
+
+    /// <summary>
+    /// Caps a throwaway container when CONNAPSE_EVAL_CONTAINER_CPUS / CONNAPSE_EVAL_CONTAINER_MEMORY_MB are set,
+    /// so a long run leaves the machine usable. Latency from capped runs compares only with runs under the same caps.
+    /// </summary>
+    internal static void ApplyResourceLimits(Docker.DotNet.Models.CreateContainerParameters parameters)
+    {
+        parameters.HostConfig ??= new Docker.DotNet.Models.HostConfig();
+        if (double.TryParse(Environment.GetEnvironmentVariable("CONNAPSE_EVAL_CONTAINER_CPUS"),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double cpus) && cpus > 0)
+            parameters.HostConfig.NanoCPUs = (long)(cpus * 1_000_000_000);
+        if (long.TryParse(Environment.GetEnvironmentVariable("CONNAPSE_EVAL_CONTAINER_MEMORY_MB"),
+                System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long mb) && mb > 0)
+        {
+            parameters.HostConfig.Memory = mb * 1024 * 1024;
+            parameters.HostConfig.MemorySwap = parameters.HostConfig.Memory;
+        }
     }
 
     private static async Task ShellAsync(PostgreSqlContainer postgres, string command, CancellationToken ct)

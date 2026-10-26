@@ -267,8 +267,8 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
                 }
                 List<UploadRequest> requests = opened.Select(o => new UploadRequest(
                     containerId, UploadName(o.Doc, o.Index), o.Stream, Path: UploadFolder(o.Doc, o.Index),
-                    ContentType: o.Doc.Kind == DocumentKind.Text ? "text/plain" : null,
-                    Strategy: _config.ChunkingStrategy, IngestedVia: "Eval")).ToList();
+                    ContentType: ContentType(o.Doc),
+                    Strategy: o.Doc.Strategy ?? _config.ChunkingStrategy, IngestedVia: "Eval")).ToList();
                 BulkUploadResult result = requests.Count == 0
                     ? new BulkUploadResult(0, 0, Results: [])
                     : await upload.BulkUploadAsync(new BulkUploadRequest(containerId, requests), ct);
@@ -424,11 +424,18 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     // so names never collide (an upload to an existing path replaces that document) (#671).
     public static string UploadName(EvalDocument doc, int index) =>
         doc.Kind == DocumentKind.File ? $"{index:D7}{Path.GetExtension(doc.FilePath)}"
+        : SafeFileName(doc.FileName) is string fileName ? fileName
         : SafeFileName(doc.Title) is string name ? name + ".txt"
         : $"{index:D7}.txt";
 
     public static string UploadFolder(EvalDocument doc, int index) =>
-        doc.Kind == DocumentKind.Text && SafeFileName(doc.Title) is not null ? $"/{index:D7}" : "/";
+        doc.Kind == DocumentKind.Text && (SafeFileName(doc.FileName) ?? SafeFileName(doc.Title)) is not null ? $"/{index:D7}" : "/";
+
+    // A named record goes in as the connector sends it: markdown when it is .md.
+    private static string? ContentType(EvalDocument doc) =>
+        doc.Kind != DocumentKind.Text ? null
+        : doc.FileName?.EndsWith(".md", StringComparison.OrdinalIgnoreCase) == true ? "text/markdown"
+        : "text/plain";
 
     /// <summary>A title as a file name: path, reserved and control characters become spaces; null when nothing is left.</summary>
     public static string? SafeFileName(string? title)
@@ -445,7 +452,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     }
 
     private static string Compose(EvalDocument doc) =>
-        string.IsNullOrWhiteSpace(doc.Title) ? doc.Text ?? "" : $"{doc.Title}\n\n{doc.Text}";
+        doc.FileName is not null || string.IsNullOrWhiteSpace(doc.Title) ? doc.Text ?? "" : $"{doc.Title}\n\n{doc.Text}";
 
     /// <summary>
     /// Polls the container until every uploaded document settles: its status is Ready or Failed and its

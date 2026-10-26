@@ -47,6 +47,8 @@
     <InternalsVisibleTo Include="Connapse.Core.Tests" />
     <InternalsVisibleTo Include="Connapse.Storage.Tests" />
     <InternalsVisibleTo Include="Connapse.Integration.Tests" />
+    <!-- The link-question eval renders snapshot records with the connectors' own renderers. -->
+    <InternalsVisibleTo Include="Connapse.Eval" />
   </ItemGroup>
 
 </Project>
