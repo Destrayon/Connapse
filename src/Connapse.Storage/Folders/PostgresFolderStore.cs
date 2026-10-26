@@ -167,7 +167,7 @@ public class PostgresFolderStore(
         // Stored files go only once the delete is saved, so a delete that fails before then leaves every file its
         // records point to (CON-94). Past the commit the delete isn't cancelled, since stopping would leave files
         // nothing points to.
-        await DeleteStoredFilesAsync(containerId, documentsToDelete.Select(d => d.Path));
+        await DeleteStoredFilesAsync(containerId, [.. documentsToDelete.Select(d => d.Path)]);
 
         // If any cascade-deleted doc contributed to the container summary, mark stale so the
         // next sweep tick triggers a re-rollup. Same reason as PostgresDocumentStore.DeleteAsync
@@ -183,9 +183,24 @@ public class PostgresFolderStore(
         return true;
     }
 
-    private async Task DeleteStoredFilesAsync(Guid containerId, IEnumerable<string> paths)
+    private async Task DeleteStoredFilesAsync(Guid containerId, IReadOnlyCollection<string> paths)
     {
-        var connector = storage.CreateConnector(containerId.ToString());
+        if (paths.Count == 0)
+            return;
+
+        IConnector connector;
+        try
+        {
+            connector = storage.CreateConnector(containerId.ToString());
+        }
+        catch (Exception ex)
+        {
+            // The delete is already saved, so it isn't reported as failed.
+            logger.LogError(ex, "Could not reach storage to remove {Count} files in container {ContainerId} after their folder was deleted",
+                paths.Count, containerId);
+            return;
+        }
+
         try
         {
             if (connector is not IWritableConnector writable)
