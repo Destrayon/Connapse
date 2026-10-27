@@ -1,6 +1,9 @@
+using Connapse.Application;
 using Connapse.Application.Connections;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Web.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Connapse.Web.Services;
@@ -15,9 +18,61 @@ public sealed record ConnectionRenameResult(ConnectionRenameOutcome Outcome, Con
 /// <c>Connapse.Application.Connections</c>; a settings or secret change moves there with connections.create
 /// and connections.replaceSecret.
 /// </summary>
-public sealed class ConnectionAdminService(IConnectionStore connections, IAuditLogger audit)
+public sealed class ConnectionAdminService(
+    IConnectionStore connections, IAuditLogger audit, ConnectionOperations operations, AuthenticationStateProvider authentication)
 {
     public const int MaxNameLength = ConnectionMessages.MaxNameLength;
+
+    /// <summary>
+    /// Every connection, and which have syncing paused, paged through connections.list as the signed-in user.
+    /// A refusal goes to <paramref name="failed"/>, and what was listed before it comes back.
+    /// </summary>
+    public async Task<(List<Connection> Connections, HashSet<Guid> Paused)> ListAllAsync(Action<string> failed, CancellationToken ct = default)
+    {
+        OperationContext context = await authentication.OperationContextAsync();
+        List<ConnectionView> all = [];
+        for (bool more = true; more;)
+        {
+            var listed = await operations.List.RunAsync(context, new ListConnectionsQuery(all.Count, ListConnections.MaxTake), ct);
+            all.AddRange(listed.ResultOr(failed, new ConnectionList([], false)).Items);
+            more = listed.Result?.HasMore == true;
+        }
+        return (all.Select(v => v.Connection).ToList(), all.Where(v => v.SyncPaused).Select(v => v.Connection.Id).ToHashSet());
+    }
+
+    /// <summary>
+    /// Resumes the connection's sources (only <paramref name="only"/> when given) through connections.resume, or pauses
+    /// them all through connections.pause. What changed goes to <paramref name="succeeded"/>, a refusal to <paramref name="failed"/>.
+    /// </summary>
+    public async Task SetSyncingAsync(
+        Connection connection, bool enabled, IReadOnlySet<Guid>? only, Action<string> succeeded, Action<string> failed, CancellationToken ct = default)
+    {
+        OperationContext context = await authentication.OperationContextAsync();
+        var changed = enabled
+            ? await operations.Resume.RunAsync(context, new ConnectionRef(connection.Id), only?.ToList(), ct)
+            : await operations.Pause.RunAsync(context, new ConnectionRef(connection.Id), ct);
+        if (!changed.Succeeded)
+            failed(changed.Detail ?? $"Could not change syncing for '{connection.Name}'.");
+        else if (enabled)
+            succeeded($"Syncing resumed for {changed.Result!.Sources} source(s) on '{connection.Name}'.");
+        else
+            succeeded($"Syncing paused for {changed.Result!.Sources} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
+    }
+
+    /// <summary>
+    /// Deletes the connection through connections.delete, confirmed by its own name. Any refusal but
+    /// <see cref="ConnectionStatus.InUse"/>, which the page shows with the sources blocking it, goes to <paramref name="failed"/>.
+    /// </summary>
+    public async Task<ConnectionStatus> DeleteAsync(Connection connection, Action<string> failed, CancellationToken ct = default)
+    {
+        var deleted = await operations.Delete.RunAsync(
+            await authentication.OperationContextAsync(), new ConnectionRef(connection.Id), connection.Name, ct);
+        if (deleted.Status == ConnectionStatus.NotFound)
+            failed($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
+        else if (deleted.Status is not (ConnectionStatus.Success or ConnectionStatus.InUse))
+            failed(deleted.Detail ?? $"Connection '{connection.Name}' could not be deleted.");
+        return deleted.Status;
+    }
 
     /// <summary>
     /// Why a connection can't be deleted yet, naming every source that blocks it. The Connections

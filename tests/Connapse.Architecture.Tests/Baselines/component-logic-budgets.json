@@ -98,9 +98,9 @@
     "IsEmpty": false
   },
   "Pages/Connections.razor": {
-    "CodeLines": 1569,
+    "CodeLines": 1557,
     "Injects": 21,
-    "Complexity": 416,
+    "Complexity": 415,
     "MarkupLogic": 245,
     "IsEmpty": false
   },

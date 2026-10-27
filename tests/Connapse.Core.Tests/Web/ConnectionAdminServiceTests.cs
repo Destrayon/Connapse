@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Connapse.Application.Connections;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.Components.Authorization;
 using NSubstitute;
 using Xunit;
 
@@ -26,7 +29,13 @@ public sealed class ConnectionAdminServiceTests
         audit.LogAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<object?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask)
             .AndDoes(c => _events.Add((c.ArgAt<string>(0), c.ArgAt<string?>(2), JsonSerializer.Serialize(c.ArgAt<object?>(3)))));
-        _admin = new ConnectionAdminService(_connections, audit);
+        var sources = Substitute.For<ISourceStore>();
+        var authorizer = Substitute.For<IOperationAuthorizer>();
+        var operations = new ConnectionOperations(
+            new ListConnections(_connections, sources, authorizer), new GetConnection(_connections, sources, authorizer),
+            new UpdateConnection(_connections, sources, audit, authorizer), new PauseConnection(_connections, sources, audit, authorizer),
+            new ResumeConnection(_connections, sources, audit, authorizer), new DeleteConnection(_connections, sources, audit, authorizer));
+        _admin = new ConnectionAdminService(_connections, audit, operations, Substitute.For<AuthenticationStateProvider>());
     }
 
     private static Connection Site(string name = "acme.atlassian.net", int sources = 0) => new(

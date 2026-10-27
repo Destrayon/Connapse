@@ -31,8 +31,6 @@
 @inject NavigationManager Navigation
 @inject IAuditLogger AuditLogger
 @inject ConnectionAdminService Admin
-@inject Connapse.Application.Connections.ConnectionOperations Operations
-@inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<Connections> Logger
 
 @*
@@ -2100,22 +2098,7 @@
     private async Task LoadAsync()
     {
         loading = true;
-        var context = await AuthStateProvider.OperationContextAsync();
-        List<Connapse.Application.Connections.ConnectionView> all = [];
-        for (bool more = true; more;)
-        {
-            var listed = await Operations.List.RunAsync(context, new Connapse.Application.Connections.ListConnectionsQuery(
-                all.Count, Connapse.Application.Connections.ListConnections.MaxTake));
-            if (!listed.Succeeded)
-            {
-                Fail(listed.Detail ?? "Could not list connections.");
-                break;
-            }
-            all.AddRange(listed.Result!.Items);
-            more = listed.Result.HasMore;
-        }
-        connections = all.Select(v => v.Connection).ToList();
-        pausedConnections = all.Where(v => v.SyncPaused).Select(v => v.Connection.Id).ToHashSet();
+        (connections, pausedConnections) = await Admin.ListAllAsync(Fail);
         loading = false;
     }
 
@@ -2163,20 +2146,7 @@
         pausing = connection.Id;
         try
         {
-            var context = await AuthStateProvider.OperationContextAsync();
-            var changed = enabled
-                ? await Operations.Resume.RunAsync(context, new Connapse.Application.Connections.ConnectionRef(connection.Id), only?.ToList())
-                : await Operations.Pause.RunAsync(context, new Connapse.Application.Connections.ConnectionRef(connection.Id));
-            if (!changed.Succeeded)
-            {
-                Fail(changed.Detail ?? $"Could not change syncing for '{connection.Name}'.");
-                await LoadAsync();
-                return;
-            }
-            int count = changed.Result!.Sources;
-            Succeed(enabled
-                ? $"Syncing resumed for {count} source(s) on '{connection.Name}'."
-                : $"Syncing paused for {count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
+            await Admin.SetSyncingAsync(connection, enabled, only, Succeed, Fail);
             await LoadAsync();
         }
         catch (Exception ex)
@@ -3107,24 +3077,12 @@
         {
             // SourceCount above is a snapshot from the last load, so a source added since then
             // still reaches the store's own refusal — caught below rather than assumed away.
-            var deleted = await Operations.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(),
-                new Connapse.Application.Connections.ConnectionRef(connection.Id), connection.Name);
+            var deleted = await Admin.DeleteAsync(connection, Fail);
             ForgetGitHubInstallations(connection.Provider);
-            switch (deleted.Status)
-            {
-                case Connapse.Application.Connections.ConnectionStatus.Success:
-                    Succeed($"Connection '{connection.Name}' deleted.");
-                    break;
-                case Connapse.Application.Connections.ConnectionStatus.InUse:
-                    blockedDelete = new BlockedDelete(connection, await SourceStore.ListByConnectionAsync(connection.Id));
-                    break;
-                case Connapse.Application.Connections.ConnectionStatus.NotFound:
-                    Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
-                    break;
-                default:
-                    Fail(deleted.Detail ?? $"Connection '{connection.Name}' could not be deleted.");
-                    break;
-            }
+            if (deleted == Connapse.Application.Connections.ConnectionStatus.Success)
+                Succeed($"Connection '{connection.Name}' deleted.");
+            else if (deleted == Connapse.Application.Connections.ConnectionStatus.InUse)
+                blockedDelete = new BlockedDelete(connection, await SourceStore.ListByConnectionAsync(connection.Id));
 
             await LoadAsync();
         }
