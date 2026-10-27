@@ -304,6 +304,24 @@ The connection change was refused: a name that is blank or longer than 128 chara
 `name`), a delete whose `confirmName` isn't the connection's name (`field` is `confirmName`), or a
 resume whose `sourceIds` is empty or names a source on another connection (`field` is `sourceIds`).
 
+A new connection or a settings change is refused for the same reasons the Connections page refuses
+it. `field` says which part:
+
+- `provider`: no provider was given, or it is Atlassian, whose sites are added with
+  `POST /api/v1/atlassian/sites`.
+- `config`: the settings aren't a JSON object, a required setting is missing, the custom provider
+  doesn't exist, or the connection is an Atlassian site, whose credentials change with
+  `PUT /api/v1/atlassian/sites/{id}/credentials`.
+- `installationId`: the GitHub App isn't set up, or isn't installed where the connection says.
+- `region`: an S3 connection has no region and Connapse couldn't look up the bucket's.
+- `secret`, `baseUrl`: a custom source server refused the token or address. A new address needs its
+  token sent with it, because the stored token is only ever sent to the stored address.
+
+## connection-check-unavailable
+
+Connapse couldn't finish checking the connection's settings: GitHub or the custom source server
+didn't answer. Nothing was saved. `field` says which check; try again.
+
 ## connection-conflict
 
 Another connection already has that name. `field` is `name`.

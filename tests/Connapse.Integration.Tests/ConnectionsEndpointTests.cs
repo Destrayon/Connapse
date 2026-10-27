@@ -148,6 +148,81 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
     }
 
     [Fact]
+    public async Task Create_ChecksTheSettingsLikeThePage_StoresTheKeyWithoutReturningIt()
+    {
+        string name = Unique("created");
+        var response = await fixture.AdminClient.PostAsJsonAsync(Connections, new
+        {
+            name,
+            provider = "Sftp",
+            config = new { host = "sftp.example.com", port = 2222, username = "reader", allowedRoot = "/data" },
+            privateKey = Secret,
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        string raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain(Secret);
+        var connection = JsonDocument.Parse(raw).RootElement.GetProperty("connection");
+        Guid id = connection.GetProperty("id").GetGuid();
+        response.Headers.Location!.ToString().Should().Be($"{Connections}/{id}");
+        connection.GetProperty("hasSecret").GetBoolean().Should().BeTrue();
+        connection.GetProperty("config").GetProperty("port").GetInt32().Should().Be(2222);
+        (await AuditActionsFor(id)).Should().Equal("connection.created");
+
+        (await fixture.AdminClient.PostAsJsonAsync(Connections, new { name, provider = "Sftp", config = new { } }))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Theory]
+    [InlineData("Sftp", "config")]
+    [InlineData("Atlassian", "provider")]
+    [InlineData(null, "provider")]
+    public async Task Create_SettingsThePageWouldRefuse_Returns400NamingTheField(string? provider, string field)
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync(Connections,
+            new { name = Unique("refused"), provider, config = new { host = "sftp.example.com" } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("type").GetString().Should().EndWith("#invalid-connection");
+        body.GetProperty("field").GetString().Should().Be(field);
+    }
+
+    [Fact]
+    public async Task Create_NonAdmin_Returns403AndStoresNothing()
+    {
+        using var editor = await EditorClientAsync();
+        string name = Unique("editor-create");
+
+        (await editor.PostAsJsonAsync(Connections, new { name, provider = "Sftp", config = new { } }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using var scope = fixture.Factory.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().ListAsync(0, int.MaxValue))
+            .Should().NotContain(c => c.Name == name);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_ChecksThemAndKeepsTheStoredSecret()
+    {
+        Connection created = await CreateAsync(Unique("settings"));
+
+        var response = await fixture.AdminClient.PatchAsJsonAsync($"{Connections}/{created.Id}",
+            new { config = new { host = "sftp2.example.com", username = "reader", allowedRoot = "/data" } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("name").GetString().Should().Be(created.Name);
+        body.GetProperty("config").GetProperty("host").GetString().Should().Be("sftp2.example.com");
+        using (var scope = fixture.Factory.Services.CreateScope())
+            (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetSecretAsync(created.Id)).Should().Be(Secret);
+
+        var refused = await fixture.AdminClient.PatchAsJsonAsync($"{Connections}/{created.Id}", new { config = new { host = "x" } });
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("config");
+    }
+
+    [Fact]
     public async Task PauseAndResume_DisableAndReEnableTheSources()
     {
         Connection created = await CreateAsync(Unique("pause"));

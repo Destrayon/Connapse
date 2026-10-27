@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Connapse.Application;
 using Connapse.Application.Connections;
+using Connapse.Application.Ports;
 using Connapse.Application.Sources;
 using Connapse.Core;
 using Connapse.Web.Problems;
@@ -46,8 +47,41 @@ public sealed record ConnectionResponse(
     }
 }
 
-/// <summary>A connection's new name. Its settings and secret are changed elsewhere.</summary>
-public sealed record UpdateConnectionApiRequest(string? Name);
+/// <summary>
+/// A new connection. <c>config</c> holds the provider's settings as the connection returns them; <c>privateKey</c> and
+/// <c>passphrase</c> are an SFTP connection's key, and <c>token</c> is a custom source server's. Atlassian sites are
+/// added with <c>POST /api/v1/atlassian/sites</c>.
+/// </summary>
+public sealed record CreateConnectionApiRequest(
+    string? Name,
+    ConnectionProvider? Provider,
+    JsonElement? Config = null,
+    string? PrivateKey = null,
+    string? Passphrase = null,
+    string? Token = null);
+
+/// <summary>A connection that was just created, and what Connapse changed in what was given, if anything.</summary>
+public sealed record CreatedConnectionResponse(ConnectionResponse Connection, string? Note);
+
+/// <summary>
+/// A connection's new name, settings or both. Settings are checked the way a new connection's are; a secret left out
+/// keeps the stored one.
+/// </summary>
+public sealed record UpdateConnectionApiRequest(
+    string? Name,
+    JsonElement? Config = null,
+    string? PrivateKey = null,
+    string? Passphrase = null,
+    string? Token = null)
+{
+    internal ConnectionSettings? Settings() =>
+        Config is null && PrivateKey is null && Passphrase is null && Token is null
+            ? null
+            : new ConnectionSettings(ConfigJsonOf(Config), PrivateKey, Passphrase, Token);
+
+    internal static string? ConfigJsonOf(JsonElement? config) =>
+        config is { ValueKind: not JsonValueKind.Null } element ? element.GetRawText() : null;
+}
 
 /// <summary>Which of a paused connection's sources to turn back on; all of them when <c>sourceIds</c> is left out.</summary>
 public sealed record ResumeConnectionRequest(IReadOnlyList<Guid>? SourceIds = null);
@@ -101,7 +135,33 @@ public static class ConnectionsEndpoints
         .WithName("connections.get")
         .WithDescription("Get a connection's settings, health and sync state. Never returns its secret.");
 
-        // PATCH /api/v1/connections/{connectionId} — renames the connection. Audited as connection.updated.
+        // POST /api/v1/connections — the page's save checks, then the connection. Audited as connection.created.
+        group.MapPost("/", async (
+            [FromBody] CreateConnectionApiRequest request,
+            [FromServices] CreateConnection create,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var settings = new ConnectionSettings(UpdateConnectionApiRequest.ConfigJsonOf(request.Config),
+                request.PrivateKey, request.Passphrase, request.Token);
+            var created = await create.RunAsync(Rest(http), new NewConnection(request.Name, request.Provider, settings), ct);
+            if (!created.Succeeded)
+                return OperationProblems.Result(created);
+
+            Connection connection = created.Result!.Connection;
+            return Results.Created($"/api/v1/connections/{connection.Id}", new CreatedConnectionResponse(
+                ConnectionResponse.From(new ConnectionView(connection, SyncPaused: false)), created.Result.Note));
+        })
+        .Produces<CreatedConnectionResponse>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status502BadGateway)
+        .WithName("connections.create")
+        .WithDescription("Create a filesystem, SFTP, S3, Azure Blob, GitHub or custom connection. Its settings are checked "
+            + "as the Connections page checks them: a GitHub installation the App still has, an S3 bucket's region, a custom "
+            + "source server that accepts its token. Never returns the secret.");
+
+        // PATCH /api/v1/connections/{connectionId} — renames the connection or changes its settings. Audited as connection.updated.
         group.MapPatch("/{connectionId:guid}", async (
             Guid connectionId,
             [FromBody] UpdateConnectionApiRequest request,
@@ -109,15 +169,18 @@ public static class ConnectionsEndpoints
             HttpContext http,
             CancellationToken ct) =>
         {
-            var updated = await update.RunAsync(Rest(http), new ConnectionRef(connectionId), request.Name, ct);
+            var updated = await update.RunAsync(Rest(http), new ConnectionRef(connectionId),
+                new ConnectionChange(request.Name, request.Settings()), ct);
             return updated.Succeeded ? Results.Ok(ConnectionResponse.From(updated.Result!)) : OperationProblems.Result(updated);
         })
         .Produces<ConnectionResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status502BadGateway)
         .WithName("connections.update")
-        .WithDescription("Rename a connection. Names are unique across connections.");
+        .WithDescription("Rename a connection or change its settings. Names are unique across connections; settings are "
+            + "checked as a new connection's are, and a secret left out keeps the stored one.");
 
         // POST /api/v1/connections/{connectionId}/pause — stops syncing every source on the connection.
         // Nothing is deleted, and the documents stay searchable.

@@ -362,7 +362,7 @@ public static class AtlassianEndpoints
             if (product is null)
                 return ApiProblem.BadRequest("product must be \"confluence\" or \"jira\".", field: "product");
 
-            var added = await sites.AddAsync(request.SiteUrl, request.ClientId, request.ClientSecret, UserIdOf(http),
+            var added = await sites.AddAsync(Rest(http), request.SiteUrl, request.ClientId, request.ClientSecret,
                 request.SaveAnyway ?? false, product.Value, ct);
 
             return added.Outcome switch
@@ -374,6 +374,7 @@ public static class AtlassianEndpoints
                     ApiProblem.Conflict($"A connection named '{added.Name}' already exists."),
                 AtlassianAddOutcome.NameTaken =>
                     ApiProblem.Conflict($"Another connection is already named '{added.Name}'. Rename it, then try again."),
+                AtlassianAddOutcome.Forbidden => ApiProblem.Forbidden("You don't have permission to create connections."),
                 _ => Results.Created($"/api/v1/atlassian/sites/{added.Connection!.Id}",
                     new AtlassianSiteCreated(
                         added.Connection.Id,

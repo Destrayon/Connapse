@@ -34,6 +34,7 @@ public sealed class ConnectionOperationRandomInputTests
         public ISourceStore Sources { get; } = Substitute.For<ISourceStore>();
         public IAuditLogger Audit { get; } = Substitute.For<IAuditLogger>();
         public IOperationAuthorizer Authorizer { get; } = Substitute.For<IOperationAuthorizer>();
+        public IConnectionSettingsRules Rules { get; } = Substitute.For<IConnectionSettingsRules>();
 
         public World(bool admin) =>
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(admin);
@@ -141,7 +142,7 @@ public sealed class ConnectionOperationRandomInputTests
                 world.Connections.ListAsync(0, int.MaxValue, Arg.Any<CancellationToken>()).Returns([connection, other]);
                 world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
                     .Returns(connection with { Name = trimmed });
-                var update = new UpdateConnection(world.Connections, world.Sources, world.Audit, world.Authorizer);
+                var update = new UpdateConnection(world.Connections, world.Sources, world.Rules, world.Audit, world.Authorizer);
 
                 var updated = alias
                     ? await new RenameAtlassianSite(update).RunAsync(Caller, connection.Id, name)
@@ -164,6 +165,60 @@ public sealed class ConnectionOperationRandomInputTests
                 if (wrote)
                     await world.Connections.Received(1).UpdateAsync(connection.Id,
                         Arg.Is<UpdateConnectionRequest>(r => r.Name == trimmed && r.ConfigJson == null && r.Secret == null), Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
+    [Fact]
+    [RandomInputTestOf(typeof(CreateConnection))]
+    public Task Create_AnyRequest_StoresOnlyAFreeNameWithSettingsTheRulesAccept() =>
+        Gen.Select(Gen.Bool,
+                Gen.OneOf(Name.Select(n => (string?)n), Gen.Const((string?)null), Gen.String[Gen.Char["ab"], 127, 130].Select(n => (string?)n)),
+                Gen.OneOf(Gen.Enum<ConnectionProvider>().Select(p => (ConnectionProvider?)p), Gen.Const((ConnectionProvider?)null),
+                    Gen.Const((ConnectionProvider?)(ConnectionProvider)99)),
+                Gen.Bool, Gen.Int[0, 2], Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (admin, name, provider, taken, rulesAnswer, verified) = t;
+                var world = new World(admin);
+                string trimmed = name?.Trim() ?? "";
+                var other = new Connection(Guid.NewGuid(), taken ? trimmed : "zz-other", ConnectionProvider.S3, "{}", null, DateTime.UtcNow, DateTime.UtcNow);
+                world.Connections.ListAsync(0, int.MaxValue, Arg.Any<CancellationToken>()).Returns([other]);
+                SettingsCheck check = rulesAnswer switch
+                {
+                    0 => new SettingsCheck("""{"ok":true}""", "secret") { Verified = verified },
+                    1 => SettingsCheck.Refuse("bad", "config"),
+                    _ => SettingsCheck.Refuse("down", "installationId", SettingsRefusal.Unavailable),
+                };
+                world.Rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(check);
+                var created = new Connection(Guid.NewGuid(), trimmed, provider ?? ConnectionProvider.S3, """{"ok":true}""", null, DateTime.UtcNow, DateTime.UtcNow);
+                world.Connections.CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(created);
+
+                var result = await new CreateConnection(world.Connections, world.Rules, world.Audit, world.Authorizer)
+                    .RunAsync(Caller, new NewConnection(name, provider, new ConnectionSettings("{}")));
+
+                bool knownProvider = provider is { } p && Enum.IsDefined(p);
+                ConnectionStatus expected =
+                    !admin ? ConnectionStatus.Forbidden
+                    : trimmed.Length is 0 or > ConnectionMessages.MaxNameLength ? ConnectionStatus.Invalid
+                    : !knownProvider || provider == ConnectionProvider.Atlassian ? ConnectionStatus.Invalid
+                    : taken ? ConnectionStatus.Conflict
+                    : rulesAnswer == 1 ? ConnectionStatus.Invalid
+                    : rulesAnswer == 2 ? ConnectionStatus.Unavailable
+                    : ConnectionStatus.Success;
+                result.Status.Should().Be(expected);
+
+                bool stored = expected == ConnectionStatus.Success;
+                world.AuditCalls.Should().Be(stored ? 1 : 0);
+                if (stored)
+                {
+                    await world.Connections.Received(1).CreateAsync(
+                        Arg.Is<CreateConnectionRequest>(r => r.Name == trimmed && r.Provider == provider && r.ConfigJson == """{"ok":true}""" && r.Secret == "secret"),
+                        Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+                    await world.Connections.Received(verified ? 1 : 0).RecordHealthAsync(created.Id, Arg.Any<ConnectionHealth>(), Arg.Any<CancellationToken>());
+                }
+                else
+                {
+                    await world.Connections.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
+                }
             }, iter: 2000);
 
     [Fact]

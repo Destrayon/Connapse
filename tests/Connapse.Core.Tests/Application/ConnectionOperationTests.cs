@@ -25,6 +25,7 @@ public sealed class ConnectionOperationTests
     private readonly ISourceStore _sources = Substitute.For<ISourceStore>();
     private readonly IAuditLogger _audit = Substitute.For<IAuditLogger>();
     private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();
+    private readonly IConnectionSettingsRules _rules = Substitute.For<IConnectionSettingsRules>();
     private readonly List<(string Action, string? Id, string Details)> _events = [];
 
     public ConnectionOperationTests()
@@ -59,7 +60,9 @@ public sealed class ConnectionOperationTests
 
     private GetConnection Get() => new(_connections, _sources, _authorizer);
 
-    private UpdateConnection Update() => new(_connections, _sources, _audit, _authorizer);
+    private UpdateConnection Update() => new(_connections, _sources, _rules, _audit, _authorizer);
+
+    private CreateConnection Create() => new(_connections, _rules, _audit, _authorizer);
 
     private PauseConnection Pause() => new(_connections, _sources, _audit, _authorizer);
 
@@ -77,6 +80,10 @@ public sealed class ConnectionOperationTests
         (await List().RunAsync(Caller, new ListConnectionsQuery())).Status.Should().Be(ConnectionStatus.Forbidden);
         (await Get().RunAsync(Caller, key)).Status.Should().Be(ConnectionStatus.Forbidden);
         (await Update().RunAsync(Caller, key, "new")).Status.Should().Be(ConnectionStatus.Forbidden);
+        (await Create().RunAsync(Caller, new NewConnection("new", ConnectionProvider.S3, new ConnectionSettings("{}"))))
+            .Status.Should().Be(ConnectionStatus.Forbidden);
+        (await Create().RunCheckedAsync(Caller, new CheckedConnection("new", ConnectionProvider.Atlassian, "{}", "s", new { })))
+            .Status.Should().Be(ConnectionStatus.Forbidden);
         (await Pause().RunAsync(Caller, key)).Status.Should().Be(ConnectionStatus.Forbidden);
         (await Resume().RunAsync(Caller, key)).Status.Should().Be(ConnectionStatus.Forbidden);
         (await Delete().RunAsync(Caller, key, site.Name)).Status.Should().Be(ConnectionStatus.Forbidden);
@@ -339,5 +346,163 @@ public sealed class ConnectionOperationTests
         await _connections.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
         await _connections.DidNotReceiveWithAnyArgs().DeleteAsync(default, default);
         await _sources.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    private void RulesAnswer(SettingsCheck check) =>
+        _rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(check);
+
+    private void Creates() =>
+        _connections.CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(c => new Connection(Guid.NewGuid(), c.Arg<CreateConnectionRequest>().Name, c.Arg<CreateConnectionRequest>().Provider,
+                c.Arg<CreateConnectionRequest>().ConfigJson, c.ArgAt<Guid?>(1), DateTime.UtcNow, DateTime.UtcNow));
+
+    [Fact]
+    public async Task Create_SettingsTheRulesAccept_StoresWhatTheRulesReturnAsTheCaller()
+    {
+        Guid userId = Guid.NewGuid();
+        var caller = new OperationContext(
+            new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")), OperationSurface.Rest);
+        Stored();
+        Creates();
+        RulesAnswer(new SettingsCheck("""{"host":"host.docker.internal"}""", "key", "Rewrote localhost."));
+        var settings = new ConnectionSettings("""{"host":"localhost"}""", PrivateKey: "key");
+
+        var created = await Create().RunAsync(caller, new NewConnection("  box  ", ConnectionProvider.Sftp, settings));
+
+        created.Succeeded.Should().BeTrue();
+        created.Result!.Note.Should().Be("Rewrote localhost.");
+        created.Result.Connection.CreatedByUserId.Should().Be(userId);
+        await _rules.Received(1).CheckAsync("box", ConnectionProvider.Sftp, settings, null, Arg.Any<CancellationToken>());
+        await _connections.Received(1).CreateAsync(
+            Arg.Is<CreateConnectionRequest>(r => r.Name == "box" && r.ConfigJson == """{"host":"host.docker.internal"}""" && r.Secret == "key"),
+            userId, Arg.Any<CancellationToken>());
+        _events.Should().ContainSingle().Which.Should().Be(
+            ("connection.created", created.Result.Connection.Id.ToString(), """{"Name":"box","Provider":"Sftp"}"""));
+        await _connections.DidNotReceiveWithAnyArgs().RecordHealthAsync(default, default!, default);
+    }
+
+    [Fact]
+    public async Task Create_VerifiedSettings_RecordsTheCheckAsTheConnectionsHealth()
+    {
+        Stored();
+        Creates();
+        _connections.RecordHealthAsync(Arg.Any<Guid>(), Arg.Any<ConnectionHealth>(), Arg.Any<CancellationToken>())
+            .Returns(c => c.Arg<ConnectionHealth>());
+        RulesAnswer(new SettingsCheck("""{"baseUrl":"https://src.example"}""", "token") { Verified = true });
+
+        var created = await Create().RunAsync(Caller,
+            new NewConnection("src", ConnectionProvider.Custom, new ConnectionSettings("{}", Token: "token")));
+
+        created.Result!.Connection.Health.Should().BeEquivalentTo(new { Succeeded = true, Origin = "test" });
+    }
+
+    [Theory]
+    [InlineData(SettingsRefusal.Invalid, ConnectionStatus.Invalid)]
+    [InlineData(SettingsRefusal.Unavailable, ConnectionStatus.Unavailable)]
+    public async Task Create_RulesRefuse_SaysWhyAndStoresNothing(SettingsRefusal refusal, ConnectionStatus expected)
+    {
+        Stored();
+        RulesAnswer(SettingsCheck.Refuse("The GitHub App is no longer installed there.", "installationId", refusal));
+
+        var created = await Create().RunAsync(Caller, new NewConnection("repo", ConnectionProvider.GitHub, new ConnectionSettings("{}")));
+
+        created.Status.Should().Be(expected);
+        created.Detail.Should().Be("The GitHub App is no longer installed there.");
+        created.Field.Should().Be("installationId");
+        await _connections.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
+        _events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Create_AtlassianSite_IsSentToTheSiteCheckWithoutAskingTheRules()
+    {
+        Stored();
+
+        var created = await Create().RunAsync(Caller, new NewConnection("wiki", ConnectionProvider.Atlassian, new ConnectionSettings("{}")));
+
+        created.Status.Should().Be(ConnectionStatus.Invalid);
+        created.Field.Should().Be("provider");
+        created.Detail.Should().Be(ConnectionMessages.AtlassianSiteOnly);
+        await _rules.DidNotReceiveWithAnyArgs().CheckAsync(default!, default, default!, default, default);
+    }
+
+    [Fact]
+    public async Task RunChecked_NameTakenWhileTheSiteWasChecked_IsAConflictNotAnError()
+    {
+        Connection existing = Site("wiki");
+        _connections.ListAsync(0, int.MaxValue, Arg.Any<CancellationToken>()).Returns([], [existing]);
+        _connections.CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns<Connection>(_ => throw new InvalidOperationException("taken"));
+
+        var created = await Create().RunCheckedAsync(Caller,
+            new CheckedConnection("wiki", ConnectionProvider.Atlassian, "{}", "secret", new { Product = "confluence" }));
+
+        created.Status.Should().Be(ConnectionStatus.Conflict);
+        created.Detail.Should().Be(ConnectionMessages.NameTaken("wiki"));
+        _events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunChecked_Stored_AuditsTheDetailsTheSiteCheckGave()
+    {
+        Stored();
+        Creates();
+
+        var created = await Create().RunCheckedAsync(Caller, new CheckedConnection(
+            " wiki ", ConnectionProvider.Atlassian, """{"siteUrl":"https://a.atlassian.net"}""", "secret", new { Product = "confluence" }));
+
+        created.Result!.Name.Should().Be("wiki");
+        _events.Should().ContainSingle().Which.Details.Should().Be("""{"Product":"confluence"}""");
+        await _rules.DidNotReceiveWithAnyArgs().CheckAsync(default!, default, default!, default, default);
+    }
+
+    [Fact]
+    public async Task Update_SettingsOnly_KeepsTheNameAndStoresWhatTheRulesReturn()
+    {
+        Connection bucket = Bucket();
+        Stored(bucket);
+        _connections.UpdateAsync(bucket.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(bucket with { ConfigJson = """{"region":"eu-west-1"}""" });
+        RulesAnswer(new SettingsCheck("""{"region":"eu-west-1"}""", null));
+        var settings = new ConnectionSettings("""{"allowedLocations":["docs"]}""");
+
+        var updated = await Update().RunAsync(Caller, new ConnectionRef(bucket.Id), new ConnectionChange(null, settings));
+
+        updated.Succeeded.Should().BeTrue();
+        await _rules.Received(1).CheckAsync(bucket.Name, ConnectionProvider.S3, settings, bucket, Arg.Any<CancellationToken>());
+        await _connections.Received(1).UpdateAsync(bucket.Id,
+            Arg.Is<UpdateConnectionRequest>(r => r.Name == null && r.ConfigJson == """{"region":"eu-west-1"}""" && r.Secret == null),
+            Arg.Any<CancellationToken>());
+        _events.Should().ContainSingle().Which.Details.Should().Contain("\"ConfigChanged\":true").And.Contain("\"SecretReplaced\":false");
+    }
+
+    [Fact]
+    public async Task Update_RulesRefuse_ChangesNothing()
+    {
+        Connection bucket = Bucket();
+        Stored(bucket);
+        RulesAnswer(SettingsCheck.Refuse("Choose an allowed root.", "config"));
+
+        var updated = await Update().RunAsync(Caller, new ConnectionRef(bucket.Id),
+            new ConnectionChange("renamed", new ConnectionSettings("{}")));
+
+        updated.Status.Should().Be(ConnectionStatus.Invalid);
+        updated.Field.Should().Be("config");
+        await _connections.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+        _events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_AtlassianSiteSettings_AreRefusedWithoutAskingTheRules()
+    {
+        Connection site = Site();
+        Stored(site);
+
+        var updated = await Update().RunAsync(Caller, new ConnectionRef(site.Id), new ConnectionChange(null, new ConnectionSettings("{}")));
+
+        updated.Status.Should().Be(ConnectionStatus.Invalid);
+        updated.Field.Should().Be("config");
+        await _rules.DidNotReceiveWithAnyArgs().CheckAsync(default!, default, default!, default, default);
+        await _connections.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
     }
 }

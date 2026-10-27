@@ -37,8 +37,12 @@ public class AtlassianConnectionFormTests : IDisposable
 
         ctx.Services.AddSingleton(store);
         ctx.Services.AddSingleton(audit);
+        var authorizer = Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>();
+        authorizer.AllowsAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
         ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
-            new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System)));
+            new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System),
+            new Connapse.Application.Connections.CreateConnection(store, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
+                audit, authorizer)));
     }
 
     public void Dispose() => ctx.Dispose();
@@ -431,8 +435,18 @@ public class AtlassianConnectionFormTests : IDisposable
     public void Save_WhenTheSiteIsAlreadySaved_KeepsTheSecretOutOfStateAndMarkup()
     {
         stub.AcceptCredentials = true;
+        // Another connection took the site's name between the check and the save.
+        bool created = false;
         store.CreateAsync(Arg.Any<CreateConnectionRequest>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns<Connection>(_ => throw new InvalidOperationException("exists"));
+            .Returns<Connection>(_ =>
+            {
+                created = true;
+                throw new InvalidOperationException("exists");
+            });
+        store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(_ => created
+                ? [new Connection(Guid.NewGuid(), "acme.atlassian.net", ConnectionProvider.S3, "{}", null, DateTime.UtcNow, DateTime.UtcNow)]
+                : []);
         var cut = ctx.Render<AtlassianConnectionForm>();
 
         FillAndSave(cut);

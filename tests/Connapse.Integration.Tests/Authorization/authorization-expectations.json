@@ -685,6 +685,11 @@
       "risk": "credential",
       "scope": null
     },
+    "POST /api/v1/connections/": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:sources"
+    },
     "POST /api/v1/connections/{connectionId:guid}/pause": {
       "requires": "admin",
       "risk": "write",

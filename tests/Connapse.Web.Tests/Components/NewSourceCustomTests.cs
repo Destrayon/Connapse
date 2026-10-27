@@ -65,8 +65,10 @@ public class NewSourceCustomTests : IDisposable
         customSettings.CurrentValue.Returns(new CustomSourceSettings());
         ctx.Services.AddSingleton(new CustomSourceSetup(http, customSettings, customProviders, connections));
         ctx.Services.AddSingleton(new AtlassianSiteService(
-            http, new Connapse.Storage.ConnectionTesters.AtlassianConnectionTester(http), connections,
-            Substitute.For<IAuditLogger>(), new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System)));
+            http, new Connapse.Storage.ConnectionTesters.AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(),
+            new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System),
+            new Connapse.Application.Connections.CreateConnection(connections, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
+                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));

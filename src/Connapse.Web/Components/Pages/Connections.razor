@@ -4,6 +4,8 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
+@using Connapse.Application.Connections
+@using Connapse.Application.Ports
 @using Connapse.Web.Services
 @inject IJSRuntime JS
 @using Connapse.Storage.ConnectionTesters
@@ -2737,16 +2739,14 @@
         try
         {
             var form = BuildLocalForm(result);
-            if (await Admin.NameTakenAsync(null, form.Name))
+            var attempt = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(),
+                new NewConnection(form.Name, ConnectionProvider.Sftp,
+                    new ConnectionSettings(form.ToConfigJson(), form.PrivateKey, form.Passphrase)));
+            if (!attempt.Succeeded)
             {
-                Fail(ConnectionAdminService.NameTakenMessage(form.Name));
+                Fail(attempt.Detail!);
                 return;
             }
-
-            await ConnectionStore.CreateAsync(
-                new CreateConnectionRequest(
-                    form.Name.Trim(), ConnectionProvider.Sftp, form.ToConfigJson(), form.ToSecretJson()),
-                createdByUserId: null);
 
             Succeed($"Connected. Add a source on '{form.Name}' to start indexing.");
             CancelLocalSetup();
@@ -2863,7 +2863,7 @@
         }
 
         bool installationChanged = !isNew && form.GitHubInstallationId != editingGitHubInstallationId;
-        if ((isNew || installationChanged) && form.Provider == ConnectionProvider.GitHub
+        if (installationChanged && form.Provider == ConnectionProvider.GitHub
             && await GitHubInstallationProblemAsync() is { } gitHubProblem)
         {
             Fail(gitHubProblem);
@@ -2897,7 +2897,7 @@
         {
             // Checked before anything is stored: a token the middle man refuses is never saved. The refusal is
             // shown beside its field, so it is not repeated above the form.
-            if (form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
+            if (!isNew && form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
                 && await CheckCustomMiddleManAsync() is not null)
             {
                 await FocusCustomFieldAsync();
@@ -2908,7 +2908,7 @@
             // up looking at the address their connection actually holds. Saving what was typed
             // while testing something else would make the test meaningless: it would pass here
             // and the sync would fail later, against an address nobody had ever tried.
-            if (form.Provider == ConnectionProvider.Sftp)
+            if (!isNew && form.Provider == ConnectionProvider.Sftp)
             {
                 var resolvedHost = HostResolver.Resolve(form.Host);
                 if (resolvedHost.Rewritten)
@@ -2926,20 +2926,21 @@
 
             if (isNew)
             {
-                if (await Admin.NameTakenAsync(null, form.Name))
+                // The same checks and audit as POST /api/v1/connections: the GitHub installation, the custom
+                // source server and the SFTP host as this deployment reaches it are all checked there.
+                var attempt = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(),
+                    new NewConnection(form.Name, form.Provider,
+                        new ConnectionSettings(config, form.PrivateKey, form.Passphrase, form.CustomToken)));
+                if (!attempt.Succeeded)
                 {
-                    await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));
+                    await RefuseSaveAsync(attempt.Detail!, attempt.Field);
                     return;
                 }
 
-                var created = await ConnectionStore.CreateAsync(
-                    new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
-                    createdByUserId: null);
+                hostRewriteNote = attempt.Result!.Note;
+                Connection created = attempt.Result.Connection;
                 ForgetGitHubInstallations(form.Provider);
                 ReturnFocusToList(created.Id);
-                await AuditLogger.LogAsync("connection.created", "connection", created.Id.ToString(),
-                    new { created.Name, Provider = created.Provider.ToString() });
-                await RecordCustomCheckAsync(created.Id);
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
                 statusLink = (created.Provider == ConnectionProvider.GitHub ? "Add a repository" : "Add a source", $"/sources?new={created.Id}");
             }
@@ -2994,6 +2995,23 @@
         {
             saving = false;
         }
+    }
+
+    /// <summary>Shows a refused save beside the field it names, or above the form when it names none the page shows.</summary>
+    private async Task RefuseSaveAsync(string detail, string? field)
+    {
+        if (field == "name")
+        {
+            await RefuseNameAsync(detail);
+            return;
+        }
+        if (form.Provider == ConnectionProvider.Custom && field is "baseUrl" or "secret")
+        {
+            (customError, customField) = (detail, field);
+            await FocusCustomFieldAsync();
+            return;
+        }
+        Fail(detail);
     }
 
     /// <summary>
