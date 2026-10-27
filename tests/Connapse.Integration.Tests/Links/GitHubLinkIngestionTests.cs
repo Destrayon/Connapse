@@ -118,7 +118,7 @@ public class GitHubLinkIngestionTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task StageAsync_TwoBatchesBeforeOneSave_KeepsBoth()
+    public async Task StageReplaceAsync_TwoBatchesBeforeOneSave_KeepsBoth()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var sp = scope.ServiceProvider;
@@ -127,9 +127,9 @@ public class GitHubLinkIngestionTests(SharedWebAppFixture fixture)
 
         await using (var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync())
         {
-            await Connapse.Storage.Links.PostgresLinkStore.StageAsync(ctx,
+            await Connapse.Storage.Links.PostgresLinkStore.StageReplaceAsync(ctx,
                 [Connapse.Storage.Connectors.GitHub.GitHubLinks.For(a, Pull(repo, ("closes", "3")))!], CancellationToken.None);
-            await Connapse.Storage.Links.PostgresLinkStore.StageAsync(ctx,
+            await Connapse.Storage.Links.PostgresLinkStore.StageReplaceAsync(ctx,
                 [Connapse.Storage.Connectors.GitHub.GitHubLinks.For(b, Pull(repo, ("closes", "4")))!], CancellationToken.None);
             await ctx.SaveChangesAsync();
         }
