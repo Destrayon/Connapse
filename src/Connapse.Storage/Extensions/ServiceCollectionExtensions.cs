@@ -329,6 +329,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Links.PostgresLinkStore>();
         services.AddScoped<ILinkWriter>(sp => sp.GetRequiredService<Links.PostgresLinkStore>());
         services.AddScoped<ILinkIndex>(sp => sp.GetRequiredService<Links.PostgresLinkStore>());
+        // Agent memory's tables; its rules (IMemoryService) are registered with search, which owns document access.
+        services.AddScoped<IMemoryStore, Memory.PostgresMemoryStore>();
         services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
         services.Configure<AtlassianVerifierSettings>(configuration.GetSection(AtlassianVerifierSettings.SectionName));
 

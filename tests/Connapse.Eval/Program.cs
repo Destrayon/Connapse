@@ -37,6 +37,8 @@ internal static class EvalEntryPoint
                     : await new VectorIndexProbe(paths, Console.Out, http)
                         .RunAsync(cli.Required("suite"), cli.List("datasets"), cli.PositiveInt("limit-queries"), cts.Token),
                 "report" => Commands.Report(cli),
+                "memory" => await new MemoryEval(paths, http, Console.Out).RunAsync(
+                    cli.Option("config") ?? "hybrid", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
             };
         }
@@ -239,6 +241,7 @@ internal static class Commands
               report   <runDir>
               pool     <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
+              memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
             """);
         return 2;
     }

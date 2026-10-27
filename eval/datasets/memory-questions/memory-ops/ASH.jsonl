@@ -1,0 +1,24 @@
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m1", "subject": "Ashgrove", "attribute": "database", "value": "PostgreSQL 16", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m2", "subject": "Ashgrove", "attribute": "deploy region", "value": "ca-central-1", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m3", "subject": "Ashgrove", "attribute": "tech lead", "value": "Ilario Brandtmoss", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m4", "subject": "Ashgrove", "attribute": "CI system", "value": "GitHub Actions", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m5", "subject": "Ashgrove", "attribute": "cache", "value": "Memcached 1.6", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m6", "subject": "Ashgrove", "attribute": "public API rate limit", "value": "250 requests/minute", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m7", "subject": "Ashgrove", "attribute": "alert channel", "value": "#ash-pager", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-01-05", "op": "remember", "id": "ASH-m8", "subject": "Ashgrove", "attribute": "current release", "value": "v1.1.0", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "ASH-2026-02-05", "op": "correct", "id": "ASH-m9", "target": "ASH-m8", "kind": "changed", "value": "v1.2.0", "validFrom": "2026-02-05", "reason": "ASH-17 released v1.2.0"}
+{"session": "ASH-2026-02-08", "op": "correct", "id": "ASH-m10", "target": "ASH-m6", "kind": "changed", "value": "1000 requests/minute", "validFrom": "2026-02-08", "reason": "ASH-18 rate limit raised"}
+{"session": "ASH-2026-02-28", "op": "correct", "id": "ASH-m11", "target": "ASH-m1", "kind": "changed", "value": "MariaDB 11", "validFrom": "2026-02-28", "reason": "ASH-19 database migration done"}
+{"session": "ASH-2026-03-12", "op": "correct", "id": "ASH-m12", "target": "ASH-m10", "kind": "changed", "value": "100 requests/minute", "validFrom": "2026-03-12", "reason": "ASH-20 rate limit lowered"}
+{"session": "ASH-2026-03-19", "op": "correct", "id": "ASH-m13", "target": "ASH-m4", "kind": "changed", "value": "CircleCI", "validFrom": "2026-03-19", "reason": "ASH-21 CI migration done"}
+{"session": "ASH-2026-04-07", "op": "correct", "id": "ASH-m14", "target": "ASH-m13", "kind": "changed", "value": "Buildkite", "validFrom": "2026-04-07", "reason": "ASH-22 CI moved after load test"}
+{"session": "ASH-2026-04-09", "op": "correct", "id": "ASH-m15", "target": "ASH-m3", "kind": "changed", "value": "Odessa Venn", "validFrom": "2026-04-09", "reason": "ASH-23 tech lead change"}
+{"session": "ASH-2026-04-11", "op": "correct", "id": "ASH-m16", "target": "ASH-m7", "kind": "changed", "value": "#ash-alerts", "validFrom": "2026-04-11", "reason": "ASH-24 alert channel change"}
+{"session": "ASH-2026-04-17", "op": "correct", "id": "ASH-m17", "target": "ASH-m9", "kind": "changed", "value": "v1.3.0", "validFrom": "2026-04-17", "reason": "ASH-25 released v1.3.0"}
+{"session": "ASH-2026-04-24", "op": "correct", "id": "ASH-m18", "target": "ASH-m11", "kind": "changed", "value": "PostgreSQL 15", "validFrom": "2026-04-24", "reason": "ASH-26 database moved after load test"}
+{"session": "ASH-2026-04-25", "op": "correct", "id": "ASH-m19", "target": "ASH-m5", "kind": "changed", "value": "Valkey 8", "validFrom": "2026-04-25", "reason": "ASH-27 cache change"}
+{"session": "ASH-2026-04-28", "op": "correct", "id": "ASH-m20", "target": "ASH-m14", "kind": "changed", "value": "GitHub Actions", "validFrom": "2026-04-28", "reason": "ASH-28 CI back to GitHub Actions"}
+{"session": "ASH-2026-05-01", "op": "correct", "id": "ASH-m21", "target": "ASH-m2", "kind": "changed", "value": "us-east-2", "validFrom": "2026-05-01", "reason": "ASH-29 region change after outage review"}
+{"session": "ASH-2026-06-08", "op": "correct", "id": "ASH-m22", "target": "ASH-m17", "kind": "changed", "value": "v2.0.0", "validFrom": "2026-06-08", "reason": "ASH-30 released v2.0.0"}
+{"session": "ASH-2026-06-11", "op": "correct", "id": "ASH-m23", "target": "ASH-m16", "kind": "changed", "value": "#ash-pager", "validFrom": "2026-06-11", "reason": "ASH-31 alert channel back"}
+{"session": "ASH-2026-06-12", "op": "correct", "id": "ASH-m24", "target": "ASH-m12", "kind": "changed", "value": "500 requests/minute", "validFrom": "2026-06-12", "reason": "ASH-32 rate limit raised"}

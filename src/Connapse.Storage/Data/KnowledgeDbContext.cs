@@ -22,6 +22,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<LinkNodeFactEntity> LinkNodeFacts => Set<LinkNodeFactEntity>();
     public DbSet<LinkNodeDocumentEntity> LinkNodeDocuments => Set<LinkNodeDocumentEntity>();
     public DbSet<LinkEdgeEntity> LinkEdges => Set<LinkEdgeEntity>();
+    public DbSet<MemoryFactEntity> MemoryFacts => Set<MemoryFactEntity>();
+    public DbSet<MemoryFactSourceEntity> MemoryFactSources => Set<MemoryFactSourceEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -42,6 +44,57 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureCustomProviders(modelBuilder);
         ConfigureCustomLinkRemovals(modelBuilder);
         ConfigureLinks(modelBuilder);
+        ConfigureMemory(modelBuilder);
+    }
+
+    private static void ConfigureMemory(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MemoryFactEntity>(entity =>
+        {
+            entity.ToTable("memory_facts");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ChainId).HasColumnName("chain_id");
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.Subject).HasColumnName("subject").HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Attribute).HasColumnName("attribute").HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Value).HasColumnName("value").HasMaxLength(2000).IsRequired();
+            entity.Property(e => e.ValidFrom).HasColumnName("valid_from");
+            entity.Property(e => e.ValidTo).HasColumnName("valid_to");
+            entity.Property(e => e.RecordedAt).HasColumnName("recorded_at");
+            entity.Property(e => e.SupersededAt).HasColumnName("superseded_at");
+            entity.Property(e => e.ReplacesId).HasColumnName("replaces_id");
+            entity.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(1000);
+            entity.Property(e => e.AuthorUserId).HasColumnName("author_user_id");
+            entity.Property(e => e.AuthorAgentId).HasColumnName("author_agent_id");
+            entity.Property(e => e.AuthorName).HasColumnName("author_name").HasMaxLength(200);
+            // Subject counts most, then attribute, value and the reason a writer gave (which names its ticket). Punctuation
+            // becomes a space first, as in the query's words: the parser would read "HAL-17" as "hal" and the number -17.
+            entity.Property(e => e.SearchVector)
+                .HasColumnName("search_vector")
+                .HasColumnType("tsvector")
+                .HasComputedColumnSql(
+                    "setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || "
+                    + "setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || "
+                    + "setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || "
+                    + "setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')",
+                    stored: true);
+            entity.HasIndex(e => new { e.ContainerId, e.Subject, e.Attribute }).HasDatabaseName("idx_memory_facts_key");
+            entity.HasIndex(e => e.ChainId).HasDatabaseName("idx_memory_facts_chain");
+            entity.HasIndex(e => e.SearchVector).HasDatabaseName("idx_memory_facts_fts").HasMethod("GIN");
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.Sources).WithOne().HasForeignKey(s => s.FactId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MemoryFactSourceEntity>(entity =>
+        {
+            entity.ToTable("memory_fact_sources");
+            entity.HasKey(e => new { e.FactId, e.Ordinal });
+            entity.Property(e => e.FactId).HasColumnName("fact_id");
+            entity.Property(e => e.Ordinal).HasColumnName("ordinal");
+            entity.Property(e => e.Kind).HasColumnName("kind");
+            entity.Property(e => e.Ref).HasColumnName("ref").HasMaxLength(512).IsRequired();
+        });
     }
 
     private static void ConfigureLinks(ModelBuilder modelBuilder)

@@ -1,0 +1,24 @@
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m1", "subject": "Marrowgate", "attribute": "database", "value": "PostgreSQL 15", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m2", "subject": "Marrowgate", "attribute": "deploy region", "value": "eu-west-1", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m3", "subject": "Marrowgate", "attribute": "tech lead", "value": "Priya Laskin", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m4", "subject": "Marrowgate", "attribute": "CI system", "value": "GitLab CI", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m5", "subject": "Marrowgate", "attribute": "cache", "value": "Valkey 8", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m6", "subject": "Marrowgate", "attribute": "public API rate limit", "value": "100 requests/minute", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m7", "subject": "Marrowgate", "attribute": "alert channel", "value": "#mrw-oncall", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-05", "op": "remember", "id": "MRW-m8", "subject": "Marrowgate", "attribute": "current release", "value": "v2.6.0", "validFrom": "2026-01-05", "reason": "MRW kickoff setup"}
+{"session": "MRW-2026-01-16", "op": "correct", "id": "MRW-m9", "target": "MRW-m5", "kind": "changed", "value": "no cache", "validFrom": "2026-01-16", "reason": "MRW-6 cache removed for latency to main customer"}
+{"session": "MRW-2026-01-19", "op": "correct", "id": "MRW-m10", "target": "MRW-m8", "kind": "changed", "value": "v2.7.0", "validFrom": "2026-01-19", "reason": "MRW-7 released v2.7.0"}
+{"session": "MRW-2026-01-23", "op": "correct", "id": "MRW-m11", "target": "MRW-m7", "kind": "changed", "value": "#mrw-alerts", "validFrom": "2026-01-23", "reason": "MRW-8 old channel end-of-life"}
+{"session": "MRW-2026-01-26", "op": "correct", "id": "MRW-m12", "target": "MRW-m4", "kind": "changed", "value": "Jenkins", "validFrom": "2026-01-26", "reason": "MRW-9 customer request"}
+{"session": "MRW-2026-01-26", "op": "correct", "id": "MRW-m13", "target": "MRW-m6", "kind": "changed", "value": "500 requests/minute", "validFrom": "2026-01-26", "reason": "MRW-10 after load test"}
+{"session": "MRW-2026-02-19", "op": "correct", "id": "MRW-m14", "target": "MRW-m3", "kind": "changed", "value": "Anouk Vasquell", "validFrom": "2026-02-19", "reason": "MRW-11 simplify on-call"}
+{"session": "MRW-2026-02-22", "op": "correct", "id": "MRW-m15", "target": "MRW-m2", "kind": "changed", "value": "ca-central-1", "validFrom": "2026-02-22", "reason": "MRW-12 after load test"}
+{"session": "MRW-2026-02-27", "op": "correct", "id": "MRW-m16", "target": "MRW-m10", "kind": "changed", "value": "v2.8.0", "validFrom": "2026-02-27", "reason": "MRW-13 released v2.8.0"}
+{"session": "MRW-2026-03-08", "op": "correct", "id": "MRW-m17", "target": "MRW-m15", "kind": "changed", "value": "us-west-2", "validFrom": "2026-03-08", "reason": "MRW-14 cut costs"}
+{"session": "MRW-2026-03-16", "op": "correct", "id": "MRW-m18", "target": "MRW-m11", "kind": "changed", "value": "#mrw-oncall", "validFrom": "2026-03-16", "reason": "MRW-15 customer request"}
+{"session": "MRW-2026-04-11", "op": "correct", "id": "MRW-m19", "target": "MRW-m16", "kind": "changed", "value": "v2.9.0", "validFrom": "2026-04-11", "reason": "MRW-16 released v2.9.0"}
+{"session": "MRW-2026-04-25", "op": "correct", "id": "MRW-m20", "target": "MRW-m12", "kind": "changed", "value": "GitLab CI", "validFrom": "2026-04-25", "reason": "MRW-17 match platform team standard"}
+{"session": "MRW-2026-05-13", "op": "correct", "id": "MRW-m21", "target": "MRW-m13", "kind": "changed", "value": "1000 requests/minute", "validFrom": "2026-05-13", "reason": "MRW-18 old limit end-of-life"}
+{"session": "MRW-2026-05-21", "op": "correct", "id": "MRW-m22", "target": "MRW-m18", "kind": "changed", "value": "#mrw-pager", "validFrom": "2026-05-21", "reason": "MRW-19 old channel end-of-life"}
+{"session": "MRW-2026-05-23", "op": "correct", "id": "MRW-m23", "target": "MRW-m20", "kind": "changed", "value": "CircleCI", "validFrom": "2026-05-23", "reason": "MRW-20 cut costs"}
+{"session": "MRW-2026-05-31", "op": "correct", "id": "MRW-m24", "target": "MRW-m14", "kind": "changed", "value": "Teodor Klyne", "validFrom": "2026-05-31", "reason": "MRW-21 after load test"}

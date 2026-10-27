@@ -1,0 +1,23 @@
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m1", "subject": "Emberline", "attribute": "database", "value": "MariaDB 11", "validFrom": "2026-01-05", "reason": "kickoff setup: database"}
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m2", "subject": "Emberline", "attribute": "deploy region", "value": "us-east-2", "validFrom": "2026-01-05", "reason": "kickoff setup: deploy region"}
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m3", "subject": "Emberline", "attribute": "tech lead", "value": "Signe Morrow-Dale", "validFrom": "2026-01-05", "reason": "kickoff setup: tech lead"}
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m4", "subject": "Emberline", "attribute": "CI system", "value": "GitLab CI", "validFrom": "2026-01-05", "reason": "kickoff setup: CI system"}
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m5", "subject": "Emberline", "attribute": "cache", "value": "no cache", "validFrom": "2026-01-05", "reason": "kickoff setup: cache"}
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m6", "subject": "Emberline", "attribute": "public API rate limit", "value": "1000 requests/minute", "validFrom": "2026-01-05", "reason": "kickoff setup: public API rate limit"}
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m7", "subject": "Emberline", "attribute": "alert channel", "value": "#emb-oncall", "validFrom": "2026-01-05", "reason": "kickoff setup: alert channel"}
+{"session": "EMB-2026-01-05", "op": "remember", "id": "EMB-m8", "subject": "Emberline", "attribute": "current release", "value": "v1.7.0", "validFrom": "2026-01-05", "reason": "kickoff setup: current release"}
+{"session": "EMB-2026-01-31", "op": "correct", "id": "EMB-m9", "target": "EMB-m2", "kind": "changed", "value": "ca-central-1", "validFrom": "2026-01-31", "reason": "EMB-20 region moved at customer request"}
+{"session": "EMB-2026-02-09", "op": "correct", "id": "EMB-m10", "target": "EMB-m6", "kind": "changed", "value": "250 requests/minute", "validFrom": "2026-02-09", "reason": "EMB-21 rate limit to platform standard"}
+{"session": "EMB-2026-02-11", "op": "correct", "id": "EMB-m11", "target": "EMB-m1", "kind": "changed", "value": "SQLite 3.45", "validFrom": "2026-02-11", "reason": "EMB-22 database to platform standard"}
+{"session": "EMB-2026-02-18", "op": "correct", "id": "EMB-m12", "target": "EMB-m3", "kind": "changed", "value": "Jonah Felgate", "validFrom": "2026-02-18", "reason": "EMB-23 tech lead after outage review"}
+{"session": "EMB-2026-03-12", "op": "correct", "id": "EMB-m13", "target": "EMB-m8", "kind": "changed", "value": "v1.8.0", "validFrom": "2026-03-12", "reason": "EMB-24 released v1.8.0"}
+{"session": "EMB-2026-03-20", "op": "correct", "id": "EMB-m14", "target": "EMB-m11", "kind": "changed", "value": "MySQL 8.0", "validFrom": "2026-03-20", "reason": "EMB-25 database to cut costs"}
+{"session": "EMB-2026-04-17", "op": "correct", "id": "EMB-m15", "target": "EMB-m7", "kind": "changed", "value": "#emb-alerts", "validFrom": "2026-04-17", "reason": "EMB-26 alert channel at customer request"}
+{"session": "EMB-2026-04-21", "op": "correct", "id": "EMB-m16", "target": "EMB-m10", "kind": "changed", "value": "1000 requests/minute", "validFrom": "2026-04-21", "reason": "EMB-27 rate limit for main customer latency"}
+{"session": "EMB-2026-05-06", "op": "correct", "id": "EMB-m17", "target": "EMB-m4", "kind": "changed", "value": "Jenkins", "validFrom": "2026-05-06", "reason": "EMB-28 CI to platform standard"}
+{"session": "EMB-2026-05-07", "op": "correct", "id": "EMB-m18", "target": "EMB-m16", "kind": "changed", "value": "500 requests/minute", "validFrom": "2026-05-07", "reason": "EMB-29 rate limit at customer request"}
+{"session": "EMB-2026-05-22", "op": "correct", "id": "EMB-m19", "target": "EMB-m12", "kind": "changed", "value": "Signe Morrow-Dale", "validFrom": "2026-05-22", "reason": "EMB-30 tech lead change"}
+{"session": "EMB-2026-06-01", "op": "correct", "id": "EMB-m20", "target": "EMB-m13", "kind": "changed", "value": "v2.0.0", "validFrom": "2026-06-01", "reason": "EMB-31 released v2.0.0"}
+{"session": "EMB-2026-06-04", "op": "correct", "id": "EMB-m21", "target": "EMB-m14", "kind": "changed", "value": "CockroachDB 23.2", "validFrom": "2026-06-04", "reason": "EMB-32 database to platform standard"}
+{"session": "EMB-2026-06-10", "op": "correct", "id": "EMB-m22", "target": "EMB-m17", "kind": "changed", "value": "GitLab CI", "validFrom": "2026-06-10", "reason": "EMB-33 CI to platform standard"}
+{"session": "EMB-2026-06-25", "op": "correct", "id": "EMB-m23", "target": "EMB-m19", "kind": "changed", "value": "Haruki Belmonde", "validFrom": "2026-06-25", "reason": "EMB-34 tech lead after outage review"}

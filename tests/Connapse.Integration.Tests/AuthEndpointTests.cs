@@ -509,11 +509,18 @@ public class AuthEndpointTests : IAsyncLifetime
 
     // ── Private helpers ──────────────────────────────────────────────────
 
+    // Every page is read: other test classes add users to the shared database, and the list is in creation order.
     private static async Task<Guid> GetUserIdAsync(HttpClient adminClient, string email)
     {
-        var response = await adminClient.GetAsync("/api/v1/auth/users?skip=0&take=50");
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<UserListItem>>(JsonOptions);
-        return paged!.Items.First(u => u.Email == email).Id;
+        for (int skip = 0; ; skip += 50)
+        {
+            var response = await adminClient.GetAsync($"/api/v1/auth/users?skip={skip}&take=50");
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            var paged = await response.Content.ReadFromJsonAsync<PagedResponse<UserListItem>>(JsonOptions);
+            if (paged!.Items.FirstOrDefault(u => u.Email == email) is { } user)
+                return user.Id;
+            if (paged.Items.Count < 50)
+                throw new InvalidOperationException($"No user {email}.");
+        }
     }
 }

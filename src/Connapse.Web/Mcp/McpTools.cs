@@ -12,7 +12,7 @@ using System.Text;
 namespace Connapse.Web.Mcp;
 
 [McpServerToolType]
-public class McpTools
+public partial class McpTools
 {
     // Threshold above which `list_files` returns a soft error steering the agent to
     // `search_knowledge`. The agent can override with `confirmLarge: true` or paginate with `limit`.

@@ -21,7 +21,7 @@ for suite in "$@"; do
   stop_ollama
   if ! docker run -d --rm --name eval-ollama-11435 -p 11435:11434 --cpus 2 --memory 4g --memory-swap 4g \
     -e OLLAMA_NUM_PARALLEL=1 -e OLLAMA_MAX_LOADED_MODELS=1 -v eval-ollama:/root/.ollama ollama/ollama >/dev/null; then
-    echo "=== $suite skipped: Ollama container did not start"; continue
+    echo "=== $suite skipped: Ollama container did not start"; failed=1; continue
   fi
   ready=0
   for _ in $(seq 120); do
@@ -29,9 +29,17 @@ for suite in "$@"; do
     sleep 1
   done
   if [ "$ready" -ne 1 ]; then
-    echo "=== $suite skipped: Ollama not ready after 120 s"; stop_ollama; continue
+    echo "=== $suite skipped: Ollama not ready after 120 s"; failed=1; stop_ollama; continue
   fi
-  tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config hybrid > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
-  echo "=== $suite exit $? $(date -u +%FT%TZ)"
+  if [ "$suite" = memory-v1 ]; then
+    # Scored by its own command (CON-111): agent memory against the same notes stored as documents.
+    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory --config hybrid --split "${MEMORY_SPLIT:-heldout}"       --out "${EVAL_LOG_DIR:-eval/runs}/memory-${MEMORY_SPLIT:-heldout}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
+  else
+    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config hybrid > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
+  fi
+  code=$?
+  echo "=== $suite exit $code $(date -u +%FT%TZ)"
+  [ "$code" -ne 0 ] && failed=1
   stop_ollama
 done
+exit "${failed:-0}"

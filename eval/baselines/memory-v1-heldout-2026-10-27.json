@@ -1,0 +1,96 @@
+{
+  "config": "hybrid",
+  "split": "heldout",
+  "kinds": {
+    "current": {
+      "questions": 40,
+      "notesRecall@5": 1,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.425,
+      "memoryAnswer": 1
+    },
+    "as_of": {
+      "questions": 39,
+      "notesRecall@5": 1,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.641,
+      "memoryAnswer": 1
+    },
+    "changed": {
+      "questions": 10,
+      "notesRecall@5": 0,
+      "memoryRecall@5": 1,
+      "notesAnswer": null,
+      "memoryAnswer": null
+    },
+    "ticket": {
+      "questions": 63,
+      "notesRecall@5": 1,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.9206,
+      "memoryAnswer": 1
+    },
+    "when": {
+      "questions": 63,
+      "notesRecall@5": 1,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.9365,
+      "memoryAnswer": 1
+    },
+    "ticket_effect": {
+      "questions": 72,
+      "notesRecall@5": 0.7639,
+      "memoryRecall@5": 1,
+      "notesAnswer": null,
+      "memoryAnswer": null
+    }
+  },
+  "changedFact": {
+    "questions": 89,
+    "meanDifference": 0.1124,
+    "ci95": [
+      0.0562,
+      0.191
+    ],
+    "permutationP": 0.001999800019998,
+    "holmP": 0.001999800019998,
+    "minimumDetectableEffect": 0.0943
+  },
+  "ordinary": {
+    "questions": 198,
+    "meanDifference": 0.0859,
+    "ci95": [
+      0.0505,
+      0.1313
+    ],
+    "permutationP": 0.00019998000199980003,
+    "holmP": 0.00039996000399960006,
+    "minimumDetectableEffect": 0.0559
+  },
+  "answers": {
+    "questions": 205,
+    "meanDifference": 0.2244,
+    "ci95": [
+      0.1707,
+      0.2829
+    ],
+    "permutationP": 0.00019998000199980003,
+    "holmP": 0.00019998000199980003,
+    "minimumDetectableEffect": 0.0818
+  },
+  "writes": {
+    "count": 112,
+    "medianMs": 5.1121,
+    "maxMs": 104.9043
+  },
+  "recall": {
+    "count": 287,
+    "p95Ms": 6.2003
+  },
+  "gate": {
+    "changedFactPlus010": true,
+    "ordinaryNoSignificantDrop": true,
+    "writesUnder200Ms": true,
+    "passed": true
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "config": "hybrid",
+  "split": "tuning",
+  "kinds": {
+    "current": {
+      "questions": 39,
+      "notesRecall@5": 0.9744,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.4359,
+      "memoryAnswer": 1
+    },
+    "as_of": {
+      "questions": 39,
+      "notesRecall@5": 1,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.6154,
+      "memoryAnswer": 1
+    },
+    "changed": {
+      "questions": 9,
+      "notesRecall@5": 0.1111,
+      "memoryRecall@5": 0.7778,
+      "notesAnswer": null,
+      "memoryAnswer": null
+    },
+    "ticket": {
+      "questions": 54,
+      "notesRecall@5": 0.9815,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.9444,
+      "memoryAnswer": 1
+    },
+    "when": {
+      "questions": 54,
+      "notesRecall@5": 0.9815,
+      "memoryRecall@5": 1,
+      "notesAnswer": 0.963,
+      "memoryAnswer": 1
+    },
+    "ticket_effect": {
+      "questions": 69,
+      "notesRecall@5": 0.8551,
+      "memoryRecall@5": 0.9855,
+      "notesAnswer": null,
+      "memoryAnswer": null
+    }
+  },
+  "changedFact": {
+    "questions": 87,
+    "meanDifference": 0.0805,
+    "ci95": [
+      0.0345,
+      0.1609
+    ],
+    "permutationP": 0.013798620137986202,
+    "holmP": 0.013798620137986202,
+    "minimumDetectableEffect": 0.0822
+  },
+  "ordinary": {
+    "questions": 177,
+    "meanDifference": 0.0621,
+    "ci95": [
+      0.0282,
+      0.1073
+    ],
+    "permutationP": 0.0037996200379962005,
+    "holmP": 0.007599240075992401,
+    "minimumDetectableEffect": 0.0557
+  },
+  "answers": {
+    "questions": 186,
+    "meanDifference": 0.2258,
+    "ci95": [
+      0.1667,
+      0.2903
+    ],
+    "permutationP": 0.00019998000199980003,
+    "holmP": 0.00019998000199980003,
+    "minimumDetectableEffect": 0.0861
+  },
+  "writes": {
+    "count": 109,
+    "medianMs": 6.3349,
+    "maxMs": 134.25
+  },
+  "recall": {
+    "count": 264,
+    "p95Ms": 7.111
+  },
+  "gate": {
+    "changedFactPlus010": false,
+    "ordinaryNoSignificantDrop": true,
+    "writesUnder200Ms": true,
+    "passed": false
+  }
+}

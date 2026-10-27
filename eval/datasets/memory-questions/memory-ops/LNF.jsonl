@@ -1,0 +1,22 @@
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m1", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "database", "value": "MariaDB 11", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m2", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "deploy region", "value": "us-west-2", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m3", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "tech lead", "value": "Haruki Belmonde", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m4", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "CI system", "value": "GitLab CI", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m5", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "cache", "value": "no cache", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m6", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "public API rate limit", "value": "250 requests/minute", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m7", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "alert channel", "value": "#lnf-oncall", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-05", "op": "remember", "id": "LNF-m8", "subject": "Lanternfish", "validFrom": "2026-01-05", "attribute": "current release", "value": "v0.2.0", "reason": "kickoff setup"}
+{"session": "LNF-2026-01-24", "op": "correct", "id": "LNF-m9", "target": "LNF-m1", "kind": "changed", "value": "PostgreSQL 15", "validFrom": "2026-01-24", "reason": "LNF-18 database moved after outage review"}
+{"session": "LNF-2026-02-25", "op": "correct", "id": "LNF-m10", "target": "LNF-m3", "kind": "changed", "value": "Marisol Ternby", "validFrom": "2026-02-25", "reason": "LNF-19 tech lead changed"}
+{"session": "LNF-2026-02-27", "op": "correct", "id": "LNF-m11", "target": "LNF-m6", "kind": "changed", "value": "1000 requests/minute", "validFrom": "2026-02-27", "reason": "LNF-20 rate limit raised at customer request"}
+{"session": "LNF-2026-03-02", "op": "correct", "id": "LNF-m12", "target": "LNF-m9", "kind": "changed", "value": "MariaDB 11", "validFrom": "2026-03-02", "reason": "LNF-21 database moved back after outage review"}
+{"session": "LNF-2026-04-04", "op": "correct", "id": "LNF-m13", "target": "LNF-m12", "kind": "changed", "value": "PostgreSQL 15", "validFrom": "2026-04-04", "reason": "LNF-22 database moved after outage review"}
+{"session": "LNF-2026-04-05", "op": "correct", "id": "LNF-m14", "target": "LNF-m7", "kind": "changed", "value": "#platform-alerts", "validFrom": "2026-04-05", "reason": "LNF-23 alert channel changed at customer request"}
+{"session": "LNF-2026-04-17", "op": "correct", "id": "LNF-m15", "target": "LNF-m11", "kind": "changed", "value": "500 requests/minute", "validFrom": "2026-04-17", "reason": "LNF-24 rate limit lowered at customer request"}
+{"session": "LNF-2026-05-06", "op": "correct", "id": "LNF-m16", "target": "LNF-m10", "kind": "changed", "value": "Ilario Brandtmoss", "validFrom": "2026-05-06", "reason": "LNF-25 tech lead changed at customer request"}
+{"session": "LNF-2026-05-15", "op": "correct", "id": "LNF-m17", "target": "LNF-m5", "kind": "changed", "value": "Valkey 8", "validFrom": "2026-05-15", "reason": "LNF-26 cache added after load test"}
+{"session": "LNF-2026-05-16", "op": "correct", "id": "LNF-m18", "target": "LNF-m14", "kind": "changed", "value": "#lnf-oncall", "validFrom": "2026-05-16", "reason": "LNF-27 alert channel changed back"}
+{"session": "LNF-2026-05-23", "op": "correct", "id": "LNF-m19", "target": "LNF-m8", "kind": "changed", "value": "v0.3.0", "validFrom": "2026-05-23", "reason": "LNF-28 released v0.3.0"}
+{"session": "LNF-2026-06-16", "op": "correct", "id": "LNF-m20", "target": "LNF-m17", "kind": "changed", "value": "Redis 7", "validFrom": "2026-06-16", "reason": "LNF-29 cache moved to simplify on-call"}
+{"session": "LNF-2026-06-20", "op": "correct", "id": "LNF-m21", "target": "LNF-m16", "kind": "changed", "value": "Haruki Belmonde", "validFrom": "2026-06-20", "reason": "LNF-30 tech lead changed for latency"}
+{"session": "LNF-2026-06-20", "op": "correct", "id": "LNF-m22", "target": "LNF-m19", "kind": "changed", "value": "v0.4.0", "validFrom": "2026-06-20", "reason": "LNF-31 released v0.4.0"}

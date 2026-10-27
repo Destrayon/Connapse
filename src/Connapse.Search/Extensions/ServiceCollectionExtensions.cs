@@ -2,9 +2,11 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Search.Hybrid;
 using Connapse.Search.Keyword;
+using Connapse.Search.Links;
 using Connapse.Search.Reranking;
 using Connapse.Search.Vector;
 using Connapse.Storage.Http;
+using Connapse.Storage.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -40,6 +42,11 @@ public static class ServiceCollectionExtensions
 
         // Register hybrid search as the main IKnowledgeSearch implementation
         services.AddScoped<IKnowledgeSearch, HybridSearchService>();
+
+        // Agent memory checks its sources with the same rule as search, so it is wired here, where that rule lives.
+        services.AddScoped<UserDocumentAccess>();
+        services.AddScoped<IMemoryService>(sp => ActivatorUtilities.CreateInstance<MemoryService>(
+            sp, (IDocumentAccess)sp.GetRequiredService<UserDocumentAccess>()));
 
         return services;
     }
