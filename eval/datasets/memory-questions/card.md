@@ -100,8 +100,12 @@
 
     - **Bar, changed-fact questions** (current, as_of and changed together): +0.112 Recall@5. The 95% interval is 0.056 to 0.191, Holm p = 0.002, and the minimum detectable effect is 0.094.
     - **Ordinary questions:** +0.086, Holm p < 0.001, so no drop.
+    - **Answers, all kinds that have one** (reported, not part of the bar): +0.224, with a 95% interval of 0.171 to 0.283 and p < 0.001.
     - **Writes:** median 5.7 ms, at most 119 ms. Recall p95 is 6.2 ms.
     - **AI tokens:** memory calls no model. The only model in the run is the notes side's embedder.
+  - **Questions are tested one by one, as in every suite,** but questions from one project share its notes and memory, so they are not independent.
+    - **A per-project test can't pass here.** With five held-out projects, it can never reach p < 0.05: the lowest possible two-sided p is 0.0625.
+    - **Fix:** a stricter test needs more projects in a new question set.
   - **Recall@5 hides most of the gain.** Hybrid search puts some note holding the current value in the top five almost every time, often below an older one. The difference is in the answer read from the first result: 0.425 against 1.000 for current values.
   - **Tuning split** (`memory-v1-tuning-2026-10-27.json`): +0.080 Recall@5 on changed-fact questions.
     - **Six-change windows:** two tuning windows have six changes, and no top five can cover six.

@@ -115,7 +115,9 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
                     continue; // a window with no changes has no evidence to find, as in baseline.py
                 string[] asked = AskedValues(q, timeline);
 
-                SearchOutcome outcome = await system.SearchAsync(dataset, new EvalQuery(q.Id, q.Text, Split.Test, []), K, ct);
+                // Every note ranked, as baseline.py ranks them: its answer is read from the first one naming a value,
+                // however far down; Recall@5 takes the first five.
+                SearchOutcome outcome = await system.SearchAsync(dataset, new EvalQuery(q.Id, q.Text, Split.Test, []), own.Count, ct);
                 if (outcome.Error is not null)
                     throw new InvalidOperationException($"{q.Id}: search failed: {outcome.Error}");
                 List<Note> ranked = [.. outcome.Ranked.Select(r => noteOf[r.DocId])];
@@ -229,6 +231,10 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
 
         PairedComparison changed = Compare(questions.Where(q => ChangedFactKinds.Contains(q.Kind)), scored);
         PairedComparison ordinary = Compare(questions.Where(q => OrdinaryKinds.Contains(q.Kind)), scored);
+        // Reported beside the bar, not part of it: the bar is Recall@5 (eval/pass-bars.md).
+        List<(Score Notes, Score Memory)> answered = [.. questions.Where(q => scored.ContainsKey(q.Id)).Select(q => scored[q.Id])
+            .Where(r => r.Notes.Answer is not null)];
+        PairedComparison answers = PairedStats.Compare([.. answered.Select(r => r.Notes.Answer!.Value)], [.. answered.Select(r => r.Memory.Answer!.Value)]);
         double[] holm = Holm.Adjust([changed.PermutationP, ordinary.PermutationP]);
         bool better = changed.MeanDifference >= 0.10 && holm[0] < 0.05;
         bool noDrop = !(ordinary.MeanDifference < 0 && holm[1] < 0.05);
@@ -242,6 +248,7 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
             ["kinds"] = kinds,
             ["changedFact"] = Comparison(changed, holm[0]),
             ["ordinary"] = Comparison(ordinary, holm[1]),
+            ["answers"] = Comparison(answers, answers.PermutationP),
             ["writes"] = new JsonObject { ["count"] = writeMs.Count, ["medianMs"] = Round(Percentile(writeMs, 0.5)), ["maxMs"] = Round(writeMax) },
             ["recall"] = new JsonObject { ["count"] = recallMs.Count, ["p95Ms"] = Round(recallP95) },
             ["gate"] = new JsonObject

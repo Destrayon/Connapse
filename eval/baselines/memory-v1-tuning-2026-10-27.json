@@ -34,7 +34,7 @@
       "questions": 54,
       "notesRecall@5": 0.9815,
       "memoryRecall@5": 1,
-      "notesAnswer": 0.9444,
+      "notesAnswer": 0.963,
       "memoryAnswer": 1
     },
     "ticket_effect": {
@@ -67,14 +67,25 @@
     "holmP": 0.007599240075992401,
     "minimumDetectableEffect": 0.0557
   },
+  "answers": {
+    "questions": 186,
+    "meanDifference": 0.2258,
+    "ci95": [
+      0.1667,
+      0.2903
+    ],
+    "permutationP": 0.00019998000199980003,
+    "holmP": 0.00019998000199980003,
+    "minimumDetectableEffect": 0.0861
+  },
   "writes": {
     "count": 109,
-    "medianMs": 6.4724,
-    "maxMs": 112.4245
+    "medianMs": 6.3349,
+    "maxMs": 134.25
   },
   "recall": {
     "count": 264,
-    "p95Ms": 7.4237
+    "p95Ms": 7.111
   },
   "gate": {
     "changedFactPlus010": false,
