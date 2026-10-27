@@ -36,8 +36,64 @@ public static class ProvidersEndpoints
             + "Checks AWS, Entra and GitHub live, so it can take a few seconds. A provider's overall status is its weakest requirement's.");
 
         MapAwsProvider(group.MapGroup("/aws"));
+        MapAzureProvider(group.MapGroup("/azure"));
         MapCustomProviders(group.MapGroup("/custom"));
         return app;
+    }
+
+    private static void MapAzureProvider(RouteGroupBuilder azure)
+    {
+        // PUT /api/v1/providers/azure/access — check an access identity with Entra, then save it
+        azure.MapPut("/access", async ([FromServices] SetAzureAccess access, [FromBody] AzureAccessRequest request, HttpContext http, CancellationToken ct) =>
+        {
+            var saved = await access.RunAsync(Rest(http), request, ct);
+            return saved.Succeeded ? Results.Ok(saved.Result) : OperationProblems.Result(saved);
+        })
+        .Produces<AzureSettingsSaved<AzureProviderSettings>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .WithName("providers.azure.access")
+        .WithDescription("Set Connapse's Azure access identity: a certificate app (clientId and clientCertificatePath, a file on this host), "
+            + "a user-assigned managed identity, or the host's own (useHostManagedIdentity), with its tenantId and the subscriptionId per-user "
+            + "filtering reads. Entra is asked for a token first, and nothing is saved unless it gives one. A null clientCertificatePassword "
+            + "keeps the stored one for the same certificate; it is never returned. Read the values at GET /api/settings/azure.");
+
+        // DELETE /api/v1/providers/azure/access — clear the access identity
+        azure.MapDelete("/access", async ([FromServices] ResetAzureAccess reset, HttpContext http, CancellationToken ct) =>
+        {
+            var cleared = await reset.RunAsync(Rest(http), ct);
+            return cleared.Succeeded ? Results.Ok(cleared.Result) : OperationProblems.Result(cleared);
+        })
+        .Produces<AzureSettingsSaved<AzureProviderSettings>>()
+        .WithName("providers.azure.access.reset")
+        .WithDescription("Clear Connapse's Azure access identity. The app registration and its role assignments stay in Azure until removed there.");
+
+        // PUT /api/v1/providers/azure/permissions — save the sign-in application; switches enforcement on for good
+        azure.MapPut("/permissions", async ([FromServices] SetAzurePermissions permissions, [FromBody] AzurePermissionsRequest request,
+            HttpContext http, CancellationToken ct) =>
+        {
+            var saved = await permissions.RunAsync(Rest(http), request, ct);
+            return saved.Succeeded ? Results.Ok(saved.Result) : OperationProblems.Result(saved);
+        })
+        .Produces<AzureSettingsSaved<AzureAdSignInSettings>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("providers.azure.permissions")
+        .WithDescription("Save the Entra application people sign in through: tenantId, clientId, redirectUri and clientCertificatePath. Once all "
+            + "four are set, Entra is asked for a token with it, and per-user Azure permission enforcement is switched on before anything is "
+            + "saved; it can't be switched off again. Admin consent needs a browser: while adminConsentPending is true, adminConsentUrl is the "
+            + "link to open, and GET /api/v1/providers shows the sign-in requirement as waiting on it. Once consent is granted, save again with "
+            + "adminConsentPending false. Read the values at GET /api/settings/azuread.");
+
+        // DELETE /api/v1/providers/azure/permissions — clear the sign-in application; enforcement stays on
+        azure.MapDelete("/permissions", async ([FromServices] ResetAzurePermissions reset, HttpContext http, CancellationToken ct) =>
+        {
+            var cleared = await reset.RunAsync(Rest(http), ct);
+            return cleared.Succeeded ? Results.Ok(cleared.Result) : OperationProblems.Result(cleared);
+        })
+        .Produces<AzureSettingsSaved<AzureAdSignInSettings>>()
+        .WithName("providers.azure.permissions.reset")
+        .WithDescription("Clear the recorded sign-in application, for one removed in Entra. Per-user enforcement stays on, so searches of Azure "
+            + "sources return nothing for everyone until the application is saved again.");
     }
 
     private static void MapAwsProvider(RouteGroupBuilder aws)

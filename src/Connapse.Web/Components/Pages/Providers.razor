@@ -14,19 +14,17 @@
 @using Connapse.Storage.Connectors.GitHub
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
-@inject ISettingsReloader ReloadService
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
-@inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
-@inject IAzureBlobDiscovery AzureDiscovery
 @inject IAzureHostIdentity HostIdentity
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
 @inject Connapse.Application.Providers.GetProviderStatus ProviderStatus
 @inject IProviderCredentialStore CredentialStore
 @inject GitHubAppUsage GitHubUsage
 @inject Connapse.Application.Providers.AwsProviderOperations Aws
+@inject Connapse.Application.Providers.AzureProviderOperations Azure
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ILogger<Providers> Logger
@@ -3047,41 +3045,22 @@
     }
 
     /// <summary>
-    /// Stores the Azure access app credential (Providers:Azure) and re-checks status. Unless the
-    /// caller has already verified <paramref name="settings"/>, Entra is asked first, and a credential
-    /// it refuses is not stored — the one that works stays in place.
+    /// Stores the Azure access identity (Providers:Azure) and re-checks status. Entra is asked first,
+    /// and a credential it refuses is not stored — the one that works stays in place. A blank tenant
+    /// clears the identity.
     /// </summary>
-    private async Task<bool?> SaveAzureProviderFromForm(AzureProviderSettings settings, bool verified = false)
+    private async Task<bool?> SaveAzureProviderFromForm(AzureProviderSettings settings)
     {
-        // A reset (blank tenant) has nothing to verify.
-        if (!verified && !string.IsNullOrWhiteSpace(settings.TenantId))
-        {
-            // The host's own identity is in one tenant, and a managed-identity token check cannot
-            // tell whether the tenant typed matches it; the host already said which it is.
-            if (AzureCredentialChainFactory.IsHostManagedIdentity(settings)
-                && hostIdentity is { } host
-                && !string.Equals(host.TenantId, settings.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                saveMessage = $"This host's managed identity is in tenant {host.TenantId}, not {settings.TenantId}. "
-                    + "Nothing was changed; enter that tenant.";
-                saveSuccess = false;
-                return false;
-            }
-
-            var check = await AzureDiscovery.CheckAccessAsync(settings);
-            if (!check.Succeeded)
-            {
-                saveMessage = AzureCheckRefused("access", check);
-                saveSuccess = false;
-                return false;
-            }
-        }
-
-        bool? committed = await SaveSettings("azure", settings);
+        bool? committed = string.IsNullOrWhiteSpace(settings.TenantId)
+            ? await SaveAzureSettings("azure", settings, context => Azure.ResetAccess.RunAsync(context))
+            : await SaveAzureSettings("azure", settings, context => Azure.Access.RunAsync(context, new(
+                settings.TenantId, settings.SubscriptionId, settings.ClientId, settings.ClientCertificatePath,
+                settings.ClientCertificatePassword, settings.UserAssignedManagedIdentityClientId,
+                settings.UseHostManagedIdentity, settings.ManagedIdentityPrincipalId)));
 
         if (committed == true)
         {
-            // What was posted, not a re-read: the options reload behind SaveSettings may not have
+            // What was posted, not a re-read: the options reload behind the save may not have
             // landed yet, so a stale read would hand the form back the previous values.
             azureProviderSettings = settings;
             LoadAzureCertificateExpiry();
@@ -3089,17 +3068,44 @@
             // managed identity than for an app; one already generated for the old identity must
             // not stay on screen under an intro describing the new one.
             RefreshAzurePermissionsScript();
-            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
-                new
-                {
-                    HasTenant = !string.IsNullOrWhiteSpace(settings.TenantId),
-                    HasSubscription = !string.IsNullOrWhiteSpace(settings.SubscriptionId),
-                }));
             // Only after a commit: nothing changed otherwise, so there is nothing to re-read.
             await AfterAzureCommitAsync(RefreshSetups);
         }
 
         return committed;
+    }
+
+    /// <summary>
+    /// Runs an Azure settings operation and says how it went. Returns whether the settings were
+    /// committed; null when the operation threw and the store can't confirm either way, so callers
+    /// neither roll back nor report success.
+    /// </summary>
+    private async Task<bool?> SaveAzureSettings<T>(string category, T settings,
+        Func<Connapse.Application.OperationContext, Task<Connapse.Application.Attempt<Connapse.Application.Providers.AzureSettingsSaved<T>, Connapse.Application.Providers.AzureSetupStatus>>> save)
+        where T : class
+    {
+        try
+        {
+            var saved = await save(await AuthState.OperationContextAsync());
+            saveSuccess = saved.Succeeded;
+            saveMessage = !saved.Succeeded ? saved.Detail
+                : saved.Result!.Applied ? $"{SettingsName(category)} settings saved successfully!"
+                : $"{SettingsName(category)} settings were saved, but applying them without a restart failed. Restart Connapse to apply them.";
+            return saved.Succeeded;
+        }
+        catch (Exception ex)
+        {
+            if (await IsStoredAsync(category, settings) == true)
+            {
+                saveSuccess = true;
+                saveMessage = $"{SettingsName(category)} settings were saved, but a step after the save failed: {ex.Message}";
+                return true;
+            }
+            saveSuccess = false;
+            saveMessage = $"Could not confirm whether {SettingsName(category)} settings were saved: {ex.Message} "
+                + "Check this card again before retrying.";
+            return null;
+        }
     }
 
     /// <summary>
@@ -3122,91 +3128,21 @@
         }
     }
 
-    /// <summary>
-    /// Switches a per-provider enforcement latch on. Written as a merge under the store's lock, never
-    /// as a replace: two administrators saving the two providers at once would otherwise each write
-    /// the whole record from their own stale copy, and one of them would switch the other's filtering
-    /// off. A latch only ever goes on, so the merge is an OR of what is stored, what this process
-    /// sees, and what is being asked for. Returns whether the record was written.
-    /// </summary>
-    private async Task<bool> LatchEnforcementAsync(bool saml = false, bool azure = false)
-    {
-        try
-        {
-            await SettingsStore.UpdateAsync<PermissionEnforcementSettings>(
-                PermissionEnforcementSettings.Category,
-                stored => new PermissionEnforcementSettings
-                {
-                    IsEnforcing = (stored?.IsEnforcing ?? false) || EnforcementOptions.CurrentValue.IsEnforcing || saml,
-                    AzureEnforcing = (stored?.AzureEnforcing ?? false) || EnforcementOptions.CurrentValue.AzureEnforcing || azure,
-                });
-        }
-        catch (Exception ex)
-        {
-            saveMessage = $"Failed to record per-user enforcement: {ex.Message}";
-            saveSuccess = false;
-            return false;
-        }
-
-        try
-        {
-            ReloadService.Reload();
-        }
-        catch (Exception)
-        {
-            // The live check that follows every latch is what decides; a failed reload shows there.
-        }
-        return true;
-    }
-
     /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status. As with
-    /// the access app, a credential Entra refuses is not stored unless the caller already verified it.
-    /// Returns whether the sign-in settings themselves were committed; the enforcement latch saved
-    /// after them is reported separately and never turns a committed save into a failed one.</summary>
-    private async Task<bool?> SaveAzureAdFromForm(AzureAdSignInSettings settings, bool verified = false)
+    /// the access app, a credential Entra refuses is not stored, and a complete application switches
+    /// per-user Azure enforcement on before it is saved.</summary>
+    private async Task<bool?> SaveAzureAdFromForm(AzureAdSignInSettings settings)
     {
-        if (!verified && settings.IsConfigured)
-        {
-            var check = await AzureDiscovery.CheckAccessAsync(ProviderSetupReader.SignInIdentity(settings));
-            if (!check.Succeeded)
-            {
-                saveMessage = AzureCheckRefused("sign-in", check);
-                saveSuccess = false;
-                return false;
-            }
-        }
-
-        // Latched here, at save time, exactly as SaveSamlSettings does for AWS. The startup latch
-        // alone left a gap: a deployment that configured Azure sign-in and never restarted stayed
-        // NotEnforcing, and every azblob result passed unfiltered until the next process start.
-        //
-        // Latched BEFORE the sign-in settings, never after. With enforcement on and sign-in not yet
-        // stored, Azure searches deny — closed. The other order, sign-in stored and then the latch
-        // failing, would leave sign-in configured with filtering off: every Azure result to everyone.
-        // So a latch that cannot be written stops the save, and the sign-in settings stay as they were.
-        if (settings.IsConfigured && !EnforcementOptions.CurrentValue.AzureEnforcing)
-        {
-            bool latched = await LatchEnforcementAsync(azure: true);
-            // Stored is not enough: the resolver reads the live options, so a latch that was written
-            // but not applied (the reload failed) would let sign-in be saved into an unfiltered
-            // process. Only a latch this process can see counts.
-            if (!latched || !EnforcementOptions.CurrentValue.AzureEnforcing)
-            {
-                saveMessage = "Per-user enforcement for Azure could not be switched on in this process, so "
-                    + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
-                saveSuccess = false;
-                return false;
-            }
-        }
-
-        bool? committed = await SaveSettings("azuread", settings);
+        bool? committed = settings == new AzureAdSignInSettings()
+            ? await SaveAzureSettings("azuread", settings, context => Azure.ResetPermissions.RunAsync(context))
+            : await SaveAzureSettings("azuread", settings, context => Azure.Permissions.RunAsync(context, new(
+                settings.TenantId, settings.ClientId, settings.RedirectUri, settings.ClientCertificatePath,
+                settings.ClientCertificatePassword, settings.AdminConsentPending)));
 
         if (committed == true)
         {
             azureAdSettings = settings;
             LoadAzureCertificateExpiry();
-            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
-                new { Configured = settings.IsConfigured }));
             await AfterAzureCommitAsync(RefreshSetups);
         }
 
@@ -3340,15 +3276,7 @@
                 UserAssignedManagedIdentityClientId = userAssigned ? clientId : null,
                 ManagedIdentityPrincipalId = result.PrincipalId,
             };
-            var check = await AzureDiscovery.CheckAccessAsync(candidate);
-            if (!check.Succeeded)
-            {
-                saveMessage = AzureCheckRefused("access", check);
-                saveSuccess = false;
-                return;
-            }
-
-            if (await SaveAzureProviderFromForm(candidate, verified: true) != true) return;
+            if (await SaveAzureProviderFromForm(candidate) != true) return;
 
             azureManagedIdentityScript = null;
             azureManagedIdentityPasted = null;
@@ -3711,16 +3639,7 @@
                 SubscriptionId = result.SubscriptionId,
                 ClientCertificatePath = newPath,
             };
-            var check = await AzureDiscovery.CheckAccessAsync(candidate);
-            if (!check.Succeeded)
-            {
-                await DeleteAzureCandidateAsync(newPath);
-                saveMessage = AzureCheckRefused("access", check);
-                saveSuccess = false;
-                return;
-            }
-
-            bool? committed = await SaveAzureProviderFromForm(candidate, verified: true);
+            bool? committed = await SaveAzureProviderFromForm(candidate);
             if (committed != true)
             {
                 // False: not stored, the candidate is surplus. Null: unknown — the file may be the
@@ -3855,19 +3774,6 @@
         + "tab or session may have made a new one since. Nothing was changed. Copy the command shown "
         + "now, run it again, and paste that result.";
 
-    /// <summary>What to say when Entra would not accept a credential about to be stored.</summary>
-    private static string AzureCheckRefused(string which, AzureProbe<string> check) => check.Outcome switch
-    {
-        AzureProbeOutcome.Denied =>
-            $"Entra refused the {which} credential, so nothing was changed. {check.Detail} If you just "
-            + "ran the script, Entra may still be registering the certificate — wait a minute and save again.",
-        AzureProbeOutcome.Unusable =>
-            $"The {which} credential cannot be used from this host, so nothing was changed: {check.Detail} "
-            + "For a certificate, check the path and that Connapse can read the file; for a managed identity, "
-            + "that this host has one.",
-        _ => $"Could not confirm the {which} credential with Azure, so nothing was changed. {check.Detail}",
-    };
-
     /// <summary>
     /// Stores the Per-user permissions step: the sign-in app's own certificate and client id (tenant
     /// comes from the Access step). Surfaces the admin-consent URL when the operator could not consent.
@@ -3895,20 +3801,6 @@
 
             string newPath = AzureVersionedCertificatePath(AzureSignInCertFile, material);
             WriteOwnerOnly(newPath, material.CombinedPem);
-            var check = await AzureDiscovery.CheckAccessAsync(new AzureProviderSettings
-            {
-                TenantId = azureProviderSettings.TenantId,
-                ClientId = result.SignInAppClientId,
-                ClientCertificatePath = newPath,
-            });
-            if (!check.Succeeded)
-            {
-                await DeleteAzureCandidateAsync(newPath);
-                saveMessage = AzureCheckRefused("sign-in", check);
-                saveSuccess = false;
-                return;
-            }
-
             bool? committed = await SaveAzureAdFromForm(new AzureAdSignInSettings
             {
                 TenantId = azureProviderSettings.TenantId,
@@ -3917,7 +3809,7 @@
                 ClientCertificatePath = newPath,
                 // Persisted, so a reload cannot turn "consent still pending" into a green card.
                 AdminConsentPending = !result.ConsentGranted,
-            }, verified: true);
+            });
             if (committed != true)
             {
                 if (committed == false) await DeleteAzureCandidateAsync(newPath);
@@ -3995,55 +3887,6 @@
         RequirementStatus.NotConfigured => "bi-circle text-secondary",
         _ => "bi-question-circle text-secondary"
     };
-
-    /// <summary>
-    /// Stores a settings category. Returns whether it was committed. The store reloads the options
-    /// after its own commit, so an exception out of it does not say which half failed; the store is
-    /// read back and compared, and a commit whose reload failed is reported as stored-but-not-applied
-    /// rather than as a failure — callers rolling back on false must never undo a commit.
-    /// </summary>
-    /// <returns>True when committed, false when not, null when the store threw and could not be read
-    /// back either — the outcome is unknown, and callers must neither roll back nor report success.</returns>
-    private async Task<bool?> SaveSettings<T>(string category, T settings) where T : class
-    {
-        string? reloadProblem = null;
-        try
-        {
-            await SettingsStore.SaveAsync(category, settings);
-        }
-        catch (Exception ex)
-        {
-            switch (await IsStoredAsync(category, settings))
-            {
-                case false:
-                    saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
-                    saveSuccess = false;
-                    return false;
-                case null:
-                    saveMessage = $"Could not confirm whether {SettingsName(category)} settings were saved: "
-                        + $"{ex.Message} Check this card again after a restart before retrying.";
-                    saveSuccess = false;
-                    return null;
-            }
-            reloadProblem = ex.Message;
-        }
-
-        try
-        {
-            if (!ReloadService.Reload()) reloadProblem ??= "the settings reload reported failure";
-        }
-        catch (Exception ex)
-        {
-            reloadProblem ??= ex.Message;
-        }
-
-        saveMessage = reloadProblem is null
-            ? $"{SettingsName(category)} settings saved successfully!"
-            : $"{SettingsName(category)} settings were saved, but applying them without a restart "
-              + $"failed: {reloadProblem}. Restart Connapse to apply them.";
-        saveSuccess = true;
-        return true;
-    }
 
     /// <summary>Whether the store now holds exactly <paramref name="settings"/> under
     /// <paramref name="category"/>; null when the store cannot be read, which is not a no.</summary>

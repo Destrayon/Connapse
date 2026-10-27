@@ -103,7 +103,7 @@ or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
 ## settings-category-not-found
 
 Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,
-`llm`, `upload` and `summary`, in any case, and `samlsignin` and `identitycenter` can be read. The Azure sign-in categories (`azure`, `azuread`) are refused here: provider setup owns them.
+`llm`, `upload` and `summary`, in any case, and `samlsignin`, `identitycenter`, `azure` and `azuread` can be read.
 
 ## provider-owned-settings
 
@@ -379,8 +379,20 @@ The stored AWS credential changed since it was read, so nothing was changed. Thi
 matches `expected`, or when someone else saved or removed a credential while this save or removal was running.
 Read the providers again, review the values and try again.
 
+## invalid-azure-setup
+
+The Azure setup can't be saved as asked: the tenant id is missing, the tenant isn't the one this host's
+managed identity is in, or the redirect address isn't a full http or https address. `field` names the input
+at fault. Nothing was saved.
+
+## azure-credential-refused
+
+Entra didn't give a token for this credential, so nothing was saved and the current one still works. The
+detail is the reason; check the tenant, client id and certificate path, and that Connapse can read the file.
+Right after the setup script runs, Entra may still be registering the certificate: wait a minute and save again.
+
 ## enforcement-not-on
 
-Per-user AWS permission enforcement couldn't be switched on in this process, so the sign-in application
-wasn't saved: saving it with enforcement off would show every user every AWS document. Restart Connapse
-and save again.
+Per-user permission enforcement for the provider (AWS or Azure) couldn't be switched on in this process, so
+the sign-in application wasn't saved: saving it with enforcement off would show every user every document
+from that provider. Restart Connapse and save again.

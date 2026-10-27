@@ -186,7 +186,12 @@ public class ProvidersPageTests
         // relying on the startup latch alone left azblob results unfiltered until the next restart.
         int azureSave = markup.IndexOf("private async Task<bool?> SaveAzureAdFromForm(", StringComparison.Ordinal);
         azureSave.Should().BeGreaterThan(0);
-        markup[azureSave..].Should().Contain("LatchEnforcementAsync(azure: true)");
+        markup[azureSave..].Should().Contain("Azure.Permissions.RunAsync(");
+        string operations = File.ReadAllText(Path.Combine(
+            PageTestPaths.RepositoryRoot(), "src", "Connapse.Application", "Providers", "AzureProviderOperations.cs"));
+        int setPermissions = operations.IndexOf("public sealed class SetAzurePermissions(", StringComparison.Ordinal);
+        setPermissions.Should().BeGreaterThan(0);
+        operations[setPermissions..].Should().Contain("AzureRules.LatchEnforcementAsync(");
 
         // Each Azure card renders what the reader found out — the reason Entra refused a credential
         // and what to do, or what was verified — not the status word alone. A bare "Failed" on a

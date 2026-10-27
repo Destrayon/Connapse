@@ -388,6 +388,111 @@ public class ProviderOperationRandomInputTests
             await store.DidNotReceiveWithAnyArgs().UpdateAsync<PermissionEnforcementSettings>(default!, default!, default);
         }, iter: 50);
 
+    private static IAzureBlobDiscovery Entra(bool accepts)
+    {
+        var discovery = Substitute.For<IAzureBlobDiscovery>();
+        discovery.CheckAccessAsync(Arg.Any<AzureProviderSettings>(), Arg.Any<CancellationToken>())
+            .Returns(accepts ? AzureProbe<string>.Ok("token") : AzureProbe<string>.Denied("no"));
+        return discovery;
+    }
+
+    [Fact]
+    [RandomInputTestOf(typeof(SetAzureAccess))]
+    public Task SetAzureAccess_AnyRequest_SavesOnlyATenantEntraAccepted() =>
+        Gen.Select(Gen.Bool, Gen.OneOfConst("", "  ", "t1", "t2"), Gen.Bool, Gen.Bool, Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, tenant, hostManaged, onAzure, accepts, reloads) = t;
+            var (store, reloader) = (Substitute.For<ISettingsStore>(), Substitute.For<ISettingsReloader>());
+            reloader.Reload().Returns(reloads);
+            var discovery = Entra(accepts);
+            var host = Substitute.For<IAzureHostIdentity>();
+            host.DetectAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
+                .Returns(onAzure ? new AzureHostIdentityInfo("t1", "p", "c", null, null, false) : null);
+
+            var saved = await new SetAzureAccess(store, reloader, new Enforcement(), discovery, host, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context(), hostManaged
+                    ? new AzureAccessRequest(tenant, UseHostManagedIdentity: true)
+                    : new AzureAccessRequest(tenant, ClientId: "app", ClientCertificatePath: "c.pem", ClientCertificatePassword: "pw"));
+
+            AzureSetupStatus status = !allowed ? AzureSetupStatus.Forbidden
+                : tenant.Trim().Length == 0 ? AzureSetupStatus.Invalid
+                : hostManaged && onAzure && tenant != "t1" ? AzureSetupStatus.Invalid
+                : !accepts ? AzureSetupStatus.Refused
+                : AzureSetupStatus.Success;
+            saved.Status.Should().Be(status);
+            await discovery.Received(status is AzureSetupStatus.Success or AzureSetupStatus.Refused ? 1 : 0)
+                .CheckAccessAsync(Arg.Any<AzureProviderSettings>(), Arg.Any<CancellationToken>());
+            await store.Received(saved.Succeeded ? 1 : 0).SaveAsync("azure", Arg.Any<AzureProviderSettings>(), Arg.Any<CancellationToken>());
+            if (saved.Succeeded)
+            {
+                saved.Result!.Applied.Should().Be(reloads);
+                saved.Result.Settings.ClientCertificatePassword.Should().BeNull("the password is never handed back");
+            }
+        }, iter: 400);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ResetAzureAccess))]
+    public Task ResetAzureAccess_AnyCaller_StoresBlanksOnlyForSettingsAdmins() =>
+        Gen.Bool.SampleAsync(async allowed =>
+        {
+            var store = Substitute.For<ISettingsStore>();
+
+            var reset = await new ResetAzureAccess(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context());
+
+            reset.Status.Should().Be(allowed ? AzureSetupStatus.Success : AzureSetupStatus.Forbidden);
+            await store.Received(allowed ? 1 : 0).SaveAsync("azure", Arg.Is<AzureProviderSettings>(s => s.TenantId == null), Arg.Any<CancellationToken>());
+        }, iter: 50);
+
+    [Fact]
+    [RandomInputTestOf(typeof(SetAzurePermissions))]
+    public Task SetAzurePermissions_AnyRequest_NeverSavesSignInWithoutEnforcement() =>
+        Gen.Select(Gen.Bool, Gen.Select(GenField, GenField, GenField),
+            Gen.OneOfConst("", "https://c.example/api/v1/auth/cloud/azure/callback", "ftp://c", "nope"),
+            Gen.Bool, Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, (tenant, client, cert), redirect, accepts, enforcing, latchTakes) = t;
+            var store = Substitute.For<ISettingsStore>();
+            var reloader = Substitute.For<ISettingsReloader>();
+            var configured = new Enforcement { Value = new() { AzureEnforcing = enforcing } };
+            reloader.Reload().Returns(_ =>
+            {
+                if (latchTakes) configured.Value = new() { AzureEnforcing = true };
+                return true;
+            });
+            var discovery = Entra(accepts);
+
+            var saved = await new SetAzurePermissions(store, reloader, configured, discovery, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context(), new AzurePermissionsRequest(tenant, client, redirect, cert));
+
+            bool address = redirect is "" or "https://c.example/api/v1/auth/cloud/azure/callback";
+            bool complete = new[] { tenant, client, cert, redirect }.All(v => v.Trim().Length > 0);
+            AzureSetupStatus status = !allowed ? AzureSetupStatus.Forbidden
+                : !address ? AzureSetupStatus.Invalid
+                : complete && !accepts ? AzureSetupStatus.Refused
+                : complete && !enforcing && !latchTakes ? AzureSetupStatus.NotEnforcing
+                : AzureSetupStatus.Success;
+            saved.Status.Should().Be(status);
+            await store.Received(status == AzureSetupStatus.Success ? 1 : 0).SaveAsync("azuread", Arg.Any<AzureAdSignInSettings>(), Arg.Any<CancellationToken>());
+            if (status == AzureSetupStatus.Success && complete)
+                configured.Value.AzureEnforcing.Should().BeTrue("sign-in is never saved while this process shows every user every Azure document");
+        }, iter: 400);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ResetAzurePermissions))]
+    public Task ResetAzurePermissions_AnyCaller_ClearsSignInButNeverEnforcement() =>
+        Gen.Bool.SampleAsync(async allowed =>
+        {
+            var store = Substitute.For<ISettingsStore>();
+
+            var reset = await new ResetAzurePermissions(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context());
+
+            reset.Status.Should().Be(allowed ? AzureSetupStatus.Success : AzureSetupStatus.Forbidden);
+            await store.Received(allowed ? 1 : 0).SaveAsync("azuread", Arg.Is<AzureAdSignInSettings>(s => !s.IsConfigured), Arg.Any<CancellationToken>());
+            await store.DidNotReceiveWithAnyArgs().UpdateAsync<PermissionEnforcementSettings>(default!, default!, default);
+        }, iter: 50);
+
     private static OperationContext Context() => new(new ClaimsPrincipal(), OperationSurface.Rest);
 
     private static IOperationAuthorizer Authorizer(bool allowed)

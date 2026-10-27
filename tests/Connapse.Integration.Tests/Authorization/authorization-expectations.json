@@ -120,6 +120,16 @@
       "risk": "destructive",
       "scope": "admin:settings"
     },
+    "DELETE /api/v1/providers/azure/access": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/v1/providers/azure/permissions": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
     "DELETE /api/v1/providers/custom/{providerId:guid}": {
       "requires": "admin",
       "risk": "destructive",
@@ -856,6 +866,16 @@
       "scope": "admin:settings"
     },
     "PUT /api/v1/providers/aws/permissions": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/azure/access": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/azure/permissions": {
       "requires": "admin",
       "risk": "destructive",
       "scope": "admin:settings"

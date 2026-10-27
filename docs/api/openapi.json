@@ -7589,6 +7589,256 @@
         }
       }
     },
+    "/api/v1/providers/azure/access": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Set Connapse's Azure access identity: a certificate app (clientId and clientCertificatePath, a file on this host), a user-assigned managed identity, or the host's own (useHostManagedIdentity), with its tenantId and the subscriptionId per-user filtering reads. Entra is asked for a token first, and nothing is saved unless it gives one. A null clientCertificatePassword keeps the stored one for the same certificate; it is never returned. Read the values at GET /api/settings/azure.",
+        "operationId": "providers.azure.access",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzureAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureProviderSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear Connapse's Azure access identity. The app registration and its role assignments stay in Azure until removed there.",
+        "operationId": "providers.azure.access.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureProviderSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/azure/permissions": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Save the Entra application people sign in through: tenantId, clientId, redirectUri and clientCertificatePath. Once all four are set, Entra is asked for a token with it, and per-user Azure permission enforcement is switched on before anything is saved; it can't be switched off again. Admin consent needs a browser: while adminConsentPending is true, adminConsentUrl is the link to open, and GET /api/v1/providers shows the sign-in requirement as waiting on it. Once consent is granted, save again with adminConsentPending false. Read the values at GET /api/settings/azuread.",
+        "operationId": "providers.azure.permissions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzurePermissionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureAdSignInSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear the recorded sign-in application, for one removed in Entra. Per-user enforcement stays on, so searches of Azure sources return nothing for everyone until the application is saved again.",
+        "operationId": "providers.azure.permissions.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureAdSignInSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers/custom": {
       "get": {
         "tags": [
@@ -11044,6 +11294,243 @@
           },
           "applied": {
             "type": "boolean"
+          }
+        }
+      },
+      "AzureAccessRequest": {
+        "required": [
+          "tenantId"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string"
+          },
+          "subscriptionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "userAssignedManagedIdentityClientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "useHostManagedIdentity": {
+            "type": "boolean",
+            "default": false
+          },
+          "managedIdentityPrincipalId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AzureAdSignInSettings": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "redirectUri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "adminConsentPending": {
+            "type": "boolean"
+          },
+          "isConfigured": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AzurePermissionsRequest": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "redirectUri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "adminConsentPending": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "AzureProviderSettings": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "userAssignedManagedIdentityClientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "useHostManagedIdentity": {
+            "type": "boolean"
+          },
+          "managedIdentityPrincipalId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "subscriptionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AzureSettingsSavedOfAzureAdSignInSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AzureAdSignInSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "adminConsentUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AzureSettingsSavedOfAzureProviderSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AzureProviderSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "adminConsentUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

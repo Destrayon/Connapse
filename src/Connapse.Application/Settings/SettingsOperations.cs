@@ -189,6 +189,8 @@ public static class SettingsCategories
     [
         new(new SettingsCategory<SamlSignInSettings>("samlsignin", "samlsignin"), "/api/v1/providers/aws/permissions"),
         new(new SettingsCategory<IdentityCenterSettings>("identitycenter", "identitycenter"), "/api/v1/providers/aws/identity-center"),
+        new(new SettingsCategory<AzureProviderSettings>("azure", "azure"), "/api/v1/providers/azure/access"),
+        new(new SettingsCategory<AzureAdSignInSettings>("azuread", "azuread"), "/api/v1/providers/azure/permissions"),
     ];
 
     /// <summary>The provider-owned category with this name in any case, or null.</summary>

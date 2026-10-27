@@ -927,7 +927,7 @@ All settings endpoints require **Admin** role.
 
 **Categories**: `embedding` | `chunking` | `search` | `llm` | `upload` | `summary`, in any case
 
-API keys are never returned: those fields read as `null`. The Azure sign-in categories (`azure`, `azuread`) are refused here; provider setup owns them. `samlsignin` and `identitycenter` can be read here, but changing them is a `409`: use `PUT`/`DELETE /api/v1/providers/aws/permissions` and `/api/v1/providers/aws/identity-center`.
+API keys are never returned: those fields read as `null`. `samlsignin`, `identitycenter`, `azure` and `azuread` can be read here, but changing them is a `409`: use `PUT`/`DELETE /api/v1/providers/aws/permissions`, `/api/v1/providers/aws/identity-center`, `/api/v1/providers/azure/access` and `/api/v1/providers/azure/permissions`. Saving Azure sign-in turns on per-user enforcement, so it is a `503` when enforcement can't be turned on, and its answer carries an `adminConsentUrl` to open in a browser while admin consent is pending.
 
 **Response** (200 OK) — Example for `embedding`:
 ```json

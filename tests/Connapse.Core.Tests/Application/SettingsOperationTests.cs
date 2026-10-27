@@ -123,9 +123,22 @@ public partial class SettingsOperationTests
         read.Result.Settings.Should().BeOfType<IdentityCenterSettings>().Which.InstanceArn.Should().Be("arn:i");
     }
 
+    [Fact]
+    public async Task Get_AzureCategory_LeavesOutTheCertificatePassword()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("azuread", new AzureAdSignInSettings { TenantId = "t", ClientCertificatePassword = "secret" });
+
+        var read = await world.Get().RunAsync(Caller, "azuread");
+
+        read.Result!.Settings.Should().BeOfType<AzureAdSignInSettings>().Which.ClientCertificatePassword.Should().BeNull();
+    }
+
     [Theory]
     [InlineData("samlsignin", "/api/v1/providers/aws/permissions")]
     [InlineData("identitycenter", "/api/v1/providers/aws/identity-center")]
+    [InlineData("azure", "/api/v1/providers/azure/access")]
+    [InlineData("azuread", "/api/v1/providers/azure/permissions")]
     public async Task UpdateAndReset_ProviderOwnedCategory_AreRefusedAndChangeNothing(string category, string route)
     {
         var world = new World();

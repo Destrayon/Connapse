@@ -119,4 +119,31 @@ public sealed class ProvidersEndpointTests(SharedWebAppFixture fixture)
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("acsUrl");
     }
+
+    [Theory]
+    [InlineData("PUT", "/api/v1/providers/azure/access")]
+    [InlineData("DELETE", "/api/v1/providers/azure/access")]
+    [InlineData("PUT", "/api/v1/providers/azure/permissions")]
+    [InlineData("DELETE", "/api/v1/providers/azure/permissions")]
+    public async Task Azure_Anonymous_Unauthorized(string method, string path)
+    {
+        using var anonymous = fixture.Factory.CreateClient();
+
+        var response = await anonymous.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = JsonContent.Create(new { }) });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Theory]
+    [InlineData("/api/v1/providers/azure/access", "tenantId")]
+    [InlineData("/api/v1/providers/azure/permissions", "redirectUri")]
+    public async Task Azure_InvalidRequest_BadRequestNamingTheField(string path, string field)
+    {
+        var response = await fixture.AdminClient.PutAsJsonAsync(path, new { redirectUri = "not an address" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        problem.GetProperty("field").GetString().Should().Be(field);
+        problem.GetProperty("type").GetString().Should().EndWith("invalid-azure-setup");
+    }
 }
