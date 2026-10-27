@@ -914,6 +914,31 @@ public sealed class JiraProjectConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task Read_IssueWithLinks_HandsThePipelineTheirMetadata()
+    {
+        var issue = Issue("20001", "ENG-1", "Child");
+        issue.Fields["parent"] = new { id = "30000", key = "ENG-100", fields = new { issuetype = new { name = "Epic", hierarchyLevel = 1 } } };
+        issue.Fields["issuelinks"] = new object[]
+        {
+            new { type = new { name = "Blocks", inward = "is blocked by", outward = "blocks" }, outwardIssue = new { key = "ENG-9" } },
+        };
+        issue.Fields["fixVersions"] = new object[] { new { name = "2.1.0" } };
+        await _connector.GetChangesAsync(null);
+
+        await using Stream read = await _connector.ReadFileAsync("/issues/20001.md");
+
+        read.Should().BeOfType<Connapse.Core.MetadataStream>().Which.Metadata.Should().Contain(new Dictionary<string, string>
+        {
+            ["jira:site"] = CloudId,
+            ["jira:issueKey"] = "ENG-1",
+            ["jira:links"] = "out|ENG-9|blocks",
+            ["jira:parent"] = "ENG-100",
+            ["jira:parentKind"] = "epic",
+            ["jira:fixVersions"] = "2.1.0",
+        });
+    }
+
+    [Fact]
     public async Task Read_IssueWith250Comments_RendersAll()
     {
         var issue = Issue("20001", "ENG-1", "Busy");
