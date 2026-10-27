@@ -130,6 +130,11 @@
       "risk": "destructive",
       "scope": "admin:settings"
     },
+    "DELETE /api/v1/providers/github/app": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
     "DELETE /api/v1/providers/custom/{providerId:guid}": {
       "requires": "admin",
       "risk": "destructive",
@@ -790,6 +795,11 @@
       "risk": "credential",
       "scope": "admin:settings"
     },
+    "POST /api/v1/providers/github/manifest": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:settings"
+    },
     "POST /api/v1/providers/custom/{providerId:guid}/check": {
       "requires": "admin",
       "risk": "write",
@@ -878,6 +888,11 @@
     "PUT /api/v1/providers/azure/permissions": {
       "requires": "admin",
       "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/github/app": {
+      "requires": "admin",
+      "risk": "credential",
       "scope": "admin:settings"
     },
     "PUT /api/v1/providers/custom/{providerId:guid}/link-secret": {

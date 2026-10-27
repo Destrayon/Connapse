@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Caching.Memory;
 
-namespace Connapse.Web.Services;
+namespace Connapse.Storage.Connectors.GitHub;
 
 /// <summary>
 /// The manifest that registers Connapse's GitHub App: GitHub's one-click flow, where the browser

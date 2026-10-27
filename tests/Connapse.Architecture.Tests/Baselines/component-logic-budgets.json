@@ -154,10 +154,10 @@
     "IsEmpty": false
   },
   "Pages/Providers.razor": {
-    "CodeLines": 1811,
+    "CodeLines": 1770,
     "Injects": 20,
-    "Complexity": 355,
-    "MarkupLogic": 194,
+    "Complexity": 342,
+    "MarkupLogic": 193,
     "IsEmpty": false
   },
   "Pages/Search.razor": {

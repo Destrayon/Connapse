@@ -30,7 +30,7 @@
 @inject ILogger<Providers> Logger
 @inject IAuditLogger AuditLogger
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
-@inject GitHubManifestRequests GitHubManifests
+@inject Connapse.Application.Providers.GitHubAppOperations GitHubOps
 @inject AuthenticationStateProvider AuthState
 @inject ICustomProviderStore CustomProviderStore
 @using System.Security.Claims
@@ -1812,15 +1812,14 @@
                             over an unencrypted connection. Open Connapse over HTTPS before creating the App.
                         </div>
                     }
-                    @if (gitHubConfirmedOwner is { } owner && gitHubManifestState is not null
-                         && GitHubAppManifest.FormAction(owner, gitHubManifestState) is { } action)
+                    @if (gitHubConfirmedOwner is { } owner && (owner.Length == 0 ? gitHubOwnCreation : gitHubOrgCreation) is { } creation)
                     {
                         @* A native form, not a Blazor one: GitHub's flow starts with the browser
                            posting the manifest to github.com. Always public: "public" decides who
                            may install the App, not which repositories it reads, and one App
                            installed on every organisation is how Connapse covers several. *@
-                        <form method="post" action="@action">
-                            <input type="hidden" name="manifest" value="@GitHubAppManifest.Build(Navigation.BaseUri, isPublic: true)" />
+                        <form method="post" action="@creation.FormAction">
+                            <input type="hidden" name="manifest" value="@creation.Manifest" />
                             <button type="submit" class="btn btn-primary" disabled="@(gitHubAppInfo is not null && !gitHubReplaceConfirmed)">
                                 <span class="bi-github me-1" aria-hidden="true"></span> @(gitHubAppInfo is null ? "Create the App on GitHub" : "Create a new App on GitHub")
                             </button>
@@ -2132,7 +2131,8 @@
     // ── GitHub App ─────────────────────────────────────────────────────────
 
     private GitHubAppRegistration? gitHubAppInfo;
-    private string? gitHubManifestState;
+    /// <summary>The manifest flow started for the administrator's own account, and for the organisation GitHub confirmed.</summary>
+    private Connapse.Application.Providers.GitHubAppCreation? gitHubOwnCreation, gitHubOrgCreation;
     private string? gitHubAppOrganisation;
     /// <summary>What has been typed into the manual App fields, by field id.</summary>
     private readonly Dictionary<string, string?> gitHubManual = [];
@@ -2222,27 +2222,16 @@
         ResetGitHubOwner();
         string org = gitHubAppOrganisation?.Trim() ?? "";
         if (org.Length == 0)
-        {
-            gitHubConfirmedOwner = "";
             return;
-        }
-
-        if (GitHubAppManifest.FormAction(org, "check") is null)
-        {
-            gitHubOwnerError = "That is not a valid GitHub organisation name.";
-            return;
-        }
 
         gitHubBusy = true;
         try
         {
-            gitHubOwnerError = await GitHubApp.GetAccountKindAsync(org) switch
-            {
-                GitHubAccountKind.Organization => null,
-                GitHubAccountKind.User => $"{org} is a personal account, not an organisation. Leave the field blank to use your own account.",
-                _ => $"GitHub has no organisation called {org}.",
-            };
-            if (gitHubOwnerError is null)
+            var started = await GitHubOps.Create.RunAsync(await AuthState.OperationContextAsync(), Navigation.BaseUri,
+                new Connapse.Application.Providers.GitHubAppCreationRequest(org));
+            gitHubOrgCreation = started.Result;
+            gitHubOwnerError = started.Succeeded ? null : started.Detail;
+            if (started.Succeeded)
                 gitHubConfirmedOwner = org;
         }
         catch (Exception ex)
@@ -2268,74 +2257,36 @@
 
         (gitHubConnectionCount, gitHubSourceCount) = await GitHubUsage.CountAsync();
 
-        var user = (await AuthState.GetAuthenticationStateAsync()).User;
-        if (Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
-            gitHubManifestState ??= GitHubManifests.Start(userId);
+        gitHubOwnCreation ??= (await GitHubOps.Create.RunAsync(await AuthState.OperationContextAsync(), Navigation.BaseUri, new())).Result;
     }
 
     private async Task SaveManualGitHubApp()
     {
         saveMessage = null;
         gitHubManualError = gitHubManualDetail = gitHubAppIdError = null;
-        if (!long.TryParse(manualGitHubAppId?.Trim(), out long appId) || appId <= 0)
-        {
-            gitHubAppIdError = "Enter the App ID: the number at the top of the App's page on GitHub.";
-            return;
-        }
-
         gitHubBusy = true;
         try
         {
-            // Blank key or secret on the stored App keeps what is stored: rotating one value never
-            // asks for the other again.
-            var stored = await CredentialStore.GetGitHubAppMaterialAsync();
-            bool sameApp = stored?.App.AppId == appId;
-            string? key = string.IsNullOrWhiteSpace(manualGitHubAppKey) ? (sameApp ? stored!.PrivateKeyPem : null) : manualGitHubAppKey.Trim();
-            string? secret = string.IsNullOrWhiteSpace(manualGitHubClientSecret) ? (sameApp ? stored!.ClientSecret : null) : manualGitHubClientSecret.Trim();
-
-            if (key is null)
+            long? appId = long.TryParse(manualGitHubAppId?.Trim(), out long id) ? id : null;
+            var saved = await GitHubOps.App.RunAsync(await AuthState.OperationContextAsync(), new Connapse.Application.Providers.GitHubAppRequest(
+                appId, manualGitHubAppKey, manualGitHubClientSecret, gitHubReplaceConfirmed));
+            if (saved.Result is not { } result)
             {
-                gitHubManualError = "Paste the App's private key.";
+                if (saved.Field == "appId")
+                    gitHubAppIdError = saved.Detail;
+                else
+                    gitHubManualError = saved.Field == "replaceExisting" && gitHubAppInfo is { } current
+                        ? $"App ID {appId} is a different App from {current.Slug}. Tick \"Replace {current.Slug} with a different App\" above to confirm, or enter App ID {current.AppId}."
+                        : saved.Detail;
                 return;
             }
-
-            if (gitHubAppInfo is not null && !sameApp && !gitHubReplaceConfirmed)
-            {
-                gitHubManualError = $"App ID {appId} is a different App from {gitHubAppInfo.Slug}. Tick \"Replace {gitHubAppInfo.Slug} with a different App\" above to confirm, or enter App ID {gitHubAppInfo.AppId}.";
-                return;
-            }
-
-            GitHubAppRegistration app;
-            try
-            {
-                // GitHub answers "who is this App" only for a matching id and key, so this is the check.
-                app = await GitHubApp.VerifyAsync(appId, key);
-            }
-            catch (GitHubAppException ex) when (ex.StatusCode is 401 or 404)
-            {
-                gitHubManualError = "GitHub did not accept that App ID and private key together. Check the App ID, and that the key was generated for that App.";
-                gitHubManualDetail = ex.Message;
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(manualGitHubClientSecret)
-                && (app.ClientId is not { Length: > 0 } clientId || !await GitHubApp.ClientSecretMatchesAsync(clientId, secret!)))
-            {
-                gitHubManualError = $"GitHub did not accept that client secret for {app.Slug}. Generate a new one on the App's page and paste it.";
-                return;
-            }
-
-            await CredentialStore.SaveGitHubAppAsync(app, key, secret, createdByUserId: null);
-            GitHubApp.ClearCache();
-            await AuditLogger.LogAsync("provider.credential.saved", "provider", "github",
-                new { app.AppId, app.Slug, app.OwnerLogin, Via = "manual", Replaced = gitHubAppInfo is not null && !sameApp });
 
             manualGitHubAppId = manualGitHubAppKey = manualGitHubClientSecret = null;
             showGitHubSetup = false;
             saveSuccess = true;
-            saveMessage = $"GitHub App {app.Slug} saved."
-                + (secret is null ? " People can't link their GitHub accounts until you add its client secret." : "")
-                + (sameApp ? "" : " Next, add a GitHub connection: that is where it gets installed.");
+            saveMessage = $"GitHub App {result.App.Slug} saved."
+                + (result.CanSignIn ? "" : " People can't link their GitHub accounts until you add its client secret.")
+                + (result.NewApp ? " Next, add a GitHub connection: that is where it gets installed." : "");
             await LoadGitHubAsync();
             await RefreshSetups();
         }
@@ -2355,12 +2306,12 @@
     {
         try
         {
-            await CredentialStore.DeleteAsync("github");
-            GitHubApp.ClearCache();
-            await AuditLogger.LogAsync("provider.credential.deleted", "provider", "github");
+            var removed = await GitHubOps.Remove.RunAsync(await AuthState.OperationContextAsync());
+            saveSuccess = removed.Succeeded;
+            saveMessage = removed.Succeeded
+                ? "The GitHub App was removed from Connapse. GitHub sources stop syncing until an App is set up again."
+                : removed.Detail;
             gitHubAppInfo = null;
-            saveSuccess = true;
-            saveMessage = "The GitHub App was removed from Connapse. GitHub sources stop syncing until an App is set up again.";
             await LoadGitHubAsync();
             await RefreshSetups();
         }

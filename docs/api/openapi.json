@@ -8307,11 +8307,239 @@
         }
       }
     },
+    "/api/v1/providers/github/app": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Store a GitHub App registered by hand: appId, privateKeyPem and, for people to link their GitHub accounts, clientSecret. GitHub is asked who the id and key belong to, and whether the secret is the App's, before anything is stored. A blank key or secret keeps the stored one for the same App; replacing a different App needs replaceExisting true. Secrets are never returned.",
+        "operationId": "providers.github.app",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Remove the GitHub App's key and secret from Connapse. Every GitHub connection and source stops syncing, and linked GitHub accounts no longer unlock private repositories. The App itself stays on GitHub.",
+        "operationId": "providers.github.app.remove",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppRemoved"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/github/manifest": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Start creating Connapse's GitHub App through GitHub's manifest flow, owned by the caller's account or by organisation, which GitHub must confirm is one. Creating it needs a browser: a person signed in to both Connapse and GitHub opens setupPageUrl and clicks once, or a browser posts a form with one field, manifest, to formAction. GitHub then sends that person back to Connapse, which stores the App. Each start is good for an hour, once, and only for the person who made it. Poll GET /api/v1/providers until the github requirement leaves Missing.",
+        "operationId": "providers.github.createApp",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GitHubAppCreationRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppCreation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers/github/manifest/callback": {
       "get": {
         "tags": [
           "Providers"
         ],
+        "operationId": "providers.github.createApp.callback",
         "parameters": [
           {
             "name": "code",
@@ -8370,6 +8598,7 @@
         "tags": [
           "Providers"
         ],
+        "operationId": "providers.github.installed",
         "parameters": [
           {
             "name": "installation_id",
@@ -13652,6 +13881,134 @@
         "properties": {
           "email": {
             "type": "string"
+          }
+        }
+      },
+      "GitHubAppCreation": {
+        "required": [
+          "formAction",
+          "manifest",
+          "setupPageUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "formAction": {
+            "type": "string"
+          },
+          "manifest": {
+            "type": "string"
+          },
+          "setupPageUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubAppCreationRequest": {
+        "type": "object",
+        "properties": {
+          "organisation": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "GitHubAppRegistration": {
+        "required": [
+          "appId",
+          "slug",
+          "clientId",
+          "ownerLogin",
+          "htmlUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "appId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ownerLogin": {
+            "type": "string"
+          },
+          "htmlUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubAppRemoved": {
+        "required": [
+          "removed"
+        ],
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GitHubAppRequest": {
+        "required": [
+          "appId"
+        ],
+        "type": "object",
+        "properties": {
+          "appId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "privateKeyPem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientSecret": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replaceExisting": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "GitHubAppSaved": {
+        "required": [
+          "app",
+          "canSignIn",
+          "newApp"
+        ],
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/components/schemas/GitHubAppRegistration"
+          },
+          "canSignIn": {
+            "type": "boolean"
+          },
+          "newApp": {
+            "type": "boolean"
           }
         }
       },

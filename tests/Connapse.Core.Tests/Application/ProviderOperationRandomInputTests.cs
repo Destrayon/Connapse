@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Claims;
 using Connapse.Application;
 using Connapse.Application.Ports;
@@ -5,9 +6,13 @@ using Connapse.Application.Providers;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope.RolesAnywhere;
+using Connapse.Storage.Connectors.GitHub;
 using Connapse.Storage.Settings;
 using CsCheck;
 using FluentAssertions;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Application;
@@ -515,13 +520,182 @@ public class ProviderOperationRandomInputTests
             await store.DidNotReceiveWithAnyArgs().UpdateAsync<PermissionEnforcementSettings>(default!, default!, default);
         }, iter: 50);
 
+    private static readonly string GitHubKey = System.Security.Cryptography.RSA.Create(2048).ExportRSAPrivateKeyPem();
+
+    private static readonly GitHubAppRegistration StoredGitHubApp = new(42, "stored", "Iv1.client", "octo", "https://github.com/apps/stored");
+
+    [Fact]
+    [RandomInputTestOf(typeof(SetGitHubApp))]
+    public Task SetGitHubApp_AnyRequest_StoresOnlyValuesGitHubAccepted() =>
+        Gen.Select(Gen.Bool, Gen.OneOfConst<long?>(null, 0, -1, 42, 7), Gen.OneOfConst<string?>(null, " ", GitHubKey),
+            Gen.OneOfConst<string?>(null, "", "secret"), Gen.Bool, Gen.Bool, Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, appId, key, secret, replace, hasStored, keyAccepted, secretAccepted) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
+                .Returns(hasStored ? new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old") : null);
+
+            var saved = await new SetGitHubApp(credentials, GitHub(credentials, keyAccepted, secretAccepted), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context(), new GitHubAppRequest(appId, key, secret, replace));
+
+            bool sameApp = hasStored && appId == 42;
+            GitHubAppStatus status = !allowed ? GitHubAppStatus.Forbidden
+                : appId is not > 0 ? GitHubAppStatus.Invalid
+                : key != GitHubKey && !sameApp ? GitHubAppStatus.Invalid
+                : hasStored && !sameApp && !replace ? GitHubAppStatus.ReplaceUnconfirmed
+                : !keyAccepted || (secret == "secret" && !secretAccepted) ? GitHubAppStatus.Refused
+                : GitHubAppStatus.Success;
+            saved.Status.Should().Be(status);
+            await credentials.Received(saved.Succeeded ? 1 : 0).SaveGitHubAppAsync(
+                Arg.Any<GitHubAppRegistration>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+            if (saved.Succeeded)
+                saved.Result!.CanSignIn.Should().Be(secret == "secret" || sameApp);
+        }, iter: 400);
+
+    private static ConnapseGitHubApp GitHub(IProviderCredentialStore credentials, bool keyAccepted, bool secretAccepted)
+    {
+        var services = new ServiceCollection().AddSingleton(credentials).BuildServiceProvider();
+        var http = Substitute.For<IHttpClientFactory>();
+        http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(new GitHubStub(keyAccepted, secretAccepted)));
+        return new ConnapseGitHubApp(services.GetRequiredService<IServiceScopeFactory>(), http, NullLogger<ConnapseGitHubApp>.Instance)
+        { ApiBaseUrl = "https://api.github.test" };
+    }
+
+    [Fact]
+    [RandomInputTestOf(typeof(RemoveGitHubApp))]
+    public Task RemoveGitHubApp_AnyCaller_DeletesOnlyForSettingsAdmins() =>
+        Gen.Select(Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, hasStored) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.DeleteAsync("github", Arg.Any<CancellationToken>()).Returns(hasStored);
+            var audit = Substitute.For<IAuditLogger>();
+
+            var removed = await new RemoveGitHubApp(credentials, GitHub(credentials, true, true), audit, Authorizer(allowed)).RunAsync(Context());
+
+            removed.Status.Should().Be(allowed ? GitHubAppStatus.Success : GitHubAppStatus.Forbidden);
+            await credentials.Received(allowed ? 1 : 0).DeleteAsync("github", Arg.Any<CancellationToken>());
+            if (allowed)
+                removed.Result!.Removed.Should().Be(hasStored);
+            await audit.Received(allowed && hasStored ? 1 : 0).LogAsync(
+                "provider.credential.deleted", Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<object?>(), Arg.Any<CancellationToken>());
+        }, iter: 50);
+
+    [Fact]
+    [RandomInputTestOf(typeof(StartGitHubAppCreation))]
+    public Task StartGitHubAppCreation_AnyOwner_StartsOnlyForAPersonAndARealOrganisation() =>
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst<string?>(null, " ", "octo-org", "a-person", "nobody", "not a name!"), Gen.Bool)
+            .SampleAsync(async t =>
+        {
+            var (allowed, person, organisation, gitHubUp) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+
+            var started = await new StartGitHubAppCreation(Requests(), GitHub(credentials, gitHubUp, true), Authorizer(allowed))
+                .RunAsync(person ? Person() : Context(), "https://h.example/", new GitHubAppCreationRequest(organisation));
+
+            bool own = string.IsNullOrWhiteSpace(organisation);
+            GitHubAppStatus status = !allowed || !person ? GitHubAppStatus.Forbidden
+                : own ? GitHubAppStatus.Success
+                : organisation == "not a name!" ? GitHubAppStatus.Invalid
+                : !gitHubUp ? GitHubAppStatus.Unavailable
+                : organisation == "octo-org" ? GitHubAppStatus.Success
+                : GitHubAppStatus.Invalid;
+            started.Status.Should().Be(status);
+            if (started.Succeeded)
+            {
+                started.Result!.FormAction.Should().StartWith(own ? "https://github.com/settings/apps/new" : "https://github.com/organizations/octo-org/");
+                started.Result.SetupPageUrl.Should().Be("https://h.example/admin/providers/github");
+            }
+        }, iter: 300);
+
+    [Fact]
+    [RandomInputTestOf(typeof(CompleteGitHubAppCreation))]
+    public Task CompleteGitHubAppCreation_AnyRedirect_StoresOnlyThePersonsOwnLiveCreation() =>
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst("mine", "theirs", "made-up", ""), Gen.OneOfConst<string?>(null, " ", "code"), Gen.Bool)
+            .SampleAsync(async t =>
+        {
+            var (allowed, person, whose, code, gitHubUp) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            var requests = Requests();
+            string state = whose switch
+            {
+                "mine" => requests.Start(PersonId),
+                "theirs" => requests.Start(Guid.NewGuid()),
+                _ => whose,
+            };
+
+            var completed = await new CompleteGitHubAppCreation(requests, GitHub(credentials, gitHubUp, true), credentials,
+                    Substitute.For<IAuditLogger>(), Authorizer(allowed, Policies.Admin), NullLogger<CompleteGitHubAppCreation>.Instance)
+                .RunAsync(person ? Person() : Context(), code, state);
+
+            GitHubAppStatus status = !allowed || !person ? GitHubAppStatus.Forbidden
+                : whose != "mine" ? GitHubAppStatus.Expired
+                : code != "code" ? GitHubAppStatus.NoCode
+                : !gitHubUp ? GitHubAppStatus.Unavailable
+                : GitHubAppStatus.Success;
+            completed.Status.Should().Be(status);
+            await credentials.Received(completed.Succeeded ? 1 : 0).SaveGitHubAppAsync(
+                Arg.Any<GitHubAppRegistration>(), Arg.Any<string>(), Arg.Any<string?>(), PersonId, Arg.Any<CancellationToken>());
+        }, iter: 300);
+
+    [Fact]
+    [RandomInputTestOf(typeof(RecordGitHubAppInstalled))]
+    public Task RecordGitHubAppInstalled_AnyRedirect_AlwaysLandsOnConnections() =>
+        Gen.Select(Gen.Bool, Gen.OneOfConst<long?>(null, 0, -3, 77), Gen.OneOfConst<string?>(null, "install", "update", "request", "<script>"))
+            .SampleAsync(async t =>
+        {
+            var (allowed, installationId, setupAction) = t;
+
+            var recorded = await new RecordGitHubAppInstalled(Substitute.For<IAuditLogger>(), Authorizer(allowed, Policies.Admin))
+                .RunAsync(Context(), installationId, setupAction);
+
+            recorded.Status.Should().Be(allowed ? GitHubAppStatus.Success : GitHubAppStatus.Forbidden);
+            if (allowed)
+                recorded.Result.Should().StartWith("/connections?").And.NotContain("<");
+        }, iter: 100);
+
+    private static readonly Guid PersonId = Guid.NewGuid();
+
+    private static OperationContext Person() =>
+        new(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, PersonId.ToString())], "test")), OperationSurface.Rest);
+
+    private static GitHubManifestRequests Requests() => new(new MemoryCache(new MemoryCacheOptions()));
+
+    private sealed class GitHubStub(bool keyAccepted, bool secretAccepted) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.StartsWith("/applications/"))
+                // GitHub's token check: 404 for an unknown token when the client id and secret are right.
+                return Task.FromResult(new HttpResponseMessage(secretAccepted ? HttpStatusCode.NotFound : HttpStatusCode.Unauthorized));
+
+            // keyAccepted doubles as "GitHub answers" for the calls that take no key.
+            if (!keyAccepted)
+                return Task.FromResult(new HttpResponseMessage(path.StartsWith("/app") && !path.StartsWith("/app-manifests/")
+                    ? HttpStatusCode.Unauthorized
+                    : HttpStatusCode.BadGateway) { Content = new StringContent("""{"message":"Bad credentials"}""") });
+
+            string? body = path switch
+            {
+                "/users/octo-org" => """{"login":"octo-org","type":"Organization"}""",
+                "/users/a-person" => """{"login":"a-person","type":"User"}""",
+                _ when path.StartsWith("/users/") => null,
+                _ => """{"id":42,"slug":"app","client_id":"Iv1.client","client_secret":"s","pem":"key","owner":{"login":"octo"},"html_url":"https://github.com/apps/app"}""",
+            };
+            return Task.FromResult(body is null
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
     private static OperationContext Context() => new(new ClaimsPrincipal(), OperationSurface.Rest);
 
-    private static IOperationAuthorizer Authorizer(bool allowed)
+    private static IOperationAuthorizer Authorizer(bool allowed, string policy = Policies.SettingsAdmin)
     {
         var authorizer = Substitute.For<IOperationAuthorizer>();
         authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SettingsAdmin).Returns(allowed);
+        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), policy).Returns(allowed);
         return authorizer;
     }
 

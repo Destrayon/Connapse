@@ -793,7 +793,7 @@ public static class CloudIdentityEndpoints
     /// App's manifest registered, so GitHub accepts it as a redirect.
     /// </summary>
     private static string GitHubCallbackUrl(HttpContext http) =>
-        $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{Connapse.Web.Services.GitHubAppManifest.UserCallbackPath}";
+        $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{Connapse.Storage.Connectors.GitHub.GitHubAppManifest.UserCallbackPath}";
 
     internal static string AtlassianCallbackUrl(HttpContext http) =>
         $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{AtlassianCallbackPath}";

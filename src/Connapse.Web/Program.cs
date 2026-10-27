@@ -203,7 +203,7 @@ builder.Services.AddScoped<Connapse.Web.Services.StoredFileRemovalJob>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
 builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
-builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
+builder.Services.AddSingleton<Connapse.Storage.Connectors.GitHub.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceVisibility>(sp => sp.GetRequiredService<Connapse.Web.Services.PrivateSourceVisibility>());
 builder.Services.AddScoped<Connapse.Application.Ports.IOperationAuthorizer, Connapse.Web.Services.OperationAuthorizer>();

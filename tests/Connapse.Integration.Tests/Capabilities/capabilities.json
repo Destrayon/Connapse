@@ -609,7 +609,7 @@
       ],
       "mcp": null,
       "mcpOff": "A person signs in to the other system in a browser; the most an agent can do is hand them the link.",
-      "note": "The flow starts with a form post from the page; the route would return the manifest and GitHub URL."
+      "note": "Returns the manifest, GitHub's form address and the providers page link; a browser does the rest."
     },
     {
       "id": "providers.github.createApp.callback",
@@ -630,9 +630,16 @@
     },
     {
       "id": "providers.github.app",
-      "capability": "Save the GitHub App's values by hand, or remove it",
+      "capability": "Save the GitHub App's values by hand",
       "routes": [
-        "PUT /api/v1/providers/github/app",
+        "PUT /api/v1/providers/github/app"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.github.app.remove",
+      "capability": "Remove the GitHub App",
+      "routes": [
         "DELETE /api/v1/providers/github/app"
       ],
       "mcp": "generic"

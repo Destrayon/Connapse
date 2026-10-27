@@ -5,7 +5,6 @@
   "CloudIdentityEndpoints GET /api/v1/auth/cloud/atlassian/connect -> AtlassianIdentityLinkStore",
   "CloudIdentityEndpoints GET /api/v1/auth/cloud/aws/confirm -> AwsIdentityLinkStore",
   "CloudIdentityEndpoints GET /api/v1/auth/cloud/github/confirm -> GitHubIdentityLinkStore",
-  "GitHubAppEndpoints GET /api/v1/providers/github/manifest/callback -> IProviderCredentialStore",
   "OAuthEndpoints POST /oauth/token -> ConnapseIdentityDbContext",
   "SearchEndpoints GET /api/containers/{containerId:guid}/search/models -> IContainerStore"
 ]

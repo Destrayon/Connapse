@@ -1,6 +1,6 @@
 using System.Text.Json;
+using Connapse.Storage.Connectors.GitHub;
 using Connapse.Web.Components.Settings;
-using Connapse.Web.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
 using Xunit;

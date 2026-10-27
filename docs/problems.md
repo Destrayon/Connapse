@@ -396,3 +396,36 @@ Right after the setup script runs, Entra may still be registering the certificat
 Per-user permission enforcement for the provider (AWS or Azure) couldn't be switched on in this process, so
 the sign-in application wasn't saved: saving it with enforcement off would show every user every document
 from that provider. Restart Connapse and save again.
+
+## invalid-github-app
+
+The GitHub App values can't be used as sent: the App ID is missing or not a positive number, no private
+key was sent and none is stored for that App, the key isn't a readable `.pem` file, or an organisation
+named to own a new App isn't one on GitHub. `field` names the input at fault. Nothing was changed.
+
+## github-app-replace-unconfirmed
+
+A different GitHub App is stored. Replacing it disconnects every GitHub connection, because each is an
+installation of the stored App, so send `replaceExisting: true` to confirm, or use the stored App's ID.
+Nothing was changed.
+
+## github-app-refused
+
+GitHub didn't accept the App ID and private key together, or the client secret isn't the App's. `field`
+names which. Nothing was stored, and the current App still works; check the App ID, and that the key or
+secret was generated for that App.
+
+## github-unavailable
+
+GitHub couldn't be reached, or answered in a way Connapse couldn't use, so nothing was changed. Check that
+this server can reach api.github.com, then try again.
+
+## github-manifest-expired
+
+GitHub sent back a GitHub App creation that this person didn't start, or started more than an hour ago,
+or that was already finished. Nothing was stored; start the creation again.
+
+## github-manifest-no-code
+
+GitHub sent the person back without the code that hands over the new App, so nothing was stored. Start
+the creation again.
