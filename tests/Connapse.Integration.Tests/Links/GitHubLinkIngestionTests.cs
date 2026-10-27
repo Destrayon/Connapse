@@ -24,12 +24,20 @@ public class GitHubLinkIngestionTests(SharedWebAppFixture fixture)
         await using var ctx = await dbFactory.CreateDbContextAsync();
         ctx.Containers.Add(new ContainerEntity
         {
-            Id = containerId, Name = $"ghl-{containerId:N}", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            Id = containerId,
+            Name = $"ghl-{containerId:N}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         });
         ctx.Documents.Add(new DocumentEntity
         {
-            Id = documentId, ContainerId = containerId, FileName = "7.md", Path = "/pulls/7.md",
-            ContentHash = "", CreatedAt = DateTime.UtcNow, Metadata = [],
+            Id = documentId,
+            ContainerId = containerId,
+            FileName = "7.md",
+            Path = "/pulls/7.md",
+            ContentHash = "",
+            CreatedAt = DateTime.UtcNow,
+            Metadata = [],
         });
         await ctx.SaveChangesAsync();
         return (containerId, documentId);
@@ -47,7 +55,9 @@ public class GitHubLinkIngestionTests(SharedWebAppFixture fixture)
     {
         Dictionary<string, string> metadata = new()
         {
-            ["github:repo"] = repo, ["github:type"] = "pull_request", ["github:number"] = "7",
+            ["github:repo"] = repo,
+            ["github:type"] = "pull_request",
+            ["github:number"] = "7",
         };
         foreach ((string key, string value) in extra)
             metadata["github:" + key] = value;
