@@ -132,7 +132,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
                 && (f.ValidTo == null || f.ValidTo > at));
         }
 
-        string? terms = TsQuery(query.Text);
+        string? terms = TsQuery(await DistinctiveWordsAsync(context, query.ContainerId, QueryWords(query.Text), ct));
         IQueryable<MemoryFactEntity> ordered;
         if (terms is null)
         {
@@ -170,12 +170,47 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     /// its words and ranks those sharing more first. Only letters and digits reach the query, so nothing in the text
     /// is read as tsquery syntax. Null when there are no words.
     /// </summary>
-    internal static string? TsQuery(string? text)
+    internal static string? TsQuery(string? text) => TsQuery(QueryWords(text));
+
+    private static string? TsQuery(IReadOnlyList<string> words) => words.Count == 0 ? null : string.Join(" | ", words);
+
+    internal static IReadOnlyList<string> QueryWords(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? [] : [.. Words().Matches(text).Select(m => m.Value.ToLowerInvariant()).Distinct().Take(32)];
+
+    /// <summary>
+    /// The words that tell this container's facts apart. ts_rank has no inverse document frequency, so a word in most
+    /// facts (the project every fact is about, a ticket prefix) would outrank the one word that picks the fact; such
+    /// words are left out when the container has enough facts to tell, unless that would leave nothing.
+    /// </summary>
+    private static async Task<IReadOnlyList<string>> DistinctiveWordsAsync(
+        KnowledgeDbContext context, Guid containerId, IReadOnlyList<string> words, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return null;
-        string[] words = [.. Words().Matches(text).Select(m => m.Value.ToLowerInvariant()).Distinct().Take(32)];
-        return words.Length == 0 ? null : string.Join(" | ", words);
+        if (words.Count < 2)
+            return words;
+        string[] all = [.. words];
+        List<WordCount> counts = await context.Database.SqlQuery<WordCount>($"""
+            SELECT w AS "Word",
+                   (SELECT count(*)::int FROM memory_facts f
+                     WHERE f.container_id = {containerId} AND f.search_vector @@ to_tsquery('english', w)) AS "Matches",
+                   (SELECT count(*)::int FROM memory_facts f WHERE f.container_id = {containerId}) AS "Facts"
+            FROM unnest({all}) AS w
+            """).ToListAsync(ct);
+        if (counts.Count == 0 || counts[0].Facts < MinFactsToPrune)
+            return words;
+        HashSet<string> common = [.. counts.Where(c => c.Matches * 2 > c.Facts).Select(c => c.Word)];
+        // A kept word must match something, or a question of stop words and common words would match nothing at all.
+        List<string> kept = [.. words.Where(w => !common.Contains(w))];
+        return counts.Any(c => c.Matches > 0 && !common.Contains(c.Word)) ? kept : words;
+    }
+
+    /// <summary>Below this many facts a word's share says little about how common it is.</summary>
+    private const int MinFactsToPrune = 8;
+
+    private sealed class WordCount
+    {
+        public string Word { get; init; } = "";
+        public int Matches { get; init; }
+        public int Facts { get; init; }
     }
 
     [GeneratedRegex(@"[\p{L}\p{N}]+")]

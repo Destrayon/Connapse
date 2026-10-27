@@ -31,7 +31,7 @@ namespace Connapse.Storage.Migrations
                     author_user_id = table.Column<Guid>(type: "uuid", nullable: true),
                     author_agent_id = table.Column<Guid>(type: "uuid", nullable: true),
                     author_name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
-                    search_vector = table.Column<NpgsqlTsVector>(type: "tsvector", nullable: false, computedColumnSql: "setweight(to_tsvector('english', subject), 'A') || setweight(to_tsvector('english', attribute), 'B') || setweight(to_tsvector('english', value), 'C') || setweight(to_tsvector('english', coalesce(reason, '')), 'D')", stored: true)
+                    search_vector = table.Column<NpgsqlTsVector>(type: "tsvector", nullable: false, computedColumnSql: "setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')", stored: true)
                 },
                 constraints: table =>
                 {

@@ -16,7 +16,7 @@ using Pgvector;
 namespace Connapse.Storage.Migrations
 {
     [DbContext(typeof(KnowledgeDbContext))]
-    [Migration("20261027090137_AddAgentMemory")]
+    [Migration("20261027094254_AddAgentMemory")]
     partial class AddAgentMemory
     {
         /// <inheritdoc />
@@ -804,7 +804,7 @@ namespace Connapse.Storage.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search_vector")
-                        .HasComputedColumnSql("setweight(to_tsvector('english', subject), 'A') || setweight(to_tsvector('english', attribute), 'B') || setweight(to_tsvector('english', value), 'C') || setweight(to_tsvector('english', coalesce(reason, '')), 'D')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')", true);
 
                     b.Property<string>("Subject")
                         .IsRequired()

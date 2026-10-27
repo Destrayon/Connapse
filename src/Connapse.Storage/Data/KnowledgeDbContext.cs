@@ -68,13 +68,16 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.AuthorUserId).HasColumnName("author_user_id");
             entity.Property(e => e.AuthorAgentId).HasColumnName("author_agent_id");
             entity.Property(e => e.AuthorName).HasColumnName("author_name").HasMaxLength(200);
-            // Subject counts most, then attribute, value and the reason a writer gave (which names its ticket).
+            // Subject counts most, then attribute, value and the reason a writer gave (which names its ticket). Punctuation
+            // becomes a space first, as in the query's words: the parser would read "HAL-17" as "hal" and the number -17.
             entity.Property(e => e.SearchVector)
                 .HasColumnName("search_vector")
                 .HasColumnType("tsvector")
                 .HasComputedColumnSql(
-                    "setweight(to_tsvector('english', subject), 'A') || setweight(to_tsvector('english', attribute), 'B') || "
-                    + "setweight(to_tsvector('english', value), 'C') || setweight(to_tsvector('english', coalesce(reason, '')), 'D')",
+                    "setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || "
+                    + "setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || "
+                    + "setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || "
+                    + "setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')",
                     stored: true);
             entity.HasIndex(e => new { e.ContainerId, e.Subject, e.Attribute }).HasDatabaseName("idx_memory_facts_key");
             entity.HasIndex(e => e.ChainId).HasDatabaseName("idx_memory_facts_chain");
