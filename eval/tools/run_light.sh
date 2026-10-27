@@ -31,7 +31,12 @@ for suite in "$@"; do
   if [ "$ready" -ne 1 ]; then
     echo "=== $suite skipped: Ollama not ready after 120 s"; stop_ollama; continue
   fi
-  tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config hybrid > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
+  if [ "$suite" = memory-v1 ]; then
+    # Scored by its own command (CON-111): agent memory against the same notes stored as documents.
+    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory --config hybrid --split "${MEMORY_SPLIT:-heldout}"       --out "${EVAL_LOG_DIR:-eval/runs}/memory-${MEMORY_SPLIT:-heldout}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
+  else
+    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config hybrid > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
+  fi
   echo "=== $suite exit $? $(date -u +%FT%TZ)"
   stop_ollama
 done

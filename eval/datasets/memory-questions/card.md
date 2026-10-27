@@ -72,7 +72,41 @@
   python -I eval/tools/memory-questions/baseline.py eval/datasets/memory-questions <longmemeval_s_cleaned.json> eval/datasets/memory-questions/baseline.json
   ```
 
-- **Not in `MANIFEST.json` yet:** the harness has no memory adapter, so the memory PR (CON-39) adds the adapter and the manifest entry.
+- **Agent memory (CON-111):** suite `memory-v1` in `MANIFEST.json`, which pins every file below. It is scored by the harness's `memory` command, not by `run`.
+  - **Writers:** ten Claude Sonnet subagents, one per project, given `memory_writer.md`.
+    - **Same sessions as the notes:** each writer read its project's sessions in order through `next_session.py`, and recorded each with `memory_op.py` (remember, correct or show) before fetching the next.
+    - **Operations:** 221 in all, in `memory-ops/<CODE>.jsonl`.
+    - **One rerun:** the first Lanternfish writer read a session before recording the previous one, so its operations were discarded and the project rewritten.
+    - **One harmless slip in the rerun:** it sent one fetch in the same step as the previous session's record, which had already been written.
+  - **Checked:** `check_memory_ops.py` fails if an operation names a value or ticket that its project's sessions had not shown by then, or if operations come out of session order. It passes for all ten.
+  - **How it is run:** one Connapse instance, one container per project.
+    - **Notes side:** the project's notes are stored as plain documents and found with hybrid search. This is the baseline the pass bar names.
+    - **Memory side:** the writers' operations are replayed through the memory service into the same container. Each fact cites its session's note document.
+    - **Questions:** each kind is asked the way an agent would ask it: now, as of the question's date, the question's window, or the whole history for ticket and date questions.
+  - **Scoring:** both sides are scored the same way.
+    - **Recall@5:** an evidence note is among the top five notes, or among the notes the top five facts cite. For a window, every change needs its own evidence note.
+    - **Answer:** read as in `baseline.py`, from the first note or fact that names a value of the asked fact.
+    - **Significance:** a paired permutation test with Holm correction.
+  - **Held-out result** (`eval/baselines/memory-v1-heldout-2026-10-27.json`, run once under the light limits):
+
+    | Kind | Questions | Notes Recall@5 | Memory Recall@5 | Notes answer | Memory answer |
+    |---|---|---|---|---|---|
+    | current | 40 | 1.000 | 1.000 | 0.425 | 1.000 |
+    | as_of | 39 | 1.000 | 1.000 | 0.641 | 1.000 |
+    | changed | 10 | 0.000 | 1.000 | — | — |
+    | ticket | 63 | 1.000 | 1.000 | 0.921 | 1.000 |
+    | when | 63 | 1.000 | 1.000 | 0.937 | 1.000 |
+    | ticket_effect | 72 | 0.764 | 1.000 | — | — |
+
+    - **Bar, changed-fact questions** (current, as_of and changed together): +0.112 Recall@5. The 95% interval is 0.056 to 0.191, Holm p = 0.002, and the minimum detectable effect is 0.094.
+    - **Ordinary questions:** +0.086, Holm p < 0.001, so no drop.
+    - **Writes:** median 5.7 ms, at most 119 ms. Recall p95 is 6.2 ms.
+    - **AI tokens:** memory calls no model. The only model in the run is the notes side's embedder.
+  - **Recall@5 hides most of the gain.** Hybrid search puts some note holding the current value in the top five almost every time, often below an older one. The difference is in the answer read from the first result: 0.425 against 1.000 for current values.
+  - **Tuning split** (`memory-v1-tuning-2026-10-27.json`): +0.080 Recall@5 on changed-fact questions.
+    - **Six-change windows:** two tuning windows have six changes, and no top five can cover six.
+    - **Held-out windows:** they have at most five changes each.
+    - **Ranking fix:** this split showed that ticket questions were drowned by the project name, which every fact contains. That was fixed before the held-out run.
 - **Known limitations:**
   - **Notes paraphrase little.** The writers mostly restate each session's log, so a real agent's notes would be messier and omit more.
   - **Only one note per session,** and no edits to earlier notes. A memory that rewrites old notes is outside what these notes show.

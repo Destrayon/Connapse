@@ -46,6 +46,9 @@
     "links-v1": [
       "links-connapse-github",
       "links-flink-jira"
+    ],
+    "memory-v1": [
+      "memory-questions"
     ]
   },
   "datasets": {
@@ -973,6 +976,80 @@
           "name": "questions.jsonl",
           "url": "repo:links-flink-jira/questions.jsonl",
           "sha256": "3259a517b92116b9d37168dc116cc1cbe81f987058555f675815eb6cba736b4a"
+        }
+      ]
+    },
+    "memory-questions": {
+      "adapter": "memory-questions",
+      "version": "con-111",
+      "tags": [
+        "shape:memory"
+      ],
+      "files": [
+        {
+          "name": "questions.jsonl",
+          "url": "repo:memory-questions/questions.jsonl",
+          "sha256": "d824fbd60983169fb14718c6dfb4437484f108a9d111696b1750b3b77f9087b7"
+        },
+        {
+          "name": "notes.jsonl",
+          "url": "repo:memory-questions/notes.jsonl",
+          "sha256": "c290c49643cad088b8563c9d56ec52a961669493a186d57a32c82ad3bc5d8ff7"
+        },
+        {
+          "name": "timeline.json",
+          "url": "repo:memory-questions/timeline.json",
+          "sha256": "46963e84dbe4a110ef151120abd06ef65e936c14d3ec942e017248be57f1470d"
+        },
+        {
+          "name": "ops-ASH.jsonl",
+          "url": "repo:memory-questions/memory-ops/ASH.jsonl",
+          "sha256": "22a56c397f061c7af3c5a133891fe9ac86b6e94af704a67eb7d7f9ee3cdba5e1"
+        },
+        {
+          "name": "ops-BRM.jsonl",
+          "url": "repo:memory-questions/memory-ops/BRM.jsonl",
+          "sha256": "29088c0c633c6b0cfdaa45512b5988ec59a52fd2ccfc1e6882acb5c2205ba1a1"
+        },
+        {
+          "name": "ops-EMB.jsonl",
+          "url": "repo:memory-questions/memory-ops/EMB.jsonl",
+          "sha256": "11df571094b28af47ad8777d50fc976ff92fdb80cb768a0f3c3692b7e34ac7e2"
+        },
+        {
+          "name": "ops-HAL.jsonl",
+          "url": "repo:memory-questions/memory-ops/HAL.jsonl",
+          "sha256": "e6c08b5aaaf00b0e50034037ea071a7c8db1ae41de182a6defa86572e9989089"
+        },
+        {
+          "name": "ops-KST.jsonl",
+          "url": "repo:memory-questions/memory-ops/KST.jsonl",
+          "sha256": "da3967de06cee370c51f667b30b63e62f0ab0b4e3416588655a6647ebbb654f8"
+        },
+        {
+          "name": "ops-LNF.jsonl",
+          "url": "repo:memory-questions/memory-ops/LNF.jsonl",
+          "sha256": "d2e8d438b8ff7e633f5e61e2a8228b8371f65cbf07b5b208deed8c4b70eaaab0"
+        },
+        {
+          "name": "ops-MRW.jsonl",
+          "url": "repo:memory-questions/memory-ops/MRW.jsonl",
+          "sha256": "0a0e50af68aec55a28cbb3718791d488a3cbd4382b128cc41281d1941c97d36c"
+        },
+        {
+          "name": "ops-QFT.jsonl",
+          "url": "repo:memory-questions/memory-ops/QFT.jsonl",
+          "sha256": "7b1d7294831d724f0bfeb3a1e0aff2737c6d7481f5f2a9bd6dd0d5d641e4b75a"
+        },
+        {
+          "name": "ops-SLT.jsonl",
+          "url": "repo:memory-questions/memory-ops/SLT.jsonl",
+          "sha256": "6618064c2c4156da7779aeb91796ed51756124df5fdd1f2455adc8cda9ba82a9"
+        },
+        {
+          "name": "ops-TDW.jsonl",
+          "url": "repo:memory-questions/memory-ops/TDW.jsonl",
+          "sha256": "ce69e3e38cf41ceb0d75fa282ae1c74b4eda86d7bd1c9162dc561d44ce31c505"
         }
       ]
     }

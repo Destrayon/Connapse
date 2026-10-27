@@ -49,6 +49,7 @@ public sealed class CliArgs
             ["compare"] = ["allow-dataset-mismatch"],
             ["report"] = [],
             ["pool"] = ["out"],
+            ["memory"] = ["config", "split", "out"],
             ["datasets"] = ["suite", "datasets"],
             ["vector-index"] = ["suite", "datasets", "limit-queries", "scale", "strategy", "insert-bench"],
         };
