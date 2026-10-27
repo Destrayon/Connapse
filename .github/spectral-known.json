@@ -84,8 +84,6 @@
   "connapse-operation-id-feature-verb paths./api/v1/identity/resendConfirmationEmail.post": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/identity/resetPassword.post": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/info.get": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
-  "connapse-operation-id-feature-verb paths./api/v1/providers/github/installed.get": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
-  "connapse-operation-id-feature-verb paths./api/v1/providers/github/manifest/callback.get": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./api/v1/sources/scope-schema/{provider}.get.operationId": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./health.get": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",
   "connapse-operation-id-feature-verb paths./oauth/clients/cli.json.get": "The operation has no operationId, or one not yet named <feature>.<verb>; the endpoint's migration ticket renames it.",

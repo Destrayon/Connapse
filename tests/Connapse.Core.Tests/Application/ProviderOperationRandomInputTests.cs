@@ -708,7 +708,8 @@ public class ProviderOperationRandomInputTests
             if (!keyAccepted)
                 return Task.FromResult(new HttpResponseMessage(path.StartsWith("/app") && !path.StartsWith("/app-manifests/")
                     ? HttpStatusCode.Unauthorized
-                    : HttpStatusCode.BadGateway) { Content = new StringContent("""{"message":"Bad credentials"}""") });
+                    : HttpStatusCode.BadGateway)
+                { Content = new StringContent("""{"message":"Bad credentials"}""") });
 
             string? body = path switch
             {
