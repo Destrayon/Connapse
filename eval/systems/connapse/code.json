@@ -1,0 +1,1 @@
+{ "searchMode": "hybrid", "settings": { "Knowledge:Embedding:Model": "hashing-test", "Knowledge:Embedding:Dimensions": "64" } }

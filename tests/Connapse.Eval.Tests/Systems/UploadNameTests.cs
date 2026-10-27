@@ -31,6 +31,15 @@ public class UploadNameTests
         ConnapseSearchSystem.UploadFolder(doc, 42).Should().Be("/0000042");
     }
 
+    [Fact]
+    public void UploadFolder_RepositoryFile_KeepsItsPath()
+    {
+        EvalDocument doc = Text(null) with { FileName = "Ledger.cs", Folder = "/src/billing" };
+
+        ConnapseSearchSystem.UploadName(doc, 42).Should().Be("Ledger.cs");
+        ConnapseSearchSystem.UploadFolder(doc, 42).Should().Be("/src/billing");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("  ")]

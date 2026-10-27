@@ -113,7 +113,14 @@ public sealed partial class CodeTools(
         };
         definitions = [.. definitions.Take(limit)];
         if (definitions.Count == 0)
-            return new CodeSymbolResult([], [], []);
+        {
+            // Fields, constants, properties and type aliases have no node of their own; their declarations are still text.
+            if (match != CodeMatch.Exact)
+                return new CodeSymbolResult([], [], []);
+            List<CodeFileMatch> declared = await DeclaredInAsync(call, query, ct);
+            List<CodeFileMatch> mentioned = follow && declared.Count > 0 ? await NamedInAsync(call, Normalize(query), ct) : [];
+            return new CodeSymbolResult([], [], [.. Merge(declared, mentioned).Take(limit)]);
+        }
 
         List<CodeFileMatch> files = [.. definitions
             .GroupBy(d => d.DocumentId, StringComparer.Ordinal)
@@ -379,7 +386,16 @@ public sealed partial class CodeTools(
     {
         List<CodeDefinition> definitions = await DefinitionsAsync(call, await NodesByNameAsync(call, symbol, ct), ct);
         if (definitions.Count == 0)
-            return new CodeReferencesResult([], []);
+        {
+            // No node, so no links: the files that declare the name, then every file that names it.
+            if (kind == CodeReferenceKind.Inherits)
+                return new CodeReferencesResult([], []);
+            List<CodeFileMatch> declared = await DeclaredInAsync(call, symbol, ct);
+            if (declared.Count == 0)
+                return new CodeReferencesResult([], []);
+            List<CodeFileMatch> mentioned = await NamedInAsync(call, Normalize(symbol), ct);
+            return new CodeReferencesResult([], [.. Merge(declared, mentioned).Take(limit)]);
+        }
 
         string[] types = kind switch
         {
@@ -408,7 +424,7 @@ public sealed partial class CodeTools(
 
         if (kind != CodeReferenceKind.Inherits)
         {
-            foreach (CodeFileMatch named in await NamedInAsync(call, definitions[0], ct))
+            foreach (CodeFileMatch named in await NamedInAsync(call, definitions[0].Symbol, ct))
                 files.TryAdd(named.DocumentId, named);
         }
 
@@ -420,10 +436,10 @@ public sealed partial class CodeTools(
     /// Files whose text names the symbol as a whole word, where no link says they use it: a call through a variable of
     /// unknown type, a declaration, a mention. A file that also names the symbol's type ranks above one that does not.
     /// </summary>
-    private static async Task<List<CodeFileMatch>> NamedInAsync(Call call, CodeDefinition definition, CancellationToken ct)
+    private static async Task<List<CodeFileMatch>> NamedInAsync(Call call, string symbol, CancellationToken ct)
     {
-        string name = LastSegment(definition.Symbol);
-        string? qualifier = Qualifier(definition.Symbol);
+        string name = LastSegment(symbol);
+        string? qualifier = Qualifier(symbol);
         string named = $@"\m{Regex.Escape(name)}\M";
         string qualified = qualifier is null ? named : $@"\m{Regex.Escape(qualifier)}\M";
         List<TextRow> rows = await call.Context.Database.SqlQueryRaw<TextRow>(
@@ -441,6 +457,47 @@ public sealed partial class CodeTools(
         return [.. rows.Where(r => readable.Contains(r.DocumentId)).Select(r =>
             new CodeFileMatch(r.Path, r.DocumentId, (r.Qualified ? 1.0 : 0.5) * r.Hits / (r.Hits + 2.0),
                 r.Hits == 1 ? "names it once" : $"names it {r.Hits} times", []))];
+    }
+
+    /// <summary>
+    /// Files with a line that declares the name — a constant, field, property, type alias or Python attribute — for a
+    /// symbol the code index keeps no node for. With <c>Type.member</c>, a file that also declares the type ranks first.
+    /// </summary>
+    private static async Task<List<CodeFileMatch>> DeclaredInAsync(Call call, string query, CancellationToken ct)
+    {
+        string symbol = Normalize(query);
+        string name = LastSegment(symbol);
+        if (!IdentifierOnlyPattern().IsMatch(name))
+            return [];
+        int dot = symbol.Length - name.Length - 1;
+        string? owner = dot > 0 ? LastSegment(symbol[..dot]) : null;
+        if (owner is not null && !IdentifierOnlyPattern().IsMatch(owner))
+            owner = null;
+
+        string n = Regex.Escape(name);
+        // Postgres advanced regex, newline-sensitive: a keyword before the name; the name opening a line, then ':', '='
+        // or ';' (Python and TypeScript members, self.x = …); or a typed C# field or property (no call before the name).
+        string declares =
+            $@"(?n)\m(const|let|var|type|interface|enum|class|struct|record|def|function)[ \t]+{n}\M"
+            + $@"|^[ \t]*((public|private|protected|readonly|static|declare|override|abstract|export)[ \t]+)*((self|this|cls)\.)?#?{n}[ \t]*[?!]?[ \t]*(:[^:]|=[^=>]|;)"
+            + $@"|^[ \t]*(?!(return|await|throw|yield|case|else|using|var)[ \t])[A-Za-z_][^=;(){{}}]*[ \t]{n}[ \t]*(=[^=]|;|\{{|=>)";
+        string ownerDeclared = owner is null ? declares : $@"\m(class|struct|record|interface|enum|type|object)[ \t]+{Regex.Escape(owner)}\M";
+
+        List<TextRow> rows = await call.Context.Database.SqlQueryRaw<TextRow>(
+            """
+            SELECT c.document_id::text AS "DocumentId", d.path AS "Path",
+                   sum(regexp_count(c.content, {1}))::int AS "Hits",
+                   bool_or(c.content ~ {2}) AS "Qualified"
+            FROM chunks c
+            INNER JOIN documents d ON d.id = c.document_id
+            WHERE c.owner_id = {0} AND c.content ~ {1}
+            GROUP BY c.document_id, d.path
+            """, call.Scope.OwnerId, declares, ownerDeclared).ToListAsync(ct);
+        IReadOnlySet<string> readable = await call.ReadableAsync(rows.Select(r => r.DocumentId), ct);
+
+        return [.. rows.Where(r => readable.Contains(r.DocumentId)).Select(r =>
+            new CodeFileMatch(r.Path, r.DocumentId, (r.Qualified ? 2.0 : 1.0) + Math.Min(0.09, r.Hits * 0.01),
+                r.Qualified && owner is not null ? $"declares it in {owner}" : "declares it", []))];
     }
 
     // ---- impact --------------------------------------------------------------------------------------------------
@@ -803,6 +860,9 @@ public sealed partial class CodeTools(
 
     [GeneratedRegex(@"[A-Za-z0-9_]+")]
     private static partial Regex WordPattern();
+
+    [GeneratedRegex(@"^[A-Za-z_$][A-Za-z0-9_$]*$")]
+    private static partial Regex IdentifierOnlyPattern();
 
     [GeneratedRegex(@":(\d+) \(")]
     private static partial Regex EvidenceLinePattern();

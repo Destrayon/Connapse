@@ -266,6 +266,36 @@ public class CodeToolsIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task FindSymbol_FieldsConstantsAndTypeAliases_FindTheFileThatDeclaresThem()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        Guid container = await SeedContainerAsync(sp);
+        await IngestAsync(sp, container, "/src/Converter.cs",
+            "namespace Acme;\n\npublic class Converter\n{\n    static readonly HashSet<Type> BuiltInScalarTypes = new();\n\n    public bool IsScalar(Type t) => BuiltInScalarTypes.Contains(t);\n}\n");
+        await IngestAsync(sp, container, "/src/Other.cs",
+            "namespace Acme;\n\npublic class Other\n{\n    public int BuiltInScalarTypes { get; set; }\n}\n");
+        await IngestAsync(sp, container, "/src/click/_compat.py", "import sys\n\nWIN = sys.platform.startswith(\"win\")\n");
+        await IngestAsync(sp, container, "/src/click/utils.py", "from ._compat import WIN\n\n\ndef echo(message):\n    if WIN:\n        return message\n");
+        await IngestAsync(sp, container, "/source/types/retry.ts", "export type RetryOptions = {\n  limit?: number;\n};\n");
+        await IngestAsync(sp, container, "/source/utils/normalize.ts",
+            "import type { RetryOptions } from '../types/retry';\n\nexport function normalize(options: RetryOptions) {\n  return options;\n}\n");
+        ICodeTools tools = sp.GetRequiredService<ICodeTools>();
+        var where = new CodeScope(container, null);
+
+        CodeSymbolResult field = await tools.FindSymbolAsync(where, "Converter.BuiltInScalarTypes", CodeMatch.Exact, false, 10);
+        CodeSymbolResult constant = await tools.FindSymbolAsync(where, "WIN", CodeMatch.Exact, false, 10);
+        CodeSymbolResult alias = await tools.FindSymbolAsync(where, "RetryOptions", CodeMatch.Exact, false, 10);
+        CodeReferencesResult usages = await tools.ReferencesAsync(where, "RetryOptions", CodeReferenceKind.All, 10);
+
+        field.Definitions.Should().BeEmpty();
+        field.Files.Select(f => f.Path).Should().StartWith(["/src/Converter.cs", "/src/Other.cs"], "the file declaring the type ranks first");
+        constant.Files.Select(f => f.Path).Should().Equal("/src/click/_compat.py");
+        alias.Files.Select(f => f.Path).Should().Equal("/source/types/retry.ts");
+        usages.Files.Select(f => f.Path).Should().Equal("/source/types/retry.ts", "/source/utils/normalize.ts");
+    }
+
+    [Fact]
     public async Task EveryTool_FileTheCallerCannotRead_IsNeverShown()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
@@ -284,6 +314,7 @@ public class CodeToolsIntegrationTests(SharedWebAppFixture fixture)
 
         string[] hidden = [docs["Invoices"], docs["AuditLog"]];
         hiddenDefinition.Definitions.Should().BeEmpty();
+        hiddenDefinition.Files.Select(f => f.DocumentId).Should().NotIntersectWith(hidden);
         followed.Uses.Should().BeEmpty();
         followed.Files.Select(f => f.DocumentId).Should().NotIntersectWith(hidden);
         references.Files.Select(f => f.DocumentId).Should().NotIntersectWith(hidden).And.Contain(docs["LedgerTests"]);

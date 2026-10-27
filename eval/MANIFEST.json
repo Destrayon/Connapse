@@ -52,6 +52,9 @@
     ],
     "links-v2": [
       "links-connapse-github-2"
+    ],
+    "code-v1": [
+      "code-questions"
     ]
   },
   "datasets": {
@@ -1078,6 +1081,35 @@
           "name": "questions.jsonl",
           "url": "repo:links-connapse-github-2/questions.jsonl",
           "sha256": "80c6fa9b0a1336f2847c2984bd60d6d5dc73f5dffb1f159d0300b742ff487d4f"
+        }
+      ]
+    },
+    "code-questions": {
+      "adapter": "code-questions",
+      "version": "con-35",
+      "tags": [
+        "shape:code"
+      ],
+      "files": [
+        {
+          "name": "questions.jsonl",
+          "url": "repo:code-questions/questions.jsonl",
+          "sha256": "d60b68954c6bfd9d0e9baa8aa55dc4c57355100d671dcd4b3dd66b31619243c1"
+        },
+        {
+          "name": "repos.json",
+          "url": "repo:code-questions/repos.json",
+          "sha256": "4e1cdb86a4a84ee6e3e81850c88a6a5a71c3e9625b38fed41a0b5169cb13b8e4"
+        },
+        {
+          "name": "gate.json",
+          "url": "repo:code-questions/gate.json",
+          "sha256": "8a067ba4a93ce75298742bd0ea79eab8380f87f9ee9451d3f590b2a05b7af57f"
+        },
+        {
+          "name": "grep-baseline.json",
+          "url": "repo:code-questions/grep-baseline.json",
+          "sha256": "e92b76d0abffb4fc8f2233564b81df3cd627f8591713b23477aed9f39676c9f4"
         }
       ]
     }
