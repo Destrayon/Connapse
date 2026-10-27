@@ -339,24 +339,36 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         result.Select(h => h.ChunkId).Should().Equal(hits.Select(h => h.ChunkId));
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)] // only a verifier that never fills three slots waits this long
     public async Task Verify_MorePagesThanSlots_NeverHasMoreChecksInFlightThanSlots()
     {
+        Allow("10", true);
+        SearchHit warmUp = Hit("p10", AtlassianUri.ForPage(CloudId, "10"));
         SearchHit[] hits = [.. Enumerable.Range(1, 9).Select(i =>
         {
             Allow(i.ToString(), true);
             return Hit("p" + i, AtlassianUri.ForPage(CloudId, i.ToString()));
         })];
-        // No check answers until three are in flight together, so a correct verifier reaches exactly three
-        // however slow the machine, and nine pages ignoring the limit pile in while those three are held.
-        // The budget only stops a verifier that never fills three slots from hanging the run (CON-106).
-        var counting = new InFlightHandler(new HoldUntilInFlightHandler(_api, 3));
+        // No timer decides anything here (CON-106). The warm-up search fetches the site's token, so every later
+        // check runs straight to the handler without waiting on the token gate: each check the verifier lets
+        // through is in flight before the search first yields. The handler then holds them all, the test waits
+        // for three, and only then lets them answer. A correct verifier stops at three however slow the machine;
+        // one that ignores the limit has all nine in flight by then. The budget can never cut a check off.
+        var holding = new HoldingHandler(_api, 3);
+        var counting = new InFlightHandler(holding);
+        var verifier = NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3, BudgetMs = int.MaxValue });
+        (await verifier.VerifyAsync([warmUp], _user, 10)).Should().HaveCount(1);
 
-        var result = await NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3, BudgetMs = 60_000 })
-            .VerifyAsync(hits, _user, 10);
+        holding.Hold();
+        Task<IReadOnlyList<SearchHit>> verifying = verifier.VerifyAsync(hits, _user, 10);
+        await holding.Full;
+        int peakWhileHeld = counting.Peak;
+        holding.Release();
+        var result = await verifying;
 
+        peakWhileHeld.Should().Be(3, "three slots run three checks at once, never more");
         result.Should().HaveCount(9);
-        counting.Peak.Should().Be(3, "three slots run three checks at once, never more");
+        counting.Peak.Should().Be(3);
     }
 
     [Fact]
@@ -577,26 +589,29 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     /// <summary>
-    /// Holds every permission check until <paramref name="count"/> of them have arrived, then a grace longer,
-    /// then lets all through; one arrival past <paramref name="count"/> lets them through at once. The grace
-    /// only gives checks beyond the limit time to arrive: a verifier within the limit passes however long it is.
+    /// Once <see cref="Hold"/> is called, holds every permission check until <see cref="Release"/>; <see cref="Full"/>
+    /// completes when <paramref name="count"/> are held. Before that, and for every other request, passes straight through.
     /// </summary>
-    private sealed class HoldUntilInFlightHandler(HttpMessageHandler inner, int count) : DelegatingHandler(inner)
+    private sealed class HoldingHandler(HttpMessageHandler inner, int count) : DelegatingHandler(inner)
     {
-        private static readonly TimeSpan Grace = TimeSpan.FromMilliseconds(100);
-        private readonly TaskCompletionSource _open = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _arrived;
+        private readonly TaskCompletionSource _full = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _holding;
+        private int _held;
+
+        public Task Full => _full.Task;
+
+        public void Hold() => _holding = true;
+
+        public void Release() => _released.TrySetResult();
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/permission/check", StringComparison.Ordinal))
+            if (_holding && request.RequestUri!.AbsolutePath.EndsWith("/permission/check", StringComparison.Ordinal))
             {
-                int arrived = Interlocked.Increment(ref _arrived);
-                if (arrived > count)
-                    _open.TrySetResult();
-                else if (arrived == count)
-                    _ = Task.Delay(Grace).ContinueWith(_ => _open.TrySetResult(), TaskScheduler.Default);
-                await _open.Task.WaitAsync(ct);
+                if (Interlocked.Increment(ref _held) >= count)
+                    _full.TrySetResult();
+                await _released.Task.WaitAsync(ct);
             }
             return await base.SendAsync(request, ct);
         }
