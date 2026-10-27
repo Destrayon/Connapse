@@ -347,11 +347,13 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
             Allow(i.ToString(), true);
             return Hit("p" + i, AtlassianUri.ForPage(CloudId, i.ToString()));
         })];
-        // Each check holds its slot for 100 ms, so nine pages ignoring the limit would all be in flight at once.
-        // The limit itself keeps a correct verifier at three however slow the machine.
-        var counting = new InFlightHandler(new DelayingHandler(_api, TimeSpan.FromMilliseconds(100)));
+        // No check answers until three are in flight together, so a correct verifier reaches exactly three
+        // however slow the machine, and nine pages ignoring the limit pile in while those three are held.
+        // The budget only stops a verifier that never fills three slots from hanging the run (CON-106).
+        var counting = new InFlightHandler(new HoldUntilInFlightHandler(_api, 3));
 
-        var result = await NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3 }).VerifyAsync(hits, _user, 10);
+        var result = await NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3, BudgetMs = 60_000 })
+            .VerifyAsync(hits, _user, 10);
 
         result.Should().HaveCount(9);
         counting.Peak.Should().Be(3, "three slots run three checks at once, never more");
@@ -570,6 +572,32 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         {
             if (request.RequestUri!.Host != "auth.atlassian.com")
                 await Task.Delay(delay, ct);
+            return await base.SendAsync(request, ct);
+        }
+    }
+
+    /// <summary>
+    /// Holds every permission check until <paramref name="count"/> of them have arrived, then a grace longer,
+    /// then lets all through; one arrival past <paramref name="count"/> lets them through at once. The grace
+    /// only gives checks beyond the limit time to arrive: a verifier within the limit passes however long it is.
+    /// </summary>
+    private sealed class HoldUntilInFlightHandler(HttpMessageHandler inner, int count) : DelegatingHandler(inner)
+    {
+        private static readonly TimeSpan Grace = TimeSpan.FromMilliseconds(100);
+        private readonly TaskCompletionSource _open = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/permission/check", StringComparison.Ordinal))
+            {
+                int arrived = Interlocked.Increment(ref _arrived);
+                if (arrived > count)
+                    _open.TrySetResult();
+                else if (arrived == count)
+                    _ = Task.Delay(Grace).ContinueWith(_ => _open.TrySetResult(), TaskScheduler.Default);
+                await _open.Task.WaitAsync(ct);
+            }
             return await base.SendAsync(request, ct);
         }
     }
