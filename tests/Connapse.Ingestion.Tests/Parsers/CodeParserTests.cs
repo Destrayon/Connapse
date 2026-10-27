@@ -84,6 +84,18 @@ public class CodeParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_TargetTypedNew_ConstructsTheDeclaredType()
+    {
+        const string source = "class C { private readonly List<int> _a = new(); Journal J { get; } = new(); void M() { Ledger l = new(); var v = new(); } }";
+
+        var (_, outline) = await ParseAsync(source, "c.cs");
+
+        Symbol(outline!, "C").Calls.Where(c => c.IsNew).Select(c => c.Name).Should().Equal("List");
+        Symbol(outline!, "C.J").Calls.Where(c => c.IsNew).Select(c => c.Name).Should().Equal("Journal");
+        Symbol(outline!, "C.M").Calls.Where(c => c.IsNew).Select(c => c.Name).Should().Equal("Ledger");
+    }
+
+    [Fact]
     public async Task ParseAsync_CSharpBlockNamespacesAndConditionalCalls_AreQualified()
     {
         const string source = """

@@ -116,6 +116,10 @@ internal sealed class CSharpGrammar() : CodeGrammar("c-sharp")
             case "object_creation_expression" when node.GetChildForField("type") is { } type:
                 AddConstruction(CodeSyntax.TypeName(type.Text), node, walk);
                 break;
+            case "implicit_object_creation_expression" when DeclaredTypeOf(node) is { } declared:
+                // new() takes the type it is assigned to: a field, property or local declared with one.
+                AddConstruction(CodeSyntax.TypeName(declared), node, walk);
+                break;
             case "base_list":
                 foreach (Node child in node.NamedChildren)
                 {
@@ -176,6 +180,18 @@ internal sealed class CSharpGrammar() : CodeGrammar("c-sharp")
     {
         int dot = typeName.LastIndexOf('.');
         walk.AddCall(dot >= 0 ? typeName[(dot + 1)..] : typeName, dot >= 0 ? typeName[..dot] : null, at, isNew: true);
+    }
+
+    /// <summary>The type of the declaration a target-typed <c>new()</c> initialises, or null.</summary>
+    private static string? DeclaredTypeOf(Node creation)
+    {
+        Node? parent = creation.Parent;
+        if (parent?.Type == "equals_value_clause")
+            parent = parent.Parent;
+        if (parent?.Type == "variable_declarator")
+            parent = parent.Parent;
+        string? type = parent?.Type is "variable_declaration" or "property_declaration" ? parent.GetChildForField("type")?.Text : null;
+        return type is null or "var" ? null : type;
     }
 
     /// <summary>The type a <c>var</c> declarator constructs, as in <c>var x = new Foo()</c>.</summary>
