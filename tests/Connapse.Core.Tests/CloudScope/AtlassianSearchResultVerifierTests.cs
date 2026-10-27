@@ -339,22 +339,36 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         result.Select(h => h.ChunkId).Should().Equal(hits.Select(h => h.ChunkId));
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)] // only a verifier that never fills three slots waits this long
     public async Task Verify_MorePagesThanSlots_NeverHasMoreChecksInFlightThanSlots()
     {
+        Allow("10", true);
+        SearchHit warmUp = Hit("p10", AtlassianUri.ForPage(CloudId, "10"));
         SearchHit[] hits = [.. Enumerable.Range(1, 9).Select(i =>
         {
             Allow(i.ToString(), true);
             return Hit("p" + i, AtlassianUri.ForPage(CloudId, i.ToString()));
         })];
-        // Each check holds its slot for 100 ms, so nine pages ignoring the limit would all be in flight at once.
-        // The limit itself keeps a correct verifier at three however slow the machine.
-        var counting = new InFlightHandler(new DelayingHandler(_api, TimeSpan.FromMilliseconds(100)));
+        // No timer decides anything here (CON-106). The warm-up search fetches the site's token, so every later
+        // check runs straight to the handler without waiting on the token gate: each check the verifier lets
+        // through is in flight before the search first yields. The handler then holds them all, the test waits
+        // for three, and only then lets them answer. A correct verifier stops at three however slow the machine;
+        // one that ignores the limit has all nine in flight by then. The budget can never cut a check off.
+        var holding = new HoldingHandler(_api, 3);
+        var counting = new InFlightHandler(holding);
+        var verifier = NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3, BudgetMs = int.MaxValue });
+        (await verifier.VerifyAsync([warmUp], _user, 10)).Should().HaveCount(1);
 
-        var result = await NewVerifier(counting, new AtlassianVerifierSettings { MaxParallelism = 3 }).VerifyAsync(hits, _user, 10);
+        holding.Hold();
+        Task<IReadOnlyList<SearchHit>> verifying = verifier.VerifyAsync(hits, _user, 10);
+        await holding.Full;
+        int peakWhileHeld = counting.Peak;
+        holding.Release();
+        var result = await verifying;
 
+        peakWhileHeld.Should().Be(3, "three slots run three checks at once, never more");
         result.Should().HaveCount(9);
-        counting.Peak.Should().Be(3, "three slots run three checks at once, never more");
+        counting.Peak.Should().Be(3);
     }
 
     [Fact]
@@ -570,6 +584,35 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         {
             if (request.RequestUri!.Host != "auth.atlassian.com")
                 await Task.Delay(delay, ct);
+            return await base.SendAsync(request, ct);
+        }
+    }
+
+    /// <summary>
+    /// Once <see cref="Hold"/> is called, holds every permission check until <see cref="Release"/>; <see cref="Full"/>
+    /// completes when <paramref name="count"/> are held. Before that, and for every other request, passes straight through.
+    /// </summary>
+    private sealed class HoldingHandler(HttpMessageHandler inner, int count) : DelegatingHandler(inner)
+    {
+        private readonly TaskCompletionSource _full = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _holding;
+        private int _held;
+
+        public Task Full => _full.Task;
+
+        public void Hold() => _holding = true;
+
+        public void Release() => _released.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (_holding && request.RequestUri!.AbsolutePath.EndsWith("/permission/check", StringComparison.Ordinal))
+            {
+                if (Interlocked.Increment(ref _held) >= count)
+                    _full.TrySetResult();
+                await _released.Task.WaitAsync(ct);
+            }
             return await base.SendAsync(request, ct);
         }
     }
