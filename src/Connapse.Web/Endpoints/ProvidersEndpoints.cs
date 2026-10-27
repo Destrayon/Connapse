@@ -54,7 +54,8 @@ public static class ProvidersEndpoints
         .WithName("providers.aws.access")
         .WithDescription("Set Connapse's AWS access to an IAM Roles Anywhere credential: certificate, trust anchor, profile and role ARNs, region "
             + "and private key. AWS is asked for a session first, and nothing is saved unless it gives one. A blank privateKeyPem keeps the "
-            + "stored key; pass expected (the credential last read) to refuse the save if someone changed it since. The key is never returned.");
+            + "stored key; pass expected (the credential last read) to refuse the save if someone changed it since. A credential someone else "
+            + "saves while AWS is checking this one is never overwritten: the save is refused with 409. The key is never returned.");
 
         // DELETE /api/v1/providers/aws/access — remove the stored credential
         aws.MapDelete("/access", async ([FromServices] ResetAwsAccess reset, HttpContext http, CancellationToken ct) =>
@@ -63,9 +64,11 @@ public static class ProvidersEndpoints
             return removed.Succeeded ? Results.Ok(removed.Result) : OperationProblems.Result(removed);
         })
         .Produces<AwsAccessReset>()
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("providers.aws.access.reset")
         .WithDescription("Remove Connapse's stored AWS credential. It stays valid in AWS until cleanupScript (an AWS CloudShell command) deletes "
-            + "its resources, or it expires. Without one, Connapse reads S3 with whatever credentials its environment provides.");
+            + "its resources, or it expires. Without one, Connapse reads S3 with whatever credentials its environment provides. If another "
+            + "credential is saved while this runs, nothing is removed and the response is 409.");
 
         // PUT /api/v1/providers/aws/identity-center — record the IAM Identity Center instance
         aws.MapPut("/identity-center", async ([FromServices] SetIdentityCenter identityCenter, [FromBody] IdentityCenterRequest request,

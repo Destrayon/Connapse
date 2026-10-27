@@ -375,8 +375,9 @@ credential still works. The detail is AWS's reason; check the certificate, ARNs 
 
 ## aws-access-changed
 
-The stored AWS credential changed since `expected` was read, so keeping its key with these values could
-put back a credential someone else replaced. Read the providers again, review the values and save again.
+The stored AWS credential changed since it was read, so nothing was changed. This happens when it no longer
+matches `expected`, or when someone else saved or removed a credential while this save or removal was running.
+Read the providers again, review the values and try again.
 
 ## enforcement-not-on
 

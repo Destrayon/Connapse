@@ -7184,7 +7184,7 @@
         "tags": [
           "Providers"
         ],
-        "description": "Set Connapse's AWS access to an IAM Roles Anywhere credential: certificate, trust anchor, profile and role ARNs, region and private key. AWS is asked for a session first, and nothing is saved unless it gives one. A blank privateKeyPem keeps the stored key; pass expected (the credential last read) to refuse the save if someone changed it since. The key is never returned.",
+        "description": "Set Connapse's AWS access to an IAM Roles Anywhere credential: certificate, trust anchor, profile and role ARNs, region and private key. AWS is asked for a session first, and nothing is saved unless it gives one. A blank privateKeyPem keeps the stored key; pass expected (the credential last read) to refuse the save if someone changed it since. A credential someone else saves while AWS is checking this one is never overwritten: the save is refused with 409. The key is never returned.",
         "operationId": "providers.aws.access",
         "requestBody": {
           "content": {
@@ -7263,7 +7263,7 @@
         "tags": [
           "Providers"
         ],
-        "description": "Remove Connapse's stored AWS credential. It stays valid in AWS until cleanupScript (an AWS CloudShell command) deletes its resources, or it expires. Without one, Connapse reads S3 with whatever credentials its environment provides.",
+        "description": "Remove Connapse's stored AWS credential. It stays valid in AWS until cleanupScript (an AWS CloudShell command) deletes its resources, or it expires. Without one, Connapse reads S3 with whatever credentials its environment provides. If another credential is saved while this runs, nothing is removed and the response is 409.",
         "operationId": "providers.aws.access.reset",
         "responses": {
           "401": {
@@ -7292,6 +7292,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AwsAccessReset"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }

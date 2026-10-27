@@ -229,16 +229,22 @@ public class ProviderOperationRandomInputTests
     [RandomInputTestOf(typeof(SetAwsAccess))]
     public Task SetAwsAccess_AnyRequest_SavesOnlyACompleteCredentialAwsAccepted() =>
         Gen.Select(Gen.Bool, Gen.Select(GenField, GenField, GenRegion), Gen.OneOfConst<string?>(null, "", "key"),
-            Gen.Int[0, 2], Gen.Int[0, 2], Gen.Bool).SampleAsync(async t =>
+            Gen.Int[0, 2], Gen.Int[0, 2], Gen.Select(Gen.Bool, Gen.Bool)).SampleAsync(async t =>
         {
-            var (allowed, (cert, arn, region), key, storedKind, expectedKind, awsAccepts) = t;
+            var (allowed, (cert, arn, region), key, storedKind, expectedKind, (awsAccepts, raced)) = t;
             var credentials = Substitute.For<IProviderCredentialStore>();
             // 0: nothing stored, 1: the stored credential, 2: a stored key that can't be decrypted.
             if (storedKind == 2)
-                credentials.GetRolesAnywhereMaterialAsync("aws", Arg.Any<CancellationToken>()).Returns<RolesAnywhereCredentialMaterial?>(_ => throw new InvalidOperationException());
+                credentials.GetRolesAnywhereMaterialAsync("aws", Arg.Any<CancellationToken>())
+                    .Returns<RolesAnywhereCredentialMaterial?>(_ => throw new ProviderCredentialUnavailableException("aws", new InvalidOperationException()));
             else
                 credentials.GetRolesAnywhereMaterialAsync("aws", Arg.Any<CancellationToken>())
                     .Returns(storedKind == 1 ? new RolesAnywhereCredentialMaterial(StoredAccess, "stored-key") : null);
+            RolesAnywhereConfig? current = storedKind == 0 ? null : StoredAccess;
+            credentials.GetRolesAnywhereAsync("aws", Arg.Any<CancellationToken>()).Returns(current);
+            // Raced: someone else saved a credential while AWS was checking this one.
+            credentials.ReplaceRolesAnywhereAsync(default!, default, default!, default!, default, default, default)
+                .ReturnsForAnyArgs(raced ? null : new ProviderCredentialInfo("aws", null, DateTime.UtcNow));
             var validator = Substitute.For<IRolesAnywhereSetupValidator>();
             validator.ValidateAsync(Arg.Any<RolesAnywhereConfig>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
                 .Returns(new RolesAnywhereValidationResult(awsAccepts, awsAccepts ? null : "denied"));
@@ -254,14 +260,17 @@ public class ProviderOperationRandomInputTests
             AwsSetupStatus status = !allowed ? AwsSetupStatus.Forbidden
                 : !complete || region == "Not A Region" ? AwsSetupStatus.Invalid
                 : keeps && storedKind != 1 ? AwsSetupStatus.Invalid
-                : keeps && expectedKind == 2 ? AwsSetupStatus.Changed
+                : expected is not null && expected != current ? AwsSetupStatus.Changed
                 : !awsAccepts ? AwsSetupStatus.Refused
+                : raced ? AwsSetupStatus.Changed
                 : AwsSetupStatus.Success;
             saved.Status.Should().Be(status);
-            int writes = status == AwsSetupStatus.Success ? 1 : 0;
-            await credentials.Received(writes).SaveRolesAnywhereAsync(Arg.Any<string>(), Arg.Any<RolesAnywhereConfig>(), Arg.Any<string>(),
-                Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
-            session.Received(writes).Clear();
+            bool attempted = status == AwsSetupStatus.Success || (raced && status == AwsSetupStatus.Changed && awsAccepts
+                && (expected is null || expected == current));
+            await credentials.Received(attempted ? 1 : 0).ReplaceRolesAnywhereAsync("aws", Arg.Is(current), Arg.Any<RolesAnywhereConfig>(),
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+            await credentials.DidNotReceiveWithAnyArgs().SaveRolesAnywhereAsync(default!, default!, default!, default, default, default);
+            session.Received(status == AwsSetupStatus.Success ? 1 : 0).Clear();
             if (status == AwsSetupStatus.Success)
                 await validator.Received(1).ValidateAsync(Arg.Any<RolesAnywhereConfig>(), keeps ? "stored-key" : "key", Arg.Any<CancellationToken>());
             if (!allowed)
@@ -270,20 +279,25 @@ public class ProviderOperationRandomInputTests
 
     [Fact]
     [RandomInputTestOf(typeof(ResetAwsAccess))]
-    public Task ResetAwsAccess_AnyCaller_RemovesTheCredentialOnlyForSettingsAdmins() =>
-        Gen.Select(Gen.Bool, Gen.Bool).SampleAsync(async t =>
+    public Task ResetAwsAccess_AnyCaller_RemovesOnlyTheCredentialItReadAndOnlyForSettingsAdmins() =>
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool).SampleAsync(async t =>
         {
-            var (allowed, stored) = t;
+            var (allowed, stored, raced) = t;
             var credentials = Substitute.For<IProviderCredentialStore>();
-            credentials.GetRolesAnywhereAsync("aws", Arg.Any<CancellationToken>()).Returns(stored ? StoredAccess : null);
+            RolesAnywhereConfig? read = stored ? StoredAccess : null;
+            credentials.GetRolesAnywhereAsync("aws", Arg.Any<CancellationToken>()).Returns(read);
+            // Raced: someone else saved a credential between the read and the delete, so nothing matches what was read.
+            credentials.DeleteRolesAnywhereAsync("aws", Arg.Any<RolesAnywhereConfig?>(), Arg.Any<CancellationToken>()).Returns(stored && !raced);
             var session = Substitute.For<IAwsSession>();
 
             var reset = await new ResetAwsAccess(credentials, session, Substitute.For<IAuditLogger>(), Authorizer(allowed)).RunAsync(Context());
 
-            reset.Status.Should().Be(allowed ? AwsSetupStatus.Success : AwsSetupStatus.Forbidden);
-            await credentials.Received(allowed ? 1 : 0).DeleteAsync("aws", Arg.Any<CancellationToken>());
-            session.Received(allowed ? 1 : 0).Clear();
-            if (allowed)
+            AwsSetupStatus status = !allowed ? AwsSetupStatus.Forbidden : stored && raced ? AwsSetupStatus.Changed : AwsSetupStatus.Success;
+            reset.Status.Should().Be(status);
+            await credentials.Received(allowed ? 1 : 0).DeleteRolesAnywhereAsync("aws", Arg.Is(read), Arg.Any<CancellationToken>());
+            await credentials.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default);
+            session.Received(status == AwsSetupStatus.Success ? 1 : 0).Clear();
+            if (status == AwsSetupStatus.Success)
                 (reset.Result!.CleanupScript is not null).Should().Be(stored, "the cleanup command names the removed credential's ARNs");
         }, iter: 100);
 

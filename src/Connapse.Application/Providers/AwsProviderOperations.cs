@@ -85,6 +85,9 @@ public sealed class SetAwsAccess(
         if (!AwsRolesAnywhereSetup.IsValidRegion(config.Region))
             return Attempt<RolesAnywhereConfig, AwsSetupStatus>.Fail(AwsSetupStatus.Invalid, "Enter an AWS region, such as us-east-1.", "region");
 
+        // The credential this save replaces. The save below is conditional on it, so a credential someone else saves
+        // while AWS is checking this one is never overwritten.
+        RolesAnywhereConfig? current;
         string? key = request.PrivateKeyPem?.Trim();
         if (string.IsNullOrEmpty(key))
         {
@@ -94,7 +97,7 @@ public sealed class SetAwsAccess(
             {
                 stored = await credentials.GetRolesAnywhereMaterialAsync(ConnapseAwsProvider, ct);
             }
-            catch (InvalidOperationException)
+            catch (ProviderCredentialUnavailableException)
             {
                 // The stored key can't be decrypted, most often after the data protection keys changed.
                 return Attempt<RolesAnywhereConfig, AwsSetupStatus>.Fail(AwsSetupStatus.Invalid,
@@ -103,19 +106,24 @@ public sealed class SetAwsAccess(
             if (stored is null)
                 return Attempt<RolesAnywhereConfig, AwsSetupStatus>.Fail(AwsSetupStatus.Invalid,
                     "Enter the private key: there is no stored credential to keep it from.", "privateKeyPem");
-            // Keeping the current key with older ARNs would put back a credential someone else just replaced.
-            if (request.Expected is not null && stored.Config != request.Expected)
-                return Attempt<RolesAnywhereConfig, AwsSetupStatus>.Fail(AwsSetupStatus.Changed,
-                    "The stored AWS credential changed since it was read. Read it again, review the values and save again.");
             key = stored.PrivateKeyPem;
+            current = stored.Config;
         }
+        else
+        {
+            current = await credentials.GetRolesAnywhereAsync(ConnapseAwsProvider, ct);
+        }
+        // Keeping the current key with older ARNs would put back a credential someone else just replaced.
+        if (request.Expected is not null && current != request.Expected)
+            return Attempt<RolesAnywhereConfig, AwsSetupStatus>.Fail(AwsSetupStatus.Changed, AwsRules.AccessChanged);
 
         RolesAnywhereValidationResult result = await validator.ValidateAsync(config, key, ct);
         if (!result.Ok)
             return Attempt<RolesAnywhereConfig, AwsSetupStatus>.Fail(AwsSetupStatus.Refused,
                 $"AWS did not accept this credential, so nothing was changed: {result.Error}");
 
-        await credentials.SaveRolesAnywhereAsync(ConnapseAwsProvider, config, key, null, null, ct);
+        if (await credentials.ReplaceRolesAnywhereAsync(ConnapseAwsProvider, current, config, key, null, null, ct) is null)
+            return Attempt<RolesAnywhereConfig, AwsSetupStatus>.Fail(AwsSetupStatus.Changed, AwsRules.AccessChanged);
         // The session held now came from the old credential; the next AWS call must use this one.
         session.Clear();
         await audit.LogAsync("provider.credential.saved", "provider", ConnapseAwsProvider,
@@ -139,8 +147,11 @@ public sealed class ResetAwsAccess(IProviderCredentialStore credentials, IAwsSes
             return Attempt<AwsAccessReset, AwsSetupStatus>.Fail(AwsSetupStatus.Forbidden, AwsRules.Refused);
 
         // Read before the delete, so the cleanup command can name the ARNs.
+        // The delete is conditional on what was read, so a credential saved in between is neither removed nor
+        // left out of the cleanup command.
         RolesAnywhereConfig? config = await credentials.GetRolesAnywhereAsync(AwsRules.Provider, ct);
-        await credentials.DeleteAsync(AwsRules.Provider, ct);
+        if (!await credentials.DeleteRolesAnywhereAsync(AwsRules.Provider, config, ct) && config is not null)
+            return Attempt<AwsAccessReset, AwsSetupStatus>.Fail(AwsSetupStatus.Changed, AwsRules.AccessChanged);
         session.Clear();
         await audit.LogAsync("provider.credential.removed", "provider", AwsRules.Provider,
             new { Method = "RolesAnywhere", config?.RoleArn, config?.Region }, ct);
@@ -283,6 +294,9 @@ internal static class AwsRules
     public const string Provider = "aws";
 
     public const string Refused = "You don't have permission to set up providers.";
+
+    public const string AccessChanged =
+        "The stored AWS credential changed since it was read, so nothing was changed. Read it again, review the values and try again.";
 
     public const string IdentityCenterCategory = "identitycenter";
 
