@@ -47,6 +47,41 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             Task.FromResult(nodeIds.SelectMany(n => nodes.GetValueOrDefault(n, []).Select(d => (n, d))).ToLookup(p => p.n, p => p.d));
     }
 
+    [Fact]
+    public async Task Recall_PastMoreHiddenFactsThanOnePage_StillFindsTheVisibleOne()
+    {
+        Guid user = Guid.NewGuid();
+        string open = Guid.NewGuid().ToString(), hidden = Guid.NewGuid().ToString();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid container = Guid.NewGuid();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.Containers.Add(new ContainerEntity { Id = container, Name = $"page-{Guid.NewGuid():N}" });
+            // Hidden facts match as well and are recorded later, so they all rank before the visible one.
+            DateTimeOffset now = DateTimeOffset.UtcNow.AddDays(1);
+            db.MemoryFacts.AddRange(Enumerable.Range(0, 1_100).Select(i =>
+            {
+                Guid id = Guid.NewGuid();
+                return new MemoryFactEntity
+                {
+                    Id = id, ChainId = id, ContainerId = container, Subject = "alpha", Attribute = "database", Value = "hidden",
+                    RecordedAt = now, Sources = [new MemoryFactSourceEntity { FactId = id, Ordinal = 0, Kind = 0, Ref = hidden }],
+                };
+            }));
+            await db.SaveChangesAsync();
+        }
+        var store = new PostgresMemoryStore(factory, TimeProvider.System);
+        await store.AddAsync(container, new NewMemoryFact("alpha", "region", "visible", null, null,
+            [new MemorySource(MemorySourceKind.Document, open)]), new MemoryCaller(user, null, null));
+        var service = new MemoryService(store, new FakeAccess(new() { [user] = [open] }), new FakeIndex([]),
+            Substitute.For<IAuditLogger>(), NullLogger<MemoryService>.Instance);
+
+        MemoryRecall recall = await service.RecallAsync(new MemoryQuery(container, Text: "alpha database region"), new MemoryCaller(user, null, null));
+
+        recall.Facts.Select(f => f.Fact.Value).Should().Equal("visible");
+    }
+
     [Theory]
     [InlineData(38)]
     [InlineData(39)]

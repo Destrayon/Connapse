@@ -15,8 +15,12 @@ public interface IMemoryStore
     Task<MemoryWriteResult> CorrectAsync(
         Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author, CancellationToken ct = default);
 
-    /// <summary>Deletes every fact of <paramref name="factId"/>'s correction chain and their sources. Returns how many facts went.</summary>
-    Task<int> ForgetAsync(Guid containerId, Guid factId, CancellationToken ct = default);
+    /// <summary>
+    /// Deletes every fact of <paramref name="factId"/>'s correction chain and their sources, in one transaction with the
+    /// chain locked, but only when <paramref name="allow"/> approves the whole chain. Returns how many facts went, or
+    /// null when the fact is not there or the chain was refused.
+    /// </summary>
+    Task<int?> ForgetAsync(Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
 
     Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default);
 

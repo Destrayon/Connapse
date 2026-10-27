@@ -24,7 +24,6 @@ public sealed class MemoryService(
 {
     internal const int MaxSources = 20;
     private const int Page = 200;
-    private const int MaxPages = 5;
 
     public async Task<MemoryWriteResult> RememberAsync(Guid containerId, NewMemoryFact fact, MemoryCaller caller, CancellationToken ct = default)
     {
@@ -69,10 +68,25 @@ public sealed class MemoryService(
 
     public async Task<(int Deleted, string? Error)> ForgetAsync(Guid containerId, Guid factId, MemoryCaller caller, CancellationToken ct = default)
     {
-        if (await VisibleFactAsync(containerId, factId, caller, ct) is null)
+        // Every version must be visible: corrections can cite other sources, and forgetting deletes them all. A chain
+        // with any hidden version is reported as missing, so the answer does not reveal that it exists.
+        async Task<bool> AllVisible(IReadOnlyList<MemoryFact> chain)
+        {
+            try
+            {
+                IReadOnlySet<MemorySource> readable = await ReadableAsync(chain.SelectMany(f => f.Sources), caller.UserId, ct);
+                return chain.All(f => Visible(f, readable, caller));
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Could not check memory sources; refusing the forget");
+                return false;
+            }
+        }
+
+        if (await store.ForgetAsync(containerId, factId, AllVisible, ct) is not { } deleted)
             return (0, $"Fact '{factId}' not found.");
 
-        int deleted = await store.ForgetAsync(containerId, factId, ct);
         await audit.LogAsync("memory.forgotten", "memory_fact", factId.ToString(),
             new { ContainerId = containerId, Deleted = deleted, caller.UserId, caller.AgentId }, ct);
         return (deleted, null);
@@ -85,7 +99,7 @@ public sealed class MemoryService(
         try
         {
             // Hidden facts are skipped, so read further pages until the limit is met or memory runs out.
-            for (int page = 0; page < MaxPages && shown.Count < limit; page++)
+            for (int page = 0; shown.Count < limit; page++)
             {
                 IReadOnlyList<MemoryFact> rows = await store.QueryAsync(query, page * Page, Page, ct);
                 IReadOnlySet<MemorySource> readable = await ReadableAsync(rows.SelectMany(f => f.Sources), caller.UserId, ct);

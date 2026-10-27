@@ -168,6 +168,9 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             .Should().Be(new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero), "the replacement takes the wrong fact's dates");
         Facts(await McpTools.MemoryTimeline(Sp, C, subject: "Halcyon")).Select(f => f.GetProperty("status").GetString())
             .Should().BeEquivalentTo(["corrected", "current"]);
+        Facts(await McpTools.MemoryTimeline(Sp, C, subject: "Halcyon", from: "2026-01-01", to: "2026-01-31"))
+            .Select(f => f.GetProperty("status").GetString()).Should().BeEquivalentTo(["corrected", "current"],
+                "a window's history includes what was corrected");
         (await McpTools.MemoryCorrect(Sp, C, first, "x", kind: "wrong", sources: [_upload])).Should().StartWith("Error:");
     }
 
@@ -284,6 +287,22 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
 
         As(_writer);
         Values(await McpTools.MemoryRecall(Sp, C, subject: "Halcyon")).Should().Equal(["from the page"]);
+    }
+
+    [Fact]
+    public async Task Forget_AChainWithAVersionTheCallerCannotRead_LooksMissingAndDeletesNothing()
+    {
+        As(_writer);
+        string first = Id(await Remember("MariaDB 11", "2026-01-05", sources: [_upload]));
+        await McpTools.MemoryCorrect(Sp, C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_allowedPage]);
+
+        As(_reader);
+        Values(await McpTools.MemoryTimeline(Sp, C, subject: "Halcyon")).Should().Equal(["MariaDB 11"], "the reader sees the first version");
+        string missing = Guid.NewGuid().ToString();
+        (await McpTools.MemoryForget(Sp, C, first)).Should().Be((await McpTools.MemoryForget(Sp, C, missing)).Replace(missing, first));
+
+        As(_writer);
+        Values(await McpTools.MemoryTimeline(Sp, C, subject: "Halcyon")).Should().Equal("MariaDB 11", "PostgreSQL 15");
     }
 
     [Fact]

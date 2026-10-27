@@ -66,17 +66,31 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         return new MemoryWriteResult(ToFact(row), ToFact(old), null);
     }
 
-    public async Task<int> ForgetAsync(Guid containerId, Guid factId, CancellationToken ct = default)
+    public async Task<int?> ForgetAsync(
+        Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
         Guid? chain = await context.MemoryFacts
             .Where(f => f.Id == factId && f.ContainerId == containerId)
             .Select(f => (Guid?)f.ChainId)
             .SingleOrDefaultAsync(ct);
         if (chain is null)
-            return 0;
+            return null;
+
+        // Locked, so a correction cannot add a version between the check and the delete.
+        List<MemoryFactEntity> rows = await context.MemoryFacts
+            .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chain.Value} AND container_id = {containerId} FOR UPDATE")
+            .AsNoTracking()
+            .Include(f => f.Sources)
+            .ToListAsync(ct);
+        if (!await allow([.. rows.Select(ToFact)]))
+            return null;
+
         // Sources go with their facts (cascade).
-        return await context.MemoryFacts.Where(f => f.ChainId == chain && f.ContainerId == containerId).ExecuteDeleteAsync(ct);
+        int deleted = await context.MemoryFacts.Where(f => f.ChainId == chain && f.ContainerId == containerId).ExecuteDeleteAsync(ct);
+        await transaction.CommitAsync(ct);
+        return deleted;
     }
 
     public async Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default)
@@ -107,8 +121,8 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         {
             DateTimeOffset from = query.ChangedFrom ?? DateTimeOffset.MinValue;
             DateTimeOffset to = query.ChangedTo ?? DateTimeOffset.MaxValue;
-            rows = rows.Where(f => f.SupersededAt == null
-                && ((f.ValidFrom >= from && f.ValidFrom <= to) || (f.ValidTo >= from && f.ValidTo <= to)));
+            // Corrected facts included: a window's history shows what was believed and replaced too.
+            rows = rows.Where(f => (f.ValidFrom >= from && f.ValidFrom <= to) || (f.ValidTo >= from && f.ValidTo <= to));
         }
         else if (!query.History)
         {
