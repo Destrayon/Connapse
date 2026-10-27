@@ -10450,14 +10450,12 @@
             "$ref": "#/components/schemas/ConnectionProvider"
           },
           "config": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": { },
+            "description": "The provider's settings; null when the connection has none."
           },
           "hasSecret": {
             "type": "boolean"
