@@ -129,8 +129,6 @@ internal static partial class GitHubRecordRenderer
         AddIf(metadata, "parent", record.Parent?.ToString(CultureInfo.InvariantCulture));
         AddIf(metadata, "children", Csv(record.Children));
         AddIf(metadata, "references", Csv(references));
-        if (issue.IsPullRequest)
-            AddIf(metadata, "files", FileList(record));
 
         // A comment edit does not always move the issue's own updated_at, so the record's time is
         // the latest of either — which is what the sync engine's change signature compares.
@@ -189,24 +187,6 @@ internal static partial class GitHubRecordRenderer
 
     private static string? Csv(IReadOnlyList<int> numbers) =>
         numbers.Count > 0 ? string.Join(",", numbers) : null;
-
-    /// <summary>
-    /// The files a pull request changed, one repository path per line: the ones GitHub listed for it, and any a
-    /// review comment was made on, which a listing cut short can miss.
-    /// </summary>
-    private static string? FileList(GitHubStoredRecord record)
-    {
-        string[] paths =
-        [
-            .. record.Files
-                .Concat(record.Comments.Values.Select(c => c.ReviewPath).OfType<string>())
-                .Where(p => p.Length > 0 && !p.Contains('\n'))
-                .Select(p => "/" + p.TrimStart('/'))
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal),
-        ];
-        return paths.Length > 0 ? string.Join('\n', paths) : null;
-    }
 
     private static void AddIf(Dictionary<string, string> metadata, string key, string? value)
     {

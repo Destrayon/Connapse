@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Connapse.Core.Tests.Connectors;
 
-/// <summary>The links a GitHub document's metadata asserts in the link layer (CON-33).</summary>
+/// <summary>The links a GitHub record's metadata asserts in the link layer (CON-33).</summary>
 [Trait("Category", "Unit")]
 public sealed class GitHubLinksTests
 {
@@ -25,23 +25,17 @@ public sealed class GitHubLinksTests
     }
 
     [Fact]
-    public void For_PullRequest_StandsForItsNodeAndLinksWhatItClosesReferencesAndTouches()
+    public void For_PullRequest_StandsForItsNodeAndLinksWhatItCloses()
     {
-        DocumentLinks links = GitHubLinks.For(Doc, Record("pull_request", 7,
-            ("closes", "3,4"), ("references", "9"), ("files", "/docs/setup.md\n/src/App.cs")))!;
+        DocumentLinks links = GitHubLinks.For(Doc, Record("pull_request", 7, ("closes", "3,4")))!;
 
         links.DocumentId.Should().Be(Doc);
         links.NodeId.Should().Be("gh:octocat/hello#7");
         links.Facts.Should().Contain(new LinkFact("gh:octocat/hello#7", LinkFactField.Name, "octocat/hello#7"));
         links.Facts.Should().Contain(new LinkFact("gh:octocat/hello#7", LinkFactField.Kind, "pull_request"));
-        links.Links.Select(l => (l.Type, l.FromId, l.ToId)).Should().BeEquivalentTo(new[]
-        {
+        links.Links.Select(l => (l.Type, l.FromId, l.ToId)).Should().Equal(
             ("closes", "gh:octocat/hello#7", "gh:octocat/hello#3"),
-            ("closes", "gh:octocat/hello#7", "gh:octocat/hello#4"),
-            ("references", "gh:octocat/hello#7", "gh:octocat/hello#9"),
-            ("touches", "gh:octocat/hello#7", "gh:octocat/hello:/docs/setup.md"),
-            ("touches", "gh:octocat/hello#7", "gh:octocat/hello:/src/App.cs"),
-        });
+            ("closes", "gh:octocat/hello#7", "gh:octocat/hello#4"));
     }
 
     [Fact]
@@ -56,35 +50,20 @@ public sealed class GitHubLinksTests
     }
 
     [Fact]
+    public void For_Mentions_AreNotLinks()
+    {
+        DocumentLinks links = GitHubLinks.For(Doc, Record("issue", 5, ("references", "9,11")))!;
+
+        links.Links.Should().BeEmpty();
+    }
+
+    [Fact]
     public void For_SameLinkFromTwoDocuments_GetsTheSameEdgeId()
     {
         DocumentLinks a = GitHubLinks.For(Doc, Record("pull_request", 7, ("closes", "3")))!;
-        DocumentLinks b = GitHubLinks.For("other", new Dictionary<string, string>(Record("pull_request", 7, ("closes", "3"))))!;
+        DocumentLinks b = GitHubLinks.For("other", Record("pull_request", 7, ("closes", "3")))!;
 
         a.Links[0].EdgeId.Should().Be(b.Links[0].EdgeId);
-    }
-
-    [Fact]
-    public void For_TouchedFile_IsNamedSoItCanBeWalkedThrough()
-    {
-        DocumentLinks links = GitHubLinks.For(Doc, Record("pull_request", 7, ("files", "/README.md")))!;
-
-        links.Facts.Should().Contain(new LinkFact("gh:octocat/hello:/README.md", LinkFactField.Name, "/README.md"));
-    }
-
-    [Fact]
-    public void For_DocsFile_StandsForItsFileNode()
-    {
-        DocumentLinks links = GitHubLinks.For(Doc, new Dictionary<string, string>
-        {
-            ["github:repo"] = "octocat/hello",
-            ["github:path"] = "/docs/setup.md",
-            ["github:url"] = "https://github.com/octocat/hello/blob/HEAD/docs/setup.md",
-        })!;
-
-        links.NodeId.Should().Be("gh:octocat/hello:/docs/setup.md");
-        links.Facts.Should().Contain(new LinkFact("gh:octocat/hello:/docs/setup.md", LinkFactField.Name, "/docs/setup.md"));
-        links.Links.Should().BeEmpty();
     }
 
     [Theory]
@@ -92,7 +71,7 @@ public sealed class GitHubLinksTests
     [InlineData("github:number")]
     public void For_RecordMissingWhatNamesIt_IsNull(string missing)
     {
-        Dictionary<string, string> metadata = Record("issue", 5, ("closes", "3"));
+        Dictionary<string, string> metadata = Record("issue", 5, ("parent", "3"));
         metadata.Remove(missing);
 
         GitHubLinks.For(Doc, metadata).Should().BeNull();
@@ -112,12 +91,10 @@ public sealed class GitHubLinksTests
     }
 
     [Fact]
-    public void For_IssueClaimingToCloseOrTouch_AssertsNeither()
+    public void For_IssueClaimingToClose_AssertsNothing()
     {
-        // Only a pull request closes or touches files; an issue's metadata saying so is not trusted.
-        DocumentLinks links = GitHubLinks.For(Doc, Record("issue", 5, ("closes", "3"), ("files", "/a.md")))!;
-
-        links.Links.Should().BeEmpty();
+        // Only a pull request closes; an issue's metadata saying so is not trusted.
+        GitHubLinks.For(Doc, Record("issue", 5, ("closes", "3")))!.Links.Should().BeEmpty();
     }
 
     [Fact]

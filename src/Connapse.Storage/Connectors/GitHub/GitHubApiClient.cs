@@ -223,9 +223,6 @@ internal sealed record GitHubPage<T>(IReadOnlyList<T> Items, DateTimeOffset? Ser
 /// <summary>A GitHub account. <see cref="Type"/> is <c>Bot</c> for a GitHub App's account, <c>User</c> for a person.</summary>
 internal sealed record GitHubUser(string Login, string? Type = null);
 
-/// <summary>One entry of a pull request's file listing; only the path is kept.</summary>
-internal sealed record GitHubPullRequestFile(string Filename);
-
 internal sealed record GitHubLabel(string Name);
 
 internal sealed record GitHubMilestone(string Title);

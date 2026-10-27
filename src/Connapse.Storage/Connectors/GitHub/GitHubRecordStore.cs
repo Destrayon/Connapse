@@ -46,15 +46,6 @@ internal sealed class GitHubStoredRecord
     /// </summary>
     public DateTimeOffset? EdgesChangedAt { get; set; }
 
-    /// <summary>
-    /// The repository paths a pull request changed, as GitHub last listed them; empty for an issue, and for a pull
-    /// request not listed yet. Listing costs a request per pull request, so it is only made with credentials.
-    /// </summary>
-    public List<string> Files { get; set; } = [];
-
-    /// <summary>The <c>updated_at</c> of the pull request when <see cref="Files"/> was listed; null when never listed.</summary>
-    public DateTimeOffset? FilesListedAt { get; set; }
-
     public int IssueCommentCount => Comments.Keys.Count(k => k.StartsWith('c'));
 }
 
@@ -95,12 +86,6 @@ internal sealed class GitHubRecordState
     /// forget them.
     /// </summary>
     public HashSet<int> Suspects { get; set; } = [];
-
-    /// <summary>
-    /// Pull requests whose files have not been listed since they last changed. Listed a capped number per cycle,
-    /// newest first, so a first sync of a large repository is a backfill rather than a spent budget.
-    /// </summary>
-    public HashSet<int> FilesPending { get; set; } = [];
 
     /// <summary>
     /// Set by a fresh start and cleared once the engine acknowledges the first complete emission,

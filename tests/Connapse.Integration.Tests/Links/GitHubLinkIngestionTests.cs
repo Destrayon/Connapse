@@ -70,10 +70,10 @@ public class GitHubLinkIngestionTests(SharedWebAppFixture fixture)
         string repo = $"octocat/r{Guid.NewGuid():N}";
         (Guid container, Guid document) = await SeedAsync(sp);
 
-        await IngestAsync(sp, container, document, Pull(repo, ("closes", "3"), ("files", "/docs/setup.md")));
+        await IngestAsync(sp, container, document, Pull(repo, ("closes", "3"), ("parent", "2"), ("references", "9")));
 
         (await EdgesAsync(sp, document)).Should().Equal(
-            ("closes", $"gh:{repo}#3"), ("touches", $"gh:{repo}:/docs/setup.md"));
+            ("parent", $"gh:{repo}#2"), ("closes", $"gh:{repo}#3"));
         ILookup<string, string> nodes = await sp.GetRequiredService<ILinkIndex>().NodesOfAsync([document.ToString()]);
         nodes[document.ToString()].Should().Equal($"gh:{repo}#7");
         (await sp.GetRequiredService<ILinkIndex>().AnyAsync()).Should().BeTrue();

@@ -166,13 +166,6 @@ public sealed class FakeGitHubApi : HttpMessageHandler
         Bump(parent);
     }
 
-    public void SetFiles(int number, params string[] files)
-    {
-        Tick();
-        _issues[number].Files = [.. files];
-        Bump(number);
-    }
-
     private void Bump(int number)
     {
         if (_issues.TryGetValue(number, out var issue))
@@ -240,8 +233,6 @@ public sealed class FakeGitHubApi : HttpMessageHandler
                 [.. Comments(review: true, since).Select(CommentJson)],
             ["issues", var n, "sub_issues"] when _issues.TryGetValue(int.Parse(n), out var parent) =>
                 [.. parent.SubIssues.Where(_issues.ContainsKey).Select(c => IssueJson(_issues[c]))],
-            ["pulls", var n, "files"] when _issues.TryGetValue(int.Parse(n), out var pull) && pull.PullRequest =>
-                [.. pull.Files.Select(f => new { filename = f, status = "modified" })],
             ["issues", var n, "comments"] when _issues.ContainsKey(int.Parse(n)) =>
                 [.. _comments.Values.Where(c => c.Number == int.Parse(n) && c.ReviewPath is null)
                     .OrderBy(c => c.Id).Select(CommentJson)],
@@ -318,7 +309,6 @@ public sealed class FakeGitHubApi : HttpMessageHandler
         public DateTimeOffset? ClosedAt { get; set; }
         public DateTimeOffset? MergedAt { get; set; }
         public List<int> SubIssues { get; set; } = [];
-        public List<string> Files { get; set; } = [];
     }
 
     private sealed class Comment

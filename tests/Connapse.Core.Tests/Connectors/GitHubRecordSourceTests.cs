@@ -98,20 +98,6 @@ public sealed class GitHubRecordSourceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetChangesAsync_Anonymous_TakesPullRequestFilesFromReviewCommentsWithoutListingThem()
-    {
-        _api.UpsertIssue(2, "Change", pullRequest: true);
-        _api.SetFiles(2, "src/app.cs", "README.md");
-        _api.AddComment(2, "bob", "Nit: rename", reviewPath: "src/app.cs");
-
-        var delta = await Source().GetChangesAsync(null, default);
-
-        // Without credentials a listing per pull request would spend the anonymous budget of 60 an hour.
-        _api.RequestedPaths.Should().NotContain(p => p.Contains("/files"));
-        File(delta, "/pulls/2.md").Metadata!["github:files"].Should().Be("/src/app.cs");
-    }
-
-    [Fact]
     public async Task GetChangesAsync_FirstSync_AssemblesCommentsIntoTheRecord()
     {
         _api.UpsertIssue(1, "Crash", "Body text");
