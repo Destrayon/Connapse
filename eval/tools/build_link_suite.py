@@ -7,6 +7,9 @@ Two datasets, each a snapshot of real records and the links between them:
                          an issue is a sub-issue of another (REST sub_issues).
   links-flink-jira       Apache Flink Jira issues created in 2022 (issues.apache.org, public REST v2), with
                          comments. Links: blocks, duplicates, causes (Problem/Incident), sub-task of.
+  links-connapse-github-2  The same repository's records created before CUTOFF2 (suite links-v2, CON-33's
+                         retest). Questions start only from records created on or after STARTS2, which
+                         links-connapse-github never used, and are sampled and split with SEED2.
 
 The answer keys come from those APIs, never from Connapse. Records are stored as the APIs return them;
 the harness renders them with Connapse's own GitHub and Jira record renderers, so the indexed text is
@@ -18,6 +21,9 @@ Steps, in order:
     python eval/tools/build_link_suite.py packets                 # sample link paths, split, write writer packets
     (questions are written from each packet alone; see eval/datasets/links-connapse-github/card.md)
     python eval/tools/build_link_suite.py questions <written.jsonl> ...   # validate and commit questions
+    python eval/tools/build_link_suite.py links-connapse-github-2         # links-v2: snapshot, then
+    python eval/tools/build_link_suite.py packets links-connapse-github-2 # packets and
+    python eval/tools/build_link_suite.py questions links-connapse-github-2 <written.jsonl>   # questions
 
 Sampling and the tuning/held-out split are fixed by SEED and happen in `packets`, before any question is
 written or any run is made. `--repin` replaces existing pins after a deliberate re-snapshot.
@@ -41,8 +47,11 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SEED = 20261024
 GITHUB = ("links-connapse-github", "Destrayon", "Connapse", "2026-10-01T00:00:00Z")
 JIRA = ("links-flink-jira", "FLINK", '2022-01-01', '2023-01-01')
-VERSIONS = {GITHUB[0]: "2026-10-01", JIRA[0]: "2022"}
-SUITE = "links-v1"
+GITHUB2 = ("links-connapse-github-2", "Destrayon", "Connapse", "2026-10-27T00:00:00Z")
+STARTS2 = "2026-10-01T00:00:00Z"
+SEED2 = 20261027
+VERSIONS = {GITHUB[0]: "2026-10-01", JIRA[0]: "2022", GITHUB2[0]: "2026-10-27"}
+SUITES = {GITHUB[0]: "links-v1", JIRA[0]: "links-v1", GITHUB2[0]: "links-v2"}
 BODY_CHARS = 1500
 MAX_ANSWERS = 10
 
@@ -144,8 +153,8 @@ def keep_comment(c):
     }
 
 
-def build_github():
-    name, owner, repo, cutoff = GITHUB
+def build_github(spec=GITHUB):
+    name, owner, repo, cutoff = spec
     base = f"repos/{owner}/{repo}"
     records = {}
     for i in gh_pages(f"{base}/issues?state=all&direction=asc"):
@@ -283,7 +292,7 @@ def register(name, repin):
                    "url": f"repo:{name}/questions.jsonl" if f == "questions.jsonl" else "build:eval/tools/build_link_suite.py",
                    "sha256": h} for f, h in files.items()],
     }
-    suite = manifest["suites"].setdefault(SUITE, [])
+    suite = manifest["suites"].setdefault(SUITES[name], [])
     if name not in suite:
         suite.append(name)
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as f:
@@ -305,6 +314,10 @@ def text_of(record):
         f = record["issue"]["fields"]
         return f.get("summary") or "", f.get("description") or ""
     return record["issue"]["title"], record["issue"].get("body") or ""
+
+
+def created(record):
+    return record["issue"]["created_at"]
 
 
 def candidates(source, records, links):
@@ -351,7 +364,7 @@ def candidates(source, records, links):
     return out
 
 
-def split_by_component(rows):
+def split_by_component(rows, seed=SEED):
     """Splits the questions into tuning and held-out halves so that no record is in both. Questions that share
     a record, as start or answer, form one group, and a whole group goes to whichever half is smaller, in a
     seeded order. Splitting question by question let a held-out answer be a tuning question's start or answer."""
@@ -371,7 +384,7 @@ def split_by_component(rows):
     for r in rows:
         groups.setdefault(find(r["start"]), []).append(r)
     order = sorted(groups)
-    random.Random(SEED + 1).shuffle(order)
+    random.Random(seed + 1).shuffle(order)
     size = {"dev": 0, "test": 0}
     for root in order:
         half = "dev" if size["dev"] <= size["test"] else "test"
@@ -386,9 +399,11 @@ def split_by_component(rows):
     print(f"split: {size['dev']} tuning, {size['test']} held-out, in {len(groups)} groups")
 
 
-def packets():
-    rng = random.Random(SEED)
-    for name, source in ((GITHUB[0], "github"), (JIRA[0], "jira")):
+def packets(only=None):
+    datasets = ((GITHUB2[0], "github", SEED2, STARTS2),) if only == GITHUB2[0] else (
+        (GITHUB[0], "github", SEED, None), (JIRA[0], "jira", SEED, None))
+    for name, source, seed, starts in datasets:
+        rng = random.Random(seed)
         records, links = load(name)
         found = candidates(source, records, links)
         used = set()
@@ -397,7 +412,8 @@ def packets():
             if kind_source != source:
                 continue
             pool = sorted((start, sorted(answers)) for start, answers in found[kind].items()
-                          if start in records and 0 < len(answers) <= MAX_ANSWERS)
+                          if start in records and 0 < len(answers) <= MAX_ANSWERS
+                          and (starts is None or created(records[start]) >= starts))
             rng.shuffle(pool)
             chosen = [(s, a) for s, a in pool if s not in used][:quota]
             for start, answers in chosen:
@@ -410,7 +426,7 @@ def packets():
                     "packet": {"title": title, "body": body[:BODY_CHARS], "ask": ask},
                 })
             print(f"{name}: {kind}: {len(chosen)} of {len(pool)} available (quota {quota})")
-        split_by_component(rows)
+        split_by_component(rows, seed)
         path = os.path.join(ROOT, "eval", ".cache", "link-packets", f"{name}.jsonl")
         write_jsonl(path, rows)
         # What a question writer gets: the start record's text and the ask, never the answers.
@@ -435,11 +451,14 @@ def copied_run(question, title, n=5):
 
 
 def questions(paths):
+    names = (GITHUB[0], JIRA[0])
+    if paths and paths[0] == GITHUB2[0]:
+        names, paths = (GITHUB2[0],), paths[1:]
     written = {}
     for path in paths:
         for row in read_jsonl(path):
             written[row["id"]] = row["question"].strip()
-    for name in (GITHUB[0], JIRA[0]):
+    for name in names:
         packets_path = os.path.join(ROOT, "eval", ".cache", "link-packets", f"{name}.jsonl")
         out, rejected = [], []
         for p in read_jsonl(packets_path):
@@ -475,8 +494,11 @@ if __name__ == "__main__":
     elif args[0] == JIRA[0]:
         build_jira()
         register(JIRA[0], "--repin" in sys.argv)
+    elif args[0] == GITHUB2[0]:
+        build_github(GITHUB2)
+        register(GITHUB2[0], "--repin" in sys.argv)
     elif args[0] == "packets":
-        packets()
+        packets(args[1] if len(args) > 1 else None)
     elif args[0] == "questions":
         questions(args[1:])
     else:
