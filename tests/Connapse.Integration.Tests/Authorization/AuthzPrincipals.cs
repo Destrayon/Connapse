@@ -3,8 +3,10 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Connapse.Core;
 using Connapse.Identity.Authentication;
+using Connapse.Identity.Services;
 using Connapse.Integration.Tests.CrossSurface;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests.Authorization;
 
@@ -27,7 +29,7 @@ public sealed record AuthzPrincipal(string Name, PrincipalKind Kind, string? Rol
     public static readonly AuthzPrincipal AgentRead = new("agent-read", PrincipalKind.Agent, null, ["knowledge:read"]);
     public static readonly AuthzPrincipal AgentWrite = new("agent-write", PrincipalKind.Agent, null, ["knowledge:read", "knowledge:write"]);
 
-    /// <summary>Every scope that grants administration. The REST API lets an admin give one to an agent key, though the form doesn't offer it.</summary>
+    /// <summary>Every scope that grants administration. An agent key issued before #955 can still hold one.</summary>
     public static readonly IReadOnlyList<string> AdminScopes =
         ["admin:audit", "admin:manage-admins", "admin:oauth-clients", "admin:settings", "admin:sources", "admin:users"];
 
@@ -78,9 +80,15 @@ public static class AuthzPrincipals
         {
             var agent = await PostAsync<AgentDto>(fixture.AdminClient, "/api/v1/agents/",
                 new CreateAgentRequest($"authz-{principal.Name}-{Guid.NewGuid():N}"));
-            var key = await PostAsync<CreateAgentKeyResponse>(fixture.AdminClient, $"/api/v1/agents/{agent.Id}/keys",
-                new CreateAgentKeyRequest("authz", [.. principal.Scopes!]));
-            return ApiKey(key.Token);
+            var request = new CreateAgentKeyRequest("authz", [.. principal.Scopes!]);
+            if (!AuthzPrincipal.AgentAdmins.Contains(principal))
+                return ApiKey((await PostAsync<CreateAgentKeyResponse>(fixture.AdminClient, $"/api/v1/agents/{agent.Id}/keys", request)).Token);
+
+            // The REST API no longer issues an agent key an admin scope (#955), but a key issued
+            // before that still holds one, so the store mints it as that older key.
+            using var scope = fixture.Factory.Services.CreateScope();
+            var key = await scope.ServiceProvider.GetRequiredService<IAgentService>().CreateKeyAsync(agent.Id, request);
+            return ApiKey(key!.Token);
         }
 
         var user = principal.Name switch
