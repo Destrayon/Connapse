@@ -4,6 +4,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
+using Connapse.Ingestion.Parsers.Code;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 
@@ -46,6 +47,19 @@ public sealed class ParserProcessPoolTests : IDisposable
         {
             return false;
         }
+    }
+
+    [Fact]
+    public async Task ParseAsync_CodeFile_IsReadByTreeSitterInsideTheHost()
+    {
+        const string source = "namespace N;\nclass Counter { void Add() => Count(); }\n";
+
+        var result = await _pool.ParseAsync(new Named(nameof(CodeParser)), Encoding.UTF8.GetBytes(source),
+            "Counter.cs", Settings, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        result.Content.Should().Be(source);
+        CodeOutline.From(result.Metadata)!.Symbols.Select(s => s.QualifiedName)
+            .Should().Equal("N.Counter", "N.Counter.Add");
     }
 
     [Fact]
