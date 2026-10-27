@@ -291,6 +291,40 @@ public class CodeParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_SeveralArrowFunctionsInOneDeclaration_KeepTheirOwnLines()
+    {
+        const string source = "const first = () => one(),\n  second = () => two();\n";
+
+        var (_, outline) = await ParseAsync(source, "pair.ts");
+
+        (Symbol(outline!, "first").StartLine, Symbol(outline!, "first").EndLine).Should().Be((1, 1));
+        (Symbol(outline!, "second").StartLine, Symbol(outline!, "second").EndLine).Should().Be((2, 2));
+    }
+
+    [Fact]
+    public void Read_PastTheEntryLimit_StopsAndSaysTheOutlineIsTruncated()
+    {
+        string source = "class C { void M() { " + string.Concat(Enumerable.Repeat("f();\n", 50)) + "} }";
+
+        CodeOutline outline = CodeSyntax.Read(CodeGrammar.CSharp, source, maxEntries: 10);
+
+        outline.Truncated.Should().BeTrue();
+        outline.Symbols.Sum(s => s.Calls.Count).Should().BeLessThan(10);
+    }
+
+    [Fact]
+    public async Task ParseAsync_FileDenseWithCalls_IsIndexedAsTextWithoutAnOutline()
+    {
+        string source = "class C { void M() {\n" + string.Concat(Enumerable.Repeat("f(); f(); f(); f(); f(); f(); f(); f(); f(); f();\n", 10_100)) + "} }";
+
+        var (parsed, outline) = await ParseAsync(source, "dense.cs");
+
+        outline.Should().BeNull();
+        parsed.Content.Should().Be(source);
+        parsed.Warnings.Should().ContainSingle().Which.Should().Contain("indexed as text");
+    }
+
+    [Fact]
     public async Task ParseAsync_MinifiedFile_IsIndexedAsTextWithoutAnOutline()
     {
         string source = string.Join(";", Enumerable.Repeat("var a=f(b,c)", 400));

@@ -45,7 +45,9 @@ internal abstract class CodeGrammar
     protected static Node SpanOf(Node node)
     {
         Node span = node;
-        while (span.Parent is { Type: "decorated_definition" or "export_statement" or "lexical_declaration" } parent)
+        // const a = () => 1, b = () => 2; keeps each declarator's own lines.
+        while (span.Parent is { Type: "decorated_definition" or "export_statement" or "lexical_declaration" } parent
+               && (parent.Type != "lexical_declaration" || parent.NamedChildren.Count(c => c.Type == "variable_declarator") == 1))
             span = parent;
         return span;
     }

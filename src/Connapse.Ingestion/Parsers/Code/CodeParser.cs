@@ -16,6 +16,14 @@ public sealed class CodeParser : IDocumentParser
     /// <summary>Lines longer than this, on average, mark minified or generated code, which has no definitions worth a passage.</summary>
     internal const int MinifiedAverageLine = 300;
 
+    /// <summary>
+    /// The most an outline may hold before the file is indexed as text instead: a small upload dense with definitions
+    /// or calls would otherwise cost the web process far more memory than its text does.
+    /// </summary>
+    internal const int MaxOutlineEntries = 100_000;
+
+    internal const int MaxOutlineJsonCharacters = 8_000_000;
+
     private static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".cs", ".ts", ".mts", ".cts", ".tsx", ".py", ".pyi",
@@ -59,8 +67,14 @@ public sealed class CodeParser : IDocumentParser
             return new ParsedDocument(content, metadata, warnings);
         }
 
-        CodeOutline outline = CodeSyntax.Read(grammar, content);
-        metadata[CodeOutline.ParsedDocumentMetadataKey] = outline.ToJson();
+        CodeOutline outline = CodeSyntax.Read(grammar, content, MaxOutlineEntries);
+        string json = outline.Truncated ? "" : outline.ToJson();
+        if (outline.Truncated || json.Length > MaxOutlineJsonCharacters)
+        {
+            warnings.Add($"has more definitions and calls than the {MaxOutlineEntries:N0} a file is read for; indexed as text");
+            return new ParsedDocument(content, metadata, warnings);
+        }
+        metadata[CodeOutline.ParsedDocumentMetadataKey] = json;
         metadata["LineCount"] = lines.ToString(CultureInfo.InvariantCulture);
         if (outline.HasErrors)
             warnings.Add("has syntax errors; definitions inside them may be missing");

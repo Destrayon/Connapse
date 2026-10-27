@@ -13,16 +13,22 @@ internal static partial class CodeSyntax
     private const int MaxSignature = 300;
     private const int MaxReceiver = 200;
 
-    public static CodeOutline Read(CodeGrammar grammar, string source)
+    /// <summary>
+    /// The outline of <paramref name="source"/>. The walk stops once it holds <paramref name="maxEntries"/> symbols,
+    /// imports, calls, variables and bases together, and the outline says it was truncated.
+    /// </summary>
+    public static CodeOutline Read(CodeGrammar grammar, string source, int maxEntries = int.MaxValue)
     {
         Parser parser = grammar.RentParser();
         using Tree tree = parser.Parse(source) ?? throw new InvalidOperationException("tree-sitter returned no tree.");
-        var walk = new CodeWalk(grammar, source);
+        var walk = new CodeWalk(grammar, source, maxEntries);
         Node root = tree.RootNode;
         using var cursor = new TreeCursor(root);
         while (true)
         {
             walk.Enter(cursor.CurrentNode);
+            if (walk.Full)
+                return walk.Finish();
             if (cursor.GotoFirstChild())
                 continue;
             while (!cursor.GotoNextSibling())
@@ -67,7 +73,7 @@ internal static partial class CodeSyntax
 }
 
 /// <summary>The state of one walk: the symbols found so far and which namespace and symbol the cursor is inside.</summary>
-internal sealed class CodeWalk(CodeGrammar grammar, string source)
+internal sealed class CodeWalk(CodeGrammar grammar, string source, int maxEntries = int.MaxValue)
 {
     private sealed class SymbolBuilder
     {
@@ -97,6 +103,11 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
     private bool _hasErrors;
 
     public string Source => source;
+
+    private int _entries;
+
+    /// <summary>Whether the walk holds its limit of entries.</summary>
+    public bool Full => _entries >= maxEntries;
 
     /// <summary>The innermost symbol the cursor is inside, or -1.</summary>
     public int Current
@@ -164,6 +175,7 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
         }
 
         _symbols.Add(symbol);
+        _entries++;
         _scopes.Add((node.EndIndex, null, _symbols.Count - 1));
     }
 
@@ -180,7 +192,11 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
         return row;
     }
 
-    public void AddImport(CodeImport import) => _imports.Add(import);
+    public void AddImport(CodeImport import)
+    {
+        _imports.Add(import);
+        _entries++;
+    }
 
     public void AddCall(string name, string? receiver, Node at, bool isNew = false)
     {
@@ -188,6 +204,7 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
             return;
         var call = new CodeCall(name, receiver, at.StartPosition.Row + 1, isNew);
         (Current >= 0 ? _symbols[Current].Calls : _moduleCalls).Add(call);
+        _entries++;
     }
 
     public void AddVariable(string name, string type)
@@ -196,6 +213,7 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
         if (name.Length == 0 || typeName.Length == 0 || typeName is "var" or "dynamic" or "object" or "any" or "unknown")
             return;
         (Current >= 0 ? _symbols[Current].Variables : _moduleVariables).Add(new CodeVariable(name, typeName));
+        _entries++;
     }
 
     /// <summary>A member's declared type, recorded on the type that holds it.</summary>
@@ -206,14 +224,20 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
             index = _symbols[index].Parent;
         string typeName = CodeSyntax.TypeName(type);
         if (index >= 0 && name.Length > 0 && typeName.Length > 0 && typeName != "var")
+        {
             _symbols[index].Variables.Add(new CodeVariable(name, typeName));
+            _entries++;
+        }
     }
 
     public void AddBase(Node type)
     {
         string name = CodeSyntax.TypeName(type.Text);
         if (Current >= 0 && name.Length > 0)
+        {
             _symbols[Current].Bases.Add(name);
+            _entries++;
+        }
     }
 
     public CodeOutline Finish() => new(
@@ -223,7 +247,8 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
             s.ElideStart, s.ElideEnd, s.Signature, s.Bases, s.Calls, s.Variables)).ToList(),
         _moduleCalls,
         _moduleVariables,
-        _hasErrors);
+        _hasErrors,
+        Full);
 
     private static string Qualified(SymbolBuilder s) => s.Container.Length == 0 ? s.Name : $"{s.Container}.{s.Name}";
 
