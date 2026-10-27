@@ -39,6 +39,8 @@ internal static class EvalEntryPoint
                 "report" => Commands.Report(cli),
                 "memory" => await new MemoryEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
+                "code" => await new CodeEval(paths, http, Console.Out).RunAsync(
+                    cli.Option("config") ?? "code", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
             };
         }
@@ -242,6 +244,7 @@ internal static class Commands
               pool     <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
+              code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """);
         return 2;
     }

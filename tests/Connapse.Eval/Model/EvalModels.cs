@@ -22,6 +22,12 @@ public sealed record EvalDocument(
 
     /// <summary>The chunking strategy a connector would pick for this document; it outranks the config's.</summary>
     public string? Strategy { get; init; }
+
+    /// <summary>
+    /// The folder a named text document is uploaded to, as a synced repository file keeps its path (<c>/src/core</c>);
+    /// without it each named document gets a folder of its own.
+    /// </summary>
+    public string? Folder { get; init; }
 }
 
 public sealed record EvalQuery(string Id, string Text, Split Split, IReadOnlyList<string> Tags);

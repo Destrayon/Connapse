@@ -113,6 +113,7 @@ public class McpDiscoveryTests(SharedWebAppFixture fixture)
         // Verify we get actual tool definitions back
         body.Should().Contain("container_list");
         body.Should().Contain("search_knowledge");
+        body.Should().Contain("code_find_symbol");
     }
 
     [Fact]
