@@ -190,6 +190,16 @@ public sealed class DocumentLifecycle(
         await PublishAsync(documentId, rows, ct);
     }
 
+    public async Task<int?> CurrentGenerationAsync(Guid documentId, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        return await context.Documents
+            .AsNoTracking()
+            .Where(d => d.Id == documentId)
+            .Select(d => (int?)d.Generation)
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task NotifyAsync(Guid documentId, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);

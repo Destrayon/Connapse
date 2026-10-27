@@ -49,6 +49,9 @@ public interface IDocumentLifecycle
 
     Task SetSummaryStatusAsync(Guid documentId, SummaryStatus status, CancellationToken ct = default);
 
+    /// <summary>The document's current generation, or null when it no longer exists.</summary>
+    Task<int?> CurrentGenerationAsync(Guid documentId, CancellationToken ct = default);
+
     /// <summary>
     /// Pushes the document's current status to UI clients. For a transition committed inside a
     /// caller's own transaction — the pipeline's chunk swap — which can only be announced once

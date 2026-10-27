@@ -99,6 +99,19 @@ public sealed class IngestionJobs : IIngestionJobs
         }
 
         int generation = options.Generation;
+        if (generation == 0)
+        {
+            // A job enqueued before generations existed carries 0, which the pipeline reads as a direct caller and
+            // which would let it take over a newer upload (CON-102). It claims the generation it finds instead.
+            generation = await _lifecycle.CurrentGenerationAsync(id, ct) ?? 0;
+            if (generation == 0)
+            {
+                _logger.LogInformation("IngestSkipped {DocumentId} reason=not_found", LogSanitizer.Sanitize(documentId));
+                return;
+            }
+            options = options with { Generation = generation };
+        }
+
         if (!await _lifecycle.TryClaimAsync(id, generation, ct))
         {
             // Superseded by a newer version, or already taken by another worker. Either way the
