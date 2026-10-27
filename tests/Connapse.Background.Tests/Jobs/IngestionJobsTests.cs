@@ -77,6 +77,31 @@ public class IngestionJobsTests
     }
 
     [Fact]
+    public async Task IngestAsync_JobEnqueuedBeforeGenerations_ClaimsAndIngestsAtTheCurrentGeneration()
+    {
+        // Run with 0, the pipeline would read it as a direct caller and could take over a newer upload (CON-102).
+        _lifecycle.CurrentGenerationAsync(_documentId, Arg.Any<CancellationToken>()).Returns(5);
+        _lifecycle.TryClaimAsync(_documentId, 5, Arg.Any<CancellationToken>()).Returns(true);
+
+        await CreateJobs().IngestAsync(DocumentId, Options(generation: 0), CancellationToken.None);
+
+        await _lifecycle.DidNotReceive().TryClaimAsync(_documentId, 0, Arg.Any<CancellationToken>());
+        await _ingester.Received(1).IngestByIdAsync(
+            DocumentId, Arg.Is<IngestionOptions>(o => o.Generation == 5), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IngestAsync_JobEnqueuedBeforeGenerationsForADeletedDocument_DoesNotRunThePipeline()
+    {
+        _lifecycle.CurrentGenerationAsync(_documentId, Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        await CreateJobs().IngestAsync(DocumentId, Options(generation: 0), CancellationToken.None);
+
+        await _lifecycle.DidNotReceiveWithAnyArgs().TryClaimAsync(default, default, default);
+        await _ingester.DidNotReceiveWithAnyArgs().IngestByIdAsync(default!, default!, default);
+    }
+
+    [Fact]
     public async Task IngestAsync_SummaryClusteringMode_MarksSummaryPendingAndEnqueuesIt()
     {
         UseSummaryMethod(enabled: true, SummaryStrategy.SummaryClustering);

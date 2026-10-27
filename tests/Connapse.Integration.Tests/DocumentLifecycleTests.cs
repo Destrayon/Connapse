@@ -216,6 +216,7 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
         var doc = await ReadAsync(sp, documentId);
         doc.IngestionStatus.Should().Be(DocumentStatus.Ready);
         doc.Generation.Should().Be(newGeneration);
+        (await lifecycle.CurrentGenerationAsync(documentId)).Should().Be(newGeneration);
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var ctx = await dbFactory.CreateDbContextAsync();
         var contents = await ctx.Chunks.Where(c => c.DocumentId == documentId).Select(c => c.Content).ToListAsync();
