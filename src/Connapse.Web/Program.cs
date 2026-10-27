@@ -195,6 +195,7 @@ builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceConnectionMigration>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
 builder.Services.AddScoped<Connapse.Application.Ports.ICustomProviderChecker>(sp => sp.GetRequiredService<Connapse.Web.Services.CustomProviderSetup>());
+builder.Services.AddSingleton<Connapse.Application.Ports.IAwsSession, Connapse.Web.Services.AwsSession>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
 builder.Services.AddScoped<Connapse.Application.Ports.ICustomAccountLinks>(sp => sp.GetRequiredService<Connapse.Web.Services.CustomLinkService>());
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkRemovalJob>();

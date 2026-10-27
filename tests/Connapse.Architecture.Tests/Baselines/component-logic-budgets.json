@@ -154,8 +154,8 @@
     "IsEmpty": false
   },
   "Pages/Providers.razor": {
-    "CodeLines": 2004,
-    "Injects": 23,
+    "CodeLines": 1954,
+    "Injects": 22,
     "Complexity": 385,
     "MarkupLogic": 194,
     "IsEmpty": false

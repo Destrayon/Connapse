@@ -7179,6 +7179,386 @@
         }
       }
     },
+    "/api/v1/providers/aws/access": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Set Connapse's AWS access to an IAM Roles Anywhere credential: certificate, trust anchor, profile and role ARNs, region and private key. AWS is asked for a session first, and nothing is saved unless it gives one. A blank privateKeyPem keeps the stored key; pass expected (the credential last read) to refuse the save if someone changed it since. The key is never returned.",
+        "operationId": "providers.aws.access",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwsAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolesAnywhereConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Remove Connapse's stored AWS credential. It stays valid in AWS until cleanupScript (an AWS CloudShell command) deletes its resources, or it expires. Without one, Connapse reads S3 with whatever credentials its environment provides.",
+        "operationId": "providers.aws.access.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsAccessReset"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/aws/identity-center": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Record the IAM Identity Center instance per-user AWS permissions are resolved against: its region, instance ARN and identity store id. applied is false when the settings take effect only after a restart. Read them at GET /api/settings/identitycenter.",
+        "operationId": "providers.aws.identityCenter",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityCenterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfIdentityCenterSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear the recorded IAM Identity Center instance. Blanks are stored, so values from configuration don't come back.",
+        "operationId": "providers.aws.identityCenter.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfIdentityCenterSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/aws/permissions": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Save the IAM Identity Center SAML application people sign in through: Connapse's entityId and acsUrl, and Identity Center's idpEntityId, idpSingleSignOnUrl and idpSigningCertificate. Once all five are set, per-user AWS permission enforcement is switched on first, and it can't be switched off again. Read the values at GET /api/settings/samlsignin.",
+        "operationId": "providers.aws.permissions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwsPermissionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfSamlSignInSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear the recorded SAML application, for one removed in AWS. Per-user enforcement stays on, so searches of AWS sources return nothing for everyone until the application is saved again.",
+        "operationId": "providers.aws.permissions.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfSamlSignInSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers/custom": {
       "get": {
         "tags": [
@@ -10490,6 +10870,153 @@
           }
         }
       },
+      "AwsAccessRequest": {
+        "required": [
+          "certificatePem",
+          "trustAnchorArn",
+          "profileArn",
+          "roleArn",
+          "region"
+        ],
+        "type": "object",
+        "properties": {
+          "certificatePem": {
+            "type": "string"
+          },
+          "trustAnchorArn": {
+            "type": "string"
+          },
+          "profileArn": {
+            "type": "string"
+          },
+          "roleArn": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "privateKeyPem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RolesAnywhereConfig"
+              }
+            ]
+          }
+        }
+      },
+      "AwsAccessReset": {
+        "required": [
+          "removed",
+          "cleanupScript"
+        ],
+        "type": "object",
+        "properties": {
+          "removed": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RolesAnywhereConfig"
+              }
+            ]
+          },
+          "cleanupScript": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AwsPermissionsRequest": {
+        "type": "object",
+        "properties": {
+          "entityId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acsUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "idpEntityId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "idpSingleSignOnUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "idpSigningCertificate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AwsSettingsSavedOfIdentityCenterSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IdentityCenterSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AwsSettingsSavedOfSamlSignInSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SamlSignInSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          }
+        }
+      },
       "BatchStatusResponse": {
         "required": [
           "jobId",
@@ -12686,6 +13213,42 @@
           }
         }
       },
+      "IdentityCenterRequest": {
+        "required": [
+          "region",
+          "instanceArn",
+          "identityStoreId"
+        ],
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "instanceArn": {
+            "type": "string"
+          },
+          "identityStoreId": {
+            "type": "string"
+          }
+        }
+      },
+      "IdentityCenterSettings": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "instanceArn": {
+            "type": "string"
+          },
+          "identityStoreId": {
+            "type": "string"
+          },
+          "isConfigured": {
+            "type": "boolean"
+          }
+        }
+      },
       "IFormFile": {
         "type": "string",
         "format": "binary"
@@ -13913,6 +14476,56 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "RolesAnywhereConfig": {
+        "required": [
+          "certificatePem",
+          "trustAnchorArn",
+          "profileArn",
+          "roleArn",
+          "region"
+        ],
+        "type": "object",
+        "properties": {
+          "certificatePem": {
+            "type": "string"
+          },
+          "trustAnchorArn": {
+            "type": "string"
+          },
+          "profileArn": {
+            "type": "string"
+          },
+          "roleArn": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          }
+        }
+      },
+      "SamlSignInSettings": {
+        "type": "object",
+        "properties": {
+          "entityId": {
+            "type": "string"
+          },
+          "acsUrl": {
+            "type": "string"
+          },
+          "idpEntityId": {
+            "type": "string"
+          },
+          "idpSingleSignOnUrl": {
+            "type": "string"
+          },
+          "idpSigningCertificate": {
+            "type": "string"
+          },
+          "isConfigured": {
+            "type": "boolean"
           }
         }
       },

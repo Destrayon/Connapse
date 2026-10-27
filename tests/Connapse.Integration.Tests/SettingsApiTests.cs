@@ -50,13 +50,21 @@ public class SettingsApiTests(SharedWebAppFixture fixture)
     [Theory]
     [InlineData("azure")]
     [InlineData("azuread")]
-    [InlineData("samlsignin")]
-    [InlineData("identitycenter")]
     public async Task ProviderSignInCategory_IsRefusedOverTheSettingsApi(string category)
     {
         (await fixture.AdminClient.GetAsync($"/api/settings/{category}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await fixture.AdminClient.PutAsJsonAsync($"/api/settings/{category}", new { })).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await fixture.AdminClient.DeleteAsync($"/api/v1/settings/{category}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData("samlsignin")]
+    [InlineData("identitycenter")]
+    public async Task ProviderOwnedCategory_IsReadableButChangedOnlyThroughProviderSetup(string category)
+    {
+        (await fixture.AdminClient.GetAsync($"/api/settings/{category}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await fixture.AdminClient.PutAsJsonAsync($"/api/settings/{category}", new { })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await fixture.AdminClient.DeleteAsync($"/api/v1/settings/{category}")).StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Theory]

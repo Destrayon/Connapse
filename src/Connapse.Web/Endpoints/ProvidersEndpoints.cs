@@ -1,6 +1,7 @@
 using Connapse.Application;
 using Connapse.Application.Providers;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Web.Problems;
 using Microsoft.AspNetCore.Mvc;
 
@@ -34,8 +35,86 @@ public static class ProvidersEndpoints
         .WithDescription("List each built-in provider (aws, azure, github, atlassian) with its requirements and their status. "
             + "Checks AWS, Entra and GitHub live, so it can take a few seconds. A provider's overall status is its weakest requirement's.");
 
+        MapAwsProvider(group.MapGroup("/aws"));
         MapCustomProviders(group.MapGroup("/custom"));
         return app;
+    }
+
+    private static void MapAwsProvider(RouteGroupBuilder aws)
+    {
+        // PUT /api/v1/providers/aws/access — check an IAM Roles Anywhere credential with AWS, then save it
+        aws.MapPut("/access", async ([FromServices] SetAwsAccess access, [FromBody] AwsAccessRequest request, HttpContext http, CancellationToken ct) =>
+        {
+            var saved = await access.RunAsync(Rest(http), request, ct);
+            return saved.Succeeded ? Results.Ok(saved.Result) : OperationProblems.Result(saved);
+        })
+        .Produces<RolesAnywhereConfig>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .WithName("providers.aws.access")
+        .WithDescription("Set Connapse's AWS access to an IAM Roles Anywhere credential: certificate, trust anchor, profile and role ARNs, region "
+            + "and private key. AWS is asked for a session first, and nothing is saved unless it gives one. A blank privateKeyPem keeps the "
+            + "stored key; pass expected (the credential last read) to refuse the save if someone changed it since. The key is never returned.");
+
+        // DELETE /api/v1/providers/aws/access — remove the stored credential
+        aws.MapDelete("/access", async ([FromServices] ResetAwsAccess reset, HttpContext http, CancellationToken ct) =>
+        {
+            var removed = await reset.RunAsync(Rest(http), ct);
+            return removed.Succeeded ? Results.Ok(removed.Result) : OperationProblems.Result(removed);
+        })
+        .Produces<AwsAccessReset>()
+        .WithName("providers.aws.access.reset")
+        .WithDescription("Remove Connapse's stored AWS credential. It stays valid in AWS until cleanupScript (an AWS CloudShell command) deletes "
+            + "its resources, or it expires. Without one, Connapse reads S3 with whatever credentials its environment provides.");
+
+        // PUT /api/v1/providers/aws/identity-center — record the IAM Identity Center instance
+        aws.MapPut("/identity-center", async ([FromServices] SetIdentityCenter identityCenter, [FromBody] IdentityCenterRequest request,
+            HttpContext http, CancellationToken ct) =>
+        {
+            var saved = await identityCenter.RunAsync(Rest(http), request, ct);
+            return saved.Succeeded ? Results.Ok(saved.Result) : OperationProblems.Result(saved);
+        })
+        .Produces<AwsSettingsSaved<IdentityCenterSettings>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .WithName("providers.aws.identityCenter")
+        .WithDescription("Record the IAM Identity Center instance per-user AWS permissions are resolved against: its region, instance ARN and "
+            + "identity store id. applied is false when the settings take effect only after a restart. Read them at GET /api/settings/identitycenter.");
+
+        // DELETE /api/v1/providers/aws/identity-center — clear the recorded instance
+        aws.MapDelete("/identity-center", async ([FromServices] ResetIdentityCenter reset, HttpContext http, CancellationToken ct) =>
+        {
+            var cleared = await reset.RunAsync(Rest(http), ct);
+            return cleared.Succeeded ? Results.Ok(cleared.Result) : OperationProblems.Result(cleared);
+        })
+        .Produces<AwsSettingsSaved<IdentityCenterSettings>>()
+        .WithName("providers.aws.identityCenter.reset")
+        .WithDescription("Clear the recorded IAM Identity Center instance. Blanks are stored, so values from configuration don't come back.");
+
+        // PUT /api/v1/providers/aws/permissions — save the SAML application; switches enforcement on for good
+        aws.MapPut("/permissions", async ([FromServices] SetAwsPermissions permissions, [FromBody] AwsPermissionsRequest request,
+            HttpContext http, CancellationToken ct) =>
+        {
+            var saved = await permissions.RunAsync(Rest(http), request, ct);
+            return saved.Succeeded ? Results.Ok(saved.Result) : OperationProblems.Result(saved);
+        })
+        .Produces<AwsSettingsSaved<SamlSignInSettings>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("providers.aws.permissions")
+        .WithDescription("Save the IAM Identity Center SAML application people sign in through: Connapse's entityId and acsUrl, and Identity "
+            + "Center's idpEntityId, idpSingleSignOnUrl and idpSigningCertificate. Once all five are set, per-user AWS permission enforcement "
+            + "is switched on first, and it can't be switched off again. Read the values at GET /api/settings/samlsignin.");
+
+        // DELETE /api/v1/providers/aws/permissions — clear the SAML application; enforcement stays on
+        aws.MapDelete("/permissions", async ([FromServices] ResetAwsPermissions reset, HttpContext http, CancellationToken ct) =>
+        {
+            var cleared = await reset.RunAsync(Rest(http), ct);
+            return cleared.Succeeded ? Results.Ok(cleared.Result) : OperationProblems.Result(cleared);
+        })
+        .Produces<AwsSettingsSaved<SamlSignInSettings>>()
+        .WithName("providers.aws.permissions.reset")
+        .WithDescription("Clear the recorded SAML application, for one removed in AWS. Per-user enforcement stays on, so searches of AWS "
+            + "sources return nothing for everyone until the application is saved again.");
     }
 
     private static void MapCustomProviders(RouteGroupBuilder custom)

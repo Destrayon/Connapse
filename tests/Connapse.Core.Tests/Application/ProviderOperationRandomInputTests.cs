@@ -2,7 +2,10 @@ using System.Security.Claims;
 using Connapse.Application;
 using Connapse.Application.Ports;
 using Connapse.Application.Providers;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope.RolesAnywhere;
+using Connapse.Storage.Settings;
 using CsCheck;
 using FluentAssertions;
 using NSubstitute;
@@ -211,6 +214,165 @@ public class ProviderOperationRandomInputTests
             deleted.Status.Should().Be(expected);
             await store.Received(expected == CustomProviderStatus.Success ? 1 : 0).DeleteAsync(id, Arg.Any<CancellationToken>());
         }, iter: 200);
+
+    // ── AWS ────────────────────────────────────────────────────────────────────────────────────
+
+    private static readonly RolesAnywhereConfig StoredAccess = new("cert",
+        "arn:aws:rolesanywhere:us-east-1:111122223333:trust-anchor/ta1", "arn:aws:rolesanywhere:us-east-1:111122223333:profile/p1",
+        "arn:aws:iam::111122223333:role/connapse", "us-east-1");
+
+    private static readonly Gen<string> GenField = Gen.OneOfConst("", "  ", "value");
+
+    private static readonly Gen<string> GenRegion = Gen.OneOfConst("", "us-east-1", "Not A Region", "eu-west-2");
+
+    [Fact]
+    [RandomInputTestOf(typeof(SetAwsAccess))]
+    public Task SetAwsAccess_AnyRequest_SavesOnlyACompleteCredentialAwsAccepted() =>
+        Gen.Select(Gen.Bool, Gen.Select(GenField, GenField, GenRegion), Gen.OneOfConst<string?>(null, "", "key"),
+            Gen.Int[0, 2], Gen.Int[0, 2], Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, (cert, arn, region), key, storedKind, expectedKind, awsAccepts) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            // 0: nothing stored, 1: the stored credential, 2: a stored key that can't be decrypted.
+            if (storedKind == 2)
+                credentials.GetRolesAnywhereMaterialAsync("aws", Arg.Any<CancellationToken>()).Returns<RolesAnywhereCredentialMaterial?>(_ => throw new InvalidOperationException());
+            else
+                credentials.GetRolesAnywhereMaterialAsync("aws", Arg.Any<CancellationToken>())
+                    .Returns(storedKind == 1 ? new RolesAnywhereCredentialMaterial(StoredAccess, "stored-key") : null);
+            var validator = Substitute.For<IRolesAnywhereSetupValidator>();
+            validator.ValidateAsync(Arg.Any<RolesAnywhereConfig>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(new RolesAnywhereValidationResult(awsAccepts, awsAccepts ? null : "denied"));
+            var session = Substitute.For<IAwsSession>();
+            // 0: none, 1: what is stored, 2: an older credential.
+            RolesAnywhereConfig? expected = expectedKind switch { 1 => StoredAccess, 2 => StoredAccess with { RoleArn = "arn:old" }, _ => null };
+
+            var saved = await new SetAwsAccess(credentials, validator, session, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context(), new AwsAccessRequest(cert, arn, arn, arn, region, key, expected));
+
+            bool complete = cert.Trim().Length > 0 && arn.Trim().Length > 0 && region.Length > 0;
+            bool keeps = string.IsNullOrWhiteSpace(key);
+            AwsSetupStatus status = !allowed ? AwsSetupStatus.Forbidden
+                : !complete || region == "Not A Region" ? AwsSetupStatus.Invalid
+                : keeps && storedKind != 1 ? AwsSetupStatus.Invalid
+                : keeps && expectedKind == 2 ? AwsSetupStatus.Changed
+                : !awsAccepts ? AwsSetupStatus.Refused
+                : AwsSetupStatus.Success;
+            saved.Status.Should().Be(status);
+            int writes = status == AwsSetupStatus.Success ? 1 : 0;
+            await credentials.Received(writes).SaveRolesAnywhereAsync(Arg.Any<string>(), Arg.Any<RolesAnywhereConfig>(), Arg.Any<string>(),
+                Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+            session.Received(writes).Clear();
+            if (status == AwsSetupStatus.Success)
+                await validator.Received(1).ValidateAsync(Arg.Any<RolesAnywhereConfig>(), keeps ? "stored-key" : "key", Arg.Any<CancellationToken>());
+            if (!allowed)
+                credentials.ReceivedCalls().Should().BeEmpty();
+        }, iter: 400);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ResetAwsAccess))]
+    public Task ResetAwsAccess_AnyCaller_RemovesTheCredentialOnlyForSettingsAdmins() =>
+        Gen.Select(Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, stored) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetRolesAnywhereAsync("aws", Arg.Any<CancellationToken>()).Returns(stored ? StoredAccess : null);
+            var session = Substitute.For<IAwsSession>();
+
+            var reset = await new ResetAwsAccess(credentials, session, Substitute.For<IAuditLogger>(), Authorizer(allowed)).RunAsync(Context());
+
+            reset.Status.Should().Be(allowed ? AwsSetupStatus.Success : AwsSetupStatus.Forbidden);
+            await credentials.Received(allowed ? 1 : 0).DeleteAsync("aws", Arg.Any<CancellationToken>());
+            session.Received(allowed ? 1 : 0).Clear();
+            if (allowed)
+                (reset.Result!.CleanupScript is not null).Should().Be(stored, "the cleanup command names the removed credential's ARNs");
+        }, iter: 100);
+
+    [Fact]
+    [RandomInputTestOf(typeof(SetIdentityCenter))]
+    public Task SetIdentityCenter_AnyRequest_SavesOnlyACompleteInstance() =>
+        Gen.Select(Gen.Bool, GenRegion, GenField, GenField, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, region, arn, storeId, reloads) = t;
+            var (store, reloader) = (Substitute.For<ISettingsStore>(), Substitute.For<ISettingsReloader>());
+            reloader.Reload().Returns(reloads);
+
+            var saved = await new SetIdentityCenter(store, reloader, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context(), new IdentityCenterRequest(region, arn, storeId));
+
+            bool valid = region is "us-east-1" or "eu-west-2" && arn.Trim().Length > 0 && storeId.Trim().Length > 0;
+            saved.Status.Should().Be(!allowed ? AwsSetupStatus.Forbidden : valid ? AwsSetupStatus.Success : AwsSetupStatus.Invalid);
+            await store.Received(saved.Succeeded ? 1 : 0).SaveAsync("identitycenter", Arg.Any<IdentityCenterSettings>(), Arg.Any<CancellationToken>());
+            if (saved.Succeeded)
+                saved.Result!.Applied.Should().Be(reloads);
+        }, iter: 300);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ResetIdentityCenter))]
+    public Task ResetIdentityCenter_AnyCaller_StoresBlanksOnlyForSettingsAdmins() =>
+        Gen.Bool.SampleAsync(async allowed =>
+        {
+            var store = Substitute.For<ISettingsStore>();
+
+            var reset = await new ResetIdentityCenter(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context());
+
+            reset.Status.Should().Be(allowed ? AwsSetupStatus.Success : AwsSetupStatus.Forbidden);
+            await store.Received(allowed ? 1 : 0).SaveAsync("identitycenter",
+                Arg.Is<IdentityCenterSettings>(s => s.Region == "" && s.InstanceArn == "" && s.IdentityStoreId == ""), Arg.Any<CancellationToken>());
+        }, iter: 50);
+
+    private sealed class Enforcement : IConfiguredSettings
+    {
+        public PermissionEnforcementSettings Value = new();
+
+        public T Current<T>() where T : class, new() => Value as T ?? new T();
+    }
+
+    [Fact]
+    [RandomInputTestOf(typeof(SetAwsPermissions))]
+    public Task SetAwsPermissions_AnyRequest_NeverSavesSignInWithoutEnforcement() =>
+        Gen.Select(Gen.Bool, Gen.Select(GenField, GenField, GenField), Gen.OneOfConst("", "https://c.example/acs", "ftp://c", "nope"),
+            Gen.OneOfConst("", "https://idp.example/sso", "nope"), Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, (entity, idpEntity, cert), acs, sso, enforcing, latchTakes) = t;
+            var store = Substitute.For<ISettingsStore>();
+            var reloader = Substitute.For<ISettingsReloader>();
+            var configured = new Enforcement { Value = new() { IsEnforcing = enforcing } };
+            reloader.Reload().Returns(_ =>
+            {
+                if (latchTakes) configured.Value = new() { IsEnforcing = true };
+                return true;
+            });
+
+            var saved = await new SetAwsPermissions(store, reloader, configured, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context(), new AwsPermissionsRequest(entity, acs, idpEntity, sso, cert));
+
+            bool addresses = acs is "" or "https://c.example/acs" && sso is "" or "https://idp.example/sso";
+            bool complete = new[] { entity, idpEntity, cert, acs, sso }.All(v => v.Trim().Length > 0);
+            AwsSetupStatus status = !allowed ? AwsSetupStatus.Forbidden
+                : !addresses ? AwsSetupStatus.Invalid
+                : complete && !enforcing && !latchTakes ? AwsSetupStatus.NotEnforcing
+                : AwsSetupStatus.Success;
+            saved.Status.Should().Be(status);
+            await store.Received(status == AwsSetupStatus.Success ? 1 : 0).SaveAsync("samlsignin", Arg.Any<SamlSignInSettings>(), Arg.Any<CancellationToken>());
+            if (status == AwsSetupStatus.Success && complete)
+                configured.Value.IsEnforcing.Should().BeTrue("sign-in is never saved while this process shows every user every AWS document");
+        }, iter: 400);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ResetAwsPermissions))]
+    public Task ResetAwsPermissions_AnyCaller_ClearsSignInButNeverEnforcement() =>
+        Gen.Bool.SampleAsync(async allowed =>
+        {
+            var store = Substitute.For<ISettingsStore>();
+
+            var reset = await new ResetAwsPermissions(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+                .RunAsync(Context());
+
+            reset.Status.Should().Be(allowed ? AwsSetupStatus.Success : AwsSetupStatus.Forbidden);
+            await store.Received(allowed ? 1 : 0).SaveAsync("samlsignin", Arg.Is<SamlSignInSettings>(s => !s.IsConfigured), Arg.Any<CancellationToken>());
+            await store.DidNotReceiveWithAnyArgs().UpdateAsync<PermissionEnforcementSettings>(default!, default!, default);
+        }, iter: 50);
 
     private static OperationContext Context() => new(new ClaimsPrincipal(), OperationSurface.Rest);
 

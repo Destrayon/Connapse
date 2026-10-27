@@ -103,7 +103,12 @@ or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
 ## settings-category-not-found
 
 Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,
-`llm`, `upload` and `summary`, in any case. The provider sign-in categories (`azure`, `azuread`, `samlsignin`, `identitycenter`) are refused here: provider setup owns them.
+`llm`, `upload` and `summary`, in any case, and `samlsignin` and `identitycenter` can be read. The Azure sign-in categories (`azure`, `azuread`) are refused here: provider setup owns them.
+
+## provider-owned-settings
+
+These settings change who can sign in or switch per-user permission enforcement on, so only provider
+setup changes them. They can still be read here. The detail names the provider route that changes them.
 
 ## invalid-settings
 
@@ -356,3 +361,25 @@ so its address can't change (`field` is `baseUrl`).
 Connections still check permissions with this custom provider, so it can't be deleted: their sources
 would lose their permission checks. The detail names them; delete them or move them to another
 provider first.
+
+## invalid-aws-setup
+
+The AWS setup can't be saved as asked: a value is missing, the region isn't an AWS region such as
+`us-east-1`, an address isn't a full http or https address, or a blank `privateKeyPem` was sent with no
+stored key to keep (or one that can't be read). `field` names the input at fault. Nothing was saved.
+
+## aws-credential-refused
+
+AWS didn't give a session for this IAM Roles Anywhere credential, so nothing was saved and the current
+credential still works. The detail is AWS's reason; check the certificate, ARNs and region match.
+
+## aws-access-changed
+
+The stored AWS credential changed since `expected` was read, so keeping its key with these values could
+put back a credential someone else replaced. Read the providers again, review the values and save again.
+
+## enforcement-not-on
+
+Per-user AWS permission enforcement couldn't be switched on in this process, so the sign-in application
+wasn't saved: saving it with enforcement off would show every user every AWS document. Restart Connapse
+and save again.
