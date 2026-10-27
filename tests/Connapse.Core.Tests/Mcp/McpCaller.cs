@@ -28,6 +28,17 @@ internal static class McpCaller
 
     public static IHttpContextAccessor Http => new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
 
+    /// <summary>A visibility that shows the caller every source, so a tool test covers the tool's own rendering.</summary>
+    public static ISourceVisibility SeesEverySource
+    {
+        get
+        {
+            var visibility = Substitute.For<ISourceVisibility>();
+            visibility.ForAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => true);
+            return visibility;
+        }
+    }
+
     /// <summary>A model discovery that finds no embedding models, without a database.</summary>
     public static VectorModelDiscovery NoModels()
     {

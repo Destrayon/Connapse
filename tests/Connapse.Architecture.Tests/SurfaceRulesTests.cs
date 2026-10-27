@@ -1,3 +1,5 @@
+using FluentAssertions;
+
 namespace Connapse.Architecture.Tests;
 
 /// <summary>
@@ -24,6 +26,14 @@ public class SurfaceRulesTests
             "handler-store-dependencies.json",
             Rules.HandlerStoreDependencies(RepoPaths.WebCSharpFiles()),
             "Endpoint and MCP handlers call operations, not stores.");
+    }
+
+    [Fact]
+    public void McpTools_DependOnlyOnOperations()
+    {
+        StructureScan.McpTools(StructureScan.WebAssembly).Should().HaveCountGreaterThanOrEqualTo(12, "the scan must see the tools it judges");
+        Rules.McpToolDependencies(StructureScan.WebAssembly).Should().BeEmpty(
+            "an MCP tool takes the operation the API calls plus its arguments and transport plumbing, nothing else from DI");
     }
 
     /// <summary>Every .razor file and component code-behind under Components.</summary>

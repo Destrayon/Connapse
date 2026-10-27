@@ -36,8 +36,9 @@ public sealed record SourceList(IReadOnlyList<Source> Items, bool HasMore, bool 
 public sealed record SourceView(Source Source, bool Diagnostics);
 
 /// <summary>
-/// Lists sources: open to viewers, a private or permission-checked source shown only to those its
-/// provider would show it to. Never lists what is inside a source.
+/// Lists sources: open to viewers and agent keys, as containers are, since a source is a knowledge scope
+/// an agent searches; a private or permission-checked source shown only to those its provider would show
+/// it to. Never lists what is inside a source.
 /// </summary>
 [Operation("sources.list", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class ListSources(ISourceStore sources, ISourceVisibility visibility, IOperationAuthorizer authorizer)
@@ -46,7 +47,7 @@ public sealed class ListSources(ISourceStore sources, ISourceVisibility visibili
 
     public async Task<Attempt<SourceList, SourceReadStatus>> RunAsync(OperationContext context, ListSourcesQuery query, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Viewer))
+        if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
             return Attempt<SourceList, SourceReadStatus>.Fail(SourceReadStatus.Forbidden, "You don't have permission to view sources.");
         if (query.Skip < 0)
             return Attempt<SourceList, SourceReadStatus>.Fail(SourceReadStatus.InvalidPage, "skip must be >= 0");
@@ -83,5 +84,32 @@ public sealed class GetSource(ISourceStore sources, ISourceVisibility visibility
 
         bool diagnostics = await authorizer.AllowsAsync(context.User, Policies.Admin);
         return Attempt<SourceView, SourceReadStatus>.Succeed(new SourceView(source, diagnostics));
+    }
+}
+
+/// <summary>A source and its document counts by status and size, as MCP's container_describe shows them.</summary>
+public sealed record SourceStatsView(Source Source, ContainerStats Stats);
+
+/// <summary>
+/// A source's document counts by status and size, named by id or name. Open to viewers and agent keys; a
+/// source the caller may not see reads as missing, by id or by name, so neither reveals that it exists.
+/// </summary>
+[Operation("sources.stats", Scope = "knowledge:read", Risk = RiskTier.Read)]
+public sealed class GetSourceStats(ISourceStore sources, IDocumentStore documents, ISourceVisibility visibility, IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<SourceStatsView, SourceReadStatus>> RunAsync(OperationContext context, string idOrName, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
+            return Attempt<SourceStatsView, SourceReadStatus>.Fail(SourceReadStatus.Forbidden, "You don't have permission to view sources.");
+
+        // Names are stored lower case.
+        var source = Guid.TryParse(idOrName, out var id)
+            ? await sources.GetAsync(id, ct)
+            : string.IsNullOrWhiteSpace(idOrName) ? null : await sources.GetByNameAsync(idOrName.Trim().ToLowerInvariant(), ct);
+        if (source is null || !(await visibility.ForAsync(context.User, ct))(source))
+            return Attempt<SourceStatsView, SourceReadStatus>.Fail(SourceReadStatus.NotFound, $"Source '{idOrName}' not found");
+
+        var stats = await documents.GetContainerStatsAsync(source.Id, ct);
+        return Attempt<SourceStatsView, SourceReadStatus>.Succeed(new SourceStatsView(source, stats));
     }
 }

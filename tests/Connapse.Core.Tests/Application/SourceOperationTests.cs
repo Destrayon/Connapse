@@ -19,6 +19,7 @@ public class SourceOperationTests
     private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();
     private readonly IAuditLogger _audit = Substitute.For<IAuditLogger>();
     private readonly ISourceScopeRules _scopes = Substitute.For<ISourceScopeRules>();
+    private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
 
     public SourceOperationTests()
     {
@@ -29,9 +30,9 @@ public class SourceOperationTests
     private static Source Named(string name) => new(Guid.NewGuid(), name, null, null, "{}", DateTime.UtcNow, DateTime.UtcNow);
 
     [Fact]
-    public async Task List_NotAViewer_IsForbiddenAndReadsNothing()
+    public async Task List_NotAReader_IsForbiddenAndReadsNothing()
     {
-        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Viewer).Returns(false);
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(false);
 
         var listed = await new ListSources(_sources, _visibility, _authorizer).RunAsync(Caller, new ListSourcesQuery());
 
@@ -75,6 +76,43 @@ public class SourceOperationTests
 
         read.Status.Should().Be(SourceReadStatus.NotFound);
         read.Detail.Should().Be($"Source {source.Id} not found");
+    }
+
+    [Fact]
+    public async Task Stats_ByName_ReadsTheSourceAndItsCounts()
+    {
+        var source = Named("wiki");
+        var stats = new ContainerStats(3, 2, 1, 0, 12, 4096, null);
+        _sources.GetByNameAsync("wiki", Arg.Any<CancellationToken>()).Returns(source);
+        _documents.GetContainerStatsAsync(source.Id, Arg.Any<CancellationToken>()).Returns(stats);
+
+        var read = await new GetSourceStats(_sources, _documents, _visibility, _authorizer).RunAsync(Caller, " Wiki ");
+
+        read.Result.Should().Be(new SourceStatsView(source, stats));
+    }
+
+    [Fact]
+    public async Task Stats_SourceTheCallerMayNotSee_ReadsAsNotFoundWithoutItsCounts()
+    {
+        var source = Named("private");
+        _sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        _visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => false);
+
+        var read = await new GetSourceStats(_sources, _documents, _visibility, _authorizer).RunAsync(Caller, source.Id.ToString());
+
+        read.Status.Should().Be(SourceReadStatus.NotFound);
+        await _documents.DidNotReceiveWithAnyArgs().GetContainerStatsAsync(default);
+    }
+
+    [Fact]
+    public async Task Stats_NotAReader_IsForbiddenAndReadsNothing()
+    {
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(false);
+
+        var read = await new GetSourceStats(_sources, _documents, _visibility, _authorizer).RunAsync(Caller, "wiki");
+
+        read.Status.Should().Be(SourceReadStatus.Forbidden);
+        await _sources.DidNotReceiveWithAnyArgs().GetByNameAsync(default!);
     }
 
     [Fact]

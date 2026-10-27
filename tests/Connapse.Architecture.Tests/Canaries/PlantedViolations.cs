@@ -82,3 +82,18 @@ internal sealed class PlantedOperationWithFailures
     public Task<Connapse.Application.Attempt<string, PlantedStatus>> RunAsync() =>
         Task.FromResult(Connapse.Application.Attempt<string, PlantedStatus>.Fail(PlantedStatus.NotFound));
 }
+
+// MCP tools that reach past the operations (CON-19): a store, a locator, and a validator the
+// operation already applies. The operation, plumbing and arguments beside them are allowed.
+[ModelContextProtocol.Server.McpServerToolType]
+internal static class PlantedMcpTools
+{
+    [ModelContextProtocol.Server.McpServerTool(Name = "planted_store_tool")]
+    public static Task<string> StoreTool(ISourceStore sources, IServiceProvider services, string name, CancellationToken ct) =>
+        Task.FromResult(name);
+
+    [ModelContextProtocol.Server.McpServerTool(Name = "planted_rule_tool")]
+    public static Task<string> RuleTool(PlantedCompleteOperation operation, IFileTypeValidator types,
+        Microsoft.AspNetCore.Http.IHttpContextAccessor http, int? topK, Guid id, CancellationToken ct) =>
+        Task.FromResult(id.ToString());
+}

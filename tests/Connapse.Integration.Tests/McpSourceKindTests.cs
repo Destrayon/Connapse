@@ -1,5 +1,6 @@
 ﻿using System.Security.Claims;
 using Connapse.Application.Containers;
+using Connapse.Application.Sources;
 using Connapse.Application.Files;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -70,7 +71,7 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var container = await SeedContainerAsync(scope.ServiceProvider);
 
         string output = await McpTools.ContainerList(
-            scope.ServiceProvider.GetRequiredService<ListContainers>(), AsAdmin(scope.ServiceProvider), scope.ServiceProvider);
+            scope.ServiceProvider.GetRequiredService<ListContainers>(), scope.ServiceProvider.GetRequiredService<ListSources>(), AsAdmin(scope.ServiceProvider));
 
         output.Should().Contain($"{source.Name} [source]");
         output.Should().Contain($"{container.Name} [managed]",
@@ -84,7 +85,7 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         string output = await McpTools.ContainerDescribe(
-            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), AsAdmin(scope.ServiceProvider), scope.ServiceProvider, source.Id.ToString());
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), scope.ServiceProvider.GetRequiredService<GetSourceStats>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain($"Source: {source.Name}");
         output.Should().Contain("Kind: source");
@@ -99,7 +100,7 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         string output = await McpTools.ContainerDescribe(
-            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), AsAdmin(scope.ServiceProvider), scope.ServiceProvider, source.Name);
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), scope.ServiceProvider.GetRequiredService<GetSourceStats>(), AsAdmin(scope.ServiceProvider), source.Name);
 
         output.Should().Contain("Kind: source");
     }

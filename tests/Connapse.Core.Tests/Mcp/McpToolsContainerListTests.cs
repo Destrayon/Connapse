@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Application.Containers;
+using Connapse.Application.Sources;
 using Connapse.Web.Mcp;
 using FluentAssertions;
 using NSubstitute;
@@ -12,7 +13,7 @@ public class McpToolsContainerListTests
 {
     private readonly IContainerStore _containerStore;
     private readonly ISourceStore _sourceStore;
-    private readonly IServiceProvider _services;
+    private readonly ListSources _sources;
 
     public McpToolsContainerListTests()
     {
@@ -24,11 +25,7 @@ public class McpToolsContainerListTests
         _sourceStore = Substitute.For<ISourceStore>();
         _sourceStore.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Source>());
-
-        var services = Substitute.For<IServiceProvider>();
-        services.GetService(typeof(IContainerStore)).Returns(_containerStore);
-        services.GetService(typeof(ISourceStore)).Returns(_sourceStore);
-        _services = services;
+        _sources = new ListSources(_sourceStore, McpCaller.SeesEverySource, McpCaller.Allowed);
     }
 
     [Fact]
@@ -38,7 +35,7 @@ public class McpToolsContainerListTests
             .ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Container>());
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().Be("No containers found.");
     }
@@ -53,7 +50,7 @@ public class McpToolsContainerListTests
                 MakeContainer("only-one", "The only container", 7)
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().NotStartWith("TIP:");
         result.Should().StartWith("Found 1 knowledge scope(s):");
@@ -71,7 +68,7 @@ public class McpToolsContainerListTests
                 MakeContainer("research", "Customer research", 5)
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().StartWith("TIP:");
         result.Should().Contain("search_knowledge");
@@ -96,7 +93,7 @@ public class McpToolsContainerListTests
                     summary: "Use this container for Apple earnings. Covers iPhone unit sales and China revenue.")
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().Contain("Summary: Use this container for Apple earnings.");
         result.Should().NotContain("iPhone unit sales");
@@ -113,7 +110,7 @@ public class McpToolsContainerListTests
                 MakeContainer("empty", "Empty container", 0, summary: null)
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().NotContain("Summary:");
         result.Should().Contain("- empty [managed] (0 files) — Empty container");
@@ -131,7 +128,7 @@ public class McpToolsContainerListTests
                 MakeContainer("long", "Long summary", 3, summary: longSentence)
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().Contain("Summary:");
         // Should be truncated at 120 chars + "…"
@@ -151,7 +148,7 @@ public class McpToolsContainerListTests
                 MakeContainer("test", "Test", 1, summary: "No period here")
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().Contain("Summary: No period here");
     }
@@ -168,7 +165,7 @@ public class McpToolsContainerListTests
                 MakeContainer("logs", "System logs", 100, summary: "Raw system logs. No processing.")
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         result.Should().Contain("- docs [managed] (10 files) — Product docs");
         result.Should().Contain("  Summary: Complete product documentation.");
@@ -189,7 +186,7 @@ public class McpToolsContainerListTests
                     summary: "1. Use this container for Apple queries. Covers iPhone units.")
             });
 
-        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), McpCaller.Http, _services);
+        var result = await McpTools.ContainerList(new ListContainers(_containerStore, McpCaller.Allowed), _sources, McpCaller.Http);
 
         // Should capture the full first sentence, not just "1."
         result.Should().Contain("Summary: 1. Use this container for Apple queries.");
