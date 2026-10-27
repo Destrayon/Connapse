@@ -216,7 +216,9 @@ public sealed class UpdateCustomProvider(
         CustomProvider? updated;
         try
         {
-            updated = await store.UpdateAsync(providerId, CustomProviderRules.Save(name, check, tokenReplaced ? token!.Trim() : null), ct);
+            // Save the token that was checked, even when it is the saved one: a concurrent update could have replaced
+            // it since, and keeping that one would store an address and token that never passed a check together.
+            updated = await store.UpdateAsync(providerId, CustomProviderRules.Save(name, check, token?.Trim()), ct);
         }
         catch (InvalidOperationException)
         {

@@ -7,9 +7,19 @@ namespace Connapse.Core.Utilities;
 /// </summary>
 public static class CustomSourceEndpoint
 {
-    /// <summary>Whether two middle man addresses are the same, ignoring case and a trailing slash.</summary>
-    public static bool SameAddress(string? a, string? b) =>
-        string.Equals(a?.Trim().TrimEnd('/'), b?.Trim().TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Whether two middle man addresses are the same, ignoring a trailing slash and the case of the scheme and host.
+    /// The path's case counts: a server may route <c>/A</c> and <c>/a</c> to different backends.
+    /// </summary>
+    public static bool SameAddress(string? a, string? b)
+    {
+        string? x = a?.Trim().TrimEnd('/'), y = b?.Trim().TrimEnd('/');
+        if (x is null || y is null) return x is null && y is null;
+        if (!Uri.TryCreate(x, UriKind.Absolute, out Uri? left) || !Uri.TryCreate(y, UriKind.Absolute, out Uri? right))
+            return string.Equals(x, y, StringComparison.Ordinal);
+        return Uri.Compare(left, right, UriComponents.SchemeAndServer, UriFormat.UriEscaped, StringComparison.OrdinalIgnoreCase) == 0
+            && string.Equals(left.PathAndQuery, right.PathAndQuery, StringComparison.Ordinal);
+    }
 
     public const string AllowedHttpHostsKey = CustomSourceSettings.SectionName + ":AllowedHttpHosts";
 

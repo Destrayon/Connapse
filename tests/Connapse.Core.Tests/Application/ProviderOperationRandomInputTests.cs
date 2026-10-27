@@ -160,6 +160,13 @@ public class ProviderOperationRandomInputTests
                 updated.Result!.BaseUrl.Should().Be(SavedUrl, "a provider in use keeps its address");
             if (!updated.Succeeded)
                 await store.DidNotReceive().UpdateAsync(Arg.Any<Guid>(), Arg.Any<SaveCustomProviderRequest>(), Arg.Any<CancellationToken>());
+            else
+            {
+                // The saved pair is the checked pair, even if another update replaced the token meanwhile.
+                var checkedCall = checker.ReceivedCalls().Single().GetArguments();
+                await store.Received(1).UpdateAsync(id, Arg.Is<SaveCustomProviderRequest>(s =>
+                    s.Token == ((string?)checkedCall[1])!.Trim() && s.BaseUrl == (string?)checkedCall[0]), Arg.Any<CancellationToken>());
+            }
         }, iter: 300);
 
     [Fact]
