@@ -347,6 +347,39 @@ public record SearchSettings
     /// against the precise sentence; the wider window is for the answer-time LLM.
     /// </summary>
     public bool SentenceWindowSubstituteOnSearch { get; set; } = true;
+
+    /// <summary>
+    /// Turns on the link layer's search (default: false). When on, a third search walks the links of the first
+    /// searches' top documents (an issue to the pull request that closed it) and blends what it reaches with
+    /// them, and a container or source's own search settings choose which searches run and how much each
+    /// counts. When off, nothing about search changes and the link tables are never read.
+    /// </summary>
+    public bool EnableLinkSearch { get; set; } = false;
+
+    /// <summary>
+    /// Share of the final score the links search gets, 0 to 1 (default: 0.2); 0 does not run it. A document
+    /// the walk reaches scores (1 - LinkWeight) × its ordinary score + LinkWeight × its link score. Small, as in
+    /// HippoRAG 2, so links add candidates without overriding what the text itself matched.
+    /// </summary>
+    [Range(0f, 1f)]
+    public float LinkWeight { get; set; } = 0.2f;
+
+    /// <summary>Links the walk follows outward from a document, 1 or 2 (default: 2).</summary>
+    [Range(1, 2)]
+    public int LinkMaxHops { get; set; } = 2;
+
+    /// <summary>Top documents of the first searches the walk starts from (default: 10).</summary>
+    [Range(1, 50)]
+    public int LinkSeeds { get; set; } = 10;
+
+    /// <summary>
+    /// Whether the vector search runs (default: true). Read from a container or source's own settings while the
+    /// link layer is on; at least one of this and <see cref="UseKeywordSearch"/> runs.
+    /// </summary>
+    public bool UseVectorSearch { get; set; } = true;
+
+    /// <summary>Whether the keyword search runs (default: true); see <see cref="UseVectorSearch"/>.</summary>
+    public bool UseKeywordSearch { get; set; } = true;
 }
 
 /// <summary>
