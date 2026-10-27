@@ -749,6 +749,125 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("link_node_facts", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Attribute")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("attribute");
+
+                    b.Property<Guid?>("AuthorAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_agent_id");
+
+                    b.Property<string>("AuthorName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("author_name");
+
+                    b.Property<Guid?>("AuthorUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_user_id");
+
+                    b.Property<Guid>("ChainId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("chain_id");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at");
+
+                    b.Property<Guid?>("ReplacesId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("replaces_id");
+
+                    b.Property<NpgsqlTsVector>("SearchVector")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("tsvector")
+                        .HasColumnName("search_vector")
+                        .HasComputedColumnSql("setweight(to_tsvector('english', subject), 'A') || setweight(to_tsvector('english', attribute), 'B') || setweight(to_tsvector('english', value), 'C') || setweight(to_tsvector('english', coalesce(reason, '')), 'D')", true);
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("subject");
+
+                    b.Property<DateTimeOffset?>("SupersededAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("superseded_at");
+
+                    b.Property<DateTimeOffset?>("ValidFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("valid_from");
+
+                    b.Property<DateTimeOffset?>("ValidTo")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("valid_to");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChainId")
+                        .HasDatabaseName("idx_memory_facts_chain");
+
+                    b.HasIndex("SearchVector")
+                        .HasDatabaseName("idx_memory_facts_fts");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "GIN");
+
+                    b.HasIndex("ContainerId", "Subject", "Attribute")
+                        .HasDatabaseName("idx_memory_facts_key");
+
+                    b.ToTable("memory_facts", (string)null);
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactSourceEntity", b =>
+                {
+                    b.Property<Guid>("FactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fact_id");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer")
+                        .HasColumnName("ordinal");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Ref")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("ref");
+
+                    b.HasKey("FactId", "Ordinal");
+
+                    b.ToTable("memory_fact_sources", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.ProviderCredentialEntity", b =>
                 {
                     b.Property<string>("Provider")
@@ -1028,6 +1147,24 @@ namespace Connapse.Storage.Migrations
                     b.Navigation("Container");
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactSourceEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.MemoryFactEntity", null)
+                        .WithMany("Sources")
+                        .HasForeignKey("FactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.SourceEntity", b =>
                 {
                     b.HasOne("Connapse.Storage.Data.Entities.ConnectionEntity", "Connection")
@@ -1067,6 +1204,11 @@ namespace Connapse.Storage.Migrations
                     b.Navigation("ChunkVectors");
 
                     b.Navigation("Chunks");
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactEntity", b =>
+                {
+                    b.Navigation("Sources");
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.SourceEntity", b =>

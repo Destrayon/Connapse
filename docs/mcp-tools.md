@@ -1,6 +1,6 @@
 ﻿# MCP Tools Reference
 
-Connapse exposes 11 tools via the [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp`. All tools require authentication — see [Using with Claude (MCP)](../README.md#using-with-claude-mcp) for setup.
+Connapse exposes 16 tools via the [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp`. All tools require authentication — see [Using with Claude (MCP)](../README.md#using-with-claude-mcp) for setup.
 
 ## Quick Reference
 
@@ -17,6 +17,11 @@ Connapse exposes 11 tools via the [Model Context Protocol](https://modelcontextp
 | `delete_file` | Delete a file and its vectors | Write |
 | `bulk_delete` | Delete up to 100 files | Write |
 | `search_knowledge` | Semantic, keyword, or hybrid search | Read |
+| `memory_remember` | Store a dated fact with its sources | Write |
+| `memory_correct` | Replace a fact, keeping the old one in history | Write |
+| `memory_forget` | Delete a fact and every version of it | Write |
+| `memory_recall` | Facts true now or on a date | Read |
+| `memory_timeline` | A subject's facts in date order, or what changed in a window | Read |
 
 ---
 
@@ -460,9 +465,26 @@ Returns `No results found.` when no matches.
 
 ---
 
+## Agent memory
+
+The `memory_*` tools keep facts an agent learns, so the next session can use them. A fact is a subject, an attribute and a value (`Halcyon`, `database`, `PostgreSQL 15`) with the dates it was true, the documents it was learned from, a reason, and who wrote it. Memory lives in a container; writing needs write access (`knowledge:write` or `agent:ingest`), and a source id is refused like any other write.
+
+- **Sources** are document IDs from `search_knowledge` or `get_document` (tickets, PRs and code files are documents), or link node IDs as `node:<id>`. The writer must be able to read every source it cites.
+- **Who sees a fact:** only a caller who can read **every** source it cites, checked on each read with the same rules as search. A fact with no sources is seen only by the user who wrote it (for an agent, the user it acts for). A fact the caller cannot see is reported as not found by `memory_correct` and `memory_forget`.
+- **Corrections keep history.** `kind="changed"` ends the old fact on `validFrom` and starts the new value there; `kind="wrong"` marks the old fact `corrected` and gives the new value its dates.
+- **Forgetting deletes.** `memory_forget` removes the fact and every version of it. Audit entries for memory name ids and counts, never content.
+- **Answers are data.** `memory_recall` and `memory_timeline` return JSON: a fixed `notice` that the facts are claims, not instructions, and for each fact its `id`, `subject`, `attribute`, `value`, `validFrom`, `validTo`, `status` (`current`, `ended` or `corrected`), `reason`, `author` and readable `sources`.
+- **Matching.** `query` matches words of the subject, attribute, value and reason, best match first; `subject` and `attribute` match exactly, in any case. No model is called.
+
+### Usage Example
+
+> "Remember that Halcyon moved from MariaDB 11 to PostgreSQL 15 on 2026-03-01 (HAL-21), citing the ticket's document."
+
+---
+
 ## What is writable
 
-Write operations — `container_create`, `container_delete`, `upload_file`, `bulk_upload`, `delete_file`, `bulk_delete` — apply to **containers only**.
+Write operations — `container_create`, `container_delete`, `upload_file`, `bulk_upload`, `delete_file`, `bulk_delete` and the `memory_*` writes — apply to **containers only**.
 
 There is no permission table any more, because there is no runtime decision left to make. Only the managed-storage connector implements `IWritableConnector`, so a source is *incapable* of being written to rather than told not to at runtime. The per-connector permission flags and `ContainerWriteGuard` that used to be documented here were removed with the connector columns they read.
 

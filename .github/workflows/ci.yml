@@ -80,6 +80,11 @@ jobs:
       # Testcontainers spins up a single shared PostgreSQL + MinIO pair (SharedWebAppFixture)
       # Ollama runs directly on the host for embedding generation
 
+    # The memory write gate times real writes against the shared Postgres container, so it runs alone,
+    # after the integration tests (CON-39).
+    - name: Run memory speed gate
+      run: dotnet test tests/Connapse.Integration.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=memory-gate-tests.trx"
+
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
