@@ -145,6 +145,33 @@ public class CodeLinksIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Reingest_DefiningFileOnly_CallersFollowWithoutBeingReParsed()
+    {
+        // CON-110: a call names its target, so when only the defining file changes the caller's links stay right.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        Guid container = await SeedContainerAsync(sp);
+        string audit = await IngestAsync(sp, container, "/acme/AuditLog.cs", AuditLog);
+        string ledger = await IngestAsync(sp, container, "/acme/Ledger.cs", Ledger);
+        await using KnowledgeDbContext db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        DateTime? ledgerIndexed = (await db.Documents.AsNoTracking().SingleAsync(d => d.Id == Guid.Parse(ledger))).LastIndexedAt;
+
+        await IngestAsync(sp, container, "/acme/AuditLog.cs", AuditLog.Replace("Write", "Record"), audit);
+        ILookup<string, string> defined = await sp.GetRequiredService<PostgresLinkStore>().NodesOfAsync([audit]);
+        defined[audit].Should().Contain(n => n.EndsWith(":csharp:Acme.Audit.AuditLog.Record"))
+            .And.NotContain(n => n.EndsWith(":csharp:Acme.Audit.AuditLog.Write"));
+        (await db.LinkEdges.AsNoTracking().CountAsync(e => e.DocumentId == ledger && e.ToNode.EndsWith(":csharp:Acme.Audit.AuditLog.Write")))
+            .Should().Be(1, "the ledger was not re-read, and it still says it calls Write");
+        (await ExpandAsync(sp, ledger, audit, ledger)).Edges.Should().NotContain(e => e.Type == "calls",
+            "the method the ledger calls is no longer defined anywhere");
+        (await db.Documents.AsNoTracking().SingleAsync(d => d.Id == Guid.Parse(ledger))).LastIndexedAt.Should().Be(ledgerIndexed);
+
+        await IngestAsync(sp, container, "/acme/AuditLog.cs", AuditLog, audit);
+        (await ExpandAsync(sp, ledger, audit, ledger)).Edges.Should().ContainSingle(e => e.Type == "calls"
+            && e.ToId.EndsWith(":csharp:Acme.Audit.AuditLog.Write"));
+    }
+
+    [Fact]
     public async Task ExpandAsync_Confidence_IsTheHighestAReadableDocumentGave()
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();
