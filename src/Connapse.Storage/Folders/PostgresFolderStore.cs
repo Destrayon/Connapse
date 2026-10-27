@@ -17,6 +17,9 @@ public class PostgresFolderStore(
 {
     private const int StoredFileDeleteAttempts = 3;
 
+    /// <summary>How long a removal saved with a folder delete waits for the delete's own attempt before the job may take it.</summary>
+    public static readonly TimeSpan InlineRemovalGrace = TimeSpan.FromMinutes(5);
+
     public async Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
@@ -161,13 +164,27 @@ public class PostgresFolderStore(
         }
 
         context.Folders.RemoveRange(foldersToDelete);
+
+        // Saved with the delete, so a removal that keeps failing or that a crash cuts off is still owed, and
+        // StoredFileRemovalJob retries it (CON-100). Not due until the removal below has had its chance.
+        DateTime now = DateTime.UtcNow;
+        List<StoredFileRemovalEntity> removals = [.. documentsToDelete.Select(d => new StoredFileRemovalEntity
+        {
+            Id = Guid.NewGuid(),
+            ContainerId = containerId,
+            Path = d.Path,
+            CreatedAt = now,
+            NextAttemptAt = now + InlineRemovalGrace,
+        })];
+        context.StoredFileRemovals.AddRange(removals);
+
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(CancellationToken.None);
 
         // Stored files go only once the delete is saved, so a delete that fails before then leaves every file its
         // records point to (CON-94). Past the commit the delete isn't cancelled, since stopping would leave files
         // nothing points to.
-        await DeleteStoredFilesAsync(containerId, [.. documentsToDelete.Select(d => d.Path)]);
+        await DeleteStoredFilesAsync(containerId, removals);
 
         // If any cascade-deleted doc contributed to the container summary, mark stale so the
         // next sweep tick triggers a re-rollup. Same reason as PostgresDocumentStore.DeleteAsync
@@ -183,9 +200,9 @@ public class PostgresFolderStore(
         return true;
     }
 
-    private async Task DeleteStoredFilesAsync(Guid containerId, IReadOnlyCollection<string> paths)
+    private async Task DeleteStoredFilesAsync(Guid containerId, IReadOnlyCollection<StoredFileRemovalEntity> removals)
     {
-        if (paths.Count == 0)
+        if (removals.Count == 0)
             return;
 
         IConnector connector;
@@ -196,8 +213,8 @@ public class PostgresFolderStore(
         catch (Exception ex)
         {
             // The delete is already saved, so it isn't reported as failed.
-            logger.LogError(ex, "Could not reach storage to remove {Count} files in container {ContainerId} after their folder was deleted",
-                paths.Count, containerId);
+            logger.LogError(ex, "Could not reach storage to remove {Count} files in container {ContainerId} after their folder was deleted; they will be retried",
+                removals.Count, containerId);
             return;
         }
 
@@ -206,8 +223,11 @@ public class PostgresFolderStore(
             if (connector is not IWritableConnector writable)
                 return;
 
-            foreach (string path in paths)
-                await DeleteStoredFileAsync(containerId, writable, path);
+            foreach (StoredFileRemovalEntity removal in removals)
+            {
+                if (await DeleteStoredFileAsync(containerId, writable, removal.Path))
+                    await CompleteRemovalAsync(removal.Id);
+            }
         }
         finally
         {
@@ -215,7 +235,7 @@ public class PostgresFolderStore(
         }
     }
 
-    private async Task DeleteStoredFileAsync(Guid containerId, IWritableConnector writable, string path)
+    private async Task<bool> DeleteStoredFileAsync(Guid containerId, IWritableConnector writable, string path)
     {
         // The folders are no longer locked, so an upload may already have written a new file to the same path. The
         // file is removed under that path's lock, and only while no record points to it, so the newer upload's stays.
@@ -225,7 +245,7 @@ public class PostgresFolderStore(
             {
                 await documents.RemoveUnrecordedFileAsync(containerId, path,
                     token => writable.DeleteFileAsync(path, token), CancellationToken.None);
-                return;
+                return true;
             }
             catch (Exception ex) when (attempt < StoredFileDeleteAttempts)
             {
@@ -237,10 +257,24 @@ public class PostgresFolderStore(
             {
                 // Its record is already gone, so nothing points to the file; it is logged rather than failing a delete
                 // that has been saved.
-                logger.LogError(ex, "Could not remove the stored file {Path} in container {ContainerId} after its folder was deleted",
+                logger.LogError(ex, "Could not remove the stored file {Path} in container {ContainerId} after its folder was deleted; it will be retried",
                     LogSanitizer.Sanitize(path), containerId);
-                return;
+                return false;
             }
+        }
+    }
+
+    private async Task CompleteRemovalAsync(Guid removalId)
+    {
+        try
+        {
+            await using var context = await factory.CreateDbContextAsync(CancellationToken.None);
+            await context.StoredFileRemovals.Where(r => r.Id == removalId).ExecuteDeleteAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // The file is gone; the job finds nothing to remove and drops the entry.
+            logger.LogWarning(ex, "Could not mark stored-file removal {RemovalId} done", removalId);
         }
     }
 

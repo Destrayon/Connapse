@@ -195,6 +195,7 @@ builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
 builder.Services.AddScoped<Connapse.Application.Ports.ICustomAccountLinks>(sp => sp.GetRequiredService<Connapse.Web.Services.CustomLinkService>());
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkRemovalJob>();
+builder.Services.AddScoped<Connapse.Web.Services.StoredFileRemovalJob>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
 builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
@@ -456,6 +457,12 @@ if (!generatingOpenApiDocument)
         // Every minute: tell custom providers' middle men about deleted users' links until each acknowledges.
         recurringJobManager.AddOrUpdate<Connapse.Web.Services.CustomLinkRemovalJob>(
             recurringJobId: Connapse.Web.Services.CustomLinkRemovalJob.RecurringJobId,
+            methodCall: j => j.RunAsync(default),
+            cronExpression: Cron.Minutely());
+
+        // Every minute: remove stored files a folder delete owed a removal but could not remove itself (CON-100).
+        recurringJobManager.AddOrUpdate<Connapse.Web.Services.StoredFileRemovalJob>(
+            recurringJobId: Connapse.Web.Services.StoredFileRemovalJob.RecurringJobId,
             methodCall: j => j.RunAsync(default),
             cronExpression: Cron.Minutely());
 
