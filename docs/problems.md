@@ -23,6 +23,8 @@ Search needs `knowledge:read`: the Viewer role or above, or an agent key or toke
 Settings: reading, changing and resetting them, and the settings actions (re-indexing, listing embedding
 models, testing a connection, clearing all summaries), need Administrator, and a token needs `admin:settings`.
 
+Connections: listing, reading, renaming, pausing, resuming and deleting them need Administrator.
+
 ## invalid-link-provider
 
 Unlinking named a provider Connapse doesn't link accounts with. Built-in providers are `AWS`, `Azure`,
@@ -289,3 +291,27 @@ The token can't be made as asked: the name is blank or longer than 256 character
 isn't in the future (`field` is `expiresAt`). The scopes are `knowledge:read`, `knowledge:write`,
 `agent:ingest`, `admin:users`, `admin:audit`, `admin:oauth-clients` and `admin:settings`. An expiry
 that names no time zone is read as UTC.
+
+## connection-not-found
+
+No connection has that id. On the `/api/v1/atlassian/sites` routes, a connection to another
+provider reads as missing too.
+
+## invalid-connection
+
+The connection change was refused: a name that is blank or longer than 128 characters (`field` is
+`name`), a delete whose `confirmName` isn't the connection's name (`field` is `confirmName`), or a
+resume whose `sourceIds` is empty or names a source on another connection (`field` is `sourceIds`).
+
+## connection-conflict
+
+Another connection already has that name. `field` is `name`.
+
+## connection-in-use
+
+Sources still use the connection, so it can't be deleted. `detail` names them, and `sources` lists
+each one with a link; delete those sources first.
+
+## connection-has-no-sources
+
+The connection has no sources, so there is no syncing to pause or resume.

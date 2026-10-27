@@ -504,6 +504,7 @@ api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapSourcesEndpoints();
+api.MapConnectionsEndpoints();
 api.MapAuditEndpoints();
 api.MapOAuthClientEndpoints();
 api.MapDocumentsEndpoints();

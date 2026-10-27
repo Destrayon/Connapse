@@ -64,7 +64,7 @@ public class ConnectionInUseListTests : IDisposable
 
         markup.Should().Contain("<ConnectionInUseList Id=\"delete-blocked-sources\"")
             .And.Contain("await SourceStore.ListByConnectionAsync(connection.Id)")
-            .And.Contain("blockedDelete = new BlockedDelete(connection, deleted.Sources!)")
+            .And.Contain("blockedDelete = new BlockedDelete(connection, await SourceStore.ListByConnectionAsync(connection.Id))")
             .And.Contain("HoldDialogFocusAsync(\"delete-blocked-dialog\"")
             .And.NotContain("source(s) using it");
     }

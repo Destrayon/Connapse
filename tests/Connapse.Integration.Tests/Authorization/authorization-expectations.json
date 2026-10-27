@@ -95,6 +95,11 @@
       "risk": "destructive",
       "scope": null
     },
+    "DELETE /api/v1/connections/{connectionId:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": null
+    },
     "DELETE /api/v1/oauth-clients/{clientId}": {
       "requires": "admin",
       "risk": "destructive",
@@ -219,6 +224,16 @@
       "requires": "viewer",
       "risk": "read",
       "scope": "knowledge:read"
+    },
+    "GET /api/v1/connections/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
+    },
+    "GET /api/v1/connections/{connectionId:guid}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": null
     },
     "GET /api/v1/sources/scope-schema/{provider}": {
       "requires": "viewer",
@@ -670,6 +685,16 @@
       "risk": "credential",
       "scope": null
     },
+    "POST /api/v1/connections/{connectionId:guid}/pause": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
+    "POST /api/v1/connections/{connectionId:guid}/resume": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
+    },
     "POST /api/v1/identity/forgotPassword": {
       "requires": "anonymous",
       "risk": "credential",
@@ -739,6 +764,11 @@
       "requires": "editor",
       "risk": "write",
       "scope": "knowledge:write"
+    },
+    "PATCH /api/v1/connections/{connectionId:guid}": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": null
     },
     "PUT /api/settings/{category}": {
       "requires": "admin",
