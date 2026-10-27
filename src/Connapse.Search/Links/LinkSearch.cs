@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Storage.Data;
 using Connapse.Storage.Links;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,12 @@ internal sealed class LinkSearch(
 
     /// <summary>The link score lost per hop beyond the first.</summary>
     internal const float HopDecay = 0.5f;
+
+    /// <summary>
+    /// The share of the link score a light link passes on: a Confluence page link or shared label is weaker evidence
+    /// that two pages answer one question than a stated relation such as "blocks" or "parent" (CON-34).
+    /// </summary>
+    internal const float LightLinkWeight = 0.5f;
 
     public async Task<List<SearchHit>> ApplyAsync(
         List<SearchHit> hits,
@@ -118,14 +125,19 @@ internal sealed class LinkSearch(
 
     /// <summary>
     /// Each node the walk reached, beyond the seeds, with the best of its seeds' scores times
-    /// <see cref="HopDecay"/> per hop after the first. Seeds reached from another seed keep the better of the two.
+    /// <see cref="HopDecay"/> per hop after the first, and <see cref="LightLinkWeight"/> per light link on the path.
+    /// Seeds reached from another seed keep the better of the two.
     /// </summary>
     internal static Dictionary<string, float> PropagateScores(
         IReadOnlyDictionary<string, float> seeds, LinkExpansion walk, int maxHops)
     {
         HashSet<string> visible = walk.Nodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
-        ILookup<string, string> neighbours = walk.Edges
-            .SelectMany(e => new[] { (e.FromId, e.ToId), (e.ToId, e.FromId) })
+        ILookup<string, (string Node, float Weight)> neighbours = walk.Edges
+            .SelectMany(e =>
+            {
+                float weight = ConfluenceLinks.LightTypes.Contains(e.Type) ? LightLinkWeight : 1f;
+                return new[] { (e.FromId, (e.ToId, weight)), (e.ToId, (e.FromId, weight)) };
+            })
             .ToLookup(x => x.Item1, x => x.Item2, StringComparer.Ordinal);
 
         // Paths carry the seed they started from, so a seed that walks out and back never scores itself.
@@ -139,18 +151,18 @@ internal sealed class LinkSearch(
         {
             List<(string Node, string Seed, float Score)> next = [];
             foreach ((string node, string seed, float score) in frontier)
-                foreach (string other in neighbours[node])
+                foreach ((string other, float weight) in neighbours[node])
                 {
                     if (other == seed)
                         continue;
-                    float value = score * factor;
+                    float value = score * weight * factor;
                     if (value > scores.GetValueOrDefault(other, -1f))
                         scores[other] = value;
-                    next.Add((other, seed, score));
+                    next.Add((other, seed, score * weight));
                 }
 
             // Each node walks on once per seed, with that seed's score.
-            frontier = next.GroupBy(x => (x.Node, x.Seed)).Select(g => g.First()).ToList();
+            frontier = next.GroupBy(x => (x.Node, x.Seed)).Select(g => g.MaxBy(x => x.Score)).ToList();
             factor *= HopDecay;
         }
         return scores;
