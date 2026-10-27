@@ -90,7 +90,7 @@ public static class SourcesEndpoints
         })
         .Produces<SourceStatsResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("GetSourceStats")
+        .WithName("sources.stats")
         .WithDescription("Get statistics for a source: document counts by status, chunk count, storage size, last indexed time")
         .RequireAuthorization("RequireViewer");
 

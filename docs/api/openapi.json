@@ -3976,7 +3976,7 @@
           "Sources"
         ],
         "description": "Get statistics for a source: document counts by status, chunk count, storage size, last indexed time",
-        "operationId": "GetSourceStats",
+        "operationId": "sources.stats",
         "parameters": [
           {
             "name": "sourceId",
