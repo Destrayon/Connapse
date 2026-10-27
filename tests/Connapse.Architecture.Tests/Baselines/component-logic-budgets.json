@@ -105,9 +105,9 @@
     "IsEmpty": false
   },
   "Pages/CustomProviderPage.razor": {
-    "CodeLines": 285,
-    "Injects": 7,
-    "Complexity": 79,
+    "CodeLines": 261,
+    "Injects": 5,
+    "Complexity": 70,
     "MarkupLogic": 45,
     "IsEmpty": false
   },

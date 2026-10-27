@@ -37,4 +37,50 @@ public sealed class ProvidersEndpointTests(SharedWebAppFixture fixture)
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
+
+    [Fact]
+    public async Task ListCustom_Admin_ReturnsAnArray()
+    {
+        var response = await fixture.AdminClient.GetAsync("/api/v1/providers/custom");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).ValueKind.Should().Be(JsonValueKind.Array);
+    }
+
+    [Fact]
+    public async Task ListCustom_Anonymous_Unauthorized()
+    {
+        using var anonymous = fixture.Factory.CreateClient();
+
+        var response = await anonymous.GetAsync("/api/v1/providers/custom");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task CheckCustom_UnknownProvider_NotFound()
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync($"/api/v1/providers/custom/{Guid.NewGuid()}/check", new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("type").GetString()
+            .Should().EndWith("custom-provider-not-found");
+    }
+
+    [Fact]
+    public async Task DeleteCustom_UnknownProvider_NotFound()
+    {
+        var response = await fixture.AdminClient.DeleteAsync($"/api/v1/providers/custom/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task CreateCustom_NoToken_BadRequestNamingTheToken()
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/v1/providers/custom", new { baseUrl = "https://example.com" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("token");
+    }
 }

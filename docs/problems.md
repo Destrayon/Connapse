@@ -334,3 +334,25 @@ each one with a link; delete those sources first.
 ## connection-has-no-sources
 
 The connection has no sources, so there is no syncing to pause or resume.
+
+## custom-provider-not-found
+
+No custom provider has that id. It may have been deleted.
+
+## invalid-custom-provider
+
+The custom provider can't be saved as asked. Its source server didn't pass the check: the address
+breaks a rule or doesn't answer (`field` is `baseUrl`), or the token was refused, a wrong token was
+accepted, or the saved token can't go to a new address (`field` is `token`). Or the name isn't 1 to
+128 characters (`field` is `name`). Nothing was saved; run the check to see each step.
+
+## custom-provider-conflict
+
+Another custom provider already has that name (`field` is `name`), or connections use this provider,
+so its address can't change (`field` is `baseUrl`).
+
+## custom-provider-in-use
+
+Connections still check permissions with this custom provider, so it can't be deleted: their sources
+would lose their permission checks. The detail names them; delete them or move them to another
+provider first.
