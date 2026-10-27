@@ -515,6 +515,7 @@ api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
+api.MapProvidersEndpoints();
 api.MapGitHubAppEndpoints();
 api.MapAtlassianEndpoints();
 api.MapAtlassianLinkAppEndpoints();

@@ -23,7 +23,7 @@
 @inject IAzureBlobDiscovery AzureDiscovery
 @inject IAzureHostIdentity HostIdentity
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
-@inject IProviderSetupReader SetupReader
+@inject Connapse.Application.Providers.GetProviderStatus ProviderStatus
 @inject IProviderCredentialStore CredentialStore
 @inject GitHubAppUsage GitHubUsage
 @inject IRolesAnywhereSetupValidator RaValidator
@@ -2439,7 +2439,7 @@
     {
         if (!firstRender) return;
 
-        setups = await SetupReader.ReadAsync();
+        setups = await ProviderStatus.ReadAsync(AuthState);
         customProviders = await CustomProviderStore.ListAsync();
         await LoadAwsCredentialModeAsync();
         if (Key == "github")
@@ -3005,7 +3005,7 @@
             Task detection = Key == "azure" && hostIdentityRequested
                 ? DetectHostIdentityAsync(refresh: true)
                 : Task.CompletedTask;
-            setups = await SetupReader.ReadAsync();
+            setups = await ProviderStatus.ReadAsync(AuthState);
         customProviders = await CustomProviderStore.ListAsync();
             await detection;
             await LoadAwsCredentialModeAsync();

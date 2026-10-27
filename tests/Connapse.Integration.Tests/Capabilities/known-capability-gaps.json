@@ -135,7 +135,6 @@
   "operation providers.github.createApp.callback: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation providers.github.createApp: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation providers.github.installed: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation providers.status: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation search.models: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation server.info: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation sources.unlocated: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
@@ -162,6 +161,5 @@
   "route providers.github.app: missing DELETE /api/v1/providers/github/app": "No REST route: the capability exists only in the web UI.",
   "route providers.github.app: missing PUT /api/v1/providers/github/app": "No REST route: the capability exists only in the web UI.",
   "route providers.github.createApp: missing POST /api/v1/providers/github/manifest": "No REST route: the capability exists only in the web UI. The flow starts with a form post from the page; the route would return the manifest and GitHub URL.",
-  "route providers.status: missing GET /api/v1/providers/": "No REST route: the capability exists only in the web UI. Status comes from IProviderSetupReader, which no endpoint calls.",
   "route sources.unlocated: missing GET /api/sources/{sourceId:guid}/unlocated": "No REST route: the capability exists only in the web UI."
 }

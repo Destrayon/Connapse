@@ -390,6 +390,11 @@
       "risk": "read",
       "scope": "admin:oauth-clients"
     },
+    "GET /api/v1/providers/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:settings"
+    },
     "GET /api/v1/providers/github/installed": {
       "requires": "admin",
       "risk": "read",

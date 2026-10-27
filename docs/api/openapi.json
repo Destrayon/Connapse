@@ -7125,6 +7125,60 @@
         }
       }
     },
+    "/api/v1/providers": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "List each built-in provider (aws, azure, github, atlassian) with its requirements and their status. Checks AWS, Entra and GitHub live, so it can take a few seconds. A provider's overall status is its weakest requirement's.",
+        "operationId": "providers.status",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderSetup"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers/github/manifest/callback": {
       "get": {
         "tags": [
@@ -12857,6 +12911,72 @@
           }
         }
       },
+      "ProviderRequirement": {
+        "required": [
+          "name",
+          "description",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequirementStatus"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "actionLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "actionHref": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ProviderSetup": {
+        "required": [
+          "key",
+          "displayName",
+          "requirements"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderRequirement"
+            }
+          },
+          "inUse": {
+            "type": "boolean",
+            "default": false
+          },
+          "overall": {
+            "$ref": "#/components/schemas/RequirementStatus"
+          }
+        }
+      },
       "RefreshRequest": {
         "required": [
           "refreshToken"
@@ -13015,6 +13135,16 @@
             ]
           }
         }
+      },
+      "RequirementStatus": {
+        "enum": [
+          "Unknown",
+          "NotConfigured",
+          "Satisfied",
+          "Warning",
+          "Provisioning",
+          "Failed"
+        ]
       },
       "ResendConfirmationEmailRequest": {
         "required": [

@@ -48,6 +48,14 @@ public static class OperationCallers
             new Connapse.Application.Sources.ListSourcesQuery(ConnectionId: connectionId))).Result?.Items ?? [];
 
     /// <summary>
+    /// Each built-in provider's setup, read through providers.status as GET /api/v1/providers reads it;
+    /// none when the caller may not see provider setup, whom the page doesn't let in anyway.
+    /// </summary>
+    public static async Task<IReadOnlyList<Connapse.Core.ProviderSetup>> ReadAsync(
+        this Connapse.Application.Providers.GetProviderStatus status, AuthenticationStateProvider authentication) =>
+        (await status.RunAsync(await authentication.OperationContextAsync())).Result ?? [];
+
+    /// <summary>
     /// Tests a connection through settings.testConnection with the settings on the page and any key typed on
     /// it; a saved key is used only at the address it was saved for. Whether it connected, and what the page says.
     /// </summary>
