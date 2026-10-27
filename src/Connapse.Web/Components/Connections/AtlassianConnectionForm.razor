@@ -703,13 +703,8 @@
                 case AtlassianAddOutcome.Conflict:
                     saveError = $"A connection named '{added.Name}' already exists. Open it from the list to test it or replace its credentials.";
                     break;
-                case AtlassianAddOutcome.NameTaken:
-                    saveError = $"Another connection is already named '{added.Name}'. Rename it, then try again.";
-                    break;
-                case AtlassianAddOutcome.Forbidden:
-                    saveError = "You don't have permission to create connections.";
-                    break;
                 default:
+                    saveError = added.Refusal;
                     saveResult = added.Test;
                     break;
             }

@@ -14,9 +14,9 @@
     "IsEmpty": false
   },
   "Connections/AtlassianConnectionForm.razor": {
-    "CodeLines": 428,
+    "CodeLines": 426,
     "Injects": 6,
-    "Complexity": 102,
+    "Complexity": 101,
     "MarkupLogic": 53,
     "IsEmpty": false
   },
@@ -98,7 +98,7 @@
     "IsEmpty": false
   },
   "Pages/Connections.razor": {
-    "CodeLines": 1557,
+    "CodeLines": 1545,
     "Injects": 21,
     "Complexity": 415,
     "MarkupLogic": 245,

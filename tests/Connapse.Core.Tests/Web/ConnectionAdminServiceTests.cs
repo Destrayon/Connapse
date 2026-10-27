@@ -33,7 +33,8 @@ public sealed class ConnectionAdminServiceTests
         var authorizer = Substitute.For<IOperationAuthorizer>();
         var operations = new ConnectionOperations(
             new ListConnections(_connections, sources, authorizer), new GetConnection(_connections, sources, authorizer),
-            new UpdateConnection(_connections, sources, audit, authorizer), new PauseConnection(_connections, sources, audit, authorizer),
+            new CreateConnection(_connections, Substitute.For<IConnectionSettingsRules>(), audit, authorizer),
+            new UpdateConnection(_connections, sources, Substitute.For<IConnectionSettingsRules>(), audit, authorizer), new PauseConnection(_connections, sources, audit, authorizer),
             new ResumeConnection(_connections, sources, audit, authorizer), new DeleteConnection(_connections, sources, audit, authorizer));
         _admin = new ConnectionAdminService(_connections, audit, operations, Substitute.For<AuthenticationStateProvider>());
     }

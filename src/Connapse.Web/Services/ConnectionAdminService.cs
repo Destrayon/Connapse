@@ -60,6 +60,28 @@ public sealed class ConnectionAdminService(
     }
 
     /// <summary>
+    /// Creates the connection through connections.create as the signed-in user: the same settings checks and
+    /// audit as POST /api/v1/connections. A refused name goes to <paramref name="nameRefused"/>, a refused custom
+    /// address or token to <paramref name="fieldRefused"/> with the field, and any other refusal (or one with no
+    /// handler given) to <paramref name="failed"/>; null comes back for all of them.
+    /// </summary>
+    public async Task<Connection?> CreateAsync(
+        NewConnection connection, Action<string> failed, Func<string, Task>? nameRefused = null,
+        Func<string, string, Task>? fieldRefused = null, CancellationToken ct = default)
+    {
+        var created = await operations.Create.RunAsync(await authentication.OperationContextAsync(), connection, ct);
+        if (created.Succeeded)
+            return created.Result!.Connection;
+        if (created.Field == "name" && nameRefused is not null)
+            await nameRefused(created.Detail!);
+        else if (created.Field is "baseUrl" or "secret" && fieldRefused is not null)
+            await fieldRefused(created.Detail!, created.Field);
+        else
+            failed(created.Detail!);
+        return null;
+    }
+
+    /// <summary>
     /// Deletes the connection through connections.delete, confirmed by its own name. Any refusal but
     /// <see cref="ConnectionStatus.InUse"/>, which the page shows with the sources blocking it, goes to <paramref name="failed"/>.
     /// </summary>

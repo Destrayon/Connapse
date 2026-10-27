@@ -372,9 +372,8 @@ public static class AtlassianEndpoints
                 AtlassianAddOutcome.TestFailed => Results.UnprocessableEntity(Report(added.Test!)),
                 AtlassianAddOutcome.Conflict =>
                     ApiProblem.Conflict($"A connection named '{added.Name}' already exists."),
-                AtlassianAddOutcome.NameTaken =>
-                    ApiProblem.Conflict($"Another connection is already named '{added.Name}'. Rename it, then try again."),
-                AtlassianAddOutcome.Forbidden => ApiProblem.Forbidden("You don't have permission to create connections."),
+                AtlassianAddOutcome.NameTaken => ApiProblem.Conflict(added.Refusal!),
+                AtlassianAddOutcome.Forbidden => ApiProblem.Forbidden(added.Refusal!),
                 _ => Results.Created($"/api/v1/atlassian/sites/{added.Connection!.Id}",
                     new AtlassianSiteCreated(
                         added.Connection.Id,

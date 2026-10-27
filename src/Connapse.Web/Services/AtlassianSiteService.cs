@@ -67,7 +67,16 @@ public sealed record AtlassianAddResult(
     string? SiteUrl = null,
     string? CloudId = null,
     string? ClientId = null,
-    string? Name = null);
+    string? Name = null)
+{
+    /// <summary>What the page and the REST API both say for a refused save; null for any other outcome.</summary>
+    public string? Refusal => Outcome switch
+    {
+        AtlassianAddOutcome.NameTaken => $"Another connection is already named '{Name}'. Rename it, then try again.",
+        AtlassianAddOutcome.Forbidden => "You don't have permission to create connections.",
+        _ => null,
+    };
+}
 
 /// <param name="Test">The test of the new credential, when one ran.</param>
 public sealed record AtlassianReplaceResult(
