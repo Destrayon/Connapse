@@ -77,14 +77,16 @@ public static class OperationCallers
 
     /// <summary>
     /// Whether a category's settings in effect are now exactly <paramref name="settings"/>, secrets aside since
-    /// settings.get never returns them; null when they can't be read, which is not a no.
+    /// settings.get never returns them; null when they can't be read, which is not a no. Also null when
+    /// <paramref name="settings"/> carries a secret, since whether that secret landed can't be seen.
     /// </summary>
     public static async Task<bool?> InEffectMatchesAsync(
         this Connapse.Application.Settings.GetSettings get, AuthenticationStateProvider authentication, string category, object settings)
     {
         var found = Connapse.Application.Settings.SettingsCategories.Find(category)
             ?? Connapse.Application.Settings.SettingsCategories.FindProviderOwned(category)?.Category;
-        if (found is null || await get.InEffectAsync(authentication, category) is not { } inEffect)
+        if (found is null || found.Secrets.Any(s => !string.IsNullOrEmpty((string?)s.GetValue(settings)))
+            || await get.InEffectAsync(authentication, category) is not { } inEffect)
             return null;
         return System.Text.Json.JsonSerializer.Serialize(inEffect, found.Type)
             == System.Text.Json.JsonSerializer.Serialize(found.WithoutSecrets(settings), found.Type);
