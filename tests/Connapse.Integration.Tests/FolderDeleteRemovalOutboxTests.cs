@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -38,7 +37,7 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
         try
         {
             foreach (string name in new[] { "a.txt", "b.txt" })
-                (await UploadAsync(containerId, name, "/docs")).StatusCode.Should().Be(HttpStatusCode.OK);
+                await StoreFileAsync(containerId, name, "/docs");
 
             using (var scope = fixture.Factory.Services.CreateScope())
             {
@@ -70,7 +69,7 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
         var containerId = await CreateContainerAsync();
         try
         {
-            (await UploadAsync(containerId, "a.txt", "/docs")).StatusCode.Should().Be(HttpStatusCode.OK);
+            await StoreFileAsync(containerId, "a.txt", "/docs");
 
             using (var scope = fixture.Factory.Services.CreateScope())
             {
@@ -100,7 +99,7 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
         var containerId = await CreateContainerAsync();
         try
         {
-            (await UploadAsync(containerId, "a.txt", "/docs")).StatusCode.Should().Be(HttpStatusCode.OK);
+            await StoreFileAsync(containerId, "a.txt", "/docs");
 
             using var scope = fixture.Factory.Services.CreateScope();
             var failing = StorageFailingDeletes();
@@ -126,7 +125,7 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
         var containerId = await CreateContainerAsync();
         try
         {
-            (await UploadAsync(containerId, "a.txt", "/docs")).StatusCode.Should().Be(HttpStatusCode.OK);
+            await StoreFileAsync(containerId, "a.txt", "/docs");
 
             using var scope = fixture.Factory.Services.CreateScope();
             (await FolderStore(scope.ServiceProvider, StorageFailingDeletes()).DeleteAsync(Guid.Parse(containerId), "/docs/")).Should().BeTrue();
@@ -151,13 +150,13 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
         var containerId = await CreateContainerAsync();
         try
         {
-            (await UploadAsync(containerId, "a.txt", "/docs")).StatusCode.Should().Be(HttpStatusCode.OK);
+            await StoreFileAsync(containerId, "a.txt", "/docs");
 
             using (var scope = fixture.Factory.Services.CreateScope())
                 (await FolderStore(scope.ServiceProvider, StorageFailingDeletes())
                     .DeleteAsync(Guid.Parse(containerId), "/docs/")).Should().BeTrue();
 
-            (await UploadAsync(containerId, "a.txt", "/docs")).StatusCode.Should().Be(HttpStatusCode.OK);
+            await StoreFileAsync(containerId, "a.txt", "/docs");
 
             using (var scope = fixture.Factory.Services.CreateScope())
                 await Job(scope.ServiceProvider, scope.ServiceProvider.GetRequiredService<IManagedStorageProvider>(), PastGrace)
@@ -228,38 +227,29 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
         return (await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions))!.Id;
     }
 
-    private async Task<HttpResponseMessage> UploadAsync(string containerId, string fileName, string path)
-    {
-        using var multipart = new MultipartFormDataContent();
-        var file = new ByteArrayContent(Encoding.UTF8.GetBytes($"Contents of {fileName} in {path}."));
-        file.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-        multipart.Add(file, "files", fileName);
-        multipart.Add(new StringContent(path), "path");
-        var response = await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", multipart);
-        if (response.IsSuccessStatusCode)
-            await WaitForIngestionAsync(containerId);
-        return response;
-    }
-
     /// <summary>
-    /// Ingestion still running when the folder is deleted can save the document's record again (CON-98), and a file
-    /// a record points to is rightly not removed, so each upload settles before the test goes on.
+    /// Stores a file and its record the way an upload does, but without starting ingestion: ingestion still running
+    /// when the folder is deleted can save the record again (CON-98), and a file a record points to is rightly kept.
     /// </summary>
-    private async Task WaitForIngestionAsync(string containerId)
+    private async Task StoreFileAsync(string containerId, string fileName, string folder)
     {
-        Guid id = Guid.Parse(containerId);
-        DateTime deadline = DateTime.UtcNow.AddSeconds(90);
-        while (DateTime.UtcNow < deadline)
+        string path = $"{folder.TrimEnd('/')}/{fileName}";
+        byte[] content = Encoding.UTF8.GetBytes($"Contents of {fileName} in {folder}.");
+        using var scope = fixture.Factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IFolderStore>().EnsureAsync(Guid.Parse(containerId), folder);
+
+        var connector = (IWritableConnector)scope.ServiceProvider.GetRequiredService<IManagedStorageProvider>().CreateConnector(containerId);
+        try
         {
-            using var scope = fixture.Factory.Services.CreateScope();
-            await using var context = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
-            if (!await context.Documents.AnyAsync(d => d.ContainerId == id
-                    && (d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing)))
-                return;
-            await Task.Delay(250);
+            await connector.WriteFileAsync(path, new MemoryStream(content), "text/plain");
+        }
+        finally
+        {
+            (connector as IDisposable)?.Dispose();
         }
 
-        throw new TimeoutException($"Ingestion in container {containerId} did not finish within 90 s");
+        await scope.ServiceProvider.GetRequiredService<IDocumentStore>().StoreAsync(new Document(
+            string.Empty, containerId, fileName, "text/plain", path, content.Length, DateTime.UtcNow, [], Status: DocumentStatus.Ready));
     }
 
     private async Task<List<string>> StoredPathsAsync(string containerId)
