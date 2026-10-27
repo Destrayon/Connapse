@@ -54,6 +54,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
                 Id = user,
                 UserName = $"g-{user:N}@example.com",
                 Email = $"g-{user:N}@example.com",
+                CreatedAt = DateTime.UtcNow,
             });
             await identity.SaveChangesAsync();
         }

@@ -97,6 +97,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             Id = Guid.NewGuid(),
             UserName = $"m-{Guid.NewGuid():N}@example.com",
             Email = $"m-{Guid.NewGuid():N}@example.com",
+            CreatedAt = DateTime.UtcNow,
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
