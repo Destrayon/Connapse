@@ -52,6 +52,9 @@
     ],
     "links-v2": [
       "links-connapse-github-2"
+    ],
+    "links-v3": [
+      "links-flink-atlassian"
     ]
   },
   "datasets": {
@@ -1078,6 +1081,32 @@
           "name": "questions.jsonl",
           "url": "repo:links-connapse-github-2/questions.jsonl",
           "sha256": "80c6fa9b0a1336f2847c2984bd60d6d5dc73f5dffb1f159d0300b742ff487d4f"
+        }
+      ]
+    },
+    "links-flink-atlassian": {
+      "adapter": "link-questions",
+      "version": "2023",
+      "tags": [
+        "shape:record",
+        "source:jira",
+        "source:confluence"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "e32d05b37fa0a7108c4f01fb5c2eaf7f5024d4dfed5ed974432d7a11bd8742b9"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "06f0927d7fceca06503ba42bf0e0bd552d547e5c3172aeda70f094f7ad960546"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-flink-atlassian/questions.jsonl",
+          "sha256": "1030154247420f8f239ec7d00b8f81cef2cf33e50d663bad7cf1d8aa6eb6ce7b"
         }
       ]
     }
