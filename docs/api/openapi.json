@@ -491,7 +491,7 @@
         "tags": [
           "Auth"
         ],
-        "description": "Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, agent:ingest, admin:users, admin:audit, admin:oauth-clients and admin:settings, and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.",
+        "description": "Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, agent:ingest, admin:users, admin:audit, admin:oauth-clients, admin:settings and admin:sources, and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.",
         "operationId": "pats.create",
         "requestBody": {
           "content": {
