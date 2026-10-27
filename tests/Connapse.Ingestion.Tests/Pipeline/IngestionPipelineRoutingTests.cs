@@ -20,6 +20,11 @@ public class IngestionPipelineRoutingTests
     [InlineData("mail.eml", "DocumentAware")]
     [InlineData("mail.msg", "DocumentAware")]
     [InlineData("data.csv", "Recursive")]
+    [InlineData("Invoice.cs", "Code")]
+    [InlineData("client.TS", "Code")]
+    [InlineData("App.tsx", "Code")]
+    [InlineData("cli.py", "Code")]
+    [InlineData("app.js", "Recursive")]
     [InlineData(null, "Recursive")]
     [InlineData("", "Recursive")]
     public void ResolveStrategyName_RoutesByExtension(string? fileName, string expected)
@@ -35,6 +40,7 @@ public class IngestionPipelineRoutingTests
     [InlineData("file.pdf", "Semantic")]
     [InlineData("deck.pptx", "Semantic")]
     [InlineData("notes.md", "DocumentAware")]
+    [InlineData("Invoice.cs", "Semantic")]
     public void Resolve_ExplicitStrategy_IsHonouredForParsedMarkdownFormats(string fileName, string expected)
     {
         // A caller who picked a strategy for a PDF keeps it; .md has always gone to DocumentAware.

@@ -1,0 +1,19 @@
+<Project>
+  <!--
+    TreeSitter.DotNet ships about 30 grammars, around 65 MB per platform. CodeParser (CON-36) loads only C#,
+    TypeScript, TSX and Python, so every other grammar is dropped from build and publish output, in every project
+    that references it directly or through Connapse.Ingestion. The core library (tree-sitter) stays.
+  -->
+  <PropertyGroup>
+    <TreeSitterGrammarsDropped>^(lib)?tree-sitter-(?!(c-sharp|typescript|tsx|python)$)</TreeSitterGrammarsDropped>
+  </PropertyGroup>
+
+  <Target Name="DropUnusedTreeSitterGrammars" AfterTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <_UnusedTreeSitterGrammar Include="@(RuntimeTargetsCopyLocalItems);@(NativeCopyLocalItems)"
+                                Condition="'%(NuGetPackageId)' == 'TreeSitter.DotNet' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(Filename)', '$(TreeSitterGrammarsDropped)'))" />
+      <RuntimeTargetsCopyLocalItems Remove="@(_UnusedTreeSitterGrammar)" />
+      <NativeCopyLocalItems Remove="@(_UnusedTreeSitterGrammar)" />
+    </ItemGroup>
+  </Target>
+</Project>

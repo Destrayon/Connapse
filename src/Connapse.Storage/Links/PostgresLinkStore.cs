@@ -40,9 +40,38 @@ public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> cont
         if (documents.Count == 0)
             return;
 
-        string[] ids = documents.Select(d => d.DocumentId).Distinct(StringComparer.Ordinal).ToArray();
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await StageReplaceAsync(context, documents, ct);
+        await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        Interlocked.Increment(ref _writes);
+        cache.Remove(AnyKey);
+    }
+
+    /// <summary>
+    /// Deletes what <paramref name="documents"/> asserted before and stages what they assert now, in the caller's
+    /// transaction; the caller saves. Lets ingestion replace a document's links in the same commit as its chunks.
+    /// </summary>
+    public static async Task StageReplaceAsync(KnowledgeDbContext context, IReadOnlyList<DocumentLinks> documents, CancellationToken ct)
+    {
+        string[] ids = documents.Select(d => d.DocumentId).Distinct(StringComparer.Ordinal).ToArray();
+
+        // The deletes below bypass the change tracker, so rows a reused context still tracks from an earlier write of
+        // these documents would clash with the new ones.
+        HashSet<string> replaced = [.. ids];
+        foreach (var entry in context.ChangeTracker.Entries().ToList())
+        {
+            string? owner = entry.Entity switch
+            {
+                LinkEdgeEntity e => e.DocumentId,
+                LinkNodeFactEntity f => f.DocumentId,
+                LinkNodeDocumentEntity n => n.DocumentId,
+                _ => null,
+            };
+            if (owner is not null && replaced.Contains(owner))
+                entry.State = EntityState.Detached;
+        }
 
         await context.LinkEdges.Where(e => ids.Contains(e.DocumentId)).ExecuteDeleteAsync(ct);
         await context.LinkNodeFacts.Where(f => ids.Contains(f.DocumentId)).ExecuteDeleteAsync(ct);
@@ -50,8 +79,9 @@ public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> cont
 
         foreach (DocumentLinks document in documents)
         {
-            if (document.NodeId is { } nodeId)
-                context.LinkNodeDocuments.Add(new LinkNodeDocumentEntity { NodeId = nodeId, DocumentId = document.DocumentId });
+            IEnumerable<string> standsFor = document.NodeId is { } nodeId ? [nodeId, .. document.AlsoStandsFor ?? []] : document.AlsoStandsFor ?? [];
+            foreach (string node in standsFor.Distinct(StringComparer.Ordinal))
+                context.LinkNodeDocuments.Add(new LinkNodeDocumentEntity { NodeId = node, DocumentId = document.DocumentId });
 
             context.LinkNodeFacts.AddRange(document.Facts.Select((f, i) => new LinkNodeFactEntity
             {
@@ -71,13 +101,9 @@ public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> cont
                 DocumentId = document.DocumentId,
                 Evidence = l.Evidence,
                 Ordinal = i,
+                Confidence = (float)Math.Clamp(l.Confidence, 0, 1),
             }));
         }
-
-        await context.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        Interlocked.Increment(ref _writes);
-        cache.Remove(AnyKey);
     }
 
     public async Task<ILookup<string, string>> NodesOfAsync(IReadOnlyCollection<string> documentIds, CancellationToken ct = default)

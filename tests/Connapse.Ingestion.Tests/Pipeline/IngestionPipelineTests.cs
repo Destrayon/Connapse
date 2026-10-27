@@ -212,6 +212,25 @@ public class IngestionPipelineTests
     }
 
     [Fact]
+    public async Task IngestAsync_CodeOutline_IsNotHandedToTheChunker()
+    {
+        // Chunkers copy the parser's metadata onto every chunk; the outline would be stored once per chunk.
+        _parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ParsedDocument("class C { }",
+                new Dictionary<string, string> { ["CodeOutline"] = "{}", ["FileType"] = "Code" }, []));
+        _chunkingStrategy.ChunkAsync(Arg.Any<ParsedDocument>(), Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ChunkInfo>());
+        using var dbContext = CreateInMemoryContext();
+
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
+
+        await act.Should().ThrowAsync<PermanentIngestionException>();
+        await _chunkingStrategy.Received().ChunkAsync(
+            Arg.Is<ParsedDocument>(d => !d.Metadata.ContainsKey("CodeOutline") && d.Metadata["FileType"] == "Code"),
+            Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task IngestAsync_NoChunks_ThrowsPermanentWithoutEmbedding()
     {
         _chunkingStrategy.ChunkAsync(Arg.Any<ParsedDocument>(), Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>())

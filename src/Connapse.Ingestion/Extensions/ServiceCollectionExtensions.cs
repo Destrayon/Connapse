@@ -2,6 +2,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
+using Connapse.Ingestion.Parsers.Code;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
 using Connapse.Ingestion.Summarization;
@@ -24,6 +25,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentParser, PdfParser>();
         services.AddSingleton<IDocumentParser, OfficeParser>();
         services.AddSingleton<IDocumentParser, HtmlParser>();
+        services.AddSingleton<IDocumentParser, CodeParser>();
         services.AddSingleton<IDocumentParser>(sp => new EpubParser(
             sp.GetService<Microsoft.Extensions.Options.IOptionsMonitor<Connapse.Core.UploadSettings>>()));
         // Attachments are parsed by the other parsers, looked up when a message is parsed: taking
@@ -60,6 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IChunkingStrategy, DocumentAwareChunker>();
         services.AddSingleton<IChunkingStrategy, SentenceWindowChunker>();
         services.AddSingleton<IChunkingStrategy, RecordChunker>();
+        services.AddSingleton<IChunkingStrategy, CodeChunker>();
         services.AddTransient<IChunkingStrategy, SemanticChunker>(); // Transient because it depends on IEmbeddingProvider
 
         // Register embedding cache
