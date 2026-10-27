@@ -78,7 +78,7 @@
     "DELETE /api/v1/atlassian/sites/{connectionId:guid}": {
       "requires": "admin",
       "risk": "destructive",
-      "scope": null
+      "scope": "admin:sources"
     },
     "DELETE /api/v1/auth/cloud/{provider}": {
       "requires": "user",
@@ -98,7 +98,7 @@
     "DELETE /api/v1/connections/{connectionId:guid}": {
       "requires": "admin",
       "risk": "destructive",
-      "scope": null
+      "scope": "admin:sources"
     },
     "DELETE /api/v1/oauth-clients/{clientId}": {
       "requires": "admin",
@@ -228,12 +228,12 @@
     "GET /api/v1/connections/": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:sources"
     },
     "GET /api/v1/connections/{connectionId:guid}": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:sources"
     },
     "GET /api/v1/sources/scope-schema/{provider}": {
       "requires": "viewer",
@@ -263,12 +263,12 @@
     "GET /api/v1/atlassian/sites/": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:sources"
     },
     "GET /api/v1/atlassian/sites/{connectionId:guid}": {
       "requires": "admin",
       "risk": "read",
-      "scope": null
+      "scope": "admin:sources"
     },
     "GET /api/v1/atlassian/sites/{connectionId:guid}/projects": {
       "requires": "admin",
@@ -548,7 +548,7 @@
     "PATCH /api/v1/atlassian/sites/{connectionId:guid}": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/containers/": {
       "requires": "editor",
@@ -653,12 +653,12 @@
     "POST /api/v1/atlassian/sites/{connectionId:guid}/pause": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/atlassian/sites/{connectionId:guid}/resume": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/atlassian/sites/{connectionId:guid}/test": {
       "requires": "admin",
@@ -688,12 +688,12 @@
     "POST /api/v1/connections/{connectionId:guid}/pause": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/connections/{connectionId:guid}/resume": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/identity/forgotPassword": {
       "requires": "anonymous",
@@ -768,7 +768,7 @@
     "PATCH /api/v1/connections/{connectionId:guid}": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "PUT /api/settings/{category}": {
       "requires": "admin",

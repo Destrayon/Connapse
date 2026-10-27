@@ -400,7 +400,7 @@ public static class AtlassianEndpoints
             return listed.Succeeded
                 ? Results.Ok(listed.Result!.Items.Select(v => SiteView(v.Connection, v.SyncPaused)))
                 : OperationProblems.Result(listed);
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<IReadOnlyList<AtlassianSiteView>>();
 
         // GET /api/v1/atlassian/sites/{connectionId} — the site, its last check, and the scopes it needs.
@@ -420,7 +420,7 @@ public static class AtlassianEndpoints
             {
                 Scopes = AtlassianSiteScopes.Of(view.Product).Select(s => new AtlassianScopeView(s.Name, s.Reason, s.Optional, s.Product)).ToList(),
             });
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSiteView>()
         .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -437,7 +437,7 @@ public static class AtlassianEndpoints
             return renamed.Succeeded
                 ? Results.Ok(SiteView(renamed.Result!.Connection, renamed.Result.SyncPaused))
                 : OperationProblems.Result(renamed);
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSiteView>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -455,7 +455,7 @@ public static class AtlassianEndpoints
             return paused.Succeeded
                 ? Results.Ok(new AtlassianSyncState(paused.Result!.SyncPaused, paused.Result.Sources))
                 : OperationProblems.Result(paused);
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSyncState>()
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict);
@@ -473,7 +473,7 @@ public static class AtlassianEndpoints
             return resumed.Succeeded
                 ? Results.Ok(new AtlassianSyncState(resumed.Result!.SyncPaused, resumed.Result.Sources))
                 : OperationProblems.Result(resumed);
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSyncState>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -494,7 +494,7 @@ public static class AtlassianEndpoints
             return deleted.Succeeded
                 ? Results.NoContent()
                 : await ConnectionsEndpoints.Failed(deleted, connectionId, sources, http, ct);
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)

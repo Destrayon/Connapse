@@ -35,7 +35,7 @@ public class PersonalTokenOperationRandomInputTests
         null, Now.AddDays(-1), Now, Now.AddSeconds(1), Now.AddDays(30), DateTime.SpecifyKind(Now.AddDays(30), DateTimeKind.Unspecified));
 
     private static readonly string[] PersonalTokenScopes =
-        ["knowledge:read", "knowledge:write", "agent:ingest", "admin:users", "admin:audit", "admin:oauth-clients", "admin:settings"];
+        ["knowledge:read", "knowledge:write", "agent:ingest", "admin:users", "admin:audit", "admin:oauth-clients", "admin:settings", "admin:sources"];
 
     /// <summary>One sample's world: whether the caller signed in themselves, and the fakes.</summary>
     private sealed class World

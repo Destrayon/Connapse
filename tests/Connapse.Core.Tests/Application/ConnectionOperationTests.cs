@@ -52,7 +52,8 @@ public sealed class ConnectionOperationTests
         _connections.ListAsync(0, int.MaxValue, Arg.Any<CancellationToken>()).Returns(all);
     }
 
-    private void DenyAdmin() => _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(false);
+    // Only the sources policy is refused: an administrator's token without admin:sources still passes Policies.Admin.
+    private void DenyAdmin() => _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(false);
 
     private ListConnections List() => new(_connections, _sources, _authorizer);
 

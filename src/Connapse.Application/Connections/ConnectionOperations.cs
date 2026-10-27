@@ -114,7 +114,7 @@ public sealed class ListConnections(IConnectionStore connections, ISourceStore s
 
     public async Task<Attempt<ConnectionList, ConnectionStatus>> RunAsync(OperationContext context, ListConnectionsQuery query, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<ConnectionList, ConnectionStatus>.Fail(ConnectionStatus.Forbidden, "You don't have permission to view connections.");
         if (query.Skip < 0)
             return Attempt<ConnectionList, ConnectionStatus>.Fail(ConnectionStatus.InvalidPage, "skip must be >= 0");
@@ -151,7 +151,7 @@ public sealed class GetConnection(IConnectionStore connections, ISourceStore sou
 {
     public async Task<Attempt<ConnectionView, ConnectionStatus>> RunAsync(OperationContext context, ConnectionRef key, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<ConnectionView, ConnectionStatus>.Fail(ConnectionStatus.Forbidden, "You don't have permission to view connections.");
 
         return await ConnectionRules.FindAsync(connections, key, ct) is { } connection
@@ -173,7 +173,7 @@ public sealed class UpdateConnection(IConnectionStore connections, ISourceStore 
         static Attempt<ConnectionView, ConnectionStatus> Fail(ConnectionStatus status, string detail, string? field = null) =>
             Attempt<ConnectionView, ConnectionStatus>.Fail(status, detail, field);
 
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Fail(ConnectionStatus.Forbidden, "You don't have permission to change connections.");
 
         string trimmed = name?.Trim() ?? "";
@@ -230,7 +230,7 @@ public sealed class PauseConnection(IConnectionStore connections, ISourceStore s
 {
     public async Task<Attempt<ConnectionSyncState, ConnectionStatus>> RunAsync(OperationContext context, ConnectionRef key, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<ConnectionSyncState, ConnectionStatus>.Fail(ConnectionStatus.Forbidden, "You don't have permission to pause connections.");
 
         var connection = await ConnectionRules.FindAsync(connections, key, ct);
@@ -257,7 +257,7 @@ public sealed class ResumeConnection(IConnectionStore connections, ISourceStore 
     public async Task<Attempt<ConnectionSyncState, ConnectionStatus>> RunAsync(
         OperationContext context, ConnectionRef key, IReadOnlyCollection<Guid>? sourceIds = null, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<ConnectionSyncState, ConnectionStatus>.Fail(ConnectionStatus.Forbidden, "You don't have permission to resume connections.");
 
         var connection = await ConnectionRules.FindAsync(connections, key, ct);
@@ -309,7 +309,7 @@ public sealed class DeleteConnection(IConnectionStore connections, ISourceStore 
 {
     public async Task<Attempt<Connection, ConnectionStatus>> RunAsync(OperationContext context, ConnectionRef key, string? confirmName, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<Connection, ConnectionStatus>.Fail(ConnectionStatus.Forbidden, "You don't have permission to delete connections.");
 
         var connection = await ConnectionRules.FindAsync(connections, key, ct);

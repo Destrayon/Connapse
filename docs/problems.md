@@ -23,7 +23,8 @@ Search needs `knowledge:read`: the Viewer role or above, or an agent key or toke
 Settings: reading, changing and resetting them, and the settings actions (re-indexing, listing embedding
 models, testing a connection, clearing all summaries), need Administrator, and a token needs `admin:settings`.
 
-Connections: listing, reading, renaming, pausing, resuming and deleting them need Administrator.
+Connections: listing, reading, renaming, pausing, resuming and deleting them need Administrator,
+and a token needs `admin:sources`.
 
 ## invalid-link-provider
 
@@ -289,8 +290,8 @@ someone else's: each person sees and revokes only their own.
 The token can't be made as asked: the name is blank or longer than 256 characters (`field` is
 `name`), a scope isn't one a personal access token can hold (`field` is `scopes`), or the expiry
 isn't in the future (`field` is `expiresAt`). The scopes are `knowledge:read`, `knowledge:write`,
-`agent:ingest`, `admin:users`, `admin:audit`, `admin:oauth-clients` and `admin:settings`. An expiry
-that names no time zone is read as UTC.
+`agent:ingest`, `admin:users`, `admin:audit`, `admin:oauth-clients`, `admin:settings` and `admin:sources`.
+An expiry that names no time zone is read as UTC.
 
 ## connection-not-found
 

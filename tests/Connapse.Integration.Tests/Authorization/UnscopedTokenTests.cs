@@ -37,11 +37,33 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
     [InlineData("/api/v1/audit/?take=1")]
     [InlineData("/api/v1/oauth-clients/")]
     [InlineData("/api/v1/auth/links")]
+    [InlineData("/api/v1/connections/")]
+    [InlineData("/api/v1/atlassian/sites/")]
     public async Task ScopeCheckedRoute_AdministratorsTokenWithNoScopes_IsForbidden(string route)
     {
         using var client = await UnscopedPatClientAsync();
 
         using var response = await client.GetAsync(route);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("POST", "/pause")]
+    [InlineData("DELETE", "")]
+    public async Task ConnectionChange_AdministratorsReadOnlyToken_IsForbidden(string method, string suffix)
+    {
+        // An administrator's knowledge:read token keeps their roles; without admin:sources it can't pause or delete
+        // a connection (CON-11).
+        using var created = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
+            new PatCreateRequest($"read-{Guid.NewGuid():N}", ["knowledge:read"], RequiresApproval: false));
+        created.EnsureSuccessStatusCode();
+        var pat = (await created.Content.ReadFromJsonAsync<PatCreateResponse>())!;
+        using var client = fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, pat.Token);
+
+        using var request = new HttpRequestMessage(new HttpMethod(method), $"/api/v1/connections/{Guid.NewGuid()}{suffix}");
+        using var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -64,6 +86,7 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
     [Theory]
     [InlineData("/api/v1/audit/?take=1")]
     [InlineData("/api/settings/embedding")]
+    [InlineData("/api/v1/connections/")]
     public async Task ScopeCheckedRoute_OAuthClientGrantedNoScopes_IsForbidden(string route)
     {
         // An OAuth client's access token carries its client_id, and no scope claim when it was granted none; it is

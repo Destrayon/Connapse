@@ -142,7 +142,7 @@ public class PersonalTokenOperationExampleTests
         var created = await Create().RunAsync(Caller(), new("script", ["knowledge:read", scope]));
 
         created.Status.Should().Be(PatStatus.Invalid);
-        created.Detail.Should().Be($"'{scope}' is an invalid personal access token scope. Scopes: knowledge:read, knowledge:write, agent:ingest, admin:users, admin:audit, admin:oauth-clients, admin:settings.");
+        created.Detail.Should().Be($"'{scope}' is an invalid personal access token scope. Scopes: knowledge:read, knowledge:write, agent:ingest, admin:users, admin:audit, admin:oauth-clients, admin:settings, admin:sources.");
         created.Field.Should().Be("scopes");
         _pats.ReceivedCalls().Should().BeEmpty();
     }

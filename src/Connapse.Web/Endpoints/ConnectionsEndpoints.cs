@@ -61,7 +61,7 @@ public static class ConnectionsEndpoints
     public static IEndpointRouteBuilder MapConnectionsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/connections").WithTags("Connections")
-            .RequireAuthorization("RequireAdmin")
+            .RequireAuthorization("RequireSourcesAdmin")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
