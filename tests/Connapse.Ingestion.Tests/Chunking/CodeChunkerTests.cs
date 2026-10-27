@@ -131,6 +131,52 @@ public class CodeChunkerTests
     }
 
     [Fact]
+    public async Task ChunkAsync_SplitParts_EachPointAtTheirOwnLines()
+    {
+        string source = "def long_function():\n" +
+            string.Concat(Enumerable.Range(0, 80).Select(i => $"    value_{i} = compute_something(value_{i}, 'argument number {i}')\n"));
+
+        var chunks = await ChunkAsync(source, "long.py", maxChunkSize: 200);
+
+        foreach (var chunk in chunks)
+        {
+            string body = chunk.Content[(chunk.Content.IndexOf('\n') + 1)..];
+            source[chunk.StartOffset..chunk.EndOffset].TrimEnd('\n').Should().Be(body);
+            chunk.Metadata.Should().NotContainKey("OffsetEstimated");
+        }
+        int.Parse(chunks[1].Metadata[CodeChunker.MetadataKeyStartLine]).Should().BeGreaterThan(1);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_NoOutline_KeepsEveryCharacterIncludingIndentationAndLongLines()
+    {
+        string source = string.Concat(Enumerable.Range(0, 60).Select(i => $"    indented_{i} = f({i})  \n"))
+            + "x = '" + new string(' ', 3) + string.Join("  ", Enumerable.Range(0, 400).Select(i => $"w{i}")) + "'\n";
+        var parsed = new ParsedDocument(source, new Dictionary<string, string> { ["FileType"] = "Code" }, []);
+
+        var chunks = await _chunker.ChunkAsync(parsed, new ChunkingSettings { MaxChunkSize = 100 });
+
+        chunks.Should().OnlyContain(c => c.TokenCount <= 100);
+        chunks[0].Content.Should().StartWith("    indented_0");
+        string rebuilt = string.Concat(chunks.Select(c => source[c.StartOffset..c.EndOffset]).Distinct());
+        rebuilt.Should().Be(source);
+        string.Concat(chunks.Where(c => c.Metadata.ContainsKey("OffsetEstimated")).Select(c => c.Content))
+            .Should().Be(source.TrimEnd('\n').Split('\n')[^1], "the long line's pieces join back into it exactly");
+    }
+
+    [Fact]
+    public async Task ChunkAsync_QualifiedNameLongerThanTheBudget_StillFits()
+    {
+        string ns = string.Join('.', Enumerable.Range(0, 60).Select(i => $"Segment{i}"));
+        string source = $"namespace {ns};\nclass C {{ void M() {{ }} }}\n";
+
+        var chunks = await ChunkAsync(source, "deep.cs", maxChunkSize: 40);
+
+        chunks.Should().NotBeEmpty();
+        chunks.Should().OnlyContain(c => c.TokenCount <= 40);
+    }
+
+    [Fact]
     public async Task ChunkAsync_PythonModule_KeepsImportsAndTopLevelCode()
     {
         const string source = """

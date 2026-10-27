@@ -178,65 +178,115 @@ public sealed class CodeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
 
     private void Emit(Passage passage, SourceLines lines, int budget, Dictionary<string, string> metadata, List<ChunkInfo> chunks)
     {
-        string header = passage.Kind == "file" ? "" : Header(passage.Kind, passage.Name);
-        int room = budget - tokenCounter.CountTokens(header) - PartSuffixTokens;
-        List<string> parts = tokenCounter.CountTokens(header + passage.Body) <= budget
-            ? [passage.Body]
-            : SplitLines(passage.Body, Math.Max(8, room));
+        string header = passage.Kind == "file" ? "" : FitHeader(passage.Kind, passage.Name, budget / 4);
+        int room = Math.Max(1, budget - tokenCounter.CountTokens(header) - PartSuffixTokens);
+        List<Part> parts = tokenCounter.CountTokens(header + passage.Body) <= budget
+            ? [new Part(passage.Body, 0, passage.EndLine - passage.StartLine)]
+            : SplitLines(passage.Body, room);
 
         for (int part = 0; part < parts.Count; part++)
         {
             string partHeader = parts.Count == 1 || header.Length == 0
                 ? header
                 : $"{header.TrimEnd('\n')} (part {part + 1} of {parts.Count})\n";
-            string text = (partHeader + parts[part]).Trim();
+            // The code is kept exactly as written: indentation and spaces at a cut are part of it.
+            string text = partHeader + parts[part].Text;
+            if (text.Trim().Length == 0)
+                continue;
             int index = chunks.Count;
+            // A contiguous passage's part covers its own lines; one assembled from pieces points at the whole span.
+            (int first, int last) = passage.Contiguous
+                ? (passage.StartLine + parts[part].FirstLine, passage.StartLine + parts[part].LastLine)
+                : (passage.StartLine, passage.EndLine);
             var chunkMetadata = new Dictionary<string, string>(metadata)
             {
                 ["ChunkingStrategy"] = StrategyName,
                 ["ChunkIndex"] = index.ToString(CultureInfo.InvariantCulture),
                 [MetadataKeyKind] = passage.Kind,
-                [MetadataKeyStartLine] = passage.StartLine.ToString(CultureInfo.InvariantCulture),
-                [MetadataKeyEndLine] = passage.EndLine.ToString(CultureInfo.InvariantCulture),
+                [MetadataKeyStartLine] = first.ToString(CultureInfo.InvariantCulture),
+                [MetadataKeyEndLine] = last.ToString(CultureInfo.InvariantCulture),
             };
             if (passage.Name.Length > 0)
                 chunkMetadata[MetadataKeySymbol] = passage.Name;
-            if (!passage.Contiguous || parts.Count > 1)
+            if (!passage.Contiguous || parts[part].Cut)
                 chunkMetadata["OffsetEstimated"] = "true";
 
             chunks.Add(new ChunkInfo(text, index, tokenCounter.CountTokens(text),
-                lines.Offset(passage.StartLine), lines.EndOffset(passage.EndLine), chunkMetadata));
+                lines.Offset(first), lines.EndOffset(last), chunkMetadata));
         }
     }
 
-    /// <summary>Packs whole lines into pieces of at most <paramref name="room"/> tokens; a longer line is cut.</summary>
-    private List<string> SplitLines(string body, int room)
+    /// <summary>
+    /// A header that leaves the code at least three quarters of the budget: a qualified name too long for it keeps
+    /// its last segments, and failing that its end.
+    /// </summary>
+    private string FitHeader(string kind, string name, int maxTokens)
     {
-        var parts = new List<string>();
-        var current = new List<string>();
-        int currentTokens = 0;
-        foreach (string line in body.Split('\n'))
+        string header = Header(kind, name);
+        string shortened = name;
+        while (tokenCounter.CountTokens(header) > maxTokens && shortened.Contains('.'))
         {
+            shortened = shortened[(shortened.IndexOf('.') + 1)..];
+            header = Header(kind, "…" + shortened);
+        }
+        while (tokenCounter.CountTokens(header) > maxTokens && shortened.Length > 1)
+        {
+            shortened = shortened[(shortened.Length / 2)..];
+            header = Header(kind, "…" + shortened);
+        }
+        return tokenCounter.CountTokens(header) > maxTokens ? "" : header;
+    }
+
+    /// <summary>A piece of a passage: its text, the lines it spans counted from the passage's first, and whether a line was cut.</summary>
+    private sealed record Part(string Text, int FirstLine, int LastLine, bool Cut = false);
+
+    /// <summary>
+    /// Packs whole lines into pieces of at most <paramref name="room"/> tokens. A line longer than that is cut into
+    /// pieces of its own; joined back without separators they give the line exactly.
+    /// </summary>
+    private List<Part> SplitLines(string body, int room)
+    {
+        var parts = new List<Part>();
+        var current = new List<string>();
+        int currentTokens = 0, currentFirst = 0;
+        string[] bodyLines = body.Split('\n');
+
+        void Flush(int lastLine)
+        {
+            if (current.Count > 0 && current.Any(l => l.Trim().Length > 0))
+                parts.Add(new Part(string.Join("\n", current), currentFirst, lastLine));
+            current.Clear();
+            currentTokens = 0;
+        }
+
+        for (int i = 0; i < bodyLines.Length; i++)
+        {
+            string line = bodyLines[i];
             int tokens = tokenCounter.CountTokens(line) + 1;
-            if (current.Count > 0 && currentTokens + tokens > room)
+            if (tokens - 1 > room)
             {
-                parts.Add(string.Join("\n", current));
-                current.Clear();
-                currentTokens = 0;
+                Flush(i - 1);
+                for (string rest = line; rest.Length > 0;)
+                {
+                    int cut = tokenCounter.CountTokens(rest) <= room ? rest.Length : Math.Max(1, tokenCounter.GetIndexAtTokenCount(rest, room));
+                    parts.Add(new Part(rest[..cut], i, i, Cut: true));
+                    rest = rest[cut..];
+                }
+                currentFirst = i + 1;
+                continue;
             }
 
-            string rest = line;
-            while (tokenCounter.CountTokens(rest) > room)
+            if (current.Count > 0 && currentTokens + tokens > room)
             {
-                int cut = Math.Max(1, tokenCounter.GetIndexAtTokenCount(rest, room));
-                parts.Add(rest[..cut]);
-                rest = rest[cut..];
+                Flush(i - 1);
+                currentFirst = i;
             }
-            current.Add(rest);
-            currentTokens += tokenCounter.CountTokens(rest) + 1;
+            if (current.Count == 0)
+                currentFirst = i;
+            current.Add(line);
+            currentTokens += tokens;
         }
-        if (current.Any(l => l.Trim().Length > 0))
-            parts.Add(string.Join("\n", current));
+        Flush(bodyLines.Length - 1);
         return parts;
     }
 
