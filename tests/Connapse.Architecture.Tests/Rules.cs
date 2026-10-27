@@ -84,4 +84,28 @@ internal static class Rules
         string full = component.FullName ?? component.Name;
         return full.StartsWith(prefix, StringComparison.Ordinal) ? full[prefix.Length..] : full;
     }
+
+    /// <summary>
+    /// MCP tool parameters that are neither an operation nor transport plumbing: a tool translates
+    /// its arguments, calls the operation the API also calls, and renders the outcome, so anything
+    /// else it takes from DI is a rule the API doesn't share.
+    /// </summary>
+    public static IEnumerable<string> McpToolDependencies(Assembly assembly) =>
+        StructureScan.McpTools(assembly)
+            .SelectMany(tool => tool.Method.GetParameters()
+                .Select(p => p.ParameterType)
+                .Where(t => !IsMcpToolParameter(t))
+                .Select(t => $"{tool.Method.DeclaringType!.Name} {tool.Name} -> {StructureScan.Display(t)}"))
+            .Distinct()
+            .Order(StringComparer.Ordinal);
+
+    private static bool IsMcpToolParameter(Type t)
+    {
+        t = Nullable.GetUnderlyingType(t) ?? t;
+        return t.IsDefined(typeof(Connapse.Application.OperationAttribute), inherit: false)
+            || t.IsPrimitive || t.IsEnum
+            || t == typeof(string) || t == typeof(decimal) || t == typeof(Guid)
+            || t == typeof(CancellationToken)
+            || t.FullName == "Microsoft.AspNetCore.Http.IHttpContextAccessor";
+    }
 }

@@ -3,6 +3,7 @@ using Connapse.Application.Containers;
 using Connapse.Application.Files;
 using Microsoft.AspNetCore.Authorization;
 using Connapse.Application.Search;
+using Connapse.Application.Sources;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -50,8 +51,8 @@ public class McpTools
      Description("Lists every searchable knowledge scope with its description and document count. Each entry is either kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
         ListContainers list,
+        ListSources listSources,
         IHttpContextAccessor http,
-        IServiceProvider services,
         CancellationToken ct = default)
     {
         var listed = await list.RunAsync(Mcp(http), new ListContainersQuery(), ct);
@@ -59,9 +60,10 @@ public class McpTools
             return Refused(listed);
         var containers = listed.Result!.Items;
 
-        var sourceStore = services.GetRequiredService<ISourceStore>();
-        var visible = await VisibleSourcesAsync(services, ct);
-        var sources = (await sourceStore.ListAsync(take: int.MaxValue, ct: ct)).Where(visible).ToList();
+        var listedSources = await listSources.RunAsync(Mcp(http), new ListSourcesQuery(), ct);
+        if (!listedSources.Succeeded)
+            return Refused(listedSources);
+        var sources = listedSources.Result!.Items;
 
         // Sources are listed alongside containers so existing agent prompts and the CLI keep
         // working — a source is simply a searchable scope that happens to be read-only. The
@@ -265,7 +267,6 @@ public class McpTools
     public static async Task<string> UploadFile(
         UploadFile upload,
         GetContainer getContainer,
-        IFileTypeValidator fileTypeValidator,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("Base64-encoded file content. For binary files (PDF, DOCX, images). Mutually exclusive with textContent.")] string? content = null,
@@ -277,16 +278,6 @@ public class McpTools
     {
         if (string.IsNullOrEmpty(fileName))
             return "Error: 'fileName' is required.";
-
-        if (!PathUtilities.IsValidFileName(fileName))
-            return $"Error: invalid filename '{fileName}' — must not contain path separators or '..' segments.";
-
-        if (!fileTypeValidator.IsSupported(fileName))
-        {
-            var ext = Path.GetExtension(fileName).ToLowerInvariant();
-            var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
-            return $"Error: file type '{ext}' is not supported. Supported types: {supported}";
-        }
 
         if (content is not null && textContent is not null)
             return "Error: Provide either 'content' or 'textContent', not both.";
@@ -430,7 +421,7 @@ public class McpTools
         if (items.Count == 0)
             return "Error: 'files' array must not be empty.";
 
-        if (items.Count > 100)
+        if (items.Count > Connapse.Application.Files.BulkUploadFiles.MaxFiles)
             return "Error: Maximum 100 files per bulk_upload call.";
 
         var found = await getContainer.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
@@ -626,17 +617,17 @@ public class McpTools
      Description("Returns an agent-optimized description of a knowledge scope — container or source: its description, auto-generated summary (if available), and document statistics. Use this to understand what a scope covers before querying via search_knowledge, or when container_list output is insufficient to choose between them. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
     public static async Task<string> ContainerDescribe(
         GetContainerStats getStats,
+        GetSourceStats getSourceStats,
         IHttpContextAccessor http,
-        IServiceProvider services,
         [Description("Container or source ID (GUID) or name")] string containerId,
         CancellationToken ct = default)
     {
-        // A container through its operation; anything else may still be a source, read as before.
+        // A container first, so an id both kinds somehow share resolves to the more restricted kind; then a source.
         var read = await getStats.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
         if (!read.Succeeded && read.Status != ContainerStatus.NotFound)
             return Refused(read);
 
-        SearchableOwner? owner;
+        SearchableOwner owner;
         Connapse.Core.Container? container = null;
         ContainerStats stats;
         if (read.Succeeded)
@@ -648,11 +639,13 @@ public class McpTools
         }
         else
         {
-            var sourceStore = services.GetRequiredService<ISourceStore>();
-            owner = await ResolveSearchableOwnerAsync(containerId, services.GetRequiredService<IContainerStore>(), sourceStore, ct, await VisibleSourcesAsync(services, ct));
-            if (owner is null)
+            var source = await getSourceStats.RunAsync(Mcp(http), containerId, ct);
+            if (source.Status == SourceReadStatus.NotFound)
                 return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
-            stats = await services.GetRequiredService<IDocumentStore>().GetContainerStatsAsync(owner.Id, ct);
+            if (!source.Succeeded)
+                return Refused(source);
+            owner = ToOwner(source.Result!.Source);
+            stats = source.Result.Stats;
         }
 
         var text = $"{(owner.IsSource ? "Source" : "Container")}: {owner.Name}\n";
@@ -735,83 +728,12 @@ public class McpTools
     /// </summary>
     internal sealed record SearchableOwner(
         Guid Id, string Name, string Kind, string? Description, string? Summary,
-        int DocumentCount, DateTime CreatedAt, bool Discoverable = true)
+        int DocumentCount, DateTime CreatedAt)
     {
         public const string ManagedKind = "managed";
         public const string SourceKind = "source";
 
         public bool IsSource => Kind == SourceKind;
-    }
-
-    /// <summary>
-    /// Resolves a name or id to either a container or a source.
-    /// <para>
-    /// Restricted to the tools where accepting both is the whole point: searching a scope and
-    /// describing one. Listing a source as a searchable scope — its name, kind and summary —
-    /// is not the same as enumerating the documents inside it, and only the former is
-    /// permitted. Containers are checked first so an id collision, however improbable between
-    /// two GUID spaces, resolves to the more restricted kind.
-    /// </para>
-    /// </summary>
-    private static async Task<SearchableOwner?> ResolveSearchableOwnerAsync(
-        string nameOrId, IContainerStore containers, ISourceStore sources, CancellationToken ct,
-        Func<Source, bool>? visible = null, Func<Source, bool>? searchableWhenHidden = null)
-    {
-        // A private GitHub source the caller may not read is not found: its name alone would say
-        // that a private repository is indexed here.
-        visible ??= _ => true;
-
-        if (Guid.TryParse(nameOrId, out var guid))
-        {
-            var container = await containers.GetAsync(guid, ct);
-            if (container is not null)
-                return ToOwner(container);
-
-            var source = await sources.GetAsync(guid, ct);
-            if (source is null)
-                return null;
-            if (visible(source))
-                return ToOwner(source);
-
-            // By id only: a name lookup that answered differently for a hidden source would let
-            // anyone probe for one. Carries nothing but the id, so no name or summary is echoed.
-            return searchableWhenHidden is not null && searchableWhenHidden(source)
-                ? new SearchableOwner(source.Id, "", SearchableOwner.SourceKind, null, null, 0, default, Discoverable: false)
-                : null;
-        }
-
-        string lowered = nameOrId.ToLowerInvariant();
-
-        var byName = await containers.GetByNameAsync(lowered, ct);
-        if (byName is not null)
-            return ToOwner(byName);
-
-        var sourceByName = await sources.GetByNameAsync(lowered, ct);
-        return sourceByName is not null && visible(sourceByName) ? ToOwner(sourceByName) : null;
-    }
-
-    /// <summary>
-    /// Whether the calling user may read this document directly; see <see cref="DocumentReadGuard"/>.
-    /// Without the guard nothing can be checked, so the read is refused.
-    /// </summary>
-    private static async Task<bool> CanReadDocumentAsync(IServiceProvider services, Document document, CancellationToken ct)
-    {
-        if (services.GetService<DocumentReadGuard>() is not { } guard)
-            return false;
-
-        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
-        return await guard.CanReadAsync(SearchPrincipal.Resolve(caller), document, ct);
-    }
-
-    /// <summary>Which sources the calling user may see listed; see <see cref="PrivateSourceVisibility"/>.</summary>
-    private static async Task<Func<Source, bool>> VisibleSourcesAsync(IServiceProvider services, CancellationToken ct)
-    {
-        // Without the service nothing can be checked, so every private source stays hidden.
-        if (services.GetService<PrivateSourceVisibility>() is not { } visibility)
-            return source => PrivateSourceVisibility.IsVisible(source, new HashSet<string>(), atlassianConnections: null);
-
-        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
-        return await visibility.ForAsync(caller, ct);
     }
 
     private static SearchableOwner? ToOwner(Connapse.Core.Container container) =>

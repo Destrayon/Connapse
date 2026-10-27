@@ -78,6 +78,22 @@ public static class SourcesEndpoints
         .WithDescription("Get a source's configuration summary and sync state.")
         .RequireAuthorization("RequireViewer");
 
+        // GET /api/sources/{sourceId}/stats
+        group.MapGet("/{sourceId:guid}/stats", async (
+            Guid sourceId,
+            [FromServices] GetSourceStats stats,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var read = await stats.RunAsync(Rest(http), sourceId.ToString(), ct);
+            return read.Succeeded ? Results.Ok(SourceStatsResponse.From(read.Result!)) : OperationProblems.Result(read);
+        })
+        .Produces<SourceStatsResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("sources.stats")
+        .WithDescription("Get statistics for a source: document counts by status, chunk count, storage size, last indexed time")
+        .RequireAuthorization("RequireViewer");
+
         // POST /api/sources
         group.MapPost("/", async (
             [FromBody] CreateSourceApiRequest request,
@@ -274,6 +290,23 @@ public static class SourcesEndpoints
 }
 
 /// <summary>One sync cycle's outcome, as POST /api/sources/{sourceId}/sync returns it.</summary>
+public record SourceStatsResponse(
+    Guid SourceId,
+    string SourceName,
+    ContainerDocumentCounts Documents,
+    long TotalChunks,
+    long TotalSizeBytes,
+    DateTime? LastIndexedAt)
+{
+    public static SourceStatsResponse From(SourceStatsView view) => new(
+        view.Source.Id,
+        view.Source.Name,
+        new ContainerDocumentCounts(view.Stats.DocumentCount, view.Stats.ReadyCount, view.Stats.ProcessingCount, view.Stats.FailedCount),
+        view.Stats.TotalChunks,
+        view.Stats.TotalSizeBytes,
+        view.Stats.LastIndexedAt);
+}
+
 public record SourceSyncResponse(
     int Upserted,
     int Deleted,

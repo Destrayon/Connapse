@@ -259,6 +259,15 @@
       "mcp": "generic"
     },
     {
+      "id": "sources.stats",
+      "capability": "Source statistics",
+      "routes": [
+        "GET /api/sources/{sourceId:guid}/stats"
+      ],
+      "mcp": "container_describe",
+      "note": "MCP returns these counts when container_describe is given a source id or name."
+    },
+    {
       "id": "sources.create",
       "capability": "Create a source on a connection",
       "routes": [

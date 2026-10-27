@@ -44,6 +44,15 @@ internal static class StructureScan
     public static IEnumerable<Type> SurfaceHandlers(Assembly assembly, params string[] namespaces) =>
         SafeTypes(assembly).Where(t => t.DeclaringType is null && t.IsClass && namespaces.Contains(t.Namespace));
 
+    /// <summary>Every [McpServerTool] method on an [McpServerToolType] class, with the tool name clients see.</summary>
+    public static IEnumerable<(string Name, MethodInfo Method)> McpTools(Assembly assembly) =>
+        SafeTypes(assembly)
+            .Where(t => t.IsDefined(typeof(ModelContextProtocol.Server.McpServerToolTypeAttribute), inherit: false))
+            .SelectMany(t => t.GetMethods(Everything))
+            .Select(m => (Method: m, Tool: m.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>()))
+            .Where(x => x.Tool is not null)
+            .Select(x => (x.Tool!.Name ?? x.Method.Name, x.Method));
+
     /// <summary>What a component receives from DI: [Inject] properties and constructor parameters.</summary>
     public static IEnumerable<Type> ComponentDependencies(Type component) =>
         InjectedTypes(component).Concat(component.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)

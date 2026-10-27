@@ -65,10 +65,13 @@ public class OperationRandomInputTests
         public readonly ISourceSync Sync = Substitute.For<ISourceSync>();
         public readonly IReindexService Reindex = Substitute.For<IReindexService>();
         public readonly IMcpApprovalStore Approvals = Substitute.For<IMcpApprovalStore>();
+        public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
 
         public World(bool viewer, bool admin)
         {
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Viewer).Returns(viewer);
+            // The reads that agent keys may also make check Reader; a sample's caller passes both or neither.
+            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(viewer);
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
             Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => true);
         }
@@ -169,6 +172,48 @@ public class OperationRandomInputTests
                 {
                     read.Status.Should().Be(SourceReadStatus.Success);
                     read.Result.Should().Be(new SourceView(source, admin));
+                }
+            }, iter: 2000);
+
+    // ── sources.stats ───────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetSourceStats))]
+    public Task Stats_AnyIdOrName_CountsOnlyAVisibleSourceItResolves() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnySource, Gen.Int[0, 3], Gen.Bool, Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (caller, reader, source, keyKind, exists, visible) = t;
+                var world = new World(reader, admin: false);
+                string stored = source.Name.Trim().ToLowerInvariant();
+                world.Sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(exists ? source : null);
+                world.Sources.GetByNameAsync(stored, Arg.Any<CancellationToken>()).Returns(exists ? source : null);
+                world.Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => _ => visible);
+                var counts = new ContainerStats(3, 2, 1, 0, 12, 4096, null);
+                world.Documents.GetContainerStatsAsync(source.Id, Arg.Any<CancellationToken>()).Returns(counts);
+                // By id, by its name as typed, by its stored name, or by a name nothing has.
+                string key = keyKind switch { 0 => source.Id.ToString(), 1 => source.Name, 2 => stored, _ => "zz-none" };
+                bool resolves = keyKind != 3 && (keyKind == 0 || !string.IsNullOrWhiteSpace(source.Name)) && exists;
+
+                var read = await new GetSourceStats(world.Sources, world.Documents, world.Visibility, world.Authorizer).RunAsync(caller, key);
+
+                if (!reader)
+                {
+                    read.Status.Should().Be(SourceReadStatus.Forbidden);
+                    world.Sources.ReceivedCalls().Should().BeEmpty();
+                    world.Documents.ReceivedCalls().Should().BeEmpty();
+                }
+                else if (!resolves || !visible)
+                {
+                    // An invisible source reads exactly as a missing one, and its counts are never read.
+                    read.Status.Should().Be(SourceReadStatus.NotFound);
+                    read.Detail.Should().Be($"Source '{key}' not found");
+                    world.Documents.ReceivedCalls().Should().BeEmpty();
+                }
+                else
+                {
+                    read.Status.Should().Be(SourceReadStatus.Success);
+                    read.Result.Should().Be(new SourceStatsView(source, counts));
                 }
             }, iter: 2000);
 

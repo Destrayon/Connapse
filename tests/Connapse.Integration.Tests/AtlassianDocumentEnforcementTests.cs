@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using Connapse.Application.Containers;
+using Connapse.Application.Sources;
 using Connapse.Application.Files;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -438,9 +439,9 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var source = await SeedConfluenceSourceAsync(sp);
 
         string list = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerList(
-            sp.GetRequiredService<ListContainers>(), sp.GetRequiredService<IHttpContextAccessor>(), sp));
+            sp.GetRequiredService<ListContainers>(), sp.GetRequiredService<ListSources>(), sp.GetRequiredService<IHttpContextAccessor>()));
         string describe = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerDescribe(
-            sp.GetRequiredService<GetContainerStats>(), sp.GetRequiredService<IHttpContextAccessor>(), sp, source.Id.ToString()));
+            sp.GetRequiredService<GetContainerStats>(), sp.GetRequiredService<GetSourceStats>(), sp.GetRequiredService<IHttpContextAccessor>(), source.Id.ToString()));
         string byName = await AsUserAsync(sp, AllowedAccount, () => McpSearchAsync(sp, source.Name));
 
         list.Should().NotContain(source.Id.ToString()).And.NotContain(source.Name);

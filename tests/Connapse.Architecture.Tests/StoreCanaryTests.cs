@@ -24,6 +24,15 @@ public class StoreCanaryTests
     }
 
     [Fact]
+    public void ArchRule_ReportsEveryMcpToolParameterThatIsNotAnOperation()
+    {
+        Rules.McpToolDependencies(TestAssembly).Should().Equal(
+            "PlantedMcpTools planted_rule_tool -> IFileTypeValidator",
+            "PlantedMcpTools planted_store_tool -> IServiceProvider",
+            "PlantedMcpTools planted_store_tool -> ISourceStore");
+    }
+
+    [Fact]
     public void ArchRule_ReportsEachHandlerAndEveryWayItReachesAStore()
     {
         const string source = """

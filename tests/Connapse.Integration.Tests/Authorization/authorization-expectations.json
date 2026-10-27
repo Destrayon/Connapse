@@ -215,6 +215,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/sources/{sourceId:guid}/stats": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/v1/sources/scope-schema/{provider}": {
       "requires": "viewer",
       "risk": "read",
