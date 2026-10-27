@@ -443,7 +443,7 @@
     "GET /api/v1/providers/github/manifest/callback": {
       "requires": "admin",
       "risk": "credential",
-      "scope": null
+      "scope": "admin:settings"
     },
     "GET /health": {
       "requires": "anonymous",

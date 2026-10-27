@@ -58,8 +58,11 @@ public sealed record GitHubAppSaved(GitHubAppRegistration App, bool CanSignIn, b
 /// <summary>Whether a GitHub App was stored to remove.</summary>
 public sealed record GitHubAppRemoved(bool Removed);
 
-/// <summary>Who owns the App being created: an organisation's login, or null for the person creating it.</summary>
-public sealed record GitHubAppCreationRequest(string? Organisation = null);
+/// <summary>
+/// Who owns the App being created: an organisation's login, or null for the person creating it. Creating one while an
+/// App is stored replaces it, which disconnects every GitHub connection, so that needs <paramref name="ReplaceExisting"/>.
+/// </summary>
+public sealed record GitHubAppCreationRequest(string? Organisation = null, bool ReplaceExisting = false);
 
 /// <summary>
 /// The manifest flow's browser step. A browser signed in to GitHub posts a form with one field, <c>manifest</c>, to
@@ -128,6 +131,13 @@ public sealed class SetGitHubApp(
             return Attempt<GitHubAppSaved, GitHubAppStatus>.Fail(GitHubAppStatus.Unavailable, GitHubRules.Unavailable(ex));
         }
 
+        // Asking GitHub takes a moment; a save that landed meanwhile is not overwritten with values read before it.
+        GitHubAppCredentialMaterial? current = await credentials.GetGitHubAppMaterialAsync(ct);
+        if (current?.App.AppId != stored?.App.AppId || current?.PrivateKeyPem != stored?.PrivateKeyPem || current?.ClientSecret != stored?.ClientSecret)
+            return Attempt<GitHubAppSaved, GitHubAppStatus>.Fail(GitHubAppStatus.ReplaceUnconfirmed,
+                "The stored GitHub App changed while GitHub was checking these values, so nothing was saved. Read it again and resend.",
+                "replaceExisting");
+
         await credentials.SaveGitHubAppAsync(app, key, secret, GitHubRules.UserId(context), ct);
         gitHub.ClearCache();
         await audit.LogAsync("provider.credential.saved", "provider", GitHubRules.Provider,
@@ -163,7 +173,8 @@ public sealed class RemoveGitHubApp(
 /// checked with GitHub first: a wrong name would create an App that organisation can't install.
 /// </summary>
 [Operation("providers.github.createApp", Scope = "admin:settings", Risk = RiskTier.Write)]
-public sealed class StartGitHubAppCreation(GitHubManifestRequests requests, ConnapseGitHubApp gitHub, IOperationAuthorizer authorizer)
+public sealed class StartGitHubAppCreation(
+    GitHubManifestRequests requests, ConnapseGitHubApp gitHub, IProviderCredentialStore credentials, IOperationAuthorizer authorizer)
 {
     /// <param name="baseUrl">The address GitHub sends the person back to: the one they reached Connapse on.</param>
     public async Task<Attempt<GitHubAppCreation, GitHubAppStatus>> RunAsync(
@@ -199,9 +210,14 @@ public sealed class StartGitHubAppCreation(GitHubManifestRequests requests, Conn
                     : $"GitHub has no organisation called {owner}.", "organisation");
         }
 
+        GitHubAppRegistration? stored = await credentials.GetGitHubAppAsync(ct);
+        if (stored is not null && !request.ReplaceExisting)
+            return Attempt<GitHubAppCreation, GitHubAppStatus>.Fail(GitHubAppStatus.ReplaceUnconfirmed,
+                $"{stored.Slug} is stored, and a new App replaces it. Send replaceExisting true to replace it.", "replaceExisting");
+
         string home = baseUrl.TrimEnd('/') + "/";
         return Attempt<GitHubAppCreation, GitHubAppStatus>.Succeed(new GitHubAppCreation(
-            GitHubAppManifest.FormAction(owner, requests.Start(userId))!,
+            GitHubAppManifest.FormAction(owner, requests.Start(userId, stored?.AppId))!,
             GitHubAppManifest.Build(home, isPublic: true),
             home + GitHubRules.ProviderPage.TrimStart('/')));
     }
@@ -220,10 +236,10 @@ public sealed class CompleteGitHubAppCreation(
     public async Task<Attempt<GitHubAppRegistration, GitHubAppStatus>> RunAsync(
         OperationContext context, string? code, string? state, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin) || GitHubRules.UserId(context) is not { } userId)
+        if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin) || GitHubRules.UserId(context) is not { } userId)
             return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.Forbidden, GitHubRules.Refused);
 
-        if (!pending.TryComplete(state, userId))
+        if (!pending.TryComplete(state, userId, out long? replacing))
             return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.Expired,
                 "That GitHub App creation was started too long ago or by someone else. Start it again.");
 
@@ -231,15 +247,17 @@ public sealed class CompleteGitHubAppCreation(
             return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.NoCode,
                 "GitHub did not send back a code, so no App was stored. Start again.");
 
+        // Only the App stored when the person started, if any, may be replaced: an App stored since is kept, and the
+        // code is left unspent.
+        if (await credentials.GetGitHubAppAsync(ct) is { } stored && stored.AppId != replacing)
+            return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.ReplaceUnconfirmed,
+                $"{stored.Slug} was stored after this creation started, so the new App wasn't stored over it.", "replaceExisting");
+
+        GitHubAppManifestResult created;
         try
         {
-            GitHubAppManifestResult created = await gitHub.ConvertManifestAsync(code, ct);
+            created = await gitHub.ConvertManifestAsync(code, ct);
             await credentials.SaveGitHubAppAsync(created.App, created.PrivateKeyPem, created.ClientSecret, userId, ct);
-            gitHub.ClearCache();
-
-            await audit.LogAsync("provider.credential.saved", "provider", GitHubRules.Provider,
-                new { created.App.AppId, created.App.Slug, created.App.OwnerLogin, Via = "manifest" }, ct);
-            return Attempt<GitHubAppRegistration, GitHubAppStatus>.Succeed(created.App);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -248,6 +266,20 @@ public sealed class CompleteGitHubAppCreation(
             return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.Unavailable,
                 "GitHub didn't hand over the new App, so nothing was stored. Start again.");
         }
+
+        // Stored and in use from here: a failure below must not tell the person to start again.
+        gitHub.ClearCache();
+        try
+        {
+            await audit.LogAsync("provider.credential.saved", "provider", GitHubRules.Provider,
+                new { created.App.AppId, created.App.Slug, created.App.OwnerLogin, Via = "manifest", Replaced = replacing is not null }, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogError(ex, "The GitHub App {AppId} was stored, but its audit entry was not", created.App.AppId);
+        }
+
+        return Attempt<GitHubAppRegistration, GitHubAppStatus>.Succeed(created.App);
     }
 }
 

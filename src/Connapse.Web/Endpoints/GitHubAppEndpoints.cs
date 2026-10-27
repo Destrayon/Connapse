@@ -53,12 +53,13 @@ public static class GitHubAppEndpoints
         }).RequireAuthorization("RequireSettingsAdmin")
         .Produces<GitHubAppCreation>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status502BadGateway)
         .WithName("providers.github.createApp")
         .WithDescription("Start creating Connapse's GitHub App through GitHub's manifest flow, owned by the caller's account or by "
             + "organisation, which GitHub must confirm is one. Creating it needs a browser: a person signed in to both Connapse and GitHub "
             + "opens setupPageUrl and clicks once, or a browser posts a form with one field, manifest, to formAction. GitHub then sends that "
-            + "person back to Connapse, which stores the App. Each start is good for an hour, once, and only for the person who made it. "
+            + "person back to Connapse, which stores the App. A stored App is replaced only with replaceExisting true. Each start is good for an hour, once, and only for the person who made it. "
             + "Poll GET /api/v1/providers until the github requirement leaves Missing.");
 
         // GET /api/v1/providers/github/manifest/callback — GitHub's redirect after the
@@ -82,10 +83,11 @@ public static class GitHubAppEndpoints
                 GitHubAppStatus.Success => Results.Redirect(ProviderPage + "?github_created=1"),
                 GitHubAppStatus.Expired => Results.Redirect(ProviderPage + "?github_error=expired"),
                 GitHubAppStatus.NoCode => Results.Redirect(ProviderPage + "?github_error=no_code"),
-                GitHubAppStatus.Unavailable => Results.Redirect(ProviderPage + "?github_error=exchange_failed"),
+                // An App stored since the start is kept: the new one, created on GitHub, isn't collected either way.
+                GitHubAppStatus.Unavailable or GitHubAppStatus.ReplaceUnconfirmed => Results.Redirect(ProviderPage + "?github_error=exchange_failed"),
                 _ => OperationProblems.Result(created),
             };
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSettingsAdmin")
         .Produces(StatusCodes.Status302Found)
         .WithName("providers.github.createApp.callback");
 

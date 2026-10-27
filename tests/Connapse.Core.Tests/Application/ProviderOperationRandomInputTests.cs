@@ -584,22 +584,23 @@ public class ProviderOperationRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(StartGitHubAppCreation))]
     public Task StartGitHubAppCreation_AnyOwner_StartsOnlyForAPersonAndARealOrganisation() =>
-        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst<string?>(null, " ", "octo-org", "a-person", "nobody", "not a name!"), Gen.Bool)
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst<string?>(null, " ", "octo-org", "a-person", "nobody", "not a name!"), Gen.Bool, Gen.Bool, Gen.Bool)
             .SampleAsync(async t =>
         {
-            var (allowed, person, organisation, gitHubUp) = t;
+            var (allowed, person, organisation, gitHubUp, hasStored, replace) = t;
             var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(hasStored ? StoredGitHubApp : null);
 
-            var started = await new StartGitHubAppCreation(Requests(), GitHub(credentials, gitHubUp, true), Authorizer(allowed))
-                .RunAsync(person ? Person() : Context(), "https://h.example/", new GitHubAppCreationRequest(organisation));
+            var started = await new StartGitHubAppCreation(Requests(), GitHub(credentials, gitHubUp, true), credentials, Authorizer(allowed))
+                .RunAsync(person ? Person() : Context(), "https://h.example/", new GitHubAppCreationRequest(organisation, replace));
 
             bool own = string.IsNullOrWhiteSpace(organisation);
             GitHubAppStatus status = !allowed || !person ? GitHubAppStatus.Forbidden
-                : own ? GitHubAppStatus.Success
-                : organisation == "not a name!" ? GitHubAppStatus.Invalid
-                : !gitHubUp ? GitHubAppStatus.Unavailable
-                : organisation == "octo-org" ? GitHubAppStatus.Success
-                : GitHubAppStatus.Invalid;
+                : !own && organisation == "not a name!" ? GitHubAppStatus.Invalid
+                : !own && !gitHubUp ? GitHubAppStatus.Unavailable
+                : !own && organisation != "octo-org" ? GitHubAppStatus.Invalid
+                : hasStored && !replace ? GitHubAppStatus.ReplaceUnconfirmed
+                : GitHubAppStatus.Success;
             started.Status.Should().Be(status);
             if (started.Succeeded)
             {
@@ -611,32 +612,65 @@ public class ProviderOperationRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(CompleteGitHubAppCreation))]
     public Task CompleteGitHubAppCreation_AnyRedirect_StoresOnlyThePersonsOwnLiveCreation() =>
-        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst("mine", "theirs", "made-up", ""), Gen.OneOfConst<string?>(null, " ", "code"), Gen.Bool)
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst("mine", "theirs", "made-up", ""), Gen.OneOfConst<string?>(null, " ", "code"), Gen.Bool,
+                Gen.OneOfConst<long?>(null, 42), Gen.OneOfConst<long?>(null, 42, 7))
             .SampleAsync(async t =>
         {
-            var (allowed, person, whose, code, gitHubUp) = t;
+            var (allowed, person, whose, code, gitHubUp, replacing, storedNow) = t;
             var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(storedNow is { } id ? StoredGitHubApp with { AppId = id } : null);
             var requests = Requests();
             string state = whose switch
             {
-                "mine" => requests.Start(PersonId),
-                "theirs" => requests.Start(Guid.NewGuid()),
+                "mine" => requests.Start(PersonId, replacing),
+                "theirs" => requests.Start(Guid.NewGuid(), replacing),
                 _ => whose,
             };
 
             var completed = await new CompleteGitHubAppCreation(requests, GitHub(credentials, gitHubUp, true), credentials,
-                    Substitute.For<IAuditLogger>(), Authorizer(allowed, Policies.Admin), NullLogger<CompleteGitHubAppCreation>.Instance)
+                    Substitute.For<IAuditLogger>(), Authorizer(allowed), NullLogger<CompleteGitHubAppCreation>.Instance)
                 .RunAsync(person ? Person() : Context(), code, state);
 
             GitHubAppStatus status = !allowed || !person ? GitHubAppStatus.Forbidden
                 : whose != "mine" ? GitHubAppStatus.Expired
                 : code != "code" ? GitHubAppStatus.NoCode
+                : storedNow is not null && storedNow != replacing ? GitHubAppStatus.ReplaceUnconfirmed
                 : !gitHubUp ? GitHubAppStatus.Unavailable
                 : GitHubAppStatus.Success;
             completed.Status.Should().Be(status);
             await credentials.Received(completed.Succeeded ? 1 : 0).SaveGitHubAppAsync(
                 Arg.Any<GitHubAppRegistration>(), Arg.Any<string>(), Arg.Any<string?>(), PersonId, Arg.Any<CancellationToken>());
         }, iter: 300);
+
+    [Fact]
+    public async Task SetGitHubApp_StoredAppChangesWhileGitHubChecks_SavesNothing()
+    {
+        var credentials = Substitute.For<IProviderCredentialStore>();
+        credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>()).Returns(
+            new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old"),
+            new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "rotated meanwhile"));
+
+        var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), Substitute.For<IAuditLogger>(), Authorizer(true))
+            .RunAsync(Context(), new GitHubAppRequest(42, ClientSecret: "secret"));
+
+        saved.Status.Should().Be(GitHubAppStatus.ReplaceUnconfirmed);
+        await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task CompleteGitHubAppCreation_AuditFailsAfterStoring_StillReportsTheAppCreated()
+    {
+        var credentials = Substitute.For<IProviderCredentialStore>();
+        var audit = Substitute.For<IAuditLogger>();
+        audit.LogAsync(default!).ReturnsForAnyArgs(Task.FromException(new InvalidOperationException("audit down")));
+        var requests = Requests();
+
+        var completed = await new CompleteGitHubAppCreation(requests, GitHub(credentials, true, true), credentials, audit, Authorizer(true),
+                NullLogger<CompleteGitHubAppCreation>.Instance)
+            .RunAsync(Person(), "code", requests.Start(PersonId));
+
+        completed.Status.Should().Be(GitHubAppStatus.Success, "the App is stored and GitHub's code is spent, so starting again would be wrong");
+    }
 
     [Fact]
     [RandomInputTestOf(typeof(RecordGitHubAppInstalled))]

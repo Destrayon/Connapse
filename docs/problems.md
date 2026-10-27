@@ -407,7 +407,8 @@ named to own a new App isn't one on GitHub. `field` names the input at fault. No
 
 A different GitHub App is stored. Replacing it disconnects every GitHub connection, because each is an
 installation of the stored App, so send `replaceExisting: true` to confirm, or use the stored App's ID.
-Nothing was changed.
+It is also the answer when the stored App changed while GitHub was checking the values sent; read it
+again and resend. Nothing was changed.
 
 ## github-app-refused
 

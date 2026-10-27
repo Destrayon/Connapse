@@ -8452,7 +8452,7 @@
         "tags": [
           "Providers"
         ],
-        "description": "Start creating Connapse's GitHub App through GitHub's manifest flow, owned by the caller's account or by organisation, which GitHub must confirm is one. Creating it needs a browser: a person signed in to both Connapse and GitHub opens setupPageUrl and clicks once, or a browser posts a form with one field, manifest, to formAction. GitHub then sends that person back to Connapse, which stores the App. Each start is good for an hour, once, and only for the person who made it. Poll GET /api/v1/providers until the github requirement leaves Missing.",
+        "description": "Start creating Connapse's GitHub App through GitHub's manifest flow, owned by the caller's account or by organisation, which GitHub must confirm is one. Creating it needs a browser: a person signed in to both Connapse and GitHub opens setupPageUrl and clicks once, or a browser posts a form with one field, manifest, to formAction. GitHub then sends that person back to Connapse, which stores the App. A stored App is replaced only with replaceExisting true. Each start is good for an hour, once, and only for the person who made it. Poll GET /api/v1/providers until the github requirement leaves Missing.",
         "operationId": "providers.github.createApp",
         "requestBody": {
           "content": {
@@ -8503,6 +8503,16 @@
           },
           "400": {
             "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -13911,6 +13921,10 @@
               "null",
               "string"
             ]
+          },
+          "replaceExisting": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
