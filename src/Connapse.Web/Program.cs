@@ -179,6 +179,8 @@ builder.Services.AddOpenApi(options => options
     .AddSchemaTransformer<Connapse.Web.Endpoints.DeprecatedScopeJsonTransformer>()
     .AddSchemaTransformer<Connapse.Web.Problems.ProblemDetailsSchemaTransformer>()
     .AddSchemaTransformer<Connapse.Web.Endpoints.AuditDetailsSchemaTransformer>()
+    .AddSchemaTransformer<Connapse.Web.Endpoints.ConnectionConfigSchemaTransformer>()
+    .AddOperationTransformer<Connapse.Web.Problems.ResendConfirmationValidationTransformer>()
     .AddOperationTransformer<Connapse.Web.Problems.RateLimitResponseTransformer>()
     .AddOperationTransformer<Connapse.Web.Endpoints.MultipartFormTransformer>()
     .AddDocumentTransformer<Connapse.Web.Endpoints.DiscriminatedSubtypesTransformer>());
@@ -211,6 +213,7 @@ builder.Services.AddSingleton<Connapse.Application.Ports.IBackgroundReindex, Con
 builder.Services.AddScoped<Connapse.Application.Ports.IConnectionTests, Connapse.Web.Services.ConnectionTests>();
 builder.Services.AddScoped<Connapse.Web.Components.SettingsPageSaves>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionSettingsRules, Connapse.Web.Services.ConnectionSettingsRules>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
 builder.Services.AddScoped<Connapse.Application.Ports.IDocumentAccess, Connapse.Web.Services.DocumentAccess>();
@@ -504,6 +507,7 @@ api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapSourcesEndpoints();
+api.MapConnectionsEndpoints();
 api.MapAuditEndpoints();
 api.MapOAuthClientEndpoints();
 api.MapDocumentsEndpoints();

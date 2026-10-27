@@ -1,11 +1,4 @@
 [
-  "AtlassianEndpoints DELETE /api/v1/atlassian/sites/{connectionId:guid} -> IConnectionStore",
-  "AtlassianEndpoints GET /api/v1/atlassian/sites/ -> IConnectionStore",
-  "AtlassianEndpoints GET /api/v1/atlassian/sites/{connectionId:guid} -> IConnectionStore",
-  "AtlassianEndpoints PATCH /api/v1/atlassian/sites/{connectionId:guid} -> IConnectionStore",
-  "AtlassianEndpoints POST /api/v1/atlassian/sites/{connectionId:guid}/pause -> IConnectionStore",
-  "AtlassianEndpoints POST /api/v1/atlassian/sites/{connectionId:guid}/resume -> IConnectionStore",
-  "AtlassianEndpoints POST /api/v1/atlassian/sites/{connectionId:guid}/resume -> ISourceStore",
   "AuthEndpoints POST /api/v1/auth/token/refresh -> ConnapseIdentityDbContext",
   "CloudIdentityEndpoints GET /api/v1/auth/cloud/atlassian/confirm -> AtlassianIdentityLinkStore",
   "CloudIdentityEndpoints GET /api/v1/auth/cloud/atlassian/confirm -> IProviderCredentialStore",

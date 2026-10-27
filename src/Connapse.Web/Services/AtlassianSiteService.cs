@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Connapse.Application;
+using Connapse.Application.Connections;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
@@ -11,7 +13,7 @@ public enum AtlassianResolveOutcome { Resolved, InvalidAddress, NotFound }
 
 public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, string? SiteUrl = null, string? CloudId = null);
 
-public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken }
+public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken, Forbidden }
 
 public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
 
@@ -65,7 +67,16 @@ public sealed record AtlassianAddResult(
     string? SiteUrl = null,
     string? CloudId = null,
     string? ClientId = null,
-    string? Name = null);
+    string? Name = null)
+{
+    /// <summary>What the page and the REST API both say for a refused save; null for any other outcome.</summary>
+    public string? Refusal => Outcome switch
+    {
+        AtlassianAddOutcome.NameTaken => $"Another connection is already named '{Name}'. Rename it, then try again.",
+        AtlassianAddOutcome.Forbidden => "You don't have permission to create connections.",
+        _ => null,
+    };
+}
 
 /// <param name="Test">The test of the new credential, when one ran.</param>
 public sealed record AtlassianReplaceResult(
@@ -123,6 +134,7 @@ public sealed class AtlassianSiteService(
     IConnectionStore connections,
     IAuditLogger audit,
     AtlassianTokenSource tokens,
+    CreateConnection create,
     TimeProvider? time = null)
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
@@ -153,7 +165,7 @@ public sealed class AtlassianSiteService(
     /// is named apart from its Confluence one, which is named after the site's host alone.
     /// </param>
     public async Task<AtlassianAddResult> AddAsync(
-        string? siteUrl, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
+        OperationContext context, string? siteUrl, string? clientId, string? clientSecret, bool saveAnyway = false,
         AtlassianProduct product = AtlassianProduct.Confluence, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(siteUrl)
@@ -189,20 +201,8 @@ public sealed class AtlassianSiteService(
         if (await SiteConnectionAsync(cloudId, product, ct) is { } existing)
             return new AtlassianAddResult(AtlassianAddOutcome.Conflict, SiteUrl: normalizedSite, Name: existing.Name);
 
-        Connection connection;
-        try
-        {
-            connection = await connections.CreateAsync(
-                new CreateConnectionRequest(name, ConnectionProvider.Atlassian, configJson, clientSecret),
-                userId, ct);
-        }
-        catch (InvalidOperationException)
-        {
-            return new AtlassianAddResult(AtlassianAddOutcome.NameTaken, SiteUrl: normalizedSite, Name: name);
-        }
-
-        await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),
-            new
+        var stored = await create.RunCheckedAsync(context, new CheckedConnection(name, ConnectionProvider.Atlassian, configJson,
+            clientSecret, new
             {
                 Provider = "Atlassian",
                 Product = AtlassianSite.ProductValue(product),
@@ -210,7 +210,13 @@ public sealed class AtlassianSiteService(
                 CloudId = cloudId,
                 ClientId = trimmedClientId,
                 SavedWithWarning = !result.Success,
-            }, ct);
+            }), ct);
+        if (stored.Status == ConnectionStatus.Forbidden)
+            return new AtlassianAddResult(AtlassianAddOutcome.Forbidden, SiteUrl: normalizedSite);
+        if (!stored.Succeeded)
+            return new AtlassianAddResult(AtlassianAddOutcome.NameTaken, SiteUrl: normalizedSite, Name: name);
+
+        Connection connection = stored.Result!;
 
         if (await connections.RecordHealthAsync(connection.Id, HealthOf(result), ct) is { } health)
             connection = connection with { Health = health };

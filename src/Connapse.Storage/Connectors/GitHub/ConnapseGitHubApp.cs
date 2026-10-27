@@ -57,7 +57,7 @@ public sealed class ConnapseGitHubApp(
     IServiceScopeFactory scopes,
     IHttpClientFactory httpClients,
     ILogger<ConnapseGitHubApp> logger,
-    TimeProvider? clock = null)
+    TimeProvider? clock = null) : IGitHubAppInstallations
 {
     /// <summary>How long a read of the stored App is trusted before the store is asked again.</summary>
     private static readonly TimeSpan MaterialLifetime = TimeSpan.FromMinutes(5);

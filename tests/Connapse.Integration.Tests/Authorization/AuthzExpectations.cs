@@ -97,6 +97,8 @@ public static class AuthzExpectations
             "RequireClientAdmin" => "admin",
             // An administrator, whose token also needs admin:settings (#922).
             "RequireSettingsAdmin" => "admin",
+            // An administrator, whose token also needs admin:sources (CON-11).
+            "RequireSourcesAdmin" => "admin",
             "RequireOwner" => "owner",
             "RequireAgent" => "mcp",
             _ => p,

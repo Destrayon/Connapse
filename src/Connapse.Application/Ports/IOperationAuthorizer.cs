@@ -56,4 +56,7 @@ public static class Policies
 
     /// <summary>An administrator; a token of theirs only with the admin:settings scope.</summary>
     public const string SettingsAdmin = "RequireSettingsAdmin";
+
+    /// <summary>An administrator; a token of theirs only with the admin:sources scope.</summary>
+    public const string SourcesAdmin = "RequireSourcesAdmin";
 }

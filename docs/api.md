@@ -1460,7 +1460,7 @@ Removes the source and its indexed documents. **The external data is untouched.*
 
 ### Atlassian Sites
 
-Base path: `/api/v1/atlassian/sites`. Administrator only. Everything the Connections page can do to a site is here, with the same field names, the same checks and the same audit events. Setup steps and every field are in the [Atlassian setup guide](atlassian-setup.md). The client secret is accepted on the way in and never returned.
+Base path: `/api/v1/atlassian/sites`. Administrator only. A token needs the `admin:sources` scope to list, read, rename, pause, resume or delete a site. Everything the Connections page can do to a site is here, with the same field names, the same checks and the same audit events. Setup steps and every field are in the [Atlassian setup guide](atlassian-setup.md). The client secret is accepted on the way in and never returned.
 
 | Method | Route | Purpose |
 |--------|-------|---------|

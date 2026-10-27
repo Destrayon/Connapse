@@ -4,6 +4,8 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
+@using Connapse.Application.Connections
+@using Connapse.Application.Ports
 @using Connapse.Web.Services
 @inject IJSRuntime JS
 @using Connapse.Storage.ConnectionTesters
@@ -1661,9 +1663,10 @@
     private ProviderField? customTokenField;
     private ProviderField? customProviderField;
 
-    /// <summary>Moves focus to the custom field a check refused.</summary>
-    private async Task FocusCustomFieldAsync()
+    /// <summary>Shows the refusal beside the custom field a check refused and moves focus there.</summary>
+    private async Task RefuseCustomFieldAsync(string? message, string? field)
     {
+        (customError, customField) = (message, field);
         StateHasChanged();
         try
         {
@@ -2098,8 +2101,7 @@
     private async Task LoadAsync()
     {
         loading = true;
-        connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
-        pausedConnections = await Admin.PausedConnectionIdsAsync();
+        (connections, pausedConnections) = await Admin.ListAllAsync(Fail);
         loading = false;
     }
 
@@ -2147,10 +2149,7 @@
         pausing = connection.Id;
         try
         {
-            int count = await Admin.SetSyncingAsync(connection, enabled, only);
-            Succeed(enabled
-                ? $"Syncing resumed for {count} source(s) on '{connection.Name}'."
-                : $"Syncing paused for {count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
+            await Admin.SetSyncingAsync(connection, enabled, only, Succeed, Fail);
             await LoadAsync();
         }
         catch (Exception ex)
@@ -2741,16 +2740,9 @@
         try
         {
             var form = BuildLocalForm(result);
-            if (await Admin.NameTakenAsync(null, form.Name))
-            {
-                Fail(ConnectionAdminService.NameTakenMessage(form.Name));
+            if (await Admin.CreateAsync(new NewConnection(form.Name, ConnectionProvider.Sftp,
+                    new ConnectionSettings(form.ToConfigJson(), form.PrivateKey, form.Passphrase)), Fail) is null)
                 return;
-            }
-
-            await ConnectionStore.CreateAsync(
-                new CreateConnectionRequest(
-                    form.Name.Trim(), ConnectionProvider.Sftp, form.ToConfigJson(), form.ToSecretJson()),
-                createdByUserId: null);
 
             Succeed($"Connected. Add a source on '{form.Name}' to start indexing.");
             CancelLocalSetup();
@@ -2847,8 +2839,7 @@
             }
             if (CustomFieldProblem() is { } customProblem)
             {
-                (customField, customError) = customProblem;
-                await FocusCustomFieldAsync();
+                await RefuseCustomFieldAsync(customProblem.Message, customProblem.Field);
                 return;
             }
         }
@@ -2867,7 +2858,7 @@
         }
 
         bool installationChanged = !isNew && form.GitHubInstallationId != editingGitHubInstallationId;
-        if ((isNew || installationChanged) && form.Provider == ConnectionProvider.GitHub
+        if (installationChanged && form.Provider == ConnectionProvider.GitHub
             && await GitHubInstallationProblemAsync() is { } gitHubProblem)
         {
             Fail(gitHubProblem);
@@ -2901,10 +2892,10 @@
         {
             // Checked before anything is stored: a token the middle man refuses is never saved. The refusal is
             // shown beside its field, so it is not repeated above the form.
-            if (form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
+            if (!isNew && form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
                 && await CheckCustomMiddleManAsync() is not null)
             {
-                await FocusCustomFieldAsync();
+                await RefuseCustomFieldAsync(customError, customField);
                 return;
             }
 
@@ -2930,20 +2921,15 @@
 
             if (isNew)
             {
-                if (await Admin.NameTakenAsync(null, form.Name))
-                {
-                    await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));
+                // The same checks and audit as POST /api/v1/connections: the GitHub installation and the custom
+                // source server are checked there. The host above is already rewritten, so it leaves the note alone.
+                var created = await Admin.CreateAsync(new NewConnection(form.Name, form.Provider,
+                    new ConnectionSettings(config, form.PrivateKey, form.Passphrase, form.CustomToken)), Fail, RefuseNameAsync, RefuseCustomFieldAsync);
+                if (created is null)
                     return;
-                }
 
-                var created = await ConnectionStore.CreateAsync(
-                    new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
-                    createdByUserId: null);
                 ForgetGitHubInstallations(form.Provider);
                 ReturnFocusToList(created.Id);
-                await AuditLogger.LogAsync("connection.created", "connection", created.Id.ToString(),
-                    new { created.Name, Provider = created.Provider.ToString() });
-                await RecordCustomCheckAsync(created.Id);
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
                 statusLink = (created.Provider == ConnectionProvider.GitHub ? "Add a repository" : "Add a source", $"/sources?new={created.Id}");
             }
@@ -3008,8 +2994,7 @@
     {
         if (CustomFieldProblem() is { } problem)
         {
-            (customField, customError) = problem;
-            await FocusCustomFieldAsync();
+            await RefuseCustomFieldAsync(problem.Message, problem.Field);
             return;
         }
 
@@ -3017,7 +3002,7 @@
         {
             if (await CheckCustomMiddleManAsync() is not null)
             {
-                await FocusCustomFieldAsync();
+                await RefuseCustomFieldAsync(customError, customField);
                 return;
             }
             testSuccess = true;
@@ -3081,20 +3066,12 @@
         {
             // SourceCount above is a snapshot from the last load, so a source added since then
             // still reaches the store's own refusal — caught below rather than assumed away.
-            var deleted = await Admin.DeleteAsync(connection.Id, connection.Name);
+            var deleted = await Admin.DeleteAsync(connection, Fail);
             ForgetGitHubInstallations(connection.Provider);
-            switch (deleted.Outcome)
-            {
-                case ConnectionDeleteOutcome.Deleted:
-                    Succeed($"Connection '{connection.Name}' deleted.");
-                    break;
-                case ConnectionDeleteOutcome.HasSources:
-                    blockedDelete = new BlockedDelete(connection, deleted.Sources!);
-                    break;
-                default:
-                    Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
-                    break;
-            }
+            if (deleted == Connapse.Application.Connections.ConnectionStatus.Success)
+                Succeed($"Connection '{connection.Name}' deleted.");
+            else if (deleted == Connapse.Application.Connections.ConnectionStatus.InUse)
+                blockedDelete = new BlockedDelete(connection, await SourceStore.ListByConnectionAsync(connection.Id));
 
             await LoadAsync();
         }

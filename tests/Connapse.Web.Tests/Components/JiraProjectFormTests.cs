@@ -109,7 +109,9 @@ public class JiraProjectFormTests : IDisposable
             NSubstitute.Substitute.For<Connapse.Core.Interfaces.ICustomProviderStore>(),
             NSubstitute.Substitute.For<Connapse.Core.Interfaces.IConnectionStore>()));
         ctx.Services.AddSingleton(new AtlassianSiteService(
-            http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens));
+            http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens,
+            new Connapse.Application.Connections.CreateConnection(connections, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
+                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));

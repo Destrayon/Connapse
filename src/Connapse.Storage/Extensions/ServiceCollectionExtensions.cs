@@ -228,6 +228,7 @@ public static class ServiceCollectionExtensions
         // The GitHub App Connapse acts as. Singleton so installation tokens are reused across a sync
         // rather than minted per request; it reaches the scoped credential store through a scope.
         services.AddSingleton<Connectors.GitHub.ConnapseGitHubApp>();
+        services.AddSingleton<Connectors.GitHub.IGitHubAppInstallations>(sp => sp.GetRequiredService<Connectors.GitHub.ConnapseGitHubApp>());
 
         // Every installation's remaining budget, shared by all GitHub sources on this server.
         services.AddSingleton<Connectors.GitHub.GitHubCredentialPool>();

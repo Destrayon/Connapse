@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using Connapse.Application;
+using Connapse.Application.Connections;
+using Connapse.Application.Sources;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
@@ -303,6 +306,8 @@ public static class AtlassianLinkAppEndpoints
             stored.VerifiedAt,
             await linkApp.CountLinkedPeopleAsync(ct));
 
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
+
     private static Guid? UserIdOf(HttpContext http) =>
         Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
 }
@@ -357,7 +362,7 @@ public static class AtlassianEndpoints
             if (product is null)
                 return ApiProblem.BadRequest("product must be \"confluence\" or \"jira\".", field: "product");
 
-            var added = await sites.AddAsync(request.SiteUrl, request.ClientId, request.ClientSecret, UserIdOf(http),
+            var added = await sites.AddAsync(Rest(http), request.SiteUrl, request.ClientId, request.ClientSecret,
                 request.SaveAnyway ?? false, product.Value, ct);
 
             return added.Outcome switch
@@ -367,8 +372,8 @@ public static class AtlassianEndpoints
                 AtlassianAddOutcome.TestFailed => Results.UnprocessableEntity(Report(added.Test!)),
                 AtlassianAddOutcome.Conflict =>
                     ApiProblem.Conflict($"A connection named '{added.Name}' already exists."),
-                AtlassianAddOutcome.NameTaken =>
-                    ApiProblem.Conflict($"Another connection is already named '{added.Name}'. Rename it, then try again."),
+                AtlassianAddOutcome.NameTaken => ApiProblem.Conflict(added.Refusal!),
+                AtlassianAddOutcome.Forbidden => ApiProblem.Forbidden(added.Refusal!),
                 _ => Results.Created($"/api/v1/atlassian/sites/{added.Connection!.Id}",
                     new AtlassianSiteCreated(
                         added.Connection.Id,
@@ -387,37 +392,35 @@ public static class AtlassianEndpoints
 
         // GET /api/v1/atlassian/sites — every saved site, as the Connections page lists them.
         group.MapGet("/", async (
-            [FromServices] IConnectionStore connections,
-            [FromServices] ConnectionAdminService admin,
+            [FromServices] ListAtlassianSites list,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var all = await connections.ListAsync(0, int.MaxValue, ct);
-            var paused = await admin.PausedConnectionIdsAsync(ct);
-            return Results.Ok(all
-                .Where(c => c.Provider == ConnectionProvider.Atlassian)
-                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(c => SiteView(c, paused.Contains(c.Id))));
-        }).RequireAuthorization("RequireAdmin")
+            var listed = await list.RunAsync(Rest(http), ct);
+            return listed.Succeeded
+                ? Results.Ok(listed.Result!.Items.Select(v => SiteView(v.Connection, v.SyncPaused)))
+                : OperationProblems.Result(listed);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<IReadOnlyList<AtlassianSiteView>>();
 
         // GET /api/v1/atlassian/sites/{connectionId} — the site, its last check, and the scopes it needs.
         group.MapGet("/{connectionId:guid}", async (
             Guid connectionId,
-            [FromServices] IConnectionStore connections,
-            [FromServices] ConnectionAdminService admin,
+            [FromServices] GetAtlassianSite get,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            Connection? connection = await connections.GetAsync(connectionId, ct);
-            if (connection is not { Provider: ConnectionProvider.Atlassian })
-                return ApiProblem.NotFound("No such Atlassian site.");
+            var read = await get.RunAsync(Rest(http), connectionId, ct);
+            if (!read.Succeeded)
+                return OperationProblems.Result(read);
 
             // A connection's credential needs its own product's scopes only.
-            AtlassianSiteView view = SiteView(connection, await admin.IsPausedAsync(connectionId, ct));
+            AtlassianSiteView view = SiteView(read.Result!.Connection, read.Result.SyncPaused);
             return Results.Ok(view with
             {
                 Scopes = AtlassianSiteScopes.Of(view.Product).Select(s => new AtlassianScopeView(s.Name, s.Reason, s.Optional, s.Product)).ToList(),
             });
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSiteView>()
         .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -426,24 +429,15 @@ public static class AtlassianEndpoints
         group.MapPatch("/{connectionId:guid}", async (
             Guid connectionId,
             [FromBody] RenameAtlassianSiteRequest request,
-            [FromServices] IConnectionStore connections,
-            [FromServices] ConnectionAdminService admin,
+            [FromServices] RenameAtlassianSite rename,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian })
-                return ApiProblem.NotFound("No such Atlassian site.");
-
-            var renamed = await admin.RenameAsync(connectionId, request.Name, ct);
-            return renamed.Outcome switch
-            {
-                ConnectionRenameOutcome.InvalidName =>
-                    ApiProblem.BadRequest($"name must be 1 to {ConnectionAdminService.MaxNameLength} characters.", field: "name"),
-                ConnectionRenameOutcome.NameTaken =>
-                    ApiProblem.Conflict(ConnectionAdminService.NameTakenMessage(request.Name!), field: "name"),
-                ConnectionRenameOutcome.NotFound => ApiProblem.NotFound("No such Atlassian site."),
-                _ => Results.Ok(SiteView(renamed.Connection!, await admin.IsPausedAsync(connectionId, ct))),
-            };
-        }).RequireAuthorization("RequireAdmin")
+            var renamed = await rename.RunAsync(Rest(http), connectionId, request.Name, ct);
+            return renamed.Succeeded
+                ? Results.Ok(SiteView(renamed.Result!.Connection, renamed.Result.SyncPaused))
+                : OperationProblems.Result(renamed);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSiteView>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -453,18 +447,15 @@ public static class AtlassianEndpoints
         // Nothing is deleted, and the documents stay searchable.
         group.MapPost("/{connectionId:guid}/pause", async (
             Guid connectionId,
-            [FromServices] IConnectionStore connections,
-            [FromServices] ConnectionAdminService admin,
+            [FromServices] PauseAtlassianSite pause,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian } connection)
-                return ApiProblem.NotFound("No such Atlassian site.");
-            if (connection.SourceCount == 0)
-                return ApiProblem.Conflict("This site has no sources, so there is no syncing to pause.");
-
-            int count = await admin.SetSyncingAsync(connection, enabled: false, ct: ct);
-            return Results.Ok(new AtlassianSyncState(true, count));
-        }).RequireAuthorization("RequireAdmin")
+            var paused = await pause.RunAsync(Rest(http), connectionId, ct);
+            return paused.Succeeded
+                ? Results.Ok(new AtlassianSyncState(paused.Result!.SyncPaused, paused.Result.Sources))
+                : OperationProblems.Result(paused);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSyncState>()
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict);
@@ -474,27 +465,15 @@ public static class AtlassianEndpoints
         group.MapPost("/{connectionId:guid}/resume", async (
             Guid connectionId,
             [FromBody] ResumeAtlassianSiteRequest? request,
-            [FromServices] IConnectionStore connections,
-            [FromServices] ISourceStore sources,
-            [FromServices] ConnectionAdminService admin,
+            [FromServices] ResumeAtlassianSite resume,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian } connection)
-                return ApiProblem.NotFound("No such Atlassian site.");
-            if (connection.SourceCount == 0)
-                return ApiProblem.Conflict("This site has no sources, so there is no syncing to resume.");
-
-            HashSet<Guid>? only = request?.SourceIds is { } ids ? ids.ToHashSet() : null;
-            if (only is not null)
-            {
-                var onSite = (await sources.ListByConnectionAsync(connectionId, ct)).Select(s => s.Id).ToHashSet();
-                if (only.Count == 0 || !only.IsSubsetOf(onSite))
-                    return ApiProblem.BadRequest("sourceIds must name at least one source, each of them on this site.", field: "sourceIds");
-            }
-
-            int count = await admin.SetSyncingAsync(connection, enabled: true, only, ct);
-            return Results.Ok(new AtlassianSyncState(await admin.IsPausedAsync(connectionId, ct), count));
-        }).RequireAuthorization("RequireAdmin")
+            var resumed = await resume.RunAsync(Rest(http), connectionId, request?.SourceIds, ct);
+            return resumed.Succeeded
+                ? Results.Ok(new AtlassianSyncState(resumed.Result!.SyncPaused, resumed.Result.Sources))
+                : OperationProblems.Result(resumed);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSyncState>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -506,25 +485,16 @@ public static class AtlassianEndpoints
         group.MapDelete("/{connectionId:guid}", async (
             Guid connectionId,
             [FromQuery] string? confirmName,
-            [FromServices] IConnectionStore connections,
-            [FromServices] ConnectionAdminService admin,
+            [FromServices] DeleteAtlassianSite delete,
+            [FromServices] ListSources sources,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            if (await connections.GetAsync(connectionId, ct) is not { Provider: ConnectionProvider.Atlassian })
-                return ApiProblem.NotFound("No such Atlassian site.");
-
-            var deleted = await admin.DeleteAsync(connectionId, confirmName, ct);
-            return deleted.Outcome switch
-            {
-                ConnectionDeleteOutcome.ConfirmMismatch =>
-                    ApiProblem.BadRequest($"confirmName must be the site's name, '{deleted.Connection!.Name}'.", field: "confirmName"),
-                ConnectionDeleteOutcome.HasSources => Results.Conflict(new ConnectionInUseFailure(
-                    ConnectionAdminService.InUseMessage(deleted.Connection!.Name, deleted.Sources!),
-                    deleted.Sources!.Select(s => new SourceLink(s.Id, s.Name, $"/sources/{s.Id}")).ToList())),
-                ConnectionDeleteOutcome.NotFound => ApiProblem.NotFound("No such Atlassian site."),
-                _ => Results.NoContent(),
-            };
-        }).RequireAuthorization("RequireAdmin")
+            var deleted = await delete.RunAsync(Rest(http), connectionId, confirmName, ct);
+            return deleted.Succeeded
+                ? Results.NoContent()
+                : await ConnectionsEndpoints.Failed(deleted, connectionId, sources, http, ct);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -634,6 +604,8 @@ public static class AtlassianEndpoints
 
         return app;
     }
+
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 
     private static Guid? UserIdOf(HttpContext http) =>
         Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;

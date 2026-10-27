@@ -352,6 +352,10 @@ public static class IdentityServiceExtensions
             // when issued with admin:settings (#922).
             .AddPolicy("RequireSettingsAdmin", policy =>
                 policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:settings")))
+            // Connections hold the credentials sources sync with: an administrator's, and a token of theirs only
+            // when issued with admin:sources (CON-11).
+            .AddPolicy("RequireSourcesAdmin", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:sources")))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>

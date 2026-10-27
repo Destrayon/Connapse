@@ -687,7 +687,7 @@
         CancellationToken ct = saveCts.Token;
         try
         {
-            var added = await Sites.AddAsync(siteUrl, clientId, submittedSecret, await UserIdAsync(), saveAnyway, Product, ct);
+            var added = await Sites.AddAsync(await AuthState.OperationContextAsync(), siteUrl, clientId, submittedSecret, saveAnyway, Product, ct);
             switch (added.Outcome)
             {
                 case AtlassianAddOutcome.Created:
@@ -703,10 +703,8 @@
                 case AtlassianAddOutcome.Conflict:
                     saveError = $"A connection named '{added.Name}' already exists. Open it from the list to test it or replace its credentials.";
                     break;
-                case AtlassianAddOutcome.NameTaken:
-                    saveError = $"Another connection is already named '{added.Name}'. Rename it, then try again.";
-                    break;
                 default:
+                    saveError = added.Refusal;
                     saveResult = added.Test;
                     break;
             }
