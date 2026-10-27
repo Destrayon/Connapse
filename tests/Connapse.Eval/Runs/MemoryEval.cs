@@ -39,8 +39,14 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
 
     private static readonly Dictionary<string, string> FactOf = new()
     {
-        ["database"] = "database", ["deploy region"] = "region", ["tech lead"] = "lead", ["CI system"] = "ci",
-        ["cache"] = "cache", ["public API rate limit"] = "rate_limit", ["alert channel"] = "alert", ["current release"] = "release",
+        ["database"] = "database",
+        ["deploy region"] = "region",
+        ["tech lead"] = "lead",
+        ["CI system"] = "ci",
+        ["cache"] = "cache",
+        ["public API rate limit"] = "rate_limit",
+        ["alert channel"] = "alert",
+        ["current release"] = "release",
     };
 
     public sealed record Question(string Id, string Code, string Split, string Kind, string Text, JsonObject Answer, string[] Evidence);
