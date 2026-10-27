@@ -289,7 +289,7 @@ public class CodeToolsIntegrationTests(SharedWebAppFixture fixture)
         CodeReferencesResult usages = await tools.ReferencesAsync(where, "RetryOptions", CodeReferenceKind.All, 10);
 
         field.Definitions.Should().BeEmpty();
-        field.Files.Select(f => f.Path).Should().StartWith(["/src/Converter.cs", "/src/Other.cs"], "the file declaring the type ranks first");
+        field.Files.Select(f => f.Path).Should().Equal(["/src/Converter.cs"], "another type's member of the same name is not it");
         constant.Files.Select(f => f.Path).Should().Equal("/src/click/_compat.py");
         alias.Files.Select(f => f.Path).Should().Equal("/source/types/retry.ts");
         usages.Files.Select(f => f.Path).Should().Equal("/source/types/retry.ts", "/source/utils/normalize.ts");

@@ -494,8 +494,14 @@ public sealed partial class CodeTools(
             GROUP BY c.document_id, d.path
             """, call.Scope.OwnerId, declares, ownerDeclared).ToListAsync(ct);
         IReadOnlySet<string> readable = await call.ReadableAsync(rows.Select(r => r.DocumentId), ct);
+        rows = [.. rows.Where(r => readable.Contains(r.DocumentId))];
 
-        return [.. rows.Where(r => readable.Contains(r.DocumentId)).Select(r =>
+        // A file that also declares the named type is the answer; another type's member of the same name is not.
+        // Only when no file does (a module name, a type split across files) are the bare declarations shown.
+        if (owner is not null && rows.Any(r => r.Qualified))
+            rows = [.. rows.Where(r => r.Qualified)];
+
+        return [.. rows.Select(r =>
             new CodeFileMatch(r.Path, r.DocumentId, (r.Qualified ? 2.0 : 1.0) + Math.Min(0.09, r.Hits * 0.01),
                 r.Qualified && owner is not null ? $"declares it in {owner}" : "declares it", []))];
     }
@@ -861,7 +867,7 @@ public sealed partial class CodeTools(
     [GeneratedRegex(@"[A-Za-z0-9_]+")]
     private static partial Regex WordPattern();
 
-    [GeneratedRegex(@"^[A-Za-z_$][A-Za-z0-9_$]*$")]
+    [GeneratedRegex(@"^[A-Za-z_$][A-Za-z0-9_$]{0,127}$")]
     private static partial Regex IdentifierOnlyPattern();
 
     [GeneratedRegex(@":(\d+) \(")]

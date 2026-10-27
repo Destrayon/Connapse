@@ -63,6 +63,7 @@ public sealed partial class CodeEval(RepoPaths paths, HttpClient http, TextWrite
         Dictionary<string, List<string>> rankedOf = new(StringComparer.Ordinal);
         Dictionary<string, string> crowdOf = new(StringComparer.Ordinal);
         Dictionary<string, List<double>> latencyMs = new(StringComparer.Ordinal);
+        JsonObject indexed = [];
         foreach (string name in questions.Select(q => q.Repo).Distinct().Order(StringComparer.Ordinal))
         {
             string tree = await CheckoutAsync(repos[name], ct);
@@ -71,6 +72,7 @@ public sealed partial class CodeEval(RepoPaths paths, HttpClient http, TextWrite
             List<EvalDocument> corpus = [.. CodeFiles(tree)];
             IndexReport report = await system.IndexAsync(new EvalDataset(dataset, repos[name].Commit, [], corpus, [], new Qrels()), ct);
             log.WriteLine($"{name}: {corpus.Count} code files indexed, {report.Failed} failed");
+            indexed[name] = new JsonObject { ["files"] = corpus.Count, ["failed"] = report.Failed };
             (Guid container, _) = system.ContainerOf(dataset);
             var scope = new CodeScope(container, null);
 
@@ -90,6 +92,8 @@ public sealed partial class CodeEval(RepoPaths paths, HttpClient http, TextWrite
         }
 
         JsonObject result = Report(configName, split, questions, recalls, crowdOf, latencyMs, gate, grep);
+        // A file that failed to index can only lower recall (its key is fixed), so failures are reported, not gated.
+        result["indexed"] = indexed;
         // Every question's top ten beside its key, for reading where a group loses.
         result["questions"] = new JsonArray([.. questions.Select(q => (JsonNode)new JsonObject
         {
