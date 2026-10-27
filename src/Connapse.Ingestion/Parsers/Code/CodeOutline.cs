@@ -8,6 +8,7 @@ namespace Connapse.Ingestion.Parsers.Code;
 /// syntax alone (CON-36). It crosses from the parser host in <see cref="ParsedDocumentMetadataKey"/>, so the chunker
 /// can cut one passage per definition and the link builder can name what each one calls. Lines are 1-based.
 /// </summary>
+/// <remarks><paramref name="HasErrors"/> is true when part of the file could not be read as code at all.</remarks>
 public sealed record CodeOutline(
     string Language,
     IReadOnlyList<CodeImport> Imports,

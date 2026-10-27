@@ -258,6 +258,17 @@ public class CodeParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_EmptyCollectionExpression_IsNotASyntaxError()
+    {
+        // tree-sitter-c-sharp recovers from [] with a MISSING token; the definitions around it are whole.
+        var (parsed, outline) = await ParseAsync("class C { List<int> B { get; } = []; int[] A() { return []; } }", "c.cs");
+
+        outline!.HasErrors.Should().BeFalse();
+        parsed.Warnings.Should().BeEmpty();
+        outline.Symbols.Should().Contain(s => s.QualifiedName == "C.A");
+    }
+
+    [Fact]
     public async Task ParseAsync_DeeplyNestedInput_DoesNotOverflowTheStack()
     {
         string source = "class C { int M() { return " + string.Concat(Enumerable.Repeat("(\n", 20_000)) + "1" + new string(')', 20_000) + "; } }";

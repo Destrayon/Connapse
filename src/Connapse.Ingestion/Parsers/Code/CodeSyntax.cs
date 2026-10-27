@@ -28,7 +28,7 @@ internal static partial class CodeSyntax
             while (!cursor.GotoNextSibling())
             {
                 if (!cursor.GotoParent())
-                    return walk.Finish(root.HasError);
+                    return walk.Finish();
             }
         }
     }
@@ -92,6 +92,10 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
     private readonly List<CodeCall> _moduleCalls = [];
     private readonly List<CodeVariable> _moduleVariables = [];
 
+    // ERROR nodes only: a MISSING token is error recovery that leaves the definitions around it whole, and
+    // tree-sitter-c-sharp inserts one for every empty collection expression, [].
+    private bool _hasErrors;
+
     public string Source => source;
 
     /// <summary>The innermost symbol the cursor is inside, or -1.</summary>
@@ -112,6 +116,9 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
 
     public void Enter(Node node)
     {
+        if (node.IsError)
+            _hasErrors = true;
+
         int start = node.StartIndex;
         while (_scopes.Count > 0 && start >= _scopes[^1].End)
             _scopes.RemoveAt(_scopes.Count - 1);
@@ -209,14 +216,14 @@ internal sealed class CodeWalk(CodeGrammar grammar, string source)
             _symbols[Current].Bases.Add(name);
     }
 
-    public CodeOutline Finish(bool hasErrors) => new(
+    public CodeOutline Finish() => new(
         grammar.Name,
         _imports,
         _symbols.Select(s => new CodeSymbol(s.Parent, s.Kind, s.Name, s.Container, s.StartLine, s.EndLine,
             s.ElideStart, s.ElideEnd, s.Signature, s.Bases, s.Calls, s.Variables)).ToList(),
         _moduleCalls,
         _moduleVariables,
-        hasErrors);
+        _hasErrors);
 
     private static string Qualified(SymbolBuilder s) => s.Container.Length == 0 ? s.Name : $"{s.Container}.{s.Name}";
 
