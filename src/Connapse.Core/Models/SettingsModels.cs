@@ -364,9 +364,9 @@ public record SearchSettings
     [Range(0f, 1f)]
     public float LinkWeight { get; set; } = 0.2f;
 
-    /// <summary>Links the walk follows outward from a document, 1 or 2 (default: 2).</summary>
+    /// <summary>Links the walk follows outward from a document, 1 or 2 (default: 1, the step CON-33 measured).</summary>
     [Range(1, 2)]
-    public int LinkMaxHops { get; set; } = 2;
+    public int LinkMaxHops { get; set; } = 1;
 
     /// <summary>Top documents of the first searches the walk starts from (default: 10).</summary>
     [Range(1, 50)]

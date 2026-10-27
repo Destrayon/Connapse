@@ -8,6 +8,7 @@ using Connapse.Ingestion.Parsers.Code;
 using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Connectors.GitHub;
 using Connapse.Storage.Documents;
 using Connapse.Storage.Links;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IDocumentStore _documentStore;
     private readonly ISourceStore _sourceStore;
     private readonly IConnectionStore _connectionStore;
+    private readonly PostgresLinkStore? _linkStore;
     private readonly ICustomProviderStore? _customProviders;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
@@ -167,8 +169,10 @@ public class IngestionPipeline : IKnowledgeIngester
         IOptionsMonitor<UploadSettings> uploadSettings,
         ILogger<IngestionPipeline> logger,
         ParserProcessPool? parserPool = null,
-        ICustomProviderStore? customProviders = null)
+        ICustomProviderStore? customProviders = null,
+        PostgresLinkStore? linkStore = null)
     {
+        _linkStore = linkStore;
         _parserPool = parserPool;
         _customProviders = customProviders;
         _context = context;
@@ -459,6 +463,8 @@ public class IngestionPipeline : IKnowledgeIngester
                     $"The extracted text could not be stored: {ex.InnerException.Message}", ex);
             }
 
+            bool linksStaged = await StageLinksAsync(documentId, metadata, existing, ct);
+
             if (existing is not null &&
                 (await DocumentLifecycle.CompleteAsync(_context, documentId, generation, ct)).Count == 0)
             {
@@ -470,6 +476,8 @@ public class IngestionPipeline : IKnowledgeIngester
             }
 
             await transaction.CommitAsync(CancellationToken.None);
+            if (linksStaged)
+                _linkStore?.Written();
             await _lifecycle.NotifyAsync(documentId, CancellationToken.None);
 
             stopwatch.Stop();
@@ -493,6 +501,25 @@ public class IngestionPipeline : IKnowledgeIngester
                 await workingStream.DisposeAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// Replaces the links the document's connector metadata asserts (CON-33), in the swap's transaction, so a
+    /// superseded or failed job leaves the previous links standing with the previous chunks. A document whose
+    /// metadata never could carry links touches no link table.
+    /// </summary>
+    private async Task<bool> StageLinksAsync(
+        Guid documentId, Dictionary<string, string> metadata, DocumentEntity? existing, CancellationToken ct)
+    {
+        bool had = existing?.Metadata is { } previous && GitHubLinks.MayHaveLinks(previous);
+        if (!had && !GitHubLinks.MayHaveLinks(metadata))
+            return false;
+
+        string id = documentId.ToString();
+        DocumentLinks links = GitHubLinks.For(id, metadata) ?? new DocumentLinks(id, null, [], []);
+        await PostgresLinkStore.StageReplaceAsync(_context, [links], ct);
+        await _context.SaveChangesAsync(ct);
+        return true;
     }
 
     private Task<DocumentEntity?> LoadExistingAsync(Guid documentId, CancellationToken ct) =>

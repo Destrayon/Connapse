@@ -415,6 +415,9 @@ public sealed class GitHubConnector(
             Metadata: new Dictionary<string, string>
             {
                 [GitHub.GitHubRecordRenderer.MetadataPrefix + "url"] = $"{config.WebUrl}/blob/HEAD/{escaped}",
+                // What the link layer names this file by, so a pull request that changed it reaches it.
+                [GitHub.GitHubRecordRenderer.MetadataPrefix + "repo"] = $"{config.Owner}/{config.Repo}",
+                [GitHub.GitHubLinks.PathKey] = ToVirtualPath(entry.Path),
             });
     }
 

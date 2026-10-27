@@ -45,8 +45,7 @@ public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> cont
         await StageReplaceAsync(context, documents, ct);
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        Interlocked.Increment(ref _writes);
-        cache.Remove(AnyKey);
+        Written();
     }
 
     /// <summary>
@@ -104,6 +103,13 @@ public sealed class PostgresLinkStore(IDbContextFactory<KnowledgeDbContext> cont
                 Confidence = (float)Math.Clamp(l.Confidence, 0, 1),
             }));
         }
+    }
+
+    /// <summary>Tells <see cref="AnyAsync"/> that links were written, so a cached "none" is not kept over them.</summary>
+    public void Written()
+    {
+        Interlocked.Increment(ref _writes);
+        cache.Remove(AnyKey);
     }
 
     public async Task<ILookup<string, string>> NodesOfAsync(IReadOnlyCollection<string> documentIds, CancellationToken ct = default)

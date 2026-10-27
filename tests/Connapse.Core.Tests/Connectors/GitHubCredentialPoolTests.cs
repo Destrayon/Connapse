@@ -204,6 +204,59 @@ public sealed class GitHubCredentialPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task IssuesSync_ListsEachPullRequestsFilesOnce()
+    {
+        _api.UpsertIssue(1, "Crash");
+        _api.UpsertIssue(2, "Fix", "Fixes #1", pullRequest: true);
+        _api.SetFiles(2, "src/app.cs", "docs/setup.md");
+        var connector = Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1));
+
+        var first = await connector.GetChangesAsync(null);
+        var again = await connector.GetChangesAsync(first.NextCursor);
+
+        first.Upserted.Single(f => f.Path == "/pulls/2.md").Metadata!["github:files"]
+            .Should().Be("/docs/setup.md\n/src/app.cs");
+        first.Upserted.Single(f => f.Path == "/issues/1.md").Metadata!.Should().NotContainKey("github:files");
+        _api.RequestedPaths.Count(p => p.Contains("/pulls/2/files")).Should().Be(1, "an unchanged pull request is not listed again");
+        again.Upserted.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task IssuesSync_PushToPullRequest_ListsItsFilesAgain()
+    {
+        _api.UpsertIssue(2, "Fix", pullRequest: true);
+        _api.SetFiles(2, "a.md");
+        var connector = Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1));
+        var first = await connector.GetChangesAsync(null);
+
+        _api.SetFiles(2, "a.md", "b.md");
+        var second = await connector.GetChangesAsync(first.NextCursor);
+
+        second.Upserted.Single().Metadata!["github:files"].Should().Be("/a.md\n/b.md");
+    }
+
+    [Fact]
+    public async Task IssuesSync_MorePullRequestsThanTheCycleListsFiles_FinishesThemNextCycle()
+    {
+        int count = GitHubRecordSource.FileListingsPerCycle + 1;
+        _api.PageSize = 100;
+        for (int n = 1; n <= count; n++)
+        {
+            _api.UpsertIssue(n, "Change " + n, pullRequest: true);
+            _api.SetFiles(n, $"f{n}.md");
+        }
+        var connector = Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1));
+
+        var first = await connector.GetChangesAsync(null);
+        var second = await connector.GetChangesAsync(first.NextCursor);
+
+        // Newest first, so the oldest waits a cycle and is emitted again once it has its files.
+        first.Upserted.Single(f => f.Path == "/pulls/1.md").Metadata!.Should().NotContainKey("github:files");
+        second.Upserted.Should().ContainSingle()
+            .Which.Metadata!["github:files"].Should().Be("/f1.md");
+    }
+
+    [Fact]
     public async Task IssuesSync_TokenSpentMidSync_FailsOverToAnotherInstallation()
     {
         for (int n = 1; n <= 3; n++) _api.UpsertIssue(n, "Issue " + n);

@@ -60,6 +60,12 @@ internal sealed class GitHubRecordSource(
     /// </summary>
     internal static readonly TimeSpan CommentSweepInterval = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// Most pull requests whose files are listed in one cycle: a hundred requests, a fiftieth of an installation's
+    /// hourly budget.
+    /// </summary>
+    internal const int FileListingsPerCycle = 100;
+
     private const string PerPage = "per_page=100";
 
     private readonly GitHubApiClient _api = new(http, config.ApiBaseUrl, auth);
@@ -156,6 +162,8 @@ internal sealed class GitHubRecordSource(
                 state.LastCommentSweepAt = _clock.GetUtcNow();
             }
 
+            await ListPendingFilesAsync(state, ct);
+
             // Only now: every sweep a probe gated has finished, so its ETag may stand for it.
             state.RepositoryETag = repositoryTag;
             if (issues.ETag is not null) state.IssuesETag = issues.ETag;
@@ -233,6 +241,10 @@ internal sealed class GitHubRecordSource(
 
                 if (issue.SubIssuesSummary?.Total > 0 || record.Children.Count > 0)
                     await RefreshChildrenAsync(record, issue.SubIssuesSummary?.Total ?? 0, cache, state, ct);
+
+                // A push moves a pull request's updated_at, so its files are owed again.
+                if (auth is not null && issue.IsPullRequest && record.FilesListedAt != issue.UpdatedAt)
+                    state.FilesPending.Add(issue.Number);
 
                 // Fewer comments than we hold means one was deleted, which no sweep reports.
                 if (record.IssueCommentCount > issue.Comments)
@@ -331,6 +343,47 @@ internal sealed class GitHubRecordSource(
             parent.EdgesChangedAt = now;
 
         parent.Children = children;
+    }
+
+    /// <summary>
+    /// Lists the files of up to <see cref="FileListingsPerCycle"/> pending pull requests, newest first: one request
+    /// each, its first page only, so a pull request touching more than a hundred files links to its first hundred
+    /// (plus any a review comment names). A changed listing re-emits the record so its links are rewritten.
+    /// </summary>
+    private async Task ListPendingFilesAsync(GitHubRecordState state, CancellationToken ct)
+    {
+        foreach (int number in state.FilesPending.OrderDescending().Take(FileListingsPerCycle).ToList())
+        {
+            var record = _store.Load(number);
+            if (record?.Issue is not { IsPullRequest: true } issue || record.FilesListedAt == issue.UpdatedAt)
+            {
+                state.FilesPending.Remove(number);
+                continue;
+            }
+
+            List<string> files;
+            try
+            {
+                var listed = await _api.GetAsync<List<GitHubPullRequestFile>>($"{Repo}/pulls/{number}/files?{PerPage}", ct);
+                files = [.. listed.Select(f => f.Filename).Where(f => !string.IsNullOrEmpty(f)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+            }
+            catch (GitHubNotFoundException)
+            {
+                // Deleted between the sweep and this call; the relist will catch it.
+                state.FilesPending.Remove(number);
+                continue;
+            }
+
+            if (!record.Files.SequenceEqual(files, StringComparer.Ordinal))
+            {
+                record.Files = files;
+                record.EdgesChangedAt = _clock.GetUtcNow();
+                state.Dirty.Add(number);
+            }
+            record.FilesListedAt = issue.UpdatedAt;
+            _store.Save(record);
+            state.FilesPending.Remove(number);
+        }
     }
 
     /// <summary>
