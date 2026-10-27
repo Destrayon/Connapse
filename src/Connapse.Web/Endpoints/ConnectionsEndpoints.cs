@@ -83,7 +83,7 @@ public static class ConnectionsEndpoints
         })
         .Produces<PagedResponse<ConnectionResponse>>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .WithName("ListConnections")
+        .WithName("connections.list")
         .WithDescription("List connections by name (?skip=0&take=50, optionally ?provider=S3). Never returns a secret.");
 
         // GET /api/v1/connections/{connectionId}
@@ -98,7 +98,7 @@ public static class ConnectionsEndpoints
         })
         .Produces<ConnectionResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("GetConnection")
+        .WithName("connections.get")
         .WithDescription("Get a connection's settings, health and sync state. Never returns its secret.");
 
         // PATCH /api/v1/connections/{connectionId} — renames the connection. Audited as connection.updated.
@@ -116,7 +116,7 @@ public static class ConnectionsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
-        .WithName("UpdateConnection")
+        .WithName("connections.update")
         .WithDescription("Rename a connection. Names are unique across connections.");
 
         // POST /api/v1/connections/{connectionId}/pause — stops syncing every source on the connection.
@@ -133,7 +133,7 @@ public static class ConnectionsEndpoints
         .Produces<ConnectionSyncState>()
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
-        .WithName("PauseConnection")
+        .WithName("connections.pause")
         .WithDescription("Pause syncing for every source on a connection. Nothing is deleted.");
 
         // POST /api/v1/connections/{connectionId}/resume — turns syncing back on for the sources named
@@ -152,7 +152,7 @@ public static class ConnectionsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
-        .WithName("ResumeConnection")
+        .WithName("connections.resume")
         .WithDescription("Resume syncing for the sources named in sourceIds, or every source on the connection.");
 
         // DELETE /api/v1/connections/{connectionId}?confirmName=... — refused while any source uses it;
@@ -172,7 +172,7 @@ public static class ConnectionsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .Produces<ConnectionInUseProblem>(StatusCodes.Status409Conflict, "application/problem+json")
-        .WithName("DeleteConnection")
+        .WithName("connections.delete")
         .WithDescription("Delete a connection that no source uses. confirmName must be its name.");
 
         return app;
