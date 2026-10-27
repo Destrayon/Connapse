@@ -3642,9 +3642,9 @@
             bool? committed = await SaveAzureProviderFromForm(candidate);
             if (committed != true)
             {
-                // False: not stored, the candidate is surplus. Null: unknown — the file may be the
-                // one the store names by now, so it stays, and so does the paste for a retry.
-                if (committed == false) await DeleteAzureCandidateAsync(newPath);
+                // Not stored or unknown: the delete reads the store again and keeps the file if the
+                // store names it or can't be read. The paste stays for a retry either way.
+                await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 
@@ -3812,7 +3812,7 @@
             });
             if (committed != true)
             {
-                if (committed == false) await DeleteAzureCandidateAsync(newPath);
+                await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 

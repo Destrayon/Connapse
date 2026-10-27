@@ -156,7 +156,7 @@
   "Pages/Providers.razor": {
     "CodeLines": 1811,
     "Injects": 20,
-    "Complexity": 357,
+    "Complexity": 355,
     "MarkupLogic": 194,
     "IsEmpty": false
   },

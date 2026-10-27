@@ -927,7 +927,7 @@ All settings endpoints require **Admin** role.
 
 **Categories**: `embedding` | `chunking` | `search` | `llm` | `upload` | `summary`, in any case
 
-API keys are never returned: those fields read as `null`. `samlsignin`, `identitycenter`, `azure` and `azuread` can be read here, but changing them is a `409`: use `PUT`/`DELETE /api/v1/providers/aws/permissions`, `/api/v1/providers/aws/identity-center`, `/api/v1/providers/azure/access` and `/api/v1/providers/azure/permissions`. Saving Azure sign-in turns on per-user enforcement, so it is a `503` when enforcement can't be turned on, and its answer carries an `adminConsentUrl` to open in a browser while admin consent is pending.
+API keys are never returned: those fields read as `null`. `samlsignin`, `identitycenter`, `azure` and `azuread` can be read here, but changing them is a `409`: use `PUT`/`DELETE /api/v1/providers/aws/permissions`, `/api/v1/providers/aws/identity-center`, `/api/v1/providers/azure/access` and `/api/v1/providers/azure/permissions`. Saving Azure sign-in turns on per-user enforcement, so it is a `503` when enforcement can't be turned on, and its answer carries an `adminConsentUrl` to open in a browser while admin consent is pending. Entra sends the administrator back to the providers page, which records the consent; until then the Azure sign-in requirement in `GET /api/v1/providers` is a `Warning` saying consent is pending, so poll that. A client that recorded consent some other way sends the sign-in settings again with `adminConsentPending: false`.
 
 **Response** (200 OK) — Example for `embedding`:
 ```json

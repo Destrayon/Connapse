@@ -478,6 +478,28 @@ public class ProviderOperationRandomInputTests
                 configured.Value.AzureEnforcing.Should().BeTrue("sign-in is never saved while this process shows every user every Azure document");
         }, iter: 400);
 
+    private sealed class AzureAccessApp : IConfiguredSettings
+    {
+        public T Current<T>() where T : class, new() =>
+            new AzureProviderSettings { TenantId = "t", ClientId = "app" } as T
+            ?? new PermissionEnforcementSettings { AzureEnforcing = true } as T
+            ?? new T();
+    }
+
+    [Theory]
+    [InlineData(true, "https://login.microsoftonline.com/t/adminconsent?client_id=app&redirect_uri=https%3A%2F%2Fh.example%2Fadmin%2Fproviders%2Fazure")]
+    [InlineData(false, null)]
+    public async Task SetAzurePermissions_ConsentPending_AnswersWithTheConsentLinkBackToTheProvidersPage(bool pending, string? link)
+    {
+        var saved = await new SetAzurePermissions(Substitute.For<ISettingsStore>(), Substitute.For<ISettingsReloader>(), new AzureAccessApp(),
+                Entra(accepts: true), Substitute.For<IAuditLogger>(), Authorizer(true))
+            .RunAsync(Context(), new AzurePermissionsRequest("t", "signin", "https://h.example/api/v1/auth/cloud/azure/callback", "/c.pfx",
+                AdminConsentPending: pending));
+
+        saved.Status.Should().Be(AzureSetupStatus.Success);
+        saved.Result!.AdminConsentUrl.Should().Be(link);
+    }
+
     [Fact]
     [RandomInputTestOf(typeof(ResetAzurePermissions))]
     public Task ResetAzurePermissions_AnyCaller_ClearsSignInButNeverEnforcement() =>
