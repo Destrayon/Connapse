@@ -118,6 +118,27 @@ public class GitHubLinkIngestionTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task StageAsync_TwoBatchesBeforeOneSave_KeepsBoth()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        string a = Guid.NewGuid().ToString(), b = Guid.NewGuid().ToString();
+        string repo = $"octocat/r{Guid.NewGuid():N}";
+
+        await using (var ctx = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync())
+        {
+            await Connapse.Storage.Links.PostgresLinkStore.StageAsync(ctx,
+                [Connapse.Storage.Connectors.GitHub.GitHubLinks.For(a, Pull(repo, ("closes", "3")))!], CancellationToken.None);
+            await Connapse.Storage.Links.PostgresLinkStore.StageAsync(ctx,
+                [Connapse.Storage.Connectors.GitHub.GitHubLinks.For(b, Pull(repo, ("closes", "4")))!], CancellationToken.None);
+            await ctx.SaveChangesAsync();
+        }
+
+        (await EdgesAsync(sp, Guid.Parse(a))).Should().Equal(("closes", $"gh:{repo}#3"));
+        (await EdgesAsync(sp, Guid.Parse(b))).Should().Equal(("closes", $"gh:{repo}#4"));
+    }
+
+    [Fact]
     public async Task Delete_IngestedRecord_RemovesItsLinks()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

@@ -304,7 +304,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
             .ToList();
 
         _datasets[dataset.Name] = (containerId, docMap);
-        await WriteLinksAsync(dataset, docMap, ct);
+        // As the pipeline does, only for documents whose ingestion succeeded.
+        HashSet<string> failedIds = [.. failed];
+        await WriteLinksAsync(dataset, docMap.Where(p => !failedIds.Contains(p.Value)), ct);
 
         // Production builds per-container vector indexes in the background a few minutes after a
         // container grows; build them now so searches see what a settled deployment would (#571).
@@ -320,7 +322,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     /// The links a synced GitHub source would write (CON-33). Uploads carry no connector metadata, so the harness
     /// writes what the pipeline would have, from the same <see cref="GitHubLinks"/> reading the same metadata.
     /// </summary>
-    private async Task WriteLinksAsync(EvalDataset dataset, Dictionary<string, string> docMap, CancellationToken ct)
+    private async Task WriteLinksAsync(EvalDataset dataset, IEnumerable<KeyValuePair<string, string>> docMap, CancellationToken ct)
     {
         Dictionary<string, EvalDocument> byId = dataset.Corpus.ToDictionary(d => d.Id, StringComparer.Ordinal);
         List<DocumentLinks> links = docMap
