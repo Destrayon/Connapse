@@ -341,6 +341,13 @@ public class IngestionPipeline : IKnowledgeIngester
             // direct caller has not, and takes it the same way a job would: as a new generation,
             // so that anything already working on the document can no longer complete it.
             int generation = options.Generation;
+            if (existing is null && generation != 0)
+            {
+                // A job's row existed when it was enqueued, so a missing one was deleted after the job read the file,
+                // by a file or folder delete that then removes the stored file. Writing the row back would leave a
+                // document whose file is gone (CON-98).
+                return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
+            }
             if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
             {
                 int? claimed = await _lifecycle.EnqueuedAsync(documentId, resetAttempts: false, ct);
@@ -402,8 +409,8 @@ public class IngestionPipeline : IKnowledgeIngester
             if (existing is null)
             {
                 // Only direct callers reach here; every job's document row exists before the job
-                // is enqueued. Nothing else can be working on a row that does not exist yet, so
-                // it is created already Ready.
+                // is enqueued, and a job whose row has since been deleted stopped above. Nothing else
+                // can be working on a row that does not exist yet, so it is created already Ready.
                 documentEntity = new DocumentEntity
                 {
                     Id = documentId,
