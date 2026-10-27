@@ -1,0 +1,22 @@
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m1", "subject": "Quillfeather", "attribute": "database", "value": "MariaDB 11", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m2", "subject": "Quillfeather", "attribute": "deploy region", "value": "us-west-2", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m3", "subject": "Quillfeather", "attribute": "tech lead", "value": "Signe Morrow-Dale", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m4", "subject": "Quillfeather", "attribute": "CI system", "value": "CircleCI", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m5", "subject": "Quillfeather", "attribute": "cache", "value": "no cache", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m6", "subject": "Quillfeather", "attribute": "public API rate limit", "value": "250 requests/minute", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m7", "subject": "Quillfeather", "attribute": "alert channel", "value": "#qft-pager", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-01-05", "op": "remember", "id": "QFT-m8", "subject": "Quillfeather", "attribute": "current release", "value": "v2.6.0", "validFrom": "2026-01-05", "reason": "QFT kickoff setup"}
+{"session": "QFT-2026-02-01", "op": "correct", "id": "QFT-m9", "target": "QFT-m8", "kind": "changed", "value": "v2.7.0", "validFrom": "2026-02-01", "reason": "QFT-16 released v2.7.0"}
+{"session": "QFT-2026-02-13", "op": "correct", "id": "QFT-m10", "target": "QFT-m2", "kind": "changed", "value": "eu-central-1", "validFrom": "2026-02-13", "reason": "QFT-17 region moved to platform standard"}
+{"session": "QFT-2026-02-18", "op": "correct", "id": "QFT-m11", "target": "QFT-m1", "kind": "changed", "value": "CockroachDB 23.2", "validFrom": "2026-02-18", "reason": "QFT-18 DB switch for latency"}
+{"session": "QFT-2026-03-16", "op": "correct", "id": "QFT-m12", "target": "QFT-m9", "kind": "changed", "value": "v2.8.0", "validFrom": "2026-03-16", "reason": "QFT-19 released v2.8.0"}
+{"session": "QFT-2026-03-24", "op": "correct", "id": "QFT-m13", "target": "QFT-m4", "kind": "changed", "value": "GitHub Actions", "validFrom": "2026-03-24", "reason": "QFT-20 CI moved at customer request"}
+{"session": "QFT-2026-04-01", "op": "correct", "id": "QFT-m14", "target": "QFT-m5", "kind": "changed", "value": "Redis 7", "validFrom": "2026-04-01", "reason": "QFT-21 cache added at customer request"}
+{"session": "QFT-2026-04-14", "op": "correct", "id": "QFT-m15", "target": "QFT-m3", "kind": "changed", "value": "Caspian Oduya", "validFrom": "2026-04-14", "reason": "QFT-22 tech lead change done"}
+{"session": "QFT-2026-04-29", "op": "correct", "id": "QFT-m16", "target": "QFT-m10", "kind": "changed", "value": "us-west-2", "validFrom": "2026-04-29", "reason": "QFT-23 region back to cut costs"}
+{"session": "QFT-2026-05-01", "op": "correct", "id": "QFT-m17", "target": "QFT-m12", "kind": "changed", "value": "v2.9.0", "validFrom": "2026-05-01", "reason": "QFT-24 released v2.9.0"}
+{"session": "QFT-2026-05-12", "op": "correct", "id": "QFT-m18", "target": "QFT-m11", "kind": "changed", "value": "PostgreSQL 15", "validFrom": "2026-05-12", "reason": "QFT-25 DB change after load test"}
+{"session": "QFT-2026-05-19", "op": "correct", "id": "QFT-m19", "target": "QFT-m15", "kind": "changed", "value": "Marisol Ternby", "validFrom": "2026-05-19", "reason": "QFT-26 tech lead change"}
+{"session": "QFT-2026-05-30", "op": "correct", "id": "QFT-m20", "target": "QFT-m14", "kind": "changed", "value": "no cache", "validFrom": "2026-05-30", "reason": "QFT-27 cache removed for latency"}
+{"session": "QFT-2026-06-03", "op": "correct", "id": "QFT-m21", "target": "QFT-m17", "kind": "changed", "value": "v2.10.0", "validFrom": "2026-06-03", "reason": "QFT-28 released v2.10.0"}
+{"session": "QFT-2026-06-16", "op": "correct", "id": "QFT-m22", "target": "QFT-m19", "kind": "changed", "value": "Teodor Klyne", "validFrom": "2026-06-16", "reason": "QFT-29 tech lead change after load test"}
