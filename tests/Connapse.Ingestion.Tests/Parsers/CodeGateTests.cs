@@ -15,8 +15,14 @@ namespace Connapse.Ingestion.Tests.Parsers;
 /// without any model, in under a second, and a whole repository in under two minutes. Embedding is outside the gate:
 /// it is the same for every file type. Each grammar is loaded before timing starts, so a cold start is not charged
 /// to the first file.
+/// <para>
+/// Timings are only as good as the CPU they get. Beside other test projects on a shared CI runner the same parse took
+/// three to four times as long, so these tests are their own category, run in a CI step of their own and never beside
+/// other tests in this assembly, and each file's time is the best of three reads.
+/// </para>
 /// </summary>
-[Trait("Category", "Unit")]
+[Trait("Category", "Gate")]
+[Collection(nameof(CodeGateTests))]
 public class CodeGateTests(ITestOutputHelper output)
 {
     private static readonly string[] Extensions = [".cs", ".ts", ".tsx", ".mts", ".cts", ".py", ".pyi"];
@@ -26,6 +32,19 @@ public class CodeGateTests(ITestOutputHelper output)
     private readonly OwnerRef _owner = OwnerRef.ForContainer(Guid.NewGuid());
 
     private sealed record Read(bool Outline, int Passages, int Links, TimeSpan Elapsed);
+
+    /// <summary>The fastest of three reads: the others measure what else the machine was doing.</summary>
+    private async Task<Read> BestOfThreeAsync(string text, string path)
+    {
+        Read best = await ReadAsync(text, path);
+        for (int i = 0; i < 2; i++)
+        {
+            Read again = await ReadAsync(text, path);
+            if (again.Elapsed < best.Elapsed)
+                best = again;
+        }
+        return best;
+    }
 
     private async Task<Read> ReadAsync(string text, string path)
     {
@@ -73,6 +92,17 @@ public class CodeGateTests(ITestOutputHelper output)
         }
         total.Stop();
 
+        // A file over a tenth of the limit is read twice more, so one stall on a busy runner is not taken for its speed.
+        for (int i = 0; i < reads.Count; i++)
+        {
+            if (reads[i].Read.Elapsed > TimeSpan.FromMilliseconds(100))
+            {
+                Read best = await BestOfThreeAsync(await File.ReadAllTextAsync(Path.Combine(root, reads[i].File)), reads[i].File);
+                if (best.Elapsed < reads[i].Read.Elapsed)
+                    reads[i] = (reads[i].File, best);
+            }
+        }
+
         var slowest = reads.MaxBy(r => r.Read.Elapsed);
         output.WriteLine($"{files.Count:N0} files ({reads.Count(r => r.Read.Outline):N0} with an outline), " +
                          $"{reads.Sum(r => r.Read.Passages):N0} passages, {reads.Sum(r => r.Read.Links):N0} links " +
@@ -112,7 +142,7 @@ public class CodeGateTests(ITestOutputHelper output)
         };
         await WarmUpAsync();
 
-        Read read = await ReadAsync(source, path);
+        Read read = await BestOfThreeAsync(source, path);
 
         output.WriteLine($"{path}: {source.Split('\n').Length:N0} lines, {read.Passages:N0} passages, {read.Links:N0} links in {read.Elapsed.TotalMilliseconds:N0} ms");
         read.Outline.Should().BeTrue();
@@ -121,3 +151,7 @@ public class CodeGateTests(ITestOutputHelper output)
         read.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
     }
 }
+
+/// <summary>Keeps the speed gates from running beside any other test class in this assembly.</summary>
+[CollectionDefinition(nameof(CodeGateTests), DisableParallelization = true)]
+public class CodeGateCollection;

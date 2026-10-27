@@ -42,7 +42,7 @@ dotnet run --project tests/Connapse.Eval -- run --suite v1 --config hybrid
 
 - **xUnit** framework, **FluentAssertions** (`.Should()`), **NSubstitute** for mocking
 - Integration tests share a single PostgreSQL+MinIO container pair via `SharedWebAppFixture` (collection-based)
-- Tag tests: `[Trait("Category", "Unit")]` or `[Trait("Category", "Integration")]`
+- Tag tests: `[Trait("Category", "Unit")]` or `[Trait("Category", "Integration")]`; speed gates that time real work use `[Trait("Category", "Gate")]` and run in their own CI step
 - Test naming: `MethodName_Scenario_ExpectedResult`
 
 ## Database Migrations

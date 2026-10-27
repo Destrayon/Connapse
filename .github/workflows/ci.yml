@@ -74,6 +74,11 @@ jobs:
     - name: Run unit tests
       run: dotnet test --no-build --configuration Release --filter "Category=Unit" --verbosity normal --logger "trx;LogFileName=unit-tests.trx"
 
+    # Speed gates time real work, so they run alone: beside the unit tests' parallel projects
+    # the same parse took 3-4x as long (CON-110).
+    - name: Run speed gates
+      run: dotnet test tests/Connapse.Ingestion.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=gate-tests.trx"
+
     # Integration tests run with coverage collection — no separate coverage-only pass needed
     - name: Run integration tests
       run: dotnet test --no-build --configuration Release --filter "Category=Integration" --verbosity normal --logger "trx;LogFileName=integration-tests.trx" --collect:"XPlat Code Coverage"
