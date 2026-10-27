@@ -129,6 +129,22 @@ public class CodeLinksIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Reingest_CodeDocumentAsAnotherFileType_DropsItsCodeLinks()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        IServiceProvider sp = scope.ServiceProvider;
+        Guid container = await SeedContainerAsync(sp);
+        string ledger = await IngestAsync(sp, container, "/acme/Ledger.cs", Ledger);
+
+        await IngestAsync(sp, container, "/acme/Ledger.txt", "Notes about the ledger.", ledger);
+
+        (await sp.GetRequiredService<PostgresLinkStore>().NodesOfAsync([ledger])).Should().BeEmpty();
+        await using KnowledgeDbContext db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        (await db.LinkEdges.CountAsync(e => e.DocumentId == ledger)).Should().Be(0);
+        (await db.LinkNodeFacts.CountAsync(f => f.DocumentId == ledger)).Should().Be(0);
+    }
+
+    [Fact]
     public async Task ExpandAsync_Confidence_IsTheHighestAReadableDocumentGave()
     {
         using IServiceScope scope = fixture.Factory.Services.CreateScope();

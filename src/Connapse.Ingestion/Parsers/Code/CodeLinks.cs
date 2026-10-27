@@ -273,26 +273,48 @@ public static class CodeLinks
             if (_aliases.TryGetValue(first, out string? aliased))
                 return [new Target(Lang == "typescript" && rest.Length > 0 ? aliased + "#" + rest[1..] : aliased + rest, 0.85, "import alias")];
 
-            var local = _symbols.Select((s, i) => (s, i)).Where(x => x.s.IsType && x.s.Name == name).ToList();
-            if (local.Count > 0)
-                return Limit(local.Select(x => new Target(SymbolKey(x.s), local.Count == 1 ? 0.95 : 0.5, "same file")));
+            if (Lang == "csharp")
+                return ResolveCSharpType(name, from);
 
-            if (Lang != "csharp" && _importedNames.TryGetValue(first, out string? imported))
+            var local = _symbols.Where(s => s.IsType && s.Parent < 0 && s.Name == first).ToList();
+            bool imports = _importedNames.TryGetValue(first, out string? imported);
+            if (local.Count > 0 && imports)
+            {
+                // Defined here and imported too: which one the name means depends on order, which is not read.
+                return Limit([new Target(SymbolKey(local[0]) + rest, 0.5, "same file or imported"),
+                    new Target(imported + rest, 0.5, "same file or imported")]);
+            }
+            if (local.Count > 0)
+                return [new Target(SymbolKey(local[0]) + rest, 0.95, "same file")];
+            if (imports)
                 return [new Target(imported + rest, 0.9, "imported name")];
 
-            if (Lang == "csharp")
-            {
-                var candidates = new List<string>();
-                string ns = from >= 0 ? NamespaceOf(from) : "";
-                for (string scope = ns; scope.Length > 0; scope = scope.Contains('.') ? scope[..scope.LastIndexOf('.')] : "")
-                    candidates.Add($"{scope}.{name}");
-                candidates.AddRange(_usings.Select(u => $"{u}.{name}"));
-                if (name.Contains('.'))
-                    candidates.Add(name);
-                return Limit(candidates.Distinct(StringComparer.Ordinal).Select(c => new Target(c, 0.7, "namespace in scope")));
-            }
-
             return Limit(_wildcards.Select(m => new Target($"{m}.{name}", 0.4, "wildcard import")));
+        }
+
+        /// <summary>
+        /// A C# type name as the compiler would look for it from symbol <paramref name="from"/>: in the enclosing types,
+        /// then the enclosing namespaces, then the usings. The first candidate this file defines is the one meant; a
+        /// type of the same name in another namespace of the file is not in scope and is not preferred.
+        /// </summary>
+        private List<Target> ResolveCSharpType(string name, int from)
+        {
+            var candidates = new List<string>();
+            for (int i = EnclosingType(from); i >= 0; i = EnclosingType(_symbols[i].Parent))
+                candidates.Add($"{SymbolKey(_symbols[i])}.{name}");
+            string ns = from >= 0 ? NamespaceOf(from) : "";
+            for (string scope = ns; scope.Length > 0; scope = scope.Contains('.') ? scope[..scope.LastIndexOf('.')] : "")
+                candidates.Add($"{scope}.{name}");
+            if (from < 0 || ns.Length == 0)
+                candidates.Add(name);
+            candidates.AddRange(_usings.Select(u => $"{u}.{name}"));
+            if (name.Contains('.'))
+                candidates.Add(name);
+
+            var localTypes = _symbols.Where(s => s.IsType).Select(SymbolKey).ToHashSet(StringComparer.Ordinal);
+            if (candidates.FirstOrDefault(localTypes.Contains) is { } defined)
+                return [new Target(defined, 0.95, "same file")];
+            return Limit(candidates.Distinct(StringComparer.Ordinal).Select(c => new Target(c, 0.7, "namespace in scope")));
         }
 
         private List<Target> ResolveCall(CodeCall call, int from)
@@ -337,10 +359,16 @@ public static class CodeLinks
         private List<Target> ResolveFreeName(string name)
         {
             var local = _symbols.Where(s => s.Parent < 0 && s.Name == name).ToList();
+            bool imports = _importedNames.TryGetValue(name, out string? imported);
+            if (local.Count > 0 && imports)
+            {
+                // Defined here and imported too: which one the call means depends on order, which is not read.
+                return [new Target(SymbolKey(local[0]), 0.5, "same file or imported"), new Target(imported!, 0.5, "same file or imported")];
+            }
             if (local.Count > 0)
                 return [new Target(SymbolKey(local[0]), 0.95, "same file")];
-            if (_importedNames.TryGetValue(name, out string? imported))
-                return [new Target(imported, 0.9, "imported name")];
+            if (imports)
+                return [new Target(imported!, 0.9, "imported name")];
             return Limit(_wildcards.Select(m => new Target($"{m}.{name}", 0.4, "wildcard import")));
         }
 

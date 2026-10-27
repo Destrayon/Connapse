@@ -432,10 +432,13 @@ public class IngestionPipeline : IKnowledgeIngester
             var vectorItems = StageChunks(documentId, owner, chunks, embeddings, embedSettings);
 
             // A code file's links replace the ones it asserted before, in the same commit as its chunks (CON-109), so a
-            // superseded job's links roll back with its chunks. A file read without an outline asserts none.
-            if (_parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension)) is CodeParser)
+            // superseded job's links roll back with its chunks. A file read without an outline asserts none, and nor does
+            // one that was code before and is not now. Links other documents get from elsewhere are left alone.
+            bool isCode = _parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension)) is CodeParser;
+            bool wasCode = existing?.Metadata?.GetValueOrDefault(MetadataKeyParser) == nameof(CodeParser);
+            if (isCode || wasCode)
             {
-                CodeOutline? outline = CodeOutline.From(parsedDocument.Metadata);
+                CodeOutline? outline = isCode ? CodeOutline.From(parsedDocument.Metadata) : null;
                 DocumentLinks links = outline is null
                     ? new DocumentLinks(documentId.ToString(), null, [], [])
                     : CodeLinks.Build(documentId.ToString(), owner, virtualPath, parsedDocument.Content, outline);

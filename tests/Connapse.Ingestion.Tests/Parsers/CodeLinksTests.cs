@@ -209,6 +209,39 @@ public class CodeLinksTests
     }
 
     [Fact]
+    public async Task Build_CSharpTypeInAnotherNamespaceOfTheFile_IsNotPreferred()
+    {
+        const string source = """
+            namespace A { class Caller { void M() { Foo.Run(); } } }
+            namespace B { class Foo { public static void Run() { } } }
+            """;
+
+        var links = await LinksAsync(source, "two.cs");
+        string m = $"code:{O}:csharp:A.Caller.M";
+
+        links.Links.Should().NotContain(l => l.FromId == m && l.ToId == $"code:{O}:csharp:B.Foo.Run");
+        Link(links, CodeLinks.Calls, m, $"code:{O}:csharp:A.Foo.Run").Confidence.Should().Be(0.7);
+    }
+
+    [Fact]
+    public async Task Build_CSharpNestedType_ResolvesInsideItsEnclosingType()
+    {
+        var links = await LinksAsync("namespace N { class Outer { class Inner { } void M() { var i = new Inner(); } } }", "nested.cs");
+
+        Link(links, CodeLinks.Calls, $"code:{O}:csharp:N.Outer.M", $"code:{O}:csharp:N.Outer.Inner").Confidence.Should().Be(0.95);
+    }
+
+    [Fact]
+    public async Task Build_NameDefinedAndImported_LinksBothAtHalfConfidence()
+    {
+        var links = await LinksAsync("def f():\n    pass\n\nfrom other import f\n\ndef g():\n    f()\n", "pkg/mod.py");
+        string g = $"code:{O}:python:pkg.mod.g";
+
+        Link(links, CodeLinks.Calls, g, $"code:{O}:python:pkg.mod.f").Confidence.Should().Be(0.5);
+        Link(links, CodeLinks.Calls, g, $"code:{O}:python:other.f").Confidence.Should().Be(0.5);
+    }
+
+    [Fact]
     public async Task Build_UnknownReceiver_GetsNoLink()
     {
         var links = await LinksAsync("class C { void M(dynamic d) { d.Run(); Get().Run(); } }", "C.cs");
