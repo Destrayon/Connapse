@@ -66,8 +66,33 @@ public static class CodeLinks
 
         private string Lang => outline.Language;
 
+        // Lookups built once per file, so a file of thousands of definitions and calls is linked in linear time.
+        private readonly HashSet<(int Parent, string Name)> _members = [];
+        private readonly Dictionary<string, int> _typesByKey = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, CodeSymbol> _topLevelByName = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, CodeSymbol> _topLevelTypesByName = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _namespaces = new(StringComparer.Ordinal);
+
+        private void Index()
+        {
+            for (int i = 0; i < _symbols.Count; i++)
+            {
+                CodeSymbol symbol = _symbols[i];
+                _members.Add((symbol.Parent, symbol.Name));
+                if (symbol.IsType)
+                    _typesByKey.TryAdd(SymbolKey(symbol), i);
+                if (symbol.Parent < 0)
+                {
+                    _topLevelByName.TryAdd(symbol.Name, symbol);
+                    if (symbol.IsType)
+                        _topLevelTypesByName.TryAdd(symbol.Name, symbol);
+                }
+            }
+        }
+
         public DocumentLinks Build()
         {
+            Index();
             string fileNode = FileNode();
             _facts.Add(new LinkFact(fileNode, LinkFactField.Kind, "file"));
             _facts.Add(new LinkFact(fileNode, LinkFactField.Name, path));
@@ -126,7 +151,7 @@ public static class CodeLinks
             if (Lang != "csharp" || symbol.Container.Length == 0)
                 return null;
             string node = $"code:{_owner}:csharp-namespace:{symbol.Container}";
-            if (!_facts.Any(f => f.NodeId == node))
+            if (_namespaces.Add(node))
             {
                 _facts.Add(new LinkFact(node, LinkFactField.Kind, "namespace"));
                 _facts.Add(new LinkFact(node, LinkFactField.Name, symbol.Container));
@@ -276,16 +301,16 @@ public static class CodeLinks
             if (Lang == "csharp")
                 return ResolveCSharpType(name, from);
 
-            var local = _symbols.Where(s => s.IsType && s.Parent < 0 && s.Name == first).ToList();
+            bool isLocal = _topLevelTypesByName.TryGetValue(first, out CodeSymbol? local);
             bool imports = _importedNames.TryGetValue(first, out string? imported);
-            if (local.Count > 0 && imports)
+            if (isLocal && imports)
             {
                 // Defined here and imported too: which one the name means depends on order, which is not read.
-                return Limit([new Target(SymbolKey(local[0]) + rest, 0.5, "same file or imported"),
+                return Limit([new Target(SymbolKey(local!) + rest, 0.5, "same file or imported"),
                     new Target(imported + rest, 0.5, "same file or imported")]);
             }
-            if (local.Count > 0)
-                return [new Target(SymbolKey(local[0]) + rest, 0.95, "same file")];
+            if (isLocal)
+                return [new Target(SymbolKey(local!) + rest, 0.95, "same file")];
             if (imports)
                 return [new Target(imported + rest, 0.9, "imported name")];
 
@@ -311,8 +336,7 @@ public static class CodeLinks
             if (name.Contains('.'))
                 candidates.Add(name);
 
-            var localTypes = _symbols.Where(s => s.IsType).Select(SymbolKey).ToHashSet(StringComparer.Ordinal);
-            if (candidates.FirstOrDefault(localTypes.Contains) is { } defined)
+            if (candidates.FirstOrDefault(_typesByKey.ContainsKey) is { } defined)
                 return [new Target(defined, 0.95, "same file")];
             return Limit(candidates.Distinct(StringComparer.Ordinal).Select(c => new Target(c, 0.7, "namespace in scope")));
         }
@@ -358,15 +382,15 @@ public static class CodeLinks
         /// <summary>A bare call in Python or TypeScript: a function or class of this module, or one it imports.</summary>
         private List<Target> ResolveFreeName(string name)
         {
-            var local = _symbols.Where(s => s.Parent < 0 && s.Name == name).ToList();
+            bool isLocal = _topLevelByName.TryGetValue(name, out CodeSymbol? local);
             bool imports = _importedNames.TryGetValue(name, out string? imported);
-            if (local.Count > 0 && imports)
+            if (isLocal && imports)
             {
                 // Defined here and imported too: which one the call means depends on order, which is not read.
-                return [new Target(SymbolKey(local[0]), 0.5, "same file or imported"), new Target(imported!, 0.5, "same file or imported")];
+                return [new Target(SymbolKey(local!), 0.5, "same file or imported"), new Target(imported!, 0.5, "same file or imported")];
             }
-            if (local.Count > 0)
-                return [new Target(SymbolKey(local[0]), 0.95, "same file")];
+            if (isLocal)
+                return [new Target(SymbolKey(local!), 0.95, "same file")];
             if (imports)
                 return [new Target(imported!, 0.9, "imported name")];
             return Limit(_wildcards.Select(m => new Target($"{m}.{name}", 0.4, "wildcard import")));
@@ -376,7 +400,7 @@ public static class CodeLinks
         private List<Target> OwnMember(int type, string name)
         {
             string key = SymbolKey(_symbols[type]);
-            if (_symbols.Any(s => s.Parent == type && s.Name == name))
+            if (_members.Contains((type, name)))
                 return [new Target($"{key}.{name}", 0.95, "same file")];
             return Limit([new Target($"{key}.{name}", 0.5, "inherited or partial"), .. BaseMembers(type, name, 0.5)]);
         }
@@ -390,8 +414,7 @@ public static class CodeLinks
             var targets = new List<Target>();
             foreach (Target type in types)
             {
-                int local = _symbols.Select((s, i) => (s, i)).Where(x => x.s.IsType && SymbolKey(x.s) == type.Key).Select(x => x.i).DefaultIfEmpty(-1).First();
-                bool defined = local >= 0 && _symbols.Any(s => s.Parent == local && s.Name == name);
+                bool defined = _typesByKey.TryGetValue(type.Key, out int local) && _members.Contains((local, name));
                 double confidence = defined ? 0.9 : Math.Min(cap, type.Confidence);
                 targets.Add(new Target($"{type.Key}.{name}", confidence, defined ? "declared type, same file" : type.How));
             }
