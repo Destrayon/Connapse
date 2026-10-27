@@ -348,16 +348,21 @@ public class IngestionPipeline : IKnowledgeIngester
                 // document whose file is gone (CON-98).
                 return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
             }
-            if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
+            if (existing is not null && generation != 0)
+            {
+                // A re-upload sets the row back to Queued under a newer generation. Read as a direct caller's
+                // unclaimed row, that let a job still holding the old file claim it and index the old content (CON-102).
+                if (existing.Generation != generation)
+                    return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
+                if (existing.IngestionStatus != DocumentStatus.Processing)
+                    return Superseded(documentId, stopwatch, "Document changed before ingestion started");
+            }
+            else if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
             {
                 int? claimed = await _lifecycle.EnqueuedAsync(documentId, resetAttempts: false, ct);
                 if (claimed is null || !await _lifecycle.TryClaimAsync(documentId, claimed.Value, ct))
                     return Superseded(documentId, stopwatch, "Document changed before ingestion started");
                 generation = claimed.Value;
-            }
-            else if (existing is not null && generation != 0 && existing.Generation != generation)
-            {
-                return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
             }
 
             // The old chunks stay; the document returns to Ready marked incomplete, with its previous
