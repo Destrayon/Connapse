@@ -70,6 +70,12 @@ public sealed class CodeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
         var passages = new List<Passage>();
         var absorbed = new bool[symbols.Count];
 
+        // Every symbol inside each type, found once: a file of thousands of members is walked in linear time.
+        var descendants = new List<int>[symbols.Count];
+        for (int j = 0; j < symbols.Count; j++)
+            for (int parent = symbols[j].Parent; parent >= 0; parent = symbols[parent].Parent)
+                (descendants[parent] ??= []).Add(j);
+
         for (int i = 0; i < symbols.Count; i++)
         {
             if (absorbed[i] || (symbols[i].Parent >= 0 && absorbed[symbols[i].Parent]))
@@ -90,14 +96,13 @@ public sealed class CodeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
             {
                 // A type that fits is read whole, and its members are not repeated.
                 passages.Add(new Passage(symbol.Kind, symbol.QualifiedName, symbol.StartLine, symbol.EndLine, whole, Contiguous: true));
-                for (int j = i + 1; j < symbols.Count; j++)
-                    if (IsInside(symbols, j, i))
-                        absorbed[j] = true;
+                foreach (int j in descendants[i] ?? [])
+                    absorbed[j] = true;
                 continue;
             }
 
-            var elisions = Enumerable.Range(0, symbols.Count)
-                .Where(j => IsInside(symbols, j, i) && symbols[j].ElideStart > 0)
+            var elisions = (descendants[i] ?? [])
+                .Where(j => symbols[j].ElideStart > 0)
                 .Select(j => (symbols[j].ElideStart, symbols[j].ElideEnd));
             passages.Add(new Passage(symbol.Kind, symbol.QualifiedName, symbol.StartLine, symbol.EndLine,
                 lines.Text(symbol.StartLine, symbol.EndLine, elisions), Contiguous: false));
@@ -109,20 +114,12 @@ public sealed class CodeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
         return [.. passages.OrderBy(p => p.StartLine)];
     }
 
-    /// <summary>Whether symbol <paramref name="inner"/> sits anywhere inside symbol <paramref name="outer"/>.</summary>
-    private static bool IsInside(IReadOnlyList<CodeSymbol> symbols, int inner, int outer)
-    {
-        for (int parent = symbols[inner].Parent; parent >= 0; parent = symbols[parent].Parent)
-            if (parent == outer)
-                return true;
-        return false;
-    }
-
     /// <summary>Joins runs of neighbouring small members of one type into a passage, up to the budget.</summary>
     private List<Passage> MergeSmallMembers(List<Passage> passages, IReadOnlyList<CodeSymbol> symbols, int budget)
     {
         var containerOf = symbols.Where(s => !s.IsType).GroupBy(s => s.QualifiedName).ToDictionary(g => g.Key, g => g.First().Container);
         int small = budget / 4;
+        var types = symbols.Where(s => s.IsType).Select(s => s.QualifiedName).ToHashSet(StringComparer.Ordinal);
         var merged = new List<Passage>();
         var run = new List<Passage>();
 
@@ -142,7 +139,7 @@ public sealed class CodeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
         foreach (Passage passage in passages.OrderBy(p => p.StartLine))
         {
             bool isSmallMember = containerOf.TryGetValue(passage.Name, out string? container) && container.Length > 0
-                && symbols.Any(s => s.IsType && s.QualifiedName == container)
+                && types.Contains(container)
                 && tokenCounter.CountTokens(passage.Body) <= small;
             if (isSmallMember && run.Count > 0
                 && containerOf[run[0].Name] == container
@@ -327,10 +324,13 @@ public sealed class CodeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
             last = Math.Clamp(last, first, Count);
             var ranges = (elisions ?? []).Where(e => e.End >= e.Start).OrderBy(e => e.Start).ToList();
             var text = new List<string>();
+            int next = 0;
             for (int line = first; line <= last; line++)
             {
-                int index = ranges.FindIndex(r => line >= r.Start && line <= r.End);
-                if (index < 0)
+                // Lines only move forward, so ranges that ended before this one are never needed again.
+                while (next < ranges.Count && ranges[next].End < line)
+                    next++;
+                if (next >= ranges.Count || ranges[next].Start > line)
                 {
                     text.Add(this[line]);
                     continue;
@@ -338,7 +338,10 @@ public sealed class CodeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
 
                 string indent = new([.. this[line].TakeWhile(char.IsWhiteSpace)]);
                 text.Add(indent + Elided);
-                line = ranges.Where(r => r.Start <= line && r.End >= line).Max(r => r.End);
+                int end = line;
+                for (int r = next; r < ranges.Count && ranges[r].Start <= end; r++)
+                    end = Math.Max(end, ranges[r].End);
+                line = end;
             }
             return string.Join("\n", text);
         }
