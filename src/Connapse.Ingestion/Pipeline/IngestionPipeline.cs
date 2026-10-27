@@ -771,7 +771,7 @@ public class IngestionPipeline : IKnowledgeIngester
         string jobPath = connector.ResolveJobPath(virtualPath.TrimStart('/'));
 
         await using Stream stream = await ReadSourceFileAsync(connector, jobPath, ct);
-        return await IngestAsync(stream, options, ct);
+        return await IngestAsync(stream, MetadataStream.Merge(options, stream), ct);
     }
 
     /// <summary>
@@ -799,7 +799,7 @@ public class IngestionPipeline : IKnowledgeIngester
         try
         {
             await using Stream stream = await ReadSourceFileAsync(connector, path, ct);
-            return await IngestAsync(stream, options, ct);
+            return await IngestAsync(stream, MetadataStream.Merge(options, stream), ct);
         }
         finally
         {
