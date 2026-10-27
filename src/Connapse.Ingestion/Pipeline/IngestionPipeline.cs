@@ -4,6 +4,7 @@ using Connapse.Core.Utilities;
 using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
+using Connapse.Ingestion.Parsers.Code;
 using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -1073,6 +1074,14 @@ public class IngestionPipeline : IKnowledgeIngester
         {
             _logger.LogWarning("Chunking strategy not found: {Strategy}, using FixedSize", strategyName);
             strategy = _chunkingStrategies.First(s => s.Name == "FixedSize");
+        }
+
+        // Chunkers copy the parser's metadata onto every chunk; a code file's outline is far too large to repeat there.
+        if (parsedDocument.Metadata.ContainsKey(CodeOutline.ParsedDocumentMetadataKey))
+        {
+            var metadata = new Dictionary<string, string>(parsedDocument.Metadata);
+            metadata.Remove(CodeOutline.ParsedDocumentMetadataKey);
+            parsedDocument = parsedDocument with { Metadata = metadata };
         }
 
         if (!settings.PrependDocumentTitle)
