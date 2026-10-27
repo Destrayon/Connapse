@@ -9,6 +9,7 @@ using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Connapse.Storage.Documents;
+using Connapse.Storage.Links;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -429,6 +430,17 @@ public class IngestionPipeline : IKnowledgeIngester
             documentEntity.Metadata = metadata;
 
             var vectorItems = StageChunks(documentId, owner, chunks, embeddings, embedSettings);
+
+            // A code file's links replace the ones it asserted before, in the same commit as its chunks (CON-109), so a
+            // superseded job's links roll back with its chunks. A file read without an outline asserts none.
+            if (_parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension)) is CodeParser)
+            {
+                CodeOutline? outline = CodeOutline.From(parsedDocument.Metadata);
+                DocumentLinks links = outline is null
+                    ? new DocumentLinks(documentId.ToString(), null, [], [])
+                    : CodeLinks.Build(documentId.ToString(), owner, virtualPath, parsedDocument.Content, outline);
+                await PostgresLinkStore.StageReplaceAsync(_context, [links], ct);
+            }
 
             // Saves the document fields, the staged chunks and the vectors in one round trip.
             try

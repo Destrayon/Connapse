@@ -640,6 +640,11 @@ namespace Connapse.Storage.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
 
+                    b.Property<float>("Confidence")
+                        .HasColumnType("real")
+                        .HasDefaultValue(1f)
+                        .HasColumnName("confidence");
+
                     b.Property<string>("DocumentId")
                         .IsRequired()
                         .HasColumnType("text")

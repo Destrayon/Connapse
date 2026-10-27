@@ -81,6 +81,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.DocumentId).HasColumnName("document_id").IsRequired();
             entity.Property(e => e.Evidence).HasColumnName("evidence").IsRequired();
             entity.Property(e => e.Ordinal).HasColumnName("ordinal");
+            // Always written, so a confidence of 0 is stored as 0; the default is for rows written before the column.
+            entity.Property(e => e.Confidence).HasColumnName("confidence").HasDefaultValue(1f).ValueGeneratedNever();
             // One index per walk direction, node first, so each hop is one probe per frontier list.
             entity.HasIndex(e => new { e.FromNode, e.Type }).HasDatabaseName("idx_link_edges_from");
             entity.HasIndex(e => new { e.ToNode, e.Type }).HasDatabaseName("idx_link_edges_to");

@@ -32,4 +32,5 @@ public class LinkEdgeEntity
     public string DocumentId { get; set; } = string.Empty;
     public string Evidence { get; set; } = string.Empty;
     public int Ordinal { get; set; }
+    public float Confidence { get; set; } = 1f;
 }
