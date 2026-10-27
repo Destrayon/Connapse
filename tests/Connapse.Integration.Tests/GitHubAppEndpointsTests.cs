@@ -73,6 +73,7 @@ public sealed class GitHubAppEndpointsTests(SharedWebAppFixture fixture)
     }
 
     [Theory]
+    [InlineData("GET", "/api/v1/providers/github/app")]
     [InlineData("PUT", "/api/v1/providers/github/app")]
     [InlineData("DELETE", "/api/v1/providers/github/app")]
     [InlineData("POST", "/api/v1/providers/github/manifest")]
@@ -83,6 +84,21 @@ public sealed class GitHubAppEndpointsTests(SharedWebAppFixture fixture)
         var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = JsonContent.Create(new { }) });
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetApp_Admin_ReadsTheAppWithoutItsSecrets()
+    {
+        using var client = Client(asAdmin: true);
+
+        var response = await client.GetAsync("/api/v1/providers/github/app");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var stored = await response.Content.ReadFromJsonAsync<JsonElement>();
+        stored.TryGetProperty("app", out _).Should().BeTrue();
+        stored.TryGetProperty("status", out _).Should().BeTrue();
+        string body = stored.GetRawText();
+        body.Should().NotContain("privateKey").And.NotContain("clientSecret");
     }
 
     [Fact]

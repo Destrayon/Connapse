@@ -85,6 +85,7 @@ public sealed class ProvidersEndpointTests(SharedWebAppFixture fixture)
     }
 
     [Theory]
+    [InlineData("GET", "/api/v1/providers/aws/access")]
     [InlineData("PUT", "/api/v1/providers/aws/access")]
     [InlineData("DELETE", "/api/v1/providers/aws/access")]
     [InlineData("PUT", "/api/v1/providers/aws/identity-center")]
@@ -96,6 +97,18 @@ public sealed class ProvidersEndpointTests(SharedWebAppFixture fixture)
         var response = await anonymous.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = JsonContent.Create(new { }) });
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetAwsAccess_Admin_ReadsTheCredentialWithoutItsKey()
+    {
+        var response = await fixture.AdminClient.GetAsync("/api/v1/providers/aws/access");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var stored = await response.Content.ReadFromJsonAsync<JsonElement>();
+        stored.TryGetProperty("config", out _).Should().BeTrue();
+        stored.TryGetProperty("status", out _).Should().BeTrue();
+        stored.GetRawText().Should().NotContain("privateKey");
     }
 
     [Theory]

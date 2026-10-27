@@ -7200,6 +7200,55 @@
       }
     },
     "/api/v1/providers/aws/access": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Read Connapse's stored IAM Roles Anywhere credential: certificate, ARNs and region, with when it was saved and last verified. The private key is never returned. Both fields are null when no credential is stored.",
+        "operationId": "providers.aws.access.get",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsAccessView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "Providers"
@@ -8308,6 +8357,55 @@
       }
     },
     "/api/v1/providers/github/app": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Read the stored GitHub App: its id, slug, client id, owner and address, with when it was saved and last verified. The private key and client secret are never returned. Both fields are null when no App is stored.",
+        "operationId": "providers.github.app.get",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "Providers"
@@ -11457,6 +11555,35 @@
           }
         }
       },
+      "AwsAccessView": {
+        "required": [
+          "config",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RolesAnywhereConfig"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderCredentialStatus"
+              }
+            ]
+          }
+        }
+      },
       "AwsPermissionsRequest": {
         "type": "object",
         "properties": {
@@ -14026,6 +14153,35 @@
           }
         }
       },
+      "GitHubAppView": {
+        "required": [
+          "app",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "app": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GitHubAppRegistration"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderCredentialStatus"
+              }
+            ]
+          }
+        }
+      },
       "GitHubContentKind": {
         "enum": [
           "Docs",
@@ -15039,6 +15195,26 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ProviderCredentialStatus": {
+        "required": [
+          "createdAt",
+          "verifiedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verifiedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },

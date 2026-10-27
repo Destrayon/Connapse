@@ -46,6 +46,9 @@ public sealed record AwsAccessRequest(
     }
 }
 
+/// <summary>The stored Roles Anywhere credential without its private key, and when it was saved and last worked; both null when none is stored.</summary>
+public sealed record AwsAccessView(RolesAnywhereConfig? Config, ProviderCredentialStatus? Status);
+
 /// <summary>The removed credential, if there was one, and the CloudShell command that deletes its AWS resources.</summary>
 public sealed record AwsAccessReset(RolesAnywhereConfig? Removed, string? CleanupScript);
 
@@ -163,6 +166,21 @@ public sealed class ResetAwsAccess(IProviderCredentialStore credentials, IAwsSes
     }
 }
 
+/// <summary>Reads the stored IAM Roles Anywhere credential. The private key is never returned.</summary>
+[Operation("providers.aws.access.get", Scope = "admin:settings", Risk = RiskTier.Read, Mcp = McpExposure.Generic)]
+public sealed class GetAwsAccess(IProviderCredentialStore credentials, IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<AwsAccessView, AwsSetupStatus>> RunAsync(OperationContext context, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
+            return Attempt<AwsAccessView, AwsSetupStatus>.Fail(AwsSetupStatus.Forbidden, AwsRules.Refused);
+
+        RolesAnywhereConfig? config = await credentials.GetRolesAnywhereAsync(AwsRules.Provider, ct);
+        ProviderCredentialStatus? status = config is null ? null : await credentials.GetStatusAsync(AwsRules.Provider, ct);
+        return Attempt<AwsAccessView, AwsSetupStatus>.Succeed(new AwsAccessView(config, status));
+    }
+}
+
 /// <summary>Records the customer's IAM Identity Center instance, which per-user AWS permissions are resolved against.</summary>
 [Operation("providers.aws.identityCenter", Scope = "admin:settings", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
 public sealed class SetIdentityCenter(ISettingsStore store, ISettingsReloader reloader, IAuditLogger audit, IOperationAuthorizer authorizer)
@@ -273,8 +291,10 @@ public sealed class ResetAwsPermissions(ISettingsStore store, ISettingsReloader 
 /// <summary>Every AWS setup operation in one place, for the providers page.</summary>
 public sealed class AwsProviderOperations(
     SetAwsAccess access, ResetAwsAccess resetAccess, SetIdentityCenter identityCenter, ResetIdentityCenter resetIdentityCenter,
-    SetAwsPermissions permissions, ResetAwsPermissions resetPermissions)
+    SetAwsPermissions permissions, ResetAwsPermissions resetPermissions, GetAwsAccess readAccess)
 {
+    public GetAwsAccess ReadAccess { get; } = readAccess;
+
     public SetAwsAccess Access { get; } = access;
 
     public ResetAwsAccess ResetAccess { get; } = resetAccess;

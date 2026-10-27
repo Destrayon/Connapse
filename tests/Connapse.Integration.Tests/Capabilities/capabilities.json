@@ -518,6 +518,14 @@
       "note": "Status comes from IProviderSetupReader, which no endpoint calls."
     },
     {
+      "id": "providers.aws.access.get",
+      "capability": "Read the stored AWS access credential",
+      "routes": [
+        "GET /api/v1/providers/aws/access"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "providers.aws.access",
       "capability": "Set up AWS access (IAM Roles Anywhere)",
       "routes": [
@@ -625,6 +633,14 @@
       "capability": "Read the GitHub App's installations",
       "routes": [
         "GET /api/v1/providers/github/installed"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.github.app.get",
+      "capability": "Read the stored GitHub App",
+      "routes": [
+        "GET /api/v1/providers/github/app"
       ],
       "mcp": "generic"
     },

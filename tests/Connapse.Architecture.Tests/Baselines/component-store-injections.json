@@ -4,9 +4,6 @@
   "Pages.Connections -> ICustomProviderStore",
   "Pages.Connections -> IProviderCredentialStore",
   "Pages.Connections -> ISourceStore",
-  "Pages.Providers -> ICustomProviderStore",
-  "Pages.Providers -> IProviderCredentialStore",
-  "Pages.Providers -> ISettingsStore",
   "Pages.Search -> IContainerStore",
   "Pages.SourceEdit -> IConnectionStore",
   "Pages.Sources -> IConnectionStore"

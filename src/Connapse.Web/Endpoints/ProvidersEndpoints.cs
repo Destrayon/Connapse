@@ -98,6 +98,17 @@ public static class ProvidersEndpoints
 
     private static void MapAwsProvider(RouteGroupBuilder aws)
     {
+        // GET /api/v1/providers/aws/access — the stored credential, without its private key
+        aws.MapGet("/access", async ([FromServices] GetAwsAccess read, HttpContext http, CancellationToken ct) =>
+        {
+            var stored = await read.RunAsync(Rest(http), ct);
+            return stored.Succeeded ? Results.Ok(stored.Result) : OperationProblems.Result(stored);
+        })
+        .Produces<AwsAccessView>()
+        .WithName("providers.aws.access.get")
+        .WithDescription("Read Connapse's stored IAM Roles Anywhere credential: certificate, ARNs and region, with when it was saved and last "
+            + "verified. The private key is never returned. Both fields are null when no credential is stored.");
+
         // PUT /api/v1/providers/aws/access — check an IAM Roles Anywhere credential with AWS, then save it
         aws.MapPut("/access", async ([FromServices] SetAwsAccess access, [FromBody] AwsAccessRequest request, HttpContext http, CancellationToken ct) =>
         {

@@ -16,6 +16,17 @@ public static class GitHubAppEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
+        // GET /api/v1/providers/github/app — the stored App, without its key or secret
+        group.MapGet("/app", async ([FromServices] GetGitHubApp read, HttpContext http, CancellationToken ct) =>
+        {
+            var stored = await read.RunAsync(Rest(http), ct);
+            return stored.Succeeded ? Results.Ok(stored.Result) : OperationProblems.Result(stored);
+        }).RequireAuthorization("RequireSettingsAdmin")
+        .Produces<GitHubAppView>()
+        .WithName("providers.github.app.get")
+        .WithDescription("Read the stored GitHub App: its id, slug, client id, owner and address, with when it was saved and last verified. "
+            + "The private key and client secret are never returned. Both fields are null when no App is stored.");
+
         // PUT /api/v1/providers/github/app — check a hand-registered App with GitHub, then store it
         group.MapPut("/app", async ([FromServices] SetGitHubApp set, [FromBody] GitHubAppRequest request, HttpContext http, CancellationToken ct) =>
         {

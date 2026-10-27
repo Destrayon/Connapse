@@ -147,6 +147,24 @@ public sealed class SetGitHubApp(
     }
 }
 
+/// <summary>The stored GitHub App, and when it was saved and last worked; both null when none is stored.</summary>
+public sealed record GitHubAppView(GitHubAppRegistration? App, ProviderCredentialStatus? Status);
+
+/// <summary>Reads the stored GitHub App. Its private key and client secret are never returned.</summary>
+[Operation("providers.github.app.get", Scope = "admin:settings", Risk = RiskTier.Read, Mcp = McpExposure.Generic)]
+public sealed class GetGitHubApp(IProviderCredentialStore credentials, IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<GitHubAppView, GitHubAppStatus>> RunAsync(OperationContext context, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
+            return Attempt<GitHubAppView, GitHubAppStatus>.Fail(GitHubAppStatus.Forbidden, GitHubRules.Refused);
+
+        GitHubAppRegistration? app = await credentials.GetGitHubAppAsync(ct);
+        ProviderCredentialStatus? status = app is null ? null : await credentials.GetStatusAsync(GitHubRules.Provider, ct);
+        return Attempt<GitHubAppView, GitHubAppStatus>.Succeed(new GitHubAppView(app, status));
+    }
+}
+
 /// <summary>
 /// Removes the stored GitHub App's key and secret. Every GitHub connection and source stops syncing, and linked GitHub
 /// accounts no longer unlock private repositories. The App itself stays on GitHub.
@@ -317,8 +335,10 @@ public sealed class RecordGitHubAppInstalled(IAuditLogger audit, IOperationAutho
 }
 
 /// <summary>The GitHub App operations the providers page uses, in one place.</summary>
-public sealed class GitHubAppOperations(SetGitHubApp app, RemoveGitHubApp remove, StartGitHubAppCreation create)
+public sealed class GitHubAppOperations(SetGitHubApp app, RemoveGitHubApp remove, StartGitHubAppCreation create, GetGitHubApp read)
 {
+    public GetGitHubApp Read { get; } = read;
+
     public SetGitHubApp App { get; } = app;
 
     public RemoveGitHubApp Remove { get; } = remove;

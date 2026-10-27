@@ -283,6 +283,27 @@ public class ProviderOperationRandomInputTests
         }, iter: 400);
 
     [Fact]
+    [RandomInputTestOf(typeof(GetAwsAccess))]
+    public Task GetAwsAccess_AnyCaller_ReadsTheCredentialWithoutItsKeyAndOnlyForSettingsAdmins() =>
+        Gen.Select(Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, stored) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetRolesAnywhereAsync("aws", Arg.Any<CancellationToken>()).Returns(stored ? StoredAccess : null);
+            var saved = new ProviderCredentialStatus(DateTime.UtcNow, null);
+            credentials.GetStatusAsync("aws", Arg.Any<CancellationToken>()).Returns(saved);
+
+            var read = await new GetAwsAccess(credentials, Authorizer(allowed)).RunAsync(Context());
+
+            read.Status.Should().Be(allowed ? AwsSetupStatus.Success : AwsSetupStatus.Forbidden);
+            if (allowed)
+                read.Result.Should().Be(new AwsAccessView(stored ? StoredAccess : null, stored ? saved : null));
+            else
+                credentials.ReceivedCalls().Should().BeEmpty();
+            await credentials.DidNotReceiveWithAnyArgs().GetRolesAnywhereMaterialAsync(default!, default);
+        }, iter: 50);
+
+    [Fact]
     [RandomInputTestOf(typeof(ResetAwsAccess))]
     public Task ResetAwsAccess_AnyCaller_RemovesOnlyTheCredentialItReadAndOnlyForSettingsAdmins() =>
         Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool).SampleAsync(async t =>
@@ -523,6 +544,27 @@ public class ProviderOperationRandomInputTests
     private static readonly string GitHubKey = System.Security.Cryptography.RSA.Create(2048).ExportRSAPrivateKeyPem();
 
     private static readonly GitHubAppRegistration StoredGitHubApp = new(42, "stored", "Iv1.client", "octo", "https://github.com/apps/stored");
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetGitHubApp))]
+    public Task GetGitHubApp_AnyCaller_ReadsTheAppWithoutItsSecretsAndOnlyForSettingsAdmins() =>
+        Gen.Select(Gen.Bool, Gen.Bool).SampleAsync(async t =>
+        {
+            var (allowed, stored) = t;
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(stored ? StoredGitHubApp : null);
+            var saved = new ProviderCredentialStatus(DateTime.UtcNow, DateTime.UtcNow);
+            credentials.GetStatusAsync("github", Arg.Any<CancellationToken>()).Returns(saved);
+
+            var read = await new GetGitHubApp(credentials, Authorizer(allowed)).RunAsync(Context());
+
+            read.Status.Should().Be(allowed ? GitHubAppStatus.Success : GitHubAppStatus.Forbidden);
+            if (allowed)
+                read.Result.Should().Be(new GitHubAppView(stored ? StoredGitHubApp : null, stored ? saved : null));
+            else
+                credentials.ReceivedCalls().Should().BeEmpty();
+            await credentials.DidNotReceiveWithAnyArgs().GetGitHubAppMaterialAsync(default);
+        }, iter: 50);
 
     [Fact]
     [RandomInputTestOf(typeof(SetGitHubApp))]

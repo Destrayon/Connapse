@@ -13,7 +13,7 @@
 @using Connapse.Storage.CloudScope.RolesAnywhere
 @using Connapse.Storage.Connectors.GitHub
 @using Microsoft.Extensions.Options
-@inject ISettingsStore SettingsStore
+@inject Connapse.Application.Settings.GetSettings ReadSettings
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
@@ -21,7 +21,6 @@
 @inject IAzureHostIdentity HostIdentity
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
 @inject Connapse.Application.Providers.GetProviderStatus ProviderStatus
-@inject IProviderCredentialStore CredentialStore
 @inject GitHubAppUsage GitHubUsage
 @inject Connapse.Application.Providers.AwsProviderOperations Aws
 @inject Connapse.Application.Providers.AzureProviderOperations Azure
@@ -32,7 +31,7 @@
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
 @inject Connapse.Application.Providers.GitHubAppOperations GitHubOps
 @inject AuthenticationStateProvider AuthState
-@inject ICustomProviderStore CustomProviderStore
+@inject Connapse.Application.Providers.ListCustomProviders ListCustom
 @using System.Security.Claims
 @using System.Security.Cryptography.X509Certificates
 @using Microsoft.AspNetCore.Components.Authorization
@@ -2247,11 +2246,10 @@
     /// <summary>Loads the stored App and starts a manifest request this administrator can complete.</summary>
     private async Task LoadGitHubAsync()
     {
-        gitHubAppInfo = await CredentialStore.GetGitHubAppAsync();
+        (gitHubAppInfo, gitHubCredentialStatus) = await GitHubOps.Read.ReadAsync(AuthState);
         // Stored and still accepted by GitHub: a revoked secret must not read as "Available".
         gitHubSecretStored = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync();
         gitHubCanSignIn = gitHubSecretStored && await GitHubApp.StoredClientSecretMatchesAsync() != false;
-        gitHubCredentialStatus = gitHubAppInfo is null ? null : await CredentialStore.GetStatusAsync("github");
         manualGitHubAppId ??= gitHubAppInfo?.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         gitHubReplaceConfirmed = false;
 
@@ -2394,7 +2392,7 @@
         if (!firstRender) return;
 
         setups = await ProviderStatus.ReadAsync(AuthState);
-        customProviders = await CustomProviderStore.ListAsync();
+        customProviders = await ListCustom.ReadAsync(AuthState);
         await LoadAwsCredentialModeAsync();
         if (Key == "github")
             await LoadGitHubAsync();
@@ -2840,9 +2838,8 @@
 
         try
         {
-            RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
+            (RolesAnywhereConfig? config, raStatus) = await Aws.ReadAccess.ReadAsync(AuthState);
             hasStoredRaCredential = config is not null;
-            raStatus = config is null ? null : await CredentialStore.GetStatusAsync("aws");
             raCertificateExpires = CertificateExpiry(config?.CertificatePem);
 
             // Fill the manual (bring-your-own) fields from the stored, non-secret configuration so
@@ -2914,7 +2911,7 @@
                 ? DetectHostIdentityAsync(refresh: true)
                 : Task.CompletedTask;
             setups = await ProviderStatus.ReadAsync(AuthState);
-        customProviders = await CustomProviderStore.ListAsync();
+        customProviders = await ListCustom.ReadAsync(AuthState);
             await detection;
             await LoadAwsCredentialModeAsync();
             LoadAzureCertificateExpiry();
@@ -3649,8 +3646,11 @@
         Add(AzureAdOptions.CurrentValue.ClientCertificatePath);
         try
         {
-            Add((await SettingsStore.GetAsync<AzureProviderSettings>("azure"))?.ClientCertificatePath);
-            Add((await SettingsStore.GetAsync<AzureAdSignInSettings>("azuread"))?.ClientCertificatePath);
+            if (await ReadSettings.InEffectAsync(AuthState, "azure") is not AzureProviderSettings access
+                || await ReadSettings.InEffectAsync(AuthState, "azuread") is not AzureAdSignInSettings signIn)
+                return null;
+            Add(access.ClientCertificatePath);
+            Add(signIn.ClientCertificatePath);
         }
         catch (Exception)
         {
@@ -3839,15 +3839,13 @@
         _ => "bi-question-circle text-secondary"
     };
 
-    /// <summary>Whether the store now holds exactly <paramref name="settings"/> under
-    /// <paramref name="category"/>; null when the store cannot be read, which is not a no.</summary>
+    /// <summary>Whether the settings in effect under <paramref name="category"/> are now exactly
+    /// <paramref name="settings"/>, secrets aside; null when they cannot be read, which is not a no.</summary>
     private async Task<bool?> IsStoredAsync<T>(string category, T settings) where T : class
     {
         try
         {
-            T? stored = await SettingsStore.GetAsync<T>(category);
-            return stored is not null
-                && System.Text.Json.JsonSerializer.Serialize(stored) == System.Text.Json.JsonSerializer.Serialize(settings);
+            return await ReadSettings.InEffectMatchesAsync(AuthState, category, settings);
         }
         catch (Exception)
         {

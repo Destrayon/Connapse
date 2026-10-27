@@ -430,7 +430,17 @@
       "risk": "read",
       "scope": "admin:settings"
     },
+    "GET /api/v1/providers/aws/access": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:settings"
+    },
     "GET /api/v1/providers/custom/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:settings"
+    },
+    "GET /api/v1/providers/github/app": {
       "requires": "admin",
       "risk": "read",
       "scope": "admin:settings"
