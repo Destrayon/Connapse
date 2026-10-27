@@ -96,8 +96,14 @@ public class PostgresConnectionStore(
 
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        var entity = await context.Connections.FirstOrDefaultAsync(c => c.Id == id, ct);
+        // An update checked against a known version locks the row, so no other save lands between the compare and the write.
+        await using var transaction = request.ExpectedUpdatedAt is null ? null : await context.Database.BeginTransactionAsync(ct);
+        var entity = request.ExpectedUpdatedAt is null
+            ? await context.Connections.FirstOrDefaultAsync(c => c.Id == id, ct)
+            : await context.Connections.FromSql($"SELECT * FROM connections WHERE id = {id} FOR UPDATE").FirstOrDefaultAsync(ct);
         if (entity is null) return null;
+        if (request.ExpectedUpdatedAt is { } expected && entity.UpdatedAt != expected)
+            throw new ConnectionChangedException(id);
 
         if (!string.IsNullOrWhiteSpace(request.Name))
             entity.Name = request.Name.Trim();
@@ -124,6 +130,8 @@ public class PostgresConnectionStore(
 
         entity.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
 
         int sourceCount = await context.Sources.CountAsync(s => s.ConnectionId == id, ct);
         return MapToModel(entity, sourceCount);

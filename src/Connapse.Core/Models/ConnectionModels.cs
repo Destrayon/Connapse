@@ -61,14 +61,25 @@ public record CreateConnectionRequest(
 public record UpdateConnectionRequest(
     string? Name = null,
     string? ConfigJson = null,
-    string? Secret = null)
+    string? Secret = null,
+    DateTime? ExpectedUpdatedAt = null)
 {
     // The generated ToString would print the secret into any log line or message it reached.
     protected virtual bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Name = {Name}, ConfigJson = {ConfigJson}, Secret = {(Secret is null ? "null" : "***")}");
+        builder.Append($"Name = {Name}, ConfigJson = {ConfigJson}, Secret = {(Secret is null ? "null" : "***")}, ExpectedUpdatedAt = {ExpectedUpdatedAt}");
         return true;
     }
+}
+
+/// <summary>
+/// The connection was saved by someone else after this update's settings were checked against it, so the
+/// checked settings could be paired with a secret they were never checked with. The caller reloads and retries.
+/// </summary>
+public class ConnectionChangedException(Guid connectionId)
+    : Exception($"Connection '{connectionId}' changed after its new settings were checked.")
+{
+    public Guid ConnectionId { get; } = connectionId;
 }
 
 /// <summary>

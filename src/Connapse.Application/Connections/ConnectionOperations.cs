@@ -265,7 +265,13 @@ public sealed class UpdateConnection(
             try
             {
                 saved = await connections.UpdateAsync(current.Id, new UpdateConnectionRequest(
-                    Name: renamed ? name : null, ConfigJson: check?.ConfigJson, Secret: check?.Secret), ct);
+                    Name: renamed ? name : null, ConfigJson: check?.ConfigJson, Secret: check?.Secret,
+                    ExpectedUpdatedAt: check is null ? null : current.UpdatedAt), ct);
+            }
+            // Another save landed after these settings were checked; writing them now could pair them with its secret.
+            catch (ConnectionChangedException)
+            {
+                return Fail(ConnectionStatus.Conflict, "The connection changed while these settings were being checked. Reload it and try again.");
             }
             // Another session took the name between the check and the save; the unique index refused it.
             catch (DbUpdateException)

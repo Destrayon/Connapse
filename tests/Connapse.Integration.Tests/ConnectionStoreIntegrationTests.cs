@@ -35,6 +35,24 @@ public class ConnectionStoreIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task UpdateAsync_ExpectedVersionIsStale_ThrowsAndKeepsTheOtherSave()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        var created = await store.CreateAsync(NewRequest("first-secret"), createdByUserId: null);
+        var checkedAgainst = (await store.GetAsync(created.Id))!;
+
+        await store.UpdateAsync(created.Id, new UpdateConnectionRequest(
+            ConfigJson: """{"region":"eu-west-1"}""", Secret: "second-secret", ExpectedUpdatedAt: checkedAgainst.UpdatedAt));
+        var stale = () => store.UpdateAsync(created.Id, new UpdateConnectionRequest(
+            ConfigJson: """{"region":"us-west-2"}""", ExpectedUpdatedAt: checkedAgainst.UpdatedAt));
+
+        await stale.Should().ThrowAsync<ConnectionChangedException>();
+        (await store.GetAsync(created.Id))!.ConfigJson.Should().Contain("eu-west-1");
+        (await store.GetSecretAsync(created.Id)).Should().Be("second-secret");
+    }
+
+    [Fact]
     public async Task RecordHealthAsync_UnknownConnection_ReturnsNull()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

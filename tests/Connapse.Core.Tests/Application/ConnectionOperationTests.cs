@@ -471,9 +471,40 @@ public sealed class ConnectionOperationTests
         updated.Succeeded.Should().BeTrue();
         await _rules.Received(1).CheckAsync(bucket.Name, ConnectionProvider.S3, settings, bucket, Arg.Any<CancellationToken>());
         await _connections.Received(1).UpdateAsync(bucket.Id,
-            Arg.Is<UpdateConnectionRequest>(r => r.Name == null && r.ConfigJson == """{"region":"eu-west-1"}""" && r.Secret == null),
+            Arg.Is<UpdateConnectionRequest>(r => r.Name == null && r.ConfigJson == """{"region":"eu-west-1"}""" && r.Secret == null
+                && r.ExpectedUpdatedAt == bucket.UpdatedAt),
             Arg.Any<CancellationToken>());
         _events.Should().ContainSingle().Which.Details.Should().Contain("\"ConfigChanged\":true").And.Contain("\"SecretReplaced\":false");
+    }
+
+    [Fact]
+    public async Task Update_ConnectionSavedAfterTheSettingsCheck_IsAConflictAndAuditsNothing()
+    {
+        Connection bucket = Bucket();
+        Stored(bucket);
+        _connections.UpdateAsync(bucket.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Connection?>(_ => throw new ConnectionChangedException(bucket.Id));
+        RulesAnswer(new SettingsCheck("""{"region":"eu-west-1"}""", "new-secret"));
+
+        var updated = await Update().RunAsync(Caller, new ConnectionRef(bucket.Id), new ConnectionChange(null, new ConnectionSettings("{}")));
+
+        updated.Status.Should().Be(ConnectionStatus.Conflict);
+        updated.Detail.Should().Contain("Reload it and try again");
+        _events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_RenameOnly_DoesNotRequireAnUnchangedConnection()
+    {
+        Connection bucket = Bucket();
+        Stored(bucket);
+        _connections.UpdateAsync(bucket.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(bucket with { Name = "renamed" });
+
+        (await Update().RunAsync(Caller, new ConnectionRef(bucket.Id), "renamed")).Succeeded.Should().BeTrue();
+
+        await _connections.Received(1).UpdateAsync(bucket.Id,
+            Arg.Is<UpdateConnectionRequest>(r => r.ExpectedUpdatedAt == null), Arg.Any<CancellationToken>());
     }
 
     [Fact]

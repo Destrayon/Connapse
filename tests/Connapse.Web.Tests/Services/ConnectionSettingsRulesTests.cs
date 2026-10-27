@@ -157,8 +157,8 @@ public class ConnectionSettingsRulesTests
     [Fact]
     public async Task Check_CustomAddressChangedWithoutAToken_IsRefusedBeforeTheStoredTokenIsSent()
     {
-        Connection current = Stored(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://old.example"))
-            with { HasSecret = true };
+        Connection stored = Stored(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://old.example"));
+        Connection current = stored with { HasSecret = true };
 
         SettingsCheck check = await Rules().CheckAsync("src", ConnectionProvider.Custom,
             new ConnectionSettings(CustomConnectionConfig.ForMiddleMan("https://evil.example")), current);
