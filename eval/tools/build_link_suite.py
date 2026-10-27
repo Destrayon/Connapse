@@ -57,6 +57,11 @@ STARTS2 = "2026-10-01T00:00:00Z"
 SEED2 = 20261027
 ATLASSIAN = ("links-flink-atlassian", "FLINK", '2023-01-01', '2024-01-01', "FLINK")
 SEED3 = 20261028
+# links-v3's second question set: the first one's test split held no cf-parent question and only 32 Confluence
+# questions (CON-34 audit). Sampled with SEED4, never from a record the first set's test split used.
+SEED4 = 20261029
+PER_ANSWER = 2
+RESTATES = 0.5
 VERSIONS = {GITHUB[0]: "2026-10-01", JIRA[0]: "2022", GITHUB2[0]: "2026-10-27", ATLASSIAN[0]: "2023"}
 SUITES = {GITHUB[0]: "links-v1", JIRA[0]: "links-v1", GITHUB2[0]: "links-v2", ATLASSIAN[0]: "links-v3"}
 BODY_CHARS = 1500
@@ -94,6 +99,13 @@ KINDS3 = {
     "cf-parent": ("confluence", 1, 30, "Ask which page this wiki page sits under in the page tree."),
     "cf-children": ("confluence", 1, 20, "Ask which pages sit directly under this wiki page in the page tree."),
 }
+
+# The second set asks more of the Confluence kinds, so its held-out half can show a +0.05 gain (about 58 needed).
+KINDS3B = {**KINDS3,
+           "cf-issues": KINDS3["cf-issues"][:2] + (45,) + KINDS3["cf-issues"][3:],
+           "cf-links-to": KINDS3["cf-links-to"][:2] + (45,) + KINDS3["cf-links-to"][3:],
+           "cf-parent": KINDS3["cf-parent"][:2] + (45,) + KINDS3["cf-parent"][3:],
+           "cf-children": KINDS3["cf-children"][:2] + (35,) + KINDS3["cf-children"][3:]}
 
 
 def sha256(path):
@@ -517,7 +529,7 @@ def candidates(source, records, links):
     return out
 
 
-def split_by_component(rows, seed=SEED):
+def split_by_component(rows, seed=SEED, stratified=False):
     """Splits the questions into tuning and held-out halves so that no record is in both. Questions that share
     a record, as start or answer, form one group, and a whole group goes to whichever half is smaller, in a
     seeded order. Splitting question by question let a held-out answer be a tuning question's start or answer."""
@@ -539,10 +551,17 @@ def split_by_component(rows, seed=SEED):
     order = sorted(groups)
     random.Random(seed + 1).shuffle(order)
     size = {"dev": 0, "test": 0}
+    by_kind = {"dev": defaultdict(int), "test": defaultdict(int)}
     for root in order:
-        half = "dev" if size["dev"] <= size["test"] else "test"
+        if stratified:
+            # The half with fewer questions of the group's commonest kind, so every kind reaches both halves.
+            kind = max(sorted({r["kind"] for r in groups[root]}), key=lambda k: sum(r["kind"] == k for r in groups[root]))
+            half = "dev" if (by_kind["dev"][kind], size["dev"]) <= (by_kind["test"][kind], size["test"]) else "test"
+        else:
+            half = "dev" if size["dev"] <= size["test"] else "test"
         for r in groups[root]:
             r["split"] = half
+            by_kind[half][r["kind"]] += 1
         size[half] += len(groups[root])
     seen = {"dev": set(), "test": set()}
     for r in rows:
@@ -552,16 +571,37 @@ def split_by_component(rows, seed=SEED):
     print(f"split: {size['dev']} tuning, {size['test']} held-out, in {len(groups)} groups")
 
 
-def packets(only=None):
+def title_words(record):
+    """A title's content words, without the proposal and ticket numbers every FLIP page and its ticket share."""
+    return set(words(text_of(record)[0])) - {"flip", "a", "an", "the", "of", "to", "for", "in", "on", "and", "with"} \
+        - {w for w in words(text_of(record)[0]) if w.isdigit()}
+
+
+def restates(records, start, answer):
+    """True when the answer's title says what the start's does, so plain search finds it without the link."""
+    a, b = title_words(records[start]), title_words(records[answer])
+    return bool(a and b) and len(a & b) / len(a | b) >= RESTATES
+
+
+def first_set_test_records():
+    """The records the first links-v3 question set's held-out half used, read from the commit that added it."""
+    shown = subprocess.run(["git", "show", "8dc6f463:eval/datasets/links-flink-atlassian/questions.jsonl"],
+                           cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    rows = [json.loads(line) for line in shown.splitlines() if line.strip()]
+    return {r for q in rows if q["split"] == "test" for r in (q["start"], *q["answers"])}
+
+
+def packets(only=None, second=False):
     datasets = ((GITHUB2[0], "github", SEED2, STARTS2),) if only == GITHUB2[0] else \
-        ((ATLASSIAN[0], "atlassian", SEED3, None),) if only == ATLASSIAN[0] else (
+        ((ATLASSIAN[0], "atlassian", SEED4 if second else SEED3, None),) if only == ATLASSIAN[0] else (
         (GITHUB[0], "github", SEED, None), (JIRA[0], "jira", SEED, None))
     for name, source, seed, starts in datasets:
-        kinds = {k: (source, *v[1:]) for k, v in KINDS3.items()} if source == "atlassian" else KINDS
+        kinds = {k: (source, *v[1:]) for k, v in (KINDS3B if second else KINDS3).items()} if source == "atlassian" else KINDS
         rng = random.Random(seed)
         records, links = load(name)
         found = candidates(source, records, links)
         used = set()
+        excluded = first_set_test_records() if second else set()
         rows = []
         for kind, (kind_source, hops, quota, ask) in kinds.items():
             if kind_source != source:
@@ -569,8 +609,19 @@ def packets(only=None):
             pool = sorted((start, sorted(answers)) for start, answers in found[kind].items()
                           if start in records and 0 < len(answers) <= MAX_ANSWERS
                           and (starts is None or created(records[start]) >= starts))
+            if second:
+                pool = [(s, a) for s, a in pool if not ({s, *a} & excluded) and not any(restates(records, s, x) for x in a)]
             rng.shuffle(pool)
-            chosen = [(s, a) for s, a in pool if s not in used][:quota]
+            per_answer = defaultdict(int)
+            chosen = []
+            for s, a in pool:
+                if len(chosen) == quota:
+                    break
+                if s in used or (second and any(per_answer[x] >= PER_ANSWER for x in a)):
+                    continue
+                chosen.append((s, a))
+                for x in a:
+                    per_answer[x] += 1
             for start, answers in chosen:
                 used.add(start)
                 title, body = text_of(records[start])
@@ -581,7 +632,7 @@ def packets(only=None):
                     "packet": {"title": title, "body": body[:BODY_CHARS], "ask": ask},
                 })
             print(f"{name}: {kind}: {len(chosen)} of {len(pool)} available (quota {quota})")
-        split_by_component(rows, seed)
+        split_by_component(rows, seed, stratified=second)
         path = os.path.join(ROOT, "eval", ".cache", "link-packets", f"{name}.jsonl")
         write_jsonl(path, rows)
         # What a question writer gets: the start record's text and the ask, never the answers.
@@ -656,7 +707,7 @@ if __name__ == "__main__":
         build_atlassian()
         register(ATLASSIAN[0], "--repin" in sys.argv)
     elif args[0] == "packets":
-        packets(args[1] if len(args) > 1 else None)
+        packets(args[1] if len(args) > 1 else None, second="--second" in sys.argv)
     elif args[0] == "questions":
         questions(args[1:])
     else:

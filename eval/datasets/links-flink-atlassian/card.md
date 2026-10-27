@@ -15,9 +15,27 @@ Built the way [links-flink-jira](../links-flink-jira/card.md) was, with these di
   `jira-relates`, `jira-parent`, `jira-subtasks`; `cf-issues`, `cf-links-to`, `cf-parent`, `cf-children`.
   Labels and fix versions are stored but not asked about: their questions ("pages tagged like this one") have
   answers too broad to rank.
-- **Seed:** sampling and the split use 20261028. 305 packets, 167 tuning and 138 held-out, split by shared
-  record as before. The held-out half has 106 Jira and 32 Confluence questions: the page tree joins most pages
-  into a few large groups.
+- **Seed:** sampling and the split use 20261029 (`packets links-flink-atlassian --second`). This is the second
+  question set; see below.
+
+## Second question set
+
+The first set (seed 20261028, commit 8dc6f463) was scored once and its Confluence half was not a sound test: the
+held-out split held no `cf-parent` question, because 24 of 30 parent questions shared one hub page as their
+answer and the record-sharing split moved them all to tuning together; 32 Confluence questions could only
+detect a gain of about +0.067; and 13 `cf-issues` answers restated the start page's title, so they tested plain
+search rather than links. The second set fixes the sampling, not the system (link weights are unchanged):
+
+- at most 2 questions share an answer record within a kind, so no hub dominates a kind;
+- a packet is dropped when an answer's title restates the start's (content-word Jaccard of 0.5 or more,
+  ignoring "FLIP" and numbers), for Jira and Confluence alike;
+- the split balances each kind across the halves, still keeping questions that share a record in one half;
+- no start or answer record of the first set's held-out half is used, so the new held-out half is unseen;
+- higher Confluence quotas, for at least 60 held-out Confluence questions.
+
+307 packets: 147 tuning and 160 held-out (90 Jira, 70 Confluence: 27 `cf-parent`, 22 `cf-links-to`, 15
+`cf-issues`, 6 `cf-children`). 27 questions were rejected on first writing and all passed when rewritten once. The corpus and links are
+the first set's, so its index is reused.
 
 Each question was written by a model that saw only the start record's title, its body (first 1,500 characters,
 tags stripped for pages) and what to ask for, and was checked by `build_link_suite.py questions` with the same
