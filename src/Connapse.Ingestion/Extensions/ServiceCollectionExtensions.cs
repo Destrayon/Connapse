@@ -62,6 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IChunkingStrategy, DocumentAwareChunker>();
         services.AddSingleton<IChunkingStrategy, SentenceWindowChunker>();
         services.AddSingleton<IChunkingStrategy, RecordChunker>();
+        services.AddSingleton<IChunkingStrategy, CodeChunker>();
         services.AddTransient<IChunkingStrategy, SemanticChunker>(); // Transient because it depends on IEmbeddingProvider
 
         // Register embedding cache

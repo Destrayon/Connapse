@@ -1077,7 +1077,8 @@ public class IngestionPipeline : IKnowledgeIngester
         }
 
         // Chunkers copy the parser's metadata onto every chunk; a code file's outline is far too large to repeat there.
-        if (parsedDocument.Metadata.ContainsKey(CodeOutline.ParsedDocumentMetadataKey))
+        // Only the code chunker reads it, and leaves it off its chunks.
+        if (strategy.Name != CodeChunker.StrategyName && parsedDocument.Metadata.ContainsKey(CodeOutline.ParsedDocumentMetadataKey))
         {
             var metadata = new Dictionary<string, string>(parsedDocument.Metadata);
             metadata.Remove(CodeOutline.ParsedDocumentMetadataKey);
@@ -1134,6 +1135,8 @@ internal static class IngestionPipelineStrategyResolver
         if (string.IsNullOrEmpty(fileName)) return fallbackStrategy;
         string ext = System.IO.Path.GetExtension(fileName);
         if (MarkdownExtensions.Contains(ext)) return "DocumentAware";
+        // Code is cut at its definitions (CON-108) unless the caller chose a strategy themselves.
+        if (CodeGrammar.ForExtension(ext) is not null && !strategyIsExplicit) return CodeChunker.StrategyName;
         return ParsedMarkdownExtensions.Contains(ext) && !strategyIsExplicit ? "DocumentAware" : fallbackStrategy;
     }
 
