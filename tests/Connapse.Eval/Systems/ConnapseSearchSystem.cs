@@ -7,6 +7,7 @@ using Connapse.Eval.Model;
 using Connapse.Search.Reranking;
 using Connapse.Search.Keyword;
 using Connapse.Search.Vector;
+using Connapse.Storage.Connectors.GitHub;
 using Hangfire;
 using Hangfire.Common;
 using Hangfire.Storage;
@@ -303,6 +304,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
             .ToList();
 
         _datasets[dataset.Name] = (containerId, docMap);
+        // As the pipeline does, only for documents whose ingestion succeeded.
+        HashSet<string> failedIds = [.. failed];
+        await WriteLinksAsync(dataset, docMap.Where(p => !failedIds.Contains(p.Value)), ct);
 
         // Production builds per-container vector indexes in the background a few minutes after a
         // container grows; build them now so searches see what a settled deployment would (#571).
@@ -312,6 +316,25 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         IndexReport report = new(dataset.Corpus.Count, failed.Count, failed) { Outcomes = outcomes };
         _reports[dataset.Name] = report;
         return report;
+    }
+
+    /// <summary>
+    /// The links a synced GitHub source would write (CON-33). Uploads carry no connector metadata, so the harness
+    /// writes what the pipeline would have, from the same <see cref="GitHubLinks"/> reading the same metadata.
+    /// </summary>
+    private async Task WriteLinksAsync(EvalDataset dataset, IEnumerable<KeyValuePair<string, string>> docMap, CancellationToken ct)
+    {
+        Dictionary<string, EvalDocument> byId = dataset.Corpus.ToDictionary(d => d.Id, StringComparer.Ordinal);
+        List<DocumentLinks> links = docMap
+            .Select(p => GitHubLinks.For(p.Key, byId[p.Value].Metadata))
+            .OfType<DocumentLinks>()
+            .ToList();
+        if (links.Count == 0)
+            return;
+
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<ILinkWriter>().ReplaceAsync(links, ct);
+        _log.WriteLine($"[{dataset.Name}] wrote links for {links.Count} documents ({links.Sum(l => l.Links.Count)} links)");
     }
 
     public async Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct)

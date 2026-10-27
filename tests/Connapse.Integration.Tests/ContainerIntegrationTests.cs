@@ -85,14 +85,23 @@ public class ContainerIntegrationTests(SharedWebAppFixture fixture)
         var c1 = await CreateContainer("list-test-1");
         var c2 = await CreateContainer("list-test-2");
 
-        // Act
-        var response = await fixture.AdminClient.GetAsync("/api/containers?skip=0&take=50");
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        // Act — page to the end, since the shared database holds other tests' containers too
+        List<ContainerDto> all = [];
+        bool hasMore = true;
+        while (hasMore)
+        {
+            var response = await fixture.AdminClient.GetAsync($"/api/containers?skip={all.Count}&take=50");
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<ContainerDto>>(JsonOptions);
-        paged.Should().NotBeNull();
-        paged!.Items.Should().Contain(c => c.Name == "list-test-1");
-        paged.Items.Should().Contain(c => c.Name == "list-test-2");
+            var paged = await response.Content.ReadFromJsonAsync<PagedResponse<ContainerDto>>(JsonOptions);
+            paged.Should().NotBeNull();
+            paged!.Items.Should().NotBeEmpty("a page that says there is more must hold something");
+            all.AddRange(paged.Items);
+            hasMore = paged.HasMore;
+        }
+
+        all.Should().Contain(c => c.Name == "list-test-1");
+        all.Should().Contain(c => c.Name == "list-test-2");
 
         // Cleanup
         await fixture.AdminClient.DeleteAsync($"/api/containers/{c1.Id}");

@@ -49,6 +49,9 @@
     ],
     "memory-v1": [
       "memory-questions"
+    ],
+    "links-v2": [
+      "links-connapse-github-2"
     ]
   },
   "datasets": {
@@ -1050,6 +1053,31 @@
           "name": "ops-TDW.jsonl",
           "url": "repo:memory-questions/memory-ops/TDW.jsonl",
           "sha256": "ce69e3e38cf41ceb0d75fa282ae1c74b4eda86d7bd1c9162dc561d44ce31c505"
+        }
+      ]
+    },
+    "links-connapse-github-2": {
+      "adapter": "link-questions",
+      "version": "2026-10-27",
+      "tags": [
+        "shape:record",
+        "source:github"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "6cce489bcbf2264e081834db0962e426ab39bf4e9a1dc3858bea8d15e6e926a1"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "3c20b5f562f944fe5107dd7472371889a8f5e5d3bb38811d9dec27c54ac748f7"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-connapse-github-2/questions.jsonl",
+          "sha256": "80c6fa9b0a1336f2847c2984bd60d6d5dc73f5dffb1f159d0300b742ff487d4f"
         }
       ]
     }
