@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Text.Json;
 using AngleSharp.Dom;
 using Bunit;
@@ -328,10 +329,26 @@ public static partial class Operations
     /// between the two. A page that re-renders by itself (the file browser refreshes ingestion
     /// status) otherwise drops the handler of an element found a moment before, which bUnit reports
     /// as an unknown event handler; retrying lost that race too while files were still ingesting (#900).
+    /// The find also parses the current markup rather than bUnit's cached DOM (CON-140): bUnit fills
+    /// that cache without a lock, so a read on the test thread that overlaps a render can store the
+    /// markup from before it, and every find returns those stale elements until the next render.
     /// </summary>
     internal static Task ClickAsync<T>(IRenderedComponent<T> page, Func<IElement> find)
         where T : Microsoft.AspNetCore.Components.IComponent =>
-        page.InvokeAsync(() => find().ClickAsync(new()));
+        page.InvokeAsync(() =>
+        {
+            DropParsedDom(page);
+            return find().ClickAsync(new());
+        });
+
+    /// <summary>Clears bUnit's cached DOM so the next read parses the markup as it is now. Call it on the renderer's thread.</summary>
+    private static void DropParsedDom(object page)
+    {
+        var cache = page.GetType().GetField("latestRenderNodes", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException(
+                $"bUnit's {page.GetType().Name} no longer has the latestRenderNodes cache; find the new way to drop a stale DOM before clicking (CON-140).");
+        cache.SetValue(page, null);
+    }
 
     private static async Task<string?> McpAsync(SharedWebAppFixture fixture, Principal principal, string tool,
         Dictionary<string, object?> arguments, Func<string, string>? payload = null)
