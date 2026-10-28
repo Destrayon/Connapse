@@ -30,7 +30,7 @@ def mcp_config(setup, args, out):
     servers = {}
     if setup in ("rag", "both"):
         servers["connapse"] = {"type": "http", "url": args.connapse,
-                               "headers": {"Authorization": "Bearer " + os.environ["CON142_PAT"]}}
+                               "headers": {"X-Api-Key": os.environ["CON142_PAT"]}}
     if setup in ("files", "both"):
         servers["files"] = {"type": "stdio", "command": args.tool_server,
                             "args": ["--root", args.corpus, "--rg", args.rg]}

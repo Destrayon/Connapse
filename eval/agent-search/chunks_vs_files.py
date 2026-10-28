@@ -58,7 +58,7 @@ def main():
         timed = "\\timing on\n" + "".join(f"select count(*) {scope} and strpos(c.content, {lit}) > 0;\n"
                                           for _ in range(args.repeats))
         times = [float(m) for m in re.findall(r"Time: ([\d.]+) ms", psql(args, timed))]
-        rows = psql(args, f"select distinct d.path || d.file_name {scope} and strpos(c.content, {lit}) > 0;")
+        rows = psql(args, f"select distinct d.path {scope} and strpos(c.content, {lit}) > 0;")
         db_files = {re.sub(r"\.(cs|razor)\.txt$", r".\1", r.strip()).lstrip("/") for r in rows.splitlines() if r.strip()}
 
         rg_times, out = [], ""
