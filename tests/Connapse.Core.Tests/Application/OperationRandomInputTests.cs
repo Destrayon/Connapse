@@ -73,6 +73,8 @@ public class OperationRandomInputTests
             // The reads that agent keys may also make check Reader; a sample's caller passes both or neither.
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(viewer);
             Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
+            // Source changes check the sources policy: an administrator signed in, or their token with admin:sources.
+            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(admin);
             Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => true);
         }
 

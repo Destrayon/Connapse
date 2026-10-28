@@ -48,7 +48,7 @@ public sealed class CreateSource(
         static Attempt<CreatedSource, SourceWriteStatus> Fail(SourceWriteStatus status, string? detail, string? field = null) =>
             Attempt<CreatedSource, SourceWriteStatus>.Fail(status, detail, field);
 
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Fail(SourceWriteStatus.Forbidden, "You don't have permission to add sources.");
 
         // Every source authenticates through its connection, a custom one included, so a secret here
@@ -166,7 +166,7 @@ public sealed class DeleteSource(ISourceStore sources, IAuditLogger audit, IOper
 {
     public async Task<Attempt<Source, SourceWriteStatus>> RunAsync(OperationContext context, Guid sourceId, string? confirmName, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Forbidden, "You don't have permission to delete sources.");
 
         var source = await sources.GetAsync(sourceId, ct);

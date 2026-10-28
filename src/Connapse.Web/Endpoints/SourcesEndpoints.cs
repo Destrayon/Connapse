@@ -116,8 +116,8 @@ public static class SourcesEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status502BadGateway)
         .WithName("CreateSource")
-        .WithDescription("Create a source inside an existing connection. Administrator only — a source chooses what external data is indexed.")
-        .RequireAuthorization("RequireAdmin");
+        .WithDescription("Create a source inside an existing connection. Administrator only, and a token needs admin:sources: a source chooses what external data is indexed.")
+        .RequireAuthorization("RequireSourcesAdmin");
 
         // PATCH /api/sources/{sourceId}
         group.MapPatch("/{sourceId:guid}", async (
@@ -152,8 +152,8 @@ public static class SourcesEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("UpdateSource")
-        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state.")
-        .RequireAuthorization("RequireAdmin");
+        .WithDescription("Update a source's name, description, scope, sync interval, or enabled state. Administrator only; a token needs admin:sources.")
+        .RequireAuthorization("RequireSourcesAdmin");
 
         // DELETE /api/sources/{sourceId}
         group.MapDelete("/{sourceId:guid}", async (
@@ -170,8 +170,8 @@ public static class SourcesEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("DeleteSource")
-        .WithDescription("Delete a source and its indexed documents. confirmName must be the source's name. The external data itself is untouched.")
-        .RequireAuthorization("RequireAdmin");
+        .WithDescription("Delete a source and its indexed documents. confirmName must be the source's name. The external data itself is untouched. Administrator only; a token needs admin:sources.")
+        .RequireAuthorization("RequireSourcesAdmin");
 
         // POST /api/sources/{sourceId}/sync
         group.MapPost("/{sourceId:guid}/sync", async (
@@ -199,8 +199,8 @@ public static class SourcesEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("SyncSource")
-        .WithDescription("Run one sync cycle for a source immediately, rather than waiting for the next scheduled poll.")
-        .RequireAuthorization("RequireAdmin");
+        .WithDescription("Run one sync cycle for a source immediately, rather than waiting for the next scheduled poll. Administrator only; a token needs admin:sources.")
+        .RequireAuthorization("RequireSourcesAdmin");
 
         group.MapPost("/{sourceId:guid}/retry-failed", async (
             Guid sourceId,
@@ -216,8 +216,8 @@ public static class SourcesEndpoints
         .Produces<RetryFailedResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("RetryFailedSourceDocuments")
-        .WithDescription("Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file.")
-        .RequireAuthorization("RequireAdmin");
+        .WithDescription("Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file. Administrator only; a token needs admin:sources.")
+        .RequireAuthorization("RequireSourcesAdmin");
 
         // GET /api/v1/sources/scope-schema/{provider}
         app.MapGroup("/api/v1/sources").WithTags("Sources")
