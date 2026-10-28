@@ -139,21 +139,24 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
     }
 
     [Fact]
-    public async Task ReplaceSecret_AdminWhoIsNotTheOwner_Returns403OverEveryRoute()
+    public async Task ReplaceSecret_AdminWhoIsNotTheOwner_ReplacesItOverEveryRoute()
     {
         using var admin = await ClientAsync(AdminEmail);
-        Connection created = await CreateAsync(Unique("not-owner"));
+        Connection created = await CreateAsync(Unique("not-owner"),
+            """{"host":"sftp.example.com","port":22,"username":"reader","allowedRoot":"/data"}""");
 
-        (await admin.GetAsync($"{Connections}/{created.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await admin.PutAsJsonAsync($"{Connections}/{created.Id}/secret", new { privateKey = "x" }))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await admin.PatchAsJsonAsync($"{Connections}/{created.Id}", new { privateKey = "x" }))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await admin.PutAsJsonAsync($"/api/v1/atlassian/sites/{created.Id}/credentials", new { clientId = "c", clientSecret = "s" }))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await admin.PutAsJsonAsync($"{Connections}/{created.Id}/secret", new { privateKey = "admin-put-key" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
         using (var scope = fixture.Factory.Services.CreateScope())
-            (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetSecretAsync(created.Id)).Should().Be(Secret);
-        (await AuditActionsFor(created.Id)).Should().BeEmpty();
+            (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetSecretAsync(created.Id)).Should().Contain("admin-put-key");
+        (await admin.PatchAsJsonAsync($"{Connections}/{created.Id}", new { privateKey = "admin-patch-key" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var scope = fixture.Factory.Services.CreateScope())
+            (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetSecretAsync(created.Id)).Should().Contain("admin-patch-key");
+        // The Atlassian alias admits the administrator too; this connection isn't a site, so there is nothing to replace.
+        (await admin.PutAsJsonAsync($"/api/v1/atlassian/sites/{created.Id}/credentials", new { clientId = "c", clientSecret = "s" }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await AuditActionsFor(created.Id)).Should().Contain("connection.credentials_replaced");
     }
 
     [Fact]

@@ -99,8 +99,6 @@ public static class AuthzExpectations
             "RequireSettingsAdmin" => "admin",
             // An administrator, whose token also needs admin:sources (CON-11).
             "RequireSourcesAdmin" => "admin",
-            // The Owner, whose token also needs admin:sources: who replaces a connection's secret (CON-114).
-            "RequireSourcesOwner" => "owner",
             "RequireOwner" => "owner",
             "RequireAgent" => "mcp",
             _ => p,

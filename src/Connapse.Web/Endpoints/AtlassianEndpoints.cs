@@ -545,7 +545,7 @@ public static class AtlassianEndpoints
                     AtlassianSite.FromConfigJson(replaced.Connection.ConfigJson)?.ClientId,
                     Report(replaced.Test!))),
             };
-        }).RequireAuthorization("RequireSourcesOwner")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianCredentialsReplaced>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)

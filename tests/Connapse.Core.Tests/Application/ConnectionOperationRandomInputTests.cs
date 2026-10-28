@@ -223,14 +223,13 @@ public sealed class ConnectionOperationRandomInputTests
 
     [Fact]
     [RandomInputTestOf(typeof(ReplaceConnectionSecret))]
-    public Task ReplaceSecret_AnySecret_StoresOnlyTheOwnersCheckedKeyOrToken() =>
-        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.Custom, ConnectionProvider.S3, ConnectionProvider.Atlassian),
+    public Task ReplaceSecret_AnySecret_StoresOnlyAnAdministratorsCheckedKeyOrToken() =>
+        Gen.Select(Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.Custom, ConnectionProvider.S3, ConnectionProvider.Atlassian),
                 Gen.Bool, Gen.OneOfConst<string?>(null, " ", "k"), Gen.OneOfConst<string?>(null, " ", "t"), Gen.Int[0, 2], Gen.Bool)
             .SampleAsync(async t =>
             {
-                var (admin, owner, provider, exists, key, token, rulesAnswer, changed) = t;
+                var (admin, provider, exists, key, token, rulesAnswer, changed) = t;
                 var world = new World(admin);
-                world.Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesOwner).Returns(owner);
                 var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
                 world.Store(connection, exists, []);
                 // The rules accept with a secret, refuse, or accept but leave the secret to a custom provider.
@@ -251,7 +250,7 @@ public sealed class ConnectionOperationRandomInputTests
 
                 bool given = provider == ConnectionProvider.Sftp ? !string.IsNullOrWhiteSpace(key) : !string.IsNullOrWhiteSpace(token);
                 ConnectionStatus expected =
-                    !(admin && owner) ? ConnectionStatus.Forbidden
+                    !admin ? ConnectionStatus.Forbidden
                     : !exists ? ConnectionStatus.NotFound
                     : provider is not (ConnectionProvider.Sftp or ConnectionProvider.Custom) || !given ? ConnectionStatus.Invalid
                     : rulesAnswer != 0 ? ConnectionStatus.Invalid

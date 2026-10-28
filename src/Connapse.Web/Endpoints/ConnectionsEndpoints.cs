@@ -263,7 +263,7 @@ public static class ConnectionsEndpoints
             return replaced.Succeeded ? Results.Ok(ConnectionResponse.From(replaced.Result!)) : OperationProblems.Result(replaced);
         })
         .WithTags("Connections")
-        .RequireAuthorization("RequireSourcesOwner")
+        .RequireAuthorization("RequireSourcesAdmin")
         .Produces<ConnectionResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status401Unauthorized)

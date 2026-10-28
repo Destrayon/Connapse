@@ -11,7 +11,7 @@ using NSubstitute;
 namespace Connapse.Core.Tests.Application;
 
 /// <summary>
-/// Replacing a connection's secret: the Owner only, checked against the stored settings as the Connections page
+/// Replacing a connection's secret: any administrator, checked against the stored settings as the Connections page
 /// checks a save, audited without the secret, and refused when the connection changed while it was checked.
 /// </summary>
 [Trait("Category", "Unit")]
@@ -46,17 +46,23 @@ public sealed class ConnectionSecretOperationTests
         return connection;
     }
 
-    // An administrator who isn't the Owner: every connection policy passes but the Owner's.
-    private void NotTheOwner() => _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesOwner).Returns(false);
+    private void NotAnAdministrator() => _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(false);
+
+    // An administrator who isn't the Owner: the sources administrator policy passes and no other.
+    private void AdministratorOnly()
+    {
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(true);
+    }
 
     private ReplaceConnectionSecret Replace() => new(_connections, _sources, _rules, _audit, _authorizer);
 
     private UpdateConnection Update() => new(_connections, _sources, _rules, _audit, _authorizer);
 
     [Fact]
-    public async Task ReplaceSecret_NotTheOwner_IsForbiddenAndChecksNothing()
+    public async Task ReplaceSecret_NotAnAdministrator_IsForbiddenAndChecksNothing()
     {
-        NotTheOwner();
+        NotAnAdministrator();
         Connection sftp = Stored(ConnectionProvider.Sftp);
 
         var replaced = await Replace().RunAsync(Caller, new ConnectionRef(sftp.Id), new ConnectionSecret("KEY"));
@@ -64,7 +70,7 @@ public sealed class ConnectionSecretOperationTests
             new CheckedSecret("{}", "s", sftp.UpdatedAt, new { }));
 
         replaced.Status.Should().Be(ConnectionStatus.Forbidden);
-        replaced.Detail.Should().Be(ConnectionMessages.OwnerReplacesSecrets);
+        replaced.Detail.Should().Be(ConnectionMessages.CannotReplaceSecrets);
         stored.Status.Should().Be(ConnectionStatus.Forbidden);
         await _rules.DidNotReceiveWithAnyArgs().CheckAsync(default!, default, default!, default, default);
         await _connections.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
@@ -192,21 +198,32 @@ public sealed class ConnectionSecretOperationTests
     }
 
     [Fact]
-    public async Task Update_CarryingASecret_NotTheOwner_IsForbidden_ButSettingsAloneAreNot()
+    public async Task ReplaceSecret_AnAdministratorWhoIsNotTheOwner_ReplacesIt()
     {
-        NotTheOwner();
+        AdministratorOnly();
         Connection sftp = Stored(ConnectionProvider.Sftp);
-        _rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(new SettingsCheck(sftp.ConfigJson, null));
+        _rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(new SettingsCheck(sftp.ConfigJson, "SECRET"));
+
+        var replaced = await Replace().RunAsync(Caller, new ConnectionRef(sftp.Id), new ConnectionSecret("KEY"));
+
+        replaced.Succeeded.Should().BeTrue();
+        await _connections.Received(1).UpdateAsync(sftp.Id, Arg.Is<UpdateConnectionRequest>(r => r.Secret == "SECRET"), Arg.Any<CancellationToken>());
+        _events.Should().ContainSingle(e => e.Action == "connection.credentials_replaced");
+    }
+
+    [Fact]
+    public async Task Update_CarryingASecret_FromAnAdministratorWhoIsNotTheOwner_IsSaved()
+    {
+        AdministratorOnly();
+        Connection sftp = Stored(ConnectionProvider.Sftp);
+        _rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(new SettingsCheck(sftp.ConfigJson, "SECRET"));
         var key = new ConnectionRef(sftp.Id);
 
         var withKey = await Update().RunAsync(Caller, key, new ConnectionChange(null, new ConnectionSettings(null, "KEY")));
         var withToken = await Update().RunAsync(Caller, key, new ConnectionChange(null, new ConnectionSettings("{}", Token: "tok")));
-        var settingsOnly = await Update().RunAsync(Caller, key, new ConnectionChange(null, new ConnectionSettings("{}")));
 
-        withKey.Status.Should().Be(ConnectionStatus.Forbidden);
-        withKey.Detail.Should().Be(ConnectionMessages.OwnerReplacesSecrets);
-        withToken.Status.Should().Be(ConnectionStatus.Forbidden);
-        settingsOnly.Succeeded.Should().BeTrue();
+        withKey.Succeeded.Should().BeTrue();
+        withToken.Succeeded.Should().BeTrue();
     }
 
     [Fact]

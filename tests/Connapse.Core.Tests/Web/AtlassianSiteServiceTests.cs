@@ -298,11 +298,11 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Replace_NotTheOwner_IsForbiddenBeforeAtlassianIsAsked()
+    public async Task Replace_NotAnAdministrator_IsForbiddenBeforeAtlassianIsAsked()
     {
         Connection site = Site();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesOwner).Returns(false);
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(false);
 
         var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
 

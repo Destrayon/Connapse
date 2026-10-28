@@ -61,8 +61,8 @@ public static class ConnectionCallers
 
     /// <summary>
     /// Saves an edit to <paramref name="editing"/>. A new secret with the name and settings unchanged is replaced through
-    /// connections.replaceSecret, anything else saved through connections.update; both are the Owner's alone when they carry
-    /// a secret. A refusal but <see cref="ConnectionStatus.NotFound"/>, which the page reports itself, is sent on as
+    /// connections.replaceSecret, anything else saved through connections.update; any administrator may do
+    /// either. A refusal but <see cref="ConnectionStatus.NotFound"/>, which the page reports itself, is sent on as
     /// <see cref="RefuseAsync"/> sends it.
     /// </summary>
     public static async Task<Attempt<ConnectionView, ConnectionStatus>> SaveAsync(

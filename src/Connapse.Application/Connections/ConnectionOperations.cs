@@ -123,11 +123,6 @@ internal static class ConnectionRules
         connections.RecordHealthAsync(id, new ConnectionHealth(
             DateTime.UtcNow, Succeeded: true, Step: null, "Reachable, token accepted.", Origin: "test"), ct);
 
-    /// <summary>Whether the settings carry a credential: an SFTP key or its passphrase, or a custom source server's token.</summary>
-    public static bool CarriesSecret(ConnectionSettings? settings) =>
-        settings is not null && !(string.IsNullOrEmpty(settings.PrivateKey) && string.IsNullOrEmpty(settings.Passphrase)
-            && string.IsNullOrEmpty(settings.Token));
-
     public static async Task<bool> IsPausedAsync(ISourceStore sources, Guid connectionId, CancellationToken ct)
     {
         var onConnection = await sources.ListByConnectionAsync(connectionId, ct);
@@ -158,8 +153,8 @@ public static class ConnectionMessages
     public const string AtlassianSiteOnly =
         "Add an Atlassian site with POST /api/v1/atlassian/sites, which checks its service account before saving it.";
 
-    /// <summary>Why anyone but the Owner is refused a secret replacement.</summary>
-    public const string OwnerReplacesSecrets = "Only the Owner can replace a connection's secret.";
+    /// <summary>Why anyone but an administrator is refused a secret replacement.</summary>
+    public const string CannotReplaceSecrets = "You don't have permission to replace a connection's secret.";
 
     /// <summary>Why connections.replaceSecret won't take an Atlassian site's credential: only the site's own check may.</summary>
     public const string AtlassianCredentialsOnly =
@@ -244,9 +239,6 @@ public sealed class UpdateConnection(
             return Fail(ConnectionStatus.Forbidden, "You don't have permission to change connections.");
 
         ConnectionSettings? settings = change.Settings;
-        // A secret sent with the change replaces the stored one, which is the Owner's alone, as connections.replaceSecret is.
-        if (ConnectionRules.CarriesSecret(settings) && !await authorizer.AllowsAsync(context.User, Policies.SourcesOwner))
-            return Fail(ConnectionStatus.Forbidden, ConnectionMessages.OwnerReplacesSecrets);
         string? trimmed = change.Name?.Trim();
         // A name is required unless only the settings change.
         if ((settings is null || trimmed is not null) && trimmed is not { Length: > 0 and <= ConnectionRules.MaxNameLength })
@@ -345,8 +337,8 @@ public sealed record CheckedSecret(string? ConfigJson, string Secret, DateTime E
 
 /// <summary>
 /// Replaces a connection's secret and keeps its settings: an SFTP connection's key, or a custom source server's token,
-/// checked as a save on the Connections page checks it. The Owner only, since the secret is the authority its sources
-/// sync with. An Atlassian site's credential is checked against the site first and stored through
+/// checked as a save on the Connections page checks it. Any administrator, as for every other change to a connection.
+/// An Atlassian site's credential is checked against the site first and stored through
 /// <see cref="RunCheckedAsync"/>. Audited as <c>connection.credentials_replaced</c>, never with the secret.
 /// </summary>
 [Operation("connections.replaceSecret", Scope = "admin:sources", Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
@@ -355,13 +347,13 @@ public sealed class ReplaceConnectionSecret(
 {
     /// <summary>Whether the caller may replace secrets, asked before a provider's check reaches out with the new one.</summary>
     public async Task<bool> AllowsAsync(OperationContext context) =>
-        await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin) && await authorizer.AllowsAsync(context.User, Policies.SourcesOwner);
+        await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin);
 
     public async Task<Attempt<ConnectionView, ConnectionStatus>> RunAsync(
         OperationContext context, ConnectionRef key, ConnectionSecret secret, CancellationToken ct = default)
     {
         if (!await AllowsAsync(context))
-            return Fail<ConnectionView>(ConnectionStatus.Forbidden, ConnectionMessages.OwnerReplacesSecrets);
+            return Fail<ConnectionView>(ConnectionStatus.Forbidden, ConnectionMessages.CannotReplaceSecrets);
 
         var current = await ConnectionRules.FindAsync(connections, key, ct);
         if (current is null)
@@ -414,7 +406,7 @@ public sealed class ReplaceConnectionSecret(
         OperationContext context, ConnectionRef key, CheckedSecret secret, CancellationToken ct = default)
     {
         if (!await AllowsAsync(context))
-            return Fail<Connection>(ConnectionStatus.Forbidden, ConnectionMessages.OwnerReplacesSecrets);
+            return Fail<Connection>(ConnectionStatus.Forbidden, ConnectionMessages.CannotReplaceSecrets);
 
         var current = await ConnectionRules.FindAsync(connections, key, ct);
         return current is null

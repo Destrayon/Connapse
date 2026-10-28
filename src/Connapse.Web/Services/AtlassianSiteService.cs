@@ -246,9 +246,9 @@ public sealed class AtlassianSiteService(
         OperationContext context, Guid connectionId, string? clientId, string? clientSecret, bool saveAnyway = false,
         CancellationToken ct = default)
     {
-        // Refused before Atlassian is asked, so an administrator who isn't the Owner learns nothing about the new secret.
+        // Refused before Atlassian is asked, so a caller who may not replace it learns nothing about the new secret.
         if (!await replace.AllowsAsync(context))
-            return new AtlassianReplaceResult(AtlassianReplaceOutcome.Forbidden, Refusal: ConnectionMessages.OwnerReplacesSecrets);
+            return new AtlassianReplaceResult(AtlassianReplaceOutcome.Forbidden, Refusal: ConnectionMessages.CannotReplaceSecrets);
 
         Connection? connection = await connections.GetAsync(connectionId, ct);
         if (connection is not { Provider: ConnectionProvider.Atlassian }

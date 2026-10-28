@@ -80,15 +80,29 @@ public sealed class ConnectionCallersTests
     }
 
     [Fact]
-    public async Task SaveAsync_NewKeyFromAnAdministratorWhoIsNotTheOwner_IsRefusedAboveTheForm()
+    public async Task SaveAsync_NewKeyFromAnAdministratorWhoIsNotTheOwner_ReplacesIt()
     {
         Connection sftp = Stored();
-        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesOwner).Returns(false);
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(true);
+
+        var saved = await SaveAsync(sftp, "files", new ConnectionSettings(sftp.ConfigJson, "KEY"));
+
+        saved.Succeeded.Should().BeTrue();
+        _failed.Should().BeEmpty();
+        await _connections.Received(1).UpdateAsync(sftp.Id, Arg.Is<UpdateConnectionRequest>(r => r.Secret == "SECRET"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SaveAsync_NewKeyFromSomeoneWhoIsNotAnAdministrator_IsRefusedAboveTheForm()
+    {
+        Connection sftp = Stored();
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(false);
 
         var saved = await SaveAsync(sftp, "files", new ConnectionSettings(sftp.ConfigJson, "KEY"));
 
         saved.Status.Should().Be(ConnectionStatus.Forbidden);
-        _failed.Should().Equal(ConnectionMessages.OwnerReplacesSecrets);
+        _failed.Should().Equal(ConnectionMessages.CannotReplaceSecrets);
         await _connections.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
     }
 

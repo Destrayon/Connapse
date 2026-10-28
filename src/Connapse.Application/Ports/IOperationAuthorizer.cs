@@ -59,7 +59,4 @@ public static class Policies
 
     /// <summary>An administrator; a token of theirs only with the admin:sources scope.</summary>
     public const string SourcesAdmin = "RequireSourcesAdmin";
-
-    /// <summary>The instance's Owner; a token of theirs only with the admin:sources scope. Who may replace a connection's secret.</summary>
-    public const string SourcesOwner = "RequireSourcesOwner";
 }

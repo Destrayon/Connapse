@@ -871,12 +871,12 @@
       "scope": null
     },
     "PUT /api/v1/atlassian/sites/{connectionId:guid}/credentials": {
-      "requires": "owner",
+      "requires": "admin",
       "risk": "credential",
       "scope": "admin:sources"
     },
     "PUT /api/v1/connections/{connectionId:guid}/secret": {
-      "requires": "owner",
+      "requires": "admin",
       "risk": "credential",
       "scope": "admin:sources"
     },
