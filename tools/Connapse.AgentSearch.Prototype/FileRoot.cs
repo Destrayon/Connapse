@@ -17,7 +17,23 @@ public sealed class FileRoot(string root, string ripgrep)
         string full = Path.GetFullPath(Path.Combine(Root, relative));
         if (full.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar == Root)
             return Root;
-        return full.StartsWith(Root, StringComparison.OrdinalIgnoreCase) ? full : null;
+        if (!full.StartsWith(Root, StringComparison.OrdinalIgnoreCase))
+            return null;
+        return PassesThroughLink(full) ? null : full;
+    }
+
+    // A symlink or junction inside the root can point anywhere, so any link on the way to the target is refused.
+    private bool PassesThroughLink(string full)
+    {
+        string current = Root.TrimEnd(Path.DirectorySeparatorChar);
+        foreach (string part in full[Root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+            if (info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>The agent-facing form of a full path: "/src/a.cs".</summary>

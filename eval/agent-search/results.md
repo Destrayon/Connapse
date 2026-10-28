@@ -29,7 +29,10 @@ answers and verdicts are in `results/small-corpus/judged-*.jsonl`.
 | 3. RAG on concept questions | `search_knowledge` on 13+ of 24 | 24 of 24 | pass |
 
 Bar 1 fails, so the outcome is **drop**. With files-only at 94–96%, "both" could not clear a 10-point lead on these
-questions whatever it did. Between "both" and files the disagreements were 3 against 2 questions (exact McNemar p = 1.0),
+questions whatever it did (it would have needed 51 of 48), so on accuracy this run is **inconclusive**: it shows no
+gain, but it could not have shown one. The drop rests on what the run can show: bar 2, which was reachable, fails on
+its own (39% more cost for no more right answers). Treat it as "not proven, don't build yet", not as proof that the
+combination cannot help; see (b) for a test that could show it. Between "both" and files the disagreements were 3 against 2 questions (exact McNemar p = 1.0),
 so the two are indistinguishable here. No single setup beat the other by 10 points overall (files 96%, rag 90%).
 
 ## (b) These questions are too easy to show what RAG adds
@@ -89,9 +92,10 @@ So for exact search, chunk text cannot stand in for the original files today, at
 ## How the run was set up, and what changed on the way
 
 - **Chunker: Semantic (the default), kept on purpose.** Ingesting was slow (35–96 s per file with Ollama capped at
-  2 CPUs). A probe on 20 unseen files measured Recursive at 3,398 ms per KB against Semantic's 2,890 — 0.85x, not the 3x
-  that would have justified switching — because embedding, not chunking, is the bottleneck
-  (`results/chunker_probe_fresh.json`).
+  2 CPUs). A probe measured Recursive at 3,398 ms per KB on 20 unseen files against Semantic's 2,890 on the 115 files
+  already ingested — 0.85x, not the 3x that would have justified switching (`results/chunker_probe_fresh.json`). The two
+  groups are different files, not a paired comparison, so this shows only that Recursive was not clearly faster here;
+  it does not prove Recursive is slower or that embedding is the bottleneck. Semantic is the default, so it stayed.
 - **Three files re-chunked with Recursive.** `PgVectorStore.cs`, `IngestionPipeline.cs` and
   `Storage/Extensions/ServiceCollectionExtensions.cs` failed four times: the Semantic chunker produced a chunk longer
   than nomic-embed-text's context, and Ollama answered 400 "the input length exceeds the context length". Connapse
