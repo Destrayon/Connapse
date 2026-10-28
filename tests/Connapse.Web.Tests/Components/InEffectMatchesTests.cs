@@ -23,7 +23,7 @@ public sealed class InEffectMatchesTests
     private static GetSettings Reading(AzureProviderSettings stored)
     {
         var store = Substitute.For<ISettingsStore>();
-        store.GetAsync<AzureProviderSettings>(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(stored);
+        store.GetWithRevisionAsync<AzureProviderSettings>(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((stored, "1"));
         var authorizer = Substitute.For<IOperationAuthorizer>();
         authorizer.AllowsAsync(default!, default!).ReturnsForAnyArgs(true);
         return new GetSettings(store, Substitute.For<IConfiguredSettings>(), authorizer);

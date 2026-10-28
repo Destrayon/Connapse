@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Connapse.Application.Ports;
@@ -25,6 +27,9 @@ public enum SettingsStatus
 
     [Failure(409, "provider-owned-settings", "Changed through provider setup")]
     ProviderOwned,
+
+    [Failure(412, "settings-changed", "Settings changed since they were read")]
+    Changed,
 }
 
 /// <summary>
@@ -84,6 +89,17 @@ public abstract class SettingsCategory(string name, string key)
     }
 
     /// <summary>
+    /// The version of <paramref name="settings"/>: a SHA-256 of the store's <paramref name="revision"/> (null when
+    /// they are configured, not stored) and of the settings without their secrets. The revision changes on every
+    /// write, so a change to a secret alone changes the version too; the secrets themselves are never hashed, so
+    /// the version carries nothing derived from a key.
+    /// </summary>
+    public string VersionOf(object settings, string? revision) =>
+        Convert.ToHexStringLower(SHA256.HashData(
+            [.. Encoding.UTF8.GetBytes(revision is null ? "configured\n" : $"stored:{revision}\n"),
+             .. JsonSerializer.SerializeToUtf8Bytes(WithoutSecrets(settings), Type)]));
+
+    /// <summary>
     /// <paramref name="tested"/> with each secret it leaves out filled from the settings in effect, but only
     /// when every destination is the same as theirs: a saved key goes only to the provider and addresses it
     /// was saved for. Anything else needs its key typed again.
@@ -104,9 +120,17 @@ public abstract class SettingsCategory(string name, string key)
     /// <summary>The settings in effect, secrets included: stored, or configured when nothing is.</summary>
     internal abstract Task<object> InEffectAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct);
 
-    internal abstract Task<object> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct);
+    /// <summary>The settings in effect without their secrets, and their version.</summary>
+    internal abstract Task<(object Settings, string Version)> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct);
 
-    internal abstract Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent, CancellationToken ct);
+    /// <summary>
+    /// Stores <paramref name="settings"/> and returns them with their new version. With <paramref name="expectedVersions"/>,
+    /// only while the settings in effect still have one of those versions, checked under the store's lock so no other
+    /// save lands in between; otherwise it throws <see cref="SettingsChangedException"/> and stores nothing.
+    /// </summary>
+    internal abstract Task<(object Saved, string Version)> WriteAsync(
+        ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent,
+        IReadOnlyCollection<string>? expectedVersions, CancellationToken ct);
 
     internal abstract object? Parse(JsonElement body);
 
@@ -128,15 +152,24 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
         await store.GetAsync<T>(Key, ct) ?? configured.Current<T>();
 
     // A copy, so the configured value other readers share is never changed.
-    internal override async Task<object> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct) =>
-        WithoutSecrets(await InEffectAsync(store, configured, ct));
+    internal override async Task<(object Settings, string Version)> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct)
+    {
+        var (stored, revision) = await store.GetWithRevisionAsync<T>(Key, ct);
+        var settings = WithoutSecrets(stored ?? configured.Current<T>());
+        return (settings, VersionOf(settings, stored is null ? null : revision));
+    }
 
-    internal override async Task<object> WriteAsync(ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent, CancellationToken ct) =>
-        await store.UpdateAsync<T>(Key, stored =>
+    internal override async Task<(object Saved, string Version)> WriteAsync(
+        ISettingsStore store, IConfiguredSettings configured, object settings, UnsentSecrets unsent,
+        IReadOnlyCollection<string>? expectedVersions, CancellationToken ct)
+    {
+        var (saved, revision) = await store.UpdateWithRevisionAsync<T>(Key, (stored, storedRevision) =>
         {
             // A secret left out keeps the one in effect: stored, or configured when nothing is stored yet, as a
             // first save of a value read from GET would otherwise erase a key that came from configuration.
             var current = stored ?? configured.Current<T>();
+            if (expectedVersions is not null && !expectedVersions.Contains(VersionOf(current, stored is null ? null : storedRevision)))
+                throw new SettingsChangedException();
             var incoming = (T)settings;
             foreach (var secret in Secrets)
             {
@@ -147,6 +180,8 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
             }
             return incoming;
         }, ct);
+        return (saved, VersionOf(saved, revision));
+    }
 
     internal override object? Parse(JsonElement body) => JsonSerializer.Deserialize<T>(body.GetRawText(), Json);
 }
@@ -212,14 +247,20 @@ public sealed record ProviderOwnedCategory(SettingsCategory Category, string Cha
     public string Refusal => $"The {Category.Name} settings are changed through provider setup: PUT or DELETE {ChangedAt}.";
 }
 
-/// <summary>A category's settings as stored, or as configured when nothing is; secrets are left out.</summary>
-public sealed record SettingsView(string Category, object Settings);
+/// <summary>
+/// A category's settings as stored, or as configured when nothing is; secrets are left out. <see cref="Version"/>
+/// identifies them (<see cref="SettingsCategory.VersionOf"/>), so a change can be made only while they are unchanged.
+/// </summary>
+public sealed record SettingsView(string Category, object Settings, string Version);
 
 /// <summary>
-/// A saved change. <see cref="LegacyModels"/> lists the embedding models other than the one now configured
-/// that still have vectors, when the embedding settings changed and there are any.
+/// A saved change and the <see cref="Version"/> the settings now have. <see cref="LegacyModels"/> lists the embedding
+/// models other than the one now configured that still have vectors, when the embedding settings changed and there are any.
 /// </summary>
-public sealed record SettingsChange(string Category, IReadOnlyList<EmbeddingModelInfo> LegacyModels);
+public sealed record SettingsChange(string Category, IReadOnlyList<EmbeddingModelInfo> LegacyModels, string Version);
+
+/// <summary>A change made from settings that are no longer the ones in effect; nothing was stored.</summary>
+internal sealed class SettingsChangedException : Exception;
 
 /// <summary>The token scope the settings operations need.</summary>
 public static class SettingsScope
@@ -238,7 +279,8 @@ public sealed class GetSettings(ISettingsStore store, IConfiguredSettings config
         if ((SettingsCategories.Find(category) ?? SettingsCategories.FindProviderOwned(category)?.Category) is not { } found)
             return Attempt<SettingsView, SettingsStatus>.Fail(SettingsStatus.NotFound, $"Unknown settings category: {category}");
 
-        return Attempt<SettingsView, SettingsStatus>.Succeed(new SettingsView(found.Name, await found.ReadAsync(store, configured, ct)));
+        var (settings, version) = await found.ReadAsync(store, configured, ct);
+        return Attempt<SettingsView, SettingsStatus>.Succeed(new SettingsView(found.Name, settings, version));
     }
 }
 
@@ -246,6 +288,8 @@ public sealed class GetSettings(ISettingsStore store, IConfiguredSettings config
 /// Replaces one settings category. A secret left out keeps the one in effect unless the caller says it clears
 /// (see <see cref="UnsentSecrets"/>), and an empty one clears it. Changing the embedding settings
 /// schedules the new model's vector index and reports the other models that still have vectors.
+/// Given the versions the caller read, the change is refused if the settings changed since, so two
+/// administrators saving close together can't overwrite each other.
 /// </summary>
 [Operation("settings.update", Scope = SettingsScope.Name, Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
 public sealed class UpdateSettings(
@@ -254,8 +298,13 @@ public sealed class UpdateSettings(
 {
     public const string UpdatedEvent = "settings.updated";
 
+    /// <param name="expectedVersions">
+    /// Null saves whatever is in effect now. Otherwise the save goes ahead only while the settings in effect have one
+    /// of these versions (from settings.get), and an empty list never does.
+    /// </param>
     public async Task<Attempt<SettingsChange, SettingsStatus>> RunAsync(
-        OperationContext context, string category, JsonElement body, UnsentSecrets unsent = UnsentSecrets.Keep, CancellationToken ct = default)
+        OperationContext context, string category, JsonElement body, UnsentSecrets unsent = UnsentSecrets.Keep,
+        IReadOnlyCollection<string>? expectedVersions = null, CancellationToken ct = default)
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
             return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can change settings.");
@@ -281,19 +330,29 @@ public sealed class UpdateSettings(
             return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.Invalid,
                 string.Join(" ", problems.Select(p => p.ErrorMessage)), FieldOf(problems[0]));
 
-        var saved = await found.WriteAsync(store, configured, settings, unsent, ct);
+        object saved;
+        string version;
+        try
+        {
+            (saved, version) = await found.WriteAsync(store, configured, settings, unsent, expectedVersions, ct);
+        }
+        catch (SettingsChangedException)
+        {
+            return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.Changed,
+                $"The {found.Name} settings were changed after you read them. Read them again and make your change again.");
+        }
         // The values are not recorded: they hold provider keys.
         await audit.LogAsync(UpdatedEvent, "settings", found.Name, null, ct);
 
         if (saved is not EmbeddingSettings embedding)
-            return Attempt<SettingsChange, SettingsStatus>.Succeed(new SettingsChange(found.Name, []));
+            return Attempt<SettingsChange, SettingsStatus>.Succeed(new SettingsChange(found.Name, [], version));
 
         indexes.Schedule();
         string current = EmbeddingIdentity.For(embedding);
         var legacy = (await models.GetModelsAsync(containerId: null, ct))
             .Where(m => !string.Equals(m.ModelId, current, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        return Attempt<SettingsChange, SettingsStatus>.Succeed(new SettingsChange(found.Name, legacy));
+        return Attempt<SettingsChange, SettingsStatus>.Succeed(new SettingsChange(found.Name, legacy, version));
     }
 
     /// <summary>The property a validation problem names, as JSON writes it (camel case), or null.</summary>

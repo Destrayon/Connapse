@@ -25,21 +25,39 @@ public partial class SettingsOperationTests
     {
         public readonly Dictionary<string, string> Rows = new(StringComparer.Ordinal);
         public readonly List<string> Reset = [];
+        private int _writes;
+
+        /// <summary>Each row's revision, as Postgres's xmin: a new one on every write.</summary>
+        public string? RevisionOf(string category) => Rows.ContainsKey(category) ? _revisions.GetValueOrDefault(category, "0") : null;
+
+        private readonly Dictionary<string, string> _revisions = new(StringComparer.Ordinal);
+
+        private void Write<T>(string category, T settings)
+        {
+            Rows[category] = JsonSerializer.Serialize(settings);
+            _revisions[category] = (++_writes).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         public Task<T?> GetAsync<T>(string category, CancellationToken cancellationToken = default) where T : class =>
             Task.FromResult(Rows.TryGetValue(category, out var json) ? JsonSerializer.Deserialize<T>(json) : null);
 
+        public async Task<(T? Value, string? Revision)> GetWithRevisionAsync<T>(string category, CancellationToken cancellationToken = default) where T : class =>
+            (await GetAsync<T>(category, cancellationToken), RevisionOf(category));
+
         public Task SaveAsync<T>(string category, T settings, CancellationToken cancellationToken = default) where T : class
         {
-            Rows[category] = JsonSerializer.Serialize(settings);
+            Write(category, settings);
             return Task.CompletedTask;
         }
 
-        public async Task<T> UpdateAsync<T>(string category, Func<T?, T> update, CancellationToken cancellationToken = default) where T : class
+        public async Task<T> UpdateAsync<T>(string category, Func<T?, T> update, CancellationToken cancellationToken = default) where T : class =>
+            (await UpdateWithRevisionAsync<T>(category, (current, _) => update(current), cancellationToken)).Value;
+
+        public async Task<(T Value, string Revision)> UpdateWithRevisionAsync<T>(string category, Func<T?, string?, T> update, CancellationToken cancellationToken = default) where T : class
         {
-            var next = update(await GetAsync<T>(category, cancellationToken));
-            Rows[category] = JsonSerializer.Serialize(next);
-            return next;
+            var next = update(await GetAsync<T>(category, cancellationToken), RevisionOf(category));
+            Write(category, next);
+            return (next, RevisionOf(category)!);
         }
 
         public Task ResetAsync(string category, CancellationToken cancellationToken = default)
@@ -312,8 +330,9 @@ public partial class SettingsOperationTests
         var updated = await world.Update().RunAsync(Caller, "Chunking", Raw("""{"MAXCHUNKSIZE":321}"""));
 
         updated.Status.Should().Be(SettingsStatus.Success);
-        updated.Result.Should().BeEquivalentTo(new SettingsChange("chunking", []));
-        world.Store.Stored<ChunkingSettings>("chunking")!.MaxChunkSize.Should().Be(321);
+        var stored = world.Store.Stored<ChunkingSettings>("chunking")!;
+        updated.Result.Should().BeEquivalentTo(new SettingsChange("chunking", [], SettingsCategories.Find("chunking")!.VersionOf(stored, world.Store.RevisionOf("chunking"))));
+        stored.MaxChunkSize.Should().Be(321);
         await world.Audit.Received(1).LogAsync("settings.updated", "settings", "chunking", null, Arg.Any<CancellationToken>());
         world.Indexes.ReceivedCalls().Should().BeEmpty();
         world.Models.ReceivedCalls().Should().BeEmpty();
@@ -414,6 +433,123 @@ public partial class SettingsOperationTests
         await world.Audit.Received(1).LogAsync("settings.updated", "settings", "embedding", null, Arg.Any<CancellationToken>());
     }
 
+    // ── versions: a save based on an outdated read ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task Update_VersionFromBeforeAnotherSave_IsChangedAndKeepsTheOtherSave()
+    {
+        var world = new World();
+        string read = (await world.Get().RunAsync(Caller, "chunking")).Result!.Version;
+        await world.Update().RunAsync(Caller, "chunking", Body(new { maxChunkSize = 111 }));
+        world.Audit.ClearReceivedCalls();
+
+        var updated = await world.Update().RunAsync(Caller, "chunking", Body(new { maxChunkSize = 222 }), expectedVersions: [read]);
+
+        updated.Status.Should().Be(SettingsStatus.Changed);
+        updated.Detail.Should().Be("The chunking settings were changed after you read them. Read them again and make your change again.");
+        world.Store.Stored<ChunkingSettings>("chunking")!.MaxChunkSize.Should().Be(111);
+        world.Audit.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_EmbeddingWithAnOutdatedVersion_LeavesTheIndexesAlone()
+    {
+        var world = new World();
+
+        var updated = await world.Update().RunAsync(Caller, "embedding", Body(new { model = "m" }), expectedVersions: ["outdated"]);
+
+        updated.Status.Should().Be(SettingsStatus.Changed);
+        world.Store.Rows.Should().BeEmpty();
+        world.Indexes.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_CurrentVersion_SavesAndReturnsTheVersionTheNextReadHas()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("llm", new LlmSettings { Model = "old", AnthropicApiKey = "k" });
+        string read = (await world.Get().RunAsync(Caller, "llm")).Result!.Version;
+
+        var updated = await world.Update().RunAsync(Caller, "llm", Body(new { model = "new" }), expectedVersions: ["other", read]);
+
+        updated.Status.Should().Be(SettingsStatus.Success);
+        updated.Result!.Version.Should().NotBe(read).And.Be((await world.Get().RunAsync(Caller, "llm")).Result!.Version);
+    }
+
+    [Fact]
+    public async Task Update_NothingStored_ComparesAgainstTheConfiguredValue()
+    {
+        var world = new World();
+        world.Configured.Values[typeof(UploadSettings)] = new UploadSettings { ParallelWorkers = 7 };
+        string read = (await world.Get().RunAsync(Caller, "upload")).Result!.Version;
+
+        var updated = await world.Update().RunAsync(Caller, "upload", Body(new { parallelWorkers = 8 }), expectedVersions: [read]);
+
+        updated.Status.Should().Be(SettingsStatus.Success);
+    }
+
+    [Fact]
+    public async Task Update_NoVersionsListed_IsChanged()
+    {
+        var world = new World();
+
+        var updated = await world.Update().RunAsync(Caller, "upload", Body(new { }), expectedVersions: []);
+
+        updated.Status.Should().Be(SettingsStatus.Changed);
+        world.Store.Rows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_InvalidBodyWithAnOutdatedVersion_IsInvalid()
+    {
+        var updated = await new World().Update().RunAsync(Caller, "upload", Raw("[]"), expectedVersions: ["outdated"]);
+
+        updated.Status.Should().Be(SettingsStatus.Invalid);
+    }
+
+    [Fact]
+    public void VersionOf_HashesTheRevisionAndSettingsButNeverASecret()
+    {
+        var search = SettingsCategories.Find("search")!;
+
+        search.VersionOf(new SearchSettings { CrossEncoderApiKey = "a" }, "7").Should()
+            .Be(search.VersionOf(new SearchSettings { CrossEncoderApiKey = "b" }, "7"))
+            .And.Be(search.VersionOf(new SearchSettings(), "7"))
+            .And.MatchRegex("^[0-9a-f]{64}$");
+        search.VersionOf(new SearchSettings { TopK = 99 }, "7").Should().NotBe(search.VersionOf(new SearchSettings(), "7"));
+        search.VersionOf(new SearchSettings(), "8").Should().NotBe(search.VersionOf(new SearchSettings(), "7"));
+        search.VersionOf(new SearchSettings(), null).Should().NotBe(search.VersionOf(new SearchSettings(), ""));
+    }
+
+    [Fact]
+    public async Task Update_TwoKeyReplacementsFromOneRead_RefusesTheSecond()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("search", new SearchSettings { CrossEncoderApiKey = "old" });
+        string read = (await world.Get().RunAsync(Caller, "search")).Result!.Version;
+
+        var first = await world.Update().RunAsync(Caller, "search", Body(new { crossEncoderApiKey = "first" }), expectedVersions: [read]);
+        var second = await world.Update().RunAsync(Caller, "search", Body(new { crossEncoderApiKey = "second" }), expectedVersions: [read]);
+
+        first.Status.Should().Be(SettingsStatus.Success);
+        second.Status.Should().Be(SettingsStatus.Changed);
+        world.Store.Stored<SearchSettings>("search")!.CrossEncoderApiKey.Should().Be("first");
+    }
+
+    [Fact]
+    public async Task Update_KeyClearedAfterTheRead_RefusesAReplacementFromThatRead()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("llm", new LlmSettings { AnthropicApiKey = "old" });
+        string read = (await world.Get().RunAsync(Caller, "llm")).Result!.Version;
+        await world.Update().RunAsync(Caller, "llm", Body(new { anthropicApiKey = "" }));
+
+        var replaced = await world.Update().RunAsync(Caller, "llm", Body(new { anthropicApiKey = "new" }), expectedVersions: [read]);
+
+        replaced.Status.Should().Be(SettingsStatus.Changed);
+        world.Store.Stored<LlmSettings>("llm")!.AnthropicApiKey.Should().BeNull();
+    }
+
     // ── settings.reset ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -495,14 +631,15 @@ public partial class SettingsOperationTests
             read.Result!.Category.Should().Be(found!.Name);
             read.Result.Settings.Should().BeOfType(found.Type);
             found.Secrets.Select(s => s.GetValue(read.Result.Settings)).Should().OnlyContain(v => v == null);
+            read.Result.Version.Should().Be(found.VersionOf(Activator.CreateInstance(found.Type)!, world.Store.RevisionOf(found.Key)));
         }, iter: 500);
 
     [Fact]
     [RandomInputTestOf(typeof(UpdateSettings))]
     public Task Update_AnyCategoryAndBody_SavesOnlyValidChangesKeepingUnsentSecrets() =>
-        Gen.Select(Gen.Bool, AnyCategory, Gen.Int[0, 3], Gen.Bool, Gen.Int[0, 2], Gen.Enum<UnsentSecrets>()).SampleAsync(async t =>
+        Gen.Select(Gen.Bool, AnyCategory, Gen.Int[0, 3], Gen.Bool, Gen.Int[0, 2], Gen.Enum<UnsentSecrets>(), Gen.Int[0, 3]).SampleAsync(async t =>
         {
-            var (admin, category, bodyKind, storedSecret, send, unsent) = t;
+            var (admin, category, bodyKind, storedSecret, send, unsent, versionKind) = t;
             var world = new World(admin);
             var found = SettingsCategories.Find(category);
             var secret = found?.Secrets.FirstOrDefault();
@@ -512,6 +649,15 @@ public partial class SettingsOperationTests
                 secret.SetValue(stored, "stored");
                 world.Store.Rows[found.Key] = JsonSerializer.Serialize(stored, found.Type);
             }
+            // None sent, the version a read would give now, one from before another save, or an empty list.
+            string? current = found is null ? null : found.VersionOf(Activator.CreateInstance(found.Type)!, world.Store.RevisionOf(found.Key));
+            IReadOnlyCollection<string>? versions = versionKind switch
+            {
+                0 => null,
+                1 => [current ?? "none"],
+                2 => ["0123456789abcdef"],
+                _ => [],
+            };
             var body = bodyKind switch
             {
                 0 => Raw("null"),
@@ -521,10 +667,10 @@ public partial class SettingsOperationTests
             int rowsBefore = world.Store.Rows.Count;
 
             var updated = await new UpdateSettings(world.Store, world.Configured, world.Indexes, world.Models, world.Audit, world.Authorizer)
-                .RunAsync(Caller, category!, body, unsent);
+                .RunAsync(Caller, category!, body, unsent, versions);
 
             var expected = !admin ? SettingsStatus.Forbidden : found is null ? SettingsStatus.NotFound
-                : bodyKind < 2 ? SettingsStatus.Invalid : SettingsStatus.Success;
+                : bodyKind < 2 ? SettingsStatus.Invalid : versionKind >= 2 ? SettingsStatus.Changed : SettingsStatus.Success;
             updated.Status.Should().Be(expected);
             if (expected != SettingsStatus.Success)
             {
@@ -534,6 +680,7 @@ public partial class SettingsOperationTests
                 return;
             }
             var saved = JsonSerializer.Deserialize(world.Store.Rows[found!.Key], found.Type)!;
+            updated.Result!.Version.Should().Be(found.VersionOf(saved, world.Store.RevisionOf(found.Key)));
             if (secret is not null)
                 secret.GetValue(saved).Should().Be(send switch
                 {
