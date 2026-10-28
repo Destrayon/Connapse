@@ -617,7 +617,7 @@ public class AtlassianConnectionFormTests : IDisposable
     {
         Connection site = AtlassianConnection();
         store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
 
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
         cut.Find("#atlassian-retest").Click();
@@ -626,9 +626,9 @@ public class AtlassianConnectionFormTests : IDisposable
             cut.Find("#atlassian-retest-result").TextContent.Should()
                 .Contain("Atlassian rejected the client ID or secret.").And.Contain("Signing in as the service account"));
         cut.Find("#atlassian-retest-result").TextContent.Should().NotContain("(step:");
-        store.Received(1).GetSecretAsync(site.Id, Arg.Any<CancellationToken>());
-        store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => !h.Succeeded && h.CredentialRejected && h.Step == "token"), Arg.Any<CancellationToken>());
+        store.Received(1).GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>());
+        store.Received(1).RecordHealthAtAsync(site.Id,
+            Arg.Is<ConnectionHealth>(h => !h.Succeeded && h.CredentialRejected && h.Step == "token"), site.UpdatedAt, Arg.Any<CancellationToken>());
         cut.Markup.Should().NotContain(Secret);
     }
 
@@ -641,8 +641,8 @@ public class AtlassianConnectionFormTests : IDisposable
             Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token", Message: "m", Origin: "test", CredentialRejected: true),
         };
         store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
-        store.RecordHealthAsync(site.Id, Arg.Any<ConnectionHealth>(), Arg.Any<CancellationToken>()).Returns(refreshed.Health);
+        store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
+        store.RecordHealthAtAsync(site.Id, Arg.Any<ConnectionHealth>(), site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(refreshed.Health);
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
 
         cut.Find("#atlassian-retest").Click();

@@ -112,7 +112,12 @@ internal static class ConnectionRules
     /// <summary>The settings rules' refusal as the operation's: wrong settings, or a check that couldn't run.</summary>
     public static Attempt<T, ConnectionStatus> Refused<T>(SettingsCheck check) =>
         Attempt<T, ConnectionStatus>.Fail(
-            check.Refusal == SettingsRefusal.Unavailable ? ConnectionStatus.Unavailable : ConnectionStatus.Invalid,
+            check.Refusal switch
+            {
+                SettingsRefusal.Unavailable => ConnectionStatus.Unavailable,
+                SettingsRefusal.Changed => ConnectionStatus.Conflict,
+                _ => ConnectionStatus.Invalid,
+            },
             check.Error!, check.Field);
 
     public static Guid? UserIdOf(OperationContext context) =>
@@ -155,6 +160,9 @@ public static class ConnectionMessages
 
     /// <summary>Why anyone but an administrator is refused a secret replacement.</summary>
     public const string CannotReplaceSecrets = "You don't have permission to replace a connection's secret.";
+
+    /// <summary>Why a stored secret was not used: the connection was saved after its settings were read.</summary>
+    public const string ChangedWhileChecked = "The connection changed while it was being checked. Reload it and try again.";
 
     /// <summary>Why connections.replaceSecret won't take an Atlassian site's credential: only the site's own check may.</summary>
     public const string AtlassianCredentialsOnly =

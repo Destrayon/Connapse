@@ -47,7 +47,7 @@ public sealed class TestConnection(IConnectionStore connections, IConnectionTest
 
         var run = await tests.TestAsync(
             new ConnectionTestSubject(current.Name, current.Provider, request?.Settings, current, request?.ProbeTarget), ct);
-        return await FinishAsync(current.Id, run, ct);
+        return await FinishAsync(current, run, ct);
     }
 
     /// <summary>Tests a connection before it is created. An Atlassian site is checked by adding it instead.</summary>
@@ -62,16 +62,17 @@ public sealed class TestConnection(IConnectionStore connections, IConnectionTest
             return Fail(ConnectionStatus.Invalid, ConnectionMessages.AtlassianSiteOnly, "provider");
 
         var run = await tests.TestAsync(new ConnectionTestSubject(draft.Name ?? "", provider, draft.Settings, null, draft.ProbeTarget), ct);
-        return await FinishAsync(null, run, ct);
+        return await FinishAsync(tested: null, run, ct);
     }
 
-    private async Task<Attempt<ConnectionTested, ConnectionStatus>> FinishAsync(Guid? id, ConnectionTestRun run, CancellationToken ct)
+    private async Task<Attempt<ConnectionTested, ConnectionStatus>> FinishAsync(Connection? tested, ConnectionTestRun run, CancellationToken ct)
     {
         if (run.Result is null)
             return Fail(run.Refusal, run.Problem ?? "The connection could not be tested.", run.Field);
 
-        ConnectionHealth? health = id is { } connectionId && run.Health is not null
-            ? await connections.RecordHealthAsync(connectionId, run.Health, ct)
+        // Recorded only against the version tested: an edit during the test leaves the new settings' health alone.
+        ConnectionHealth? health = tested is not null && run.Health is not null
+            ? await connections.RecordHealthAtAsync(tested.Id, run.Health, tested.UpdatedAt, ct)
             : null;
         return Attempt<ConnectionTested, ConnectionStatus>.Succeed(new ConnectionTested(run.Result, health));
     }

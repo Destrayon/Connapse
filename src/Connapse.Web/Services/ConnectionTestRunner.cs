@@ -93,8 +93,12 @@ public sealed class ConnectionTestRunner(
         bool storedToken = string.IsNullOrWhiteSpace(form.CustomToken);
         SourceServerCheck check = await rules.CheckSourceServerAsync(form, stored, ct);
         if (check.Refused is { } refused)
-            return ConnectionTestRun.Refuse(refused.Error!, refused.Field,
-                refused.Refusal == SettingsRefusal.Unavailable ? ConnectionStatus.Unavailable : ConnectionStatus.Invalid);
+            return ConnectionTestRun.Refuse(refused.Error!, refused.Field, refused.Refusal switch
+            {
+                SettingsRefusal.Unavailable => ConnectionStatus.Unavailable,
+                SettingsRefusal.Changed => ConnectionStatus.Conflict,
+                _ => ConnectionStatus.Invalid,
+            });
 
         // The stored token, at the stored address, is the connection as its sources read it.
         ConnectionHealth? health = stored is not null && storedToken
@@ -183,7 +187,16 @@ public sealed class ConnectionTestRunner(
                     $"Paste the private key for this server. The saved key is only used with {saved.Username}@{saved.Host}:{savedPort}.",
                     "privateKey");
 
-            string? secret = await connections.GetSecretAsync(stored.Id, ct);
+            // Read at the version whose server and user were just compared, so a save in between can't swap either.
+            string? secret;
+            try
+            {
+                secret = await connections.GetSecretAtAsync(stored.Id, stored.UpdatedAt, ct);
+            }
+            catch (ConnectionChangedException)
+            {
+                return ConnectionTestRun.Refuse(ConnectionMessages.ChangedWhileChecked, refusal: ConnectionStatus.Conflict);
+            }
             if (string.IsNullOrWhiteSpace(secret))
                 return ConnectionTestRun.Refuse("This connection has no stored key. Paste one to test.", "privateKey");
             var credential = SftpCredential.TryParse(secret);

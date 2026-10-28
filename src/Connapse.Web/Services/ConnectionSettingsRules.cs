@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Connapse.Application.Connections;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -115,9 +116,19 @@ public sealed class ConnectionSettingsRules(
                 SettingsCheck.Refuse($"Enter the token for this address. The saved token is only sent to {stored}.", "secret"), 0);
         }
 
-        string? token = typedToken ? form.CustomToken
-            : current is { HasSecret: true } ? await connections.GetSecretAsync(current.Id, ct)
-            : null;
+        string? token = typedToken ? form.CustomToken : null;
+        if (!typedToken && current is { HasSecret: true })
+        {
+            // Read at the version whose address was just compared, so a save in between can't pair it with another.
+            try
+            {
+                token = await connections.GetSecretAtAsync(current.Id, current.UpdatedAt, ct);
+            }
+            catch (ConnectionChangedException)
+            {
+                return new SourceServerCheck(SettingsCheck.Refuse(ConnectionMessages.ChangedWhileChecked, refusal: SettingsRefusal.Changed), 0);
+            }
+        }
 
         CustomSourceProbe probe = await customSetup.ProbeAsync(form.CustomBaseUrl, token, ct);
         if (probe.Error is not null)

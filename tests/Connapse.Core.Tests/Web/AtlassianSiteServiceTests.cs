@@ -150,7 +150,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         new FakeJira(_api, CloudId).MapSiteTest();
         Connection site = JiraSite();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
 
         var result = (await _sites.TestStoredAsync(site.Id)).Result;
 
@@ -344,7 +344,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         Connection site = Site();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
         _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
 
         var run = await _sites.TestStoredAsync(site.Id);
@@ -362,7 +362,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         Connection site = Site();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
         if (redirect)
             _api.FailTokenWith(System.Net.HttpStatusCode.Redirect);
         else
@@ -372,6 +372,35 @@ public sealed class AtlassianSiteServiceTests : IDisposable
 
         run.Result!.Success.Should().BeFalse();
         run.Health.Should().Match<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token");
+    }
+
+    [Fact]
+    public async Task Retest_RateLimited_RecordsNoHealth()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+
+        var run = await _sites.TestStoredAsync(site.Id);
+
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Retest_SavedAfterTheSiteWasRead_IsAConflictAndSendsNothing()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw new ConnectionChangedException(site.Id));
+
+        var run = await _sites.TestStoredAsync(site.Id);
+
+        run.Result.Should().BeNull();
+        run.Refusal.Should().Be(ConnectionStatus.Conflict);
+        _api.Requests.Should().BeEmpty();
     }
 
     [Fact]

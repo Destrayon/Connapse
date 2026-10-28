@@ -56,20 +56,52 @@ public class ConnectionTestRunnerTests
         run.Result.Should().BeNull();
         run.Field.Should().Be("privateKey");
         run.Problem.Should().Be("Paste the private key for this server. The saved key is only used with me@files.example:22.");
-        await _connections.DidNotReceiveWithAnyArgs().GetSecretAsync(default, default);
+        await _connections.DidNotReceiveWithAnyArgs().GetSecretAtAsync(default, default, default);
     }
 
     [Fact]
     public async Task Test_SftpStoredSettingsWithoutAKey_UsesTheStoredKey()
     {
         Connection stored = Stored(ConnectionProvider.Sftp, SftpConfig);
-        _connections.GetSecretAsync(stored.Id, Arg.Any<CancellationToken>()).Returns((string?)null);
+        _connections.GetSecretAtAsync(stored.Id, stored.UpdatedAt, Arg.Any<CancellationToken>()).Returns((string?)null);
 
         ConnectionTestRun run = await Runner().TestAsync(
             new ConnectionTestSubject(stored.Name, ConnectionProvider.Sftp, null, stored));
 
-        await _connections.Received(1).GetSecretAsync(stored.Id, Arg.Any<CancellationToken>());
+        await _connections.Received(1).GetSecretAtAsync(stored.Id, stored.UpdatedAt, Arg.Any<CancellationToken>());
         run.Problem.Should().Be("This connection has no stored key. Paste one to test.");
+    }
+
+    [Fact]
+    public async Task Test_SftpSavedAfterItsServerWasRead_IsAConflictAndUsesNoKey()
+    {
+        Connection stored = Stored(ConnectionProvider.Sftp, SftpConfig);
+        _connections.GetSecretAtAsync(stored.Id, stored.UpdatedAt, Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw new ConnectionChangedException(stored.Id));
+
+        ConnectionTestRun run = await Runner().TestAsync(
+            new ConnectionTestSubject(stored.Name, ConnectionProvider.Sftp, null, stored));
+
+        run.Result.Should().BeNull();
+        run.Refusal.Should().Be(ConnectionStatus.Conflict);
+        run.Problem.Should().Be(ConnectionMessages.ChangedWhileChecked);
+        await _connections.DidNotReceiveWithAnyArgs().GetSecretAsync(default, default);
+    }
+
+    [Fact]
+    public async Task Test_CustomSavedAfterItsAddressWasRead_IsAConflictAndSendsNoToken()
+    {
+        Connection stored = Stored(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://source.example"));
+        _connections.GetSecretAtAsync(stored.Id, stored.UpdatedAt, Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw new ConnectionChangedException(stored.Id));
+
+        // The setup's HTTP client factory is a bare substitute, so reaching the server would throw.
+        ConnectionTestRun run = await Runner().TestAsync(new ConnectionTestSubject(stored.Name, ConnectionProvider.Custom, null, stored));
+
+        run.Result.Should().BeNull();
+        run.Health.Should().BeNull();
+        run.Refusal.Should().Be(ConnectionStatus.Conflict);
+        await _connections.DidNotReceiveWithAnyArgs().GetSecretAsync(default, default);
     }
 
     [Fact]
@@ -93,7 +125,7 @@ public class ConnectionTestRunnerTests
         run.Result.Should().BeNull();
         run.Health.Should().BeNull();
         run.Field.Should().Be("secret");
-        await _connections.DidNotReceiveWithAnyArgs().GetSecretAsync(default, default);
+        await _connections.DidNotReceiveWithAnyArgs().GetSecretAtAsync(default, default, default);
     }
 
     [Fact]

@@ -67,7 +67,7 @@ public sealed class ConnectionTestOperationTests
         tested.Result!.Health.Should().BeNull();
         await _runner.Received(1).TestAsync(new ConnectionTestSubject("files", ConnectionProvider.Sftp, settings, sftp, "bucket"),
             Arg.Any<CancellationToken>());
-        await _connections.DidNotReceiveWithAnyArgs().RecordHealthAsync(default, default!, default);
+        await _connections.DidNotReceiveWithAnyArgs().RecordHealthAtAsync(default, default!, default, default);
     }
 
     [Fact]
@@ -76,11 +76,27 @@ public sealed class ConnectionTestOperationTests
         Connection custom = Stored(ConnectionProvider.Custom);
         var health = new ConnectionHealth(DateTime.UtcNow, true, null, "Reachable, token accepted.", "test");
         _runner.TestAsync(default!, default).ReturnsForAnyArgs(new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok"), health));
-        _connections.RecordHealthAsync(custom.Id, health, Arg.Any<CancellationToken>()).Returns(health);
+        _connections.RecordHealthAtAsync(custom.Id, health, custom.UpdatedAt, Arg.Any<CancellationToken>()).Returns(health);
 
         var tested = await Test().RunAsync(Caller, new ConnectionRef(custom.Id));
 
         tested.Result!.Health.Should().Be(health);
+    }
+
+    [Fact]
+    public async Task Test_ConnectionSavedDuringTheTest_LeavesItsHealthAlone()
+    {
+        Connection custom = Stored(ConnectionProvider.Custom);
+        var health = new ConnectionHealth(DateTime.UtcNow, false, "token", "Rejected.", "test");
+        _runner.TestAsync(default!, default).ReturnsForAnyArgs(new ConnectionTestRun(ConnectionTestResult.CreateFailure("no"), health));
+        // The store writes nothing once the connection is past the version tested.
+        _connections.RecordHealthAtAsync(custom.Id, health, custom.UpdatedAt, Arg.Any<CancellationToken>()).Returns((ConnectionHealth?)null);
+
+        var tested = await Test().RunAsync(Caller, new ConnectionRef(custom.Id));
+
+        tested.Succeeded.Should().BeTrue();
+        tested.Result!.Health.Should().BeNull();
+        await _connections.DidNotReceiveWithAnyArgs().RecordHealthAsync(default, default!, default);
     }
 
     [Fact]

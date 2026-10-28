@@ -302,6 +302,7 @@ public static class ConnectionsEndpoints
         .Produces<ConnectionTestResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status502BadGateway)
         .WithName("connections.test")
         .WithDescription("Test a connection against its provider: its stored settings, or settings given in the body before "
@@ -327,8 +328,8 @@ public static class ConnectionsEndpoints
         .WithDescription("Forget the host key an SFTP connection pinned on first connect. The next connection trusts and pins "
             + "the key the server offers. Forgetting a key that was never pinned changes nothing.");
 
-        // PUT /api/v1/connections/{connectionId}/secret — the Owner's alone, so it sits outside the group's
-        // administrator policy. Audited as connection.credentials_replaced, without the secret.
+        // PUT /api/v1/connections/{connectionId}/secret — administrators only, as for every other change to a
+        // connection. Audited as connection.credentials_replaced, without the secret.
         app.MapPut("/api/v1/connections/{connectionId:guid}/secret", async (
             Guid connectionId,
             [FromBody] ReplaceConnectionSecretApiRequest request,

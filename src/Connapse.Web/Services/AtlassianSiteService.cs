@@ -407,7 +407,12 @@ public sealed class AtlassianSiteService(
         string? secret;
         try
         {
-            secret = await connections.GetSecretAsync(connectionId, ct);
+            // Read at the version whose site and client id were just read, so the secret is never sent to another site.
+            secret = await connections.GetSecretAtAsync(connectionId, connection.UpdatedAt, ct);
+        }
+        catch (ConnectionChangedException)
+        {
+            return ConnectionTestRun.Refuse(ConnectionMessages.ChangedWhileChecked, refusal: ConnectionStatus.Conflict);
         }
         catch (ConnectionSecretUnavailableException)
         {
@@ -420,7 +425,9 @@ public sealed class AtlassianSiteService(
                 new Dictionary<string, object> { ["step"] = AtlassianConnectionTester.TokenStep, ["troubleshoot"] = AtlassianSiteTroubleshooting.CredentialsRejected }));
 
         var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret, site.Product), ct);
-        return new ConnectionTestRun(result, HealthOf(result));
+
+        // Atlassian not answering says nothing about the credential, so the health it last had stands.
+        return new ConnectionTestRun(result, result.Details?.ContainsKey(AtlassianConnectionTester.UnansweredDetail) == true ? null : HealthOf(result));
     }
 
     private static readonly ConnectionTestRun Unreadable = ConnectionTestRun.Refuse(

@@ -332,7 +332,8 @@ didn't answer. Nothing was saved. `field` says which check; try again.
 ## connection-conflict
 
 Another connection already has that name. `field` is `name`. Without a `field`, the connection changed while new
-settings or a new secret were being checked; reload it and try again.
+settings or a new secret were being checked, or while it was being tested, so its stored secret was not used and no
+health was recorded; reload it and try again.
 
 ## connection-in-use
 

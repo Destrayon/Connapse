@@ -510,7 +510,8 @@ public static class AtlassianEndpoints
                 : OperationProblems.Result(tested);
         }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianTestReport>()
-        .ProducesProblem(StatusCodes.Status404NotFound);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // PUT /api/v1/atlassian/sites/{connectionId}/credentials — tests a new client ID and secret
         // against the site and, only when they pass, stores them in place of the old ones. The

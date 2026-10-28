@@ -240,7 +240,7 @@ public sealed class ConnectionOperationRandomInputTests
                     1 => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok")),
                     _ => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok"), health),
                 });
-                world.Connections.RecordHealthAsync(connection.Id, health, Arg.Any<CancellationToken>()).Returns(health);
+                world.Connections.RecordHealthAtAsync(connection.Id, health, connection.UpdatedAt, Arg.Any<CancellationToken>()).Returns(health);
 
                 var tested = await new TestConnection(world.Connections, runner, world.Authorizer).RunAsync(Caller,
                     new ConnectionRef(connection.Id), new ConnectionTestRequest(withSettings ? new ConnectionSettings("{}") : null));
@@ -255,7 +255,7 @@ public sealed class ConnectionOperationRandomInputTests
                 bool ran = admin && exists && !(provider == ConnectionProvider.Atlassian && withSettings);
                 await runner.Received(ran ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
                 await world.Connections.Received(ran && runnerAnswer == 2 ? 1 : 0)
-                    .RecordHealthAsync(Arg.Any<Guid>(), Arg.Any<ConnectionHealth>(), Arg.Any<CancellationToken>());
+                    .RecordHealthAtAsync(connection.Id, health, connection.UpdatedAt, Arg.Any<CancellationToken>());
                 world.WroteConnections.Should().BeFalse();
                 world.AuditCalls.Should().Be(0);
             }, iter: 500);
