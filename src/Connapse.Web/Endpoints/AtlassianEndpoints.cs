@@ -330,19 +330,15 @@ public static class AtlassianEndpoints
         // this cannot be pointed at another host.
         group.MapPost("/resolve", async (
             [FromBody] ResolveAtlassianSiteRequest request,
-            [FromServices] AtlassianSiteService sites,
+            [FromServices] ResolveAtlassianSite resolve,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var resolved = await sites.ResolveAsync(request.SiteUrl, ct);
-            return resolved.Outcome switch
-            {
-                AtlassianResolveOutcome.InvalidAddress =>
-                    ApiProblem.BadRequest("The site address must look like https://your-site.atlassian.net."),
-                AtlassianResolveOutcome.NotFound =>
-                    ApiProblem.NotFound($"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}."),
-                _ => Results.Ok(new AtlassianSiteResolved(resolved.SiteUrl, resolved.CloudId)),
-            };
-        }).RequireAuthorization("RequireAdmin")
+            var resolved = await resolve.RunAsync(Rest(http), request.SiteUrl, ct);
+            return resolved.Succeeded
+                ? Results.Ok(new AtlassianSiteResolved(resolved.Result!.SiteUrl, resolved.Result.CloudId))
+                : OperationProblems.Result(resolved);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSiteResolved>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
@@ -504,16 +500,18 @@ public static class AtlassianEndpoints
         // secret. The result is recorded as the site's health either way.
         group.MapPost("/{connectionId:guid}/test", async (
             Guid connectionId,
-            [FromServices] AtlassianSiteService sites,
+            [FromServices] TestAtlassianSite test,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var result = await sites.RetestAsync(connectionId, ct);
-            return result is null
-                ? ApiProblem.NotFound("No such Atlassian site, or its stored credential can't be read.")
-                : Results.Ok(Report(result));
-        }).RequireAuthorization("RequireAdmin")
+            var tested = await test.RunAsync(Rest(http), connectionId, ct);
+            return tested.Succeeded
+                ? Results.Ok(Report(tested.Result!.Result))
+                : OperationProblems.Result(tested);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianTestReport>()
-        .ProducesProblem(StatusCodes.Status404NotFound);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // PUT /api/v1/atlassian/sites/{connectionId}/credentials — tests a new client ID and secret
         // against the site and, only when they pass, stores them in place of the old ones. The
@@ -525,11 +523,13 @@ public static class AtlassianEndpoints
             [FromServices] AtlassianSiteService sites,
             CancellationToken ct) =>
         {
-            var replaced = await sites.ReplaceCredentialsAsync(connectionId, request.ClientId, request.ClientSecret,
-                UserIdOf(http), request.SaveAnyway ?? false, ct);
+            var replaced = await sites.ReplaceCredentialsAsync(new OperationContext(http.User, OperationSurface.Rest), connectionId,
+                request.ClientId, request.ClientSecret, request.SaveAnyway ?? false, ct);
 
             return replaced.Outcome switch
             {
+                AtlassianReplaceOutcome.Forbidden => ApiProblem.Forbidden(replaced.Refusal!),
+                AtlassianReplaceOutcome.Changed => ApiProblem.Conflict(replaced.Refusal!),
                 AtlassianReplaceOutcome.NotFound => ApiProblem.NotFound("No such Atlassian site."),
                 AtlassianReplaceOutcome.MissingFields =>
                     ApiProblem.BadRequest("clientId and clientSecret are required."),
@@ -543,7 +543,7 @@ public static class AtlassianEndpoints
                     AtlassianSite.FromConfigJson(replaced.Connection.ConfigJson)?.ClientId,
                     Report(replaced.Test!))),
             };
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianCredentialsReplaced>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)

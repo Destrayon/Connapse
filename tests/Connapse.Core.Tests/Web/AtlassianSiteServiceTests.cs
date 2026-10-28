@@ -30,6 +30,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
 
     private readonly FakeAtlassianApi _api = new();
     private readonly IConnectionStore _store = Substitute.For<IConnectionStore>();
+    private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();
     private readonly List<(string Action, string? Id, string Details)> _events = [];
     private readonly List<Connection> _saved = [];
     private readonly AtlassianSiteService _sites;
@@ -44,11 +45,12 @@ public sealed class AtlassianSiteServiceTests : IDisposable
             .Returns(Task.CompletedTask)
             .AndDoes(c => _events.Add((c.ArgAt<string>(0), c.ArgAt<string?>(2), JsonSerializer.Serialize(c.ArgAt<object?>(3)))));
 
-        var authorizer = Substitute.For<IOperationAuthorizer>();
+        var authorizer = _authorizer;
         authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
         _sites = new AtlassianSiteService(http, new AtlassianConnectionTester(http), _store, audit,
             new AtlassianTokenSource(http, TimeProvider.System),
-            new CreateConnection(_store, Substitute.For<IConnectionSettingsRules>(), audit, authorizer));
+            new CreateConnection(_store, Substitute.For<IConnectionSettingsRules>(), audit, authorizer),
+            new ReplaceConnectionSecret(_store, Substitute.For<ISourceStore>(), Substitute.For<IConnectionSettingsRules>(), audit, authorizer));
 
         _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
         _api.MapJson(Root + "/rest/api/user/current", new { accountId = "svc" });
@@ -148,9 +150,9 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         new FakeJira(_api, CloudId).MapSiteTest();
         Connection site = JiraSite();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
 
-        var result = await _sites.RetestAsync(site.Id);
+        var result = (await _sites.TestStoredAsync(site.Id)).Result;
 
         result!.Success.Should().BeTrue();
         result.Message.Should().Contain("read Jira");
@@ -165,7 +167,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         Connection site = JiraSite();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, "client-2", "new-secret", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.TestFailed);
         replaced.Test!.Details!["step"].Should().Be(AtlassianConnectionTester.JiraIdentityStep);
@@ -269,7 +271,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
         _store.UpdateAsync(site.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(site);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, " client-2 ", "new-secret", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, " client-2 ", "new-secret");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.Replaced);
         await _store.Received(1).UpdateAsync(site.Id, Arg.Is<UpdateConnectionRequest>(r =>
@@ -287,7 +289,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
         _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, "client-2", "wrong", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "wrong");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.TestFailed);
         replaced.Test!.Details!["step"].Should().Be("token");
@@ -296,12 +298,42 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Replace_NotAnAdministrator_IsForbiddenBeforeAtlassianIsAsked()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(false);
+
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
+
+        replaced.Outcome.Should().Be(AtlassianReplaceOutcome.Forbidden);
+        _api.Requests.Should().BeEmpty();
+        await _store.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    [Fact]
+    public async Task Replace_SiteEditedWhileTheCredentialWasChecked_StoresNothing()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.UpdateAsync(site.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Connection?>(_ => throw new ConnectionChangedException(site.Id));
+
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
+
+        replaced.Outcome.Should().Be(AtlassianReplaceOutcome.Changed);
+        await _store.Received(1).UpdateAsync(site.Id, Arg.Is<UpdateConnectionRequest>(r => r.ExpectedUpdatedAt == site.UpdatedAt),
+            Arg.Any<CancellationToken>());
+        _events.Select(e => e.Action).Should().NotContain("connection.credentials_replaced");
+    }
+
+    [Fact]
     public async Task Replace_WhenTheAddressNowBelongsToAnotherSite_RefusesIt()
     {
         Connection site = Site() with { ConfigJson = """{"siteUrl":"https://acme.atlassian.net","cloudId":"99999999-2222-3333-4444-555555555555","clientId":"client-1"}""" };
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, "client-2", "new-secret", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.SiteChanged);
         await _store.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
@@ -312,14 +344,13 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         Connection site = Site();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
         _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
 
-        var result = await _sites.RetestAsync(site.Id);
+        var run = await _sites.TestStoredAsync(site.Id);
 
-        result!.Success.Should().BeFalse();
-        await _store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => h.CredentialRejected && h.Origin == "test" && h.Step == "token"), Arg.Any<CancellationToken>());
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().Match<ConnectionHealth>(h => h.CredentialRejected && h.Origin == "test" && h.Step == "token");
         _events.Select(e => e.Action).Should().Equal("connection.test_started", "connection.test_step_failed");
         _events.Should().OnlyContain(e => e.Id == site.Id.ToString());
     }
@@ -331,17 +362,45 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         Connection site = Site();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
         if (redirect)
             _api.FailTokenWith(System.Net.HttpStatusCode.Redirect);
         else
             _api.AnswerTokenWith("{}");
 
-        var result = await _sites.RetestAsync(site.Id);
+        var run = await _sites.TestStoredAsync(site.Id);
 
-        result!.Success.Should().BeFalse();
-        await _store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token"), Arg.Any<CancellationToken>());
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().Match<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token");
+    }
+
+    [Fact]
+    public async Task Retest_RateLimited_RecordsNoHealth()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+
+        var run = await _sites.TestStoredAsync(site.Id);
+
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Retest_SavedAfterTheSiteWasRead_IsAConflictAndSendsNothing()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw new ConnectionChangedException(site.Id));
+
+        var run = await _sites.TestStoredAsync(site.Id);
+
+        run.Result.Should().BeNull();
+        run.Refusal.Should().Be(ConnectionStatus.Conflict);
+        _api.Requests.Should().BeEmpty();
     }
 
     [Fact]

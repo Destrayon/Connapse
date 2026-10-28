@@ -23,8 +23,9 @@ Search needs `knowledge:read`: the Viewer role or above, or an agent key or toke
 Settings: reading, changing and resetting them, and the settings actions (re-indexing, listing embedding
 models, testing a connection, clearing all summaries), need Administrator, and a token needs `admin:settings`.
 
-Connections: listing, reading, renaming, pausing, resuming and deleting them need Administrator,
-and a token needs `admin:sources`.
+Connections: listing, reading, renaming, pausing, resuming, deleting them and replacing their secret
+(over `PUT /api/v1/connections/{id}/secret`, `PUT /api/v1/atlassian/sites/{id}/credentials` or a change that
+carries one) need Administrator, and a token needs `admin:sources`.
 
 ## invalid-link-provider
 
@@ -319,6 +320,7 @@ it. `field` says which part:
   `PUT /api/v1/atlassian/sites/{id}/credentials`.
 - `installationId`: the GitHub App isn't set up, or isn't installed where the connection says.
 - `region`: an S3 connection has no region and Connapse couldn't look up the bucket's.
+- `privateKey`, `token`: a secret replacement left out the key or token it replaces.
 - `secret`, `baseUrl`: a custom source server refused the token or address. A new address needs its
   token sent with it, because the stored token is only ever sent to the stored address.
 
@@ -329,7 +331,9 @@ didn't answer. Nothing was saved. `field` says which check; try again.
 
 ## connection-conflict
 
-Another connection already has that name. `field` is `name`.
+Another connection already has that name. `field` is `name`. Without a `field`, the connection changed while new
+settings or a new secret were being checked, or while it was being tested, so its stored secret was not used and no
+health was recorded; reload it and try again.
 
 ## connection-in-use
 

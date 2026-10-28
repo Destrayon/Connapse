@@ -1,9 +1,4 @@
 [
-  "Connections.AtlassianConnectionForm -> IConnectionStore",
-  "Pages.Connections -> IConnectionStore",
-  "Pages.Connections -> ICustomProviderStore",
-  "Pages.Connections -> IProviderCredentialStore",
-  "Pages.Connections -> ISourceStore",
   "Pages.Search -> IContainerStore",
   "Pages.SourceEdit -> IConnectionStore",
   "Pages.Sources -> IConnectionStore"

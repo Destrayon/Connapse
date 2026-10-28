@@ -83,6 +83,55 @@ public sealed record UpdateConnectionApiRequest(
         config is { ValueKind: not JsonValueKind.Null } element ? element.GetRawText() : null;
 }
 
+/// <summary>
+/// A connection's new secret: <c>privateKey</c> and <c>passphrase</c> for an SFTP connection, <c>token</c> for a custom
+/// source server's. Its settings are kept and checked with it.
+/// </summary>
+public sealed record ReplaceConnectionSecretApiRequest(string? PrivateKey = null, string? Passphrase = null, string? Token = null)
+{
+    internal ConnectionSecret Secret() => new(PrivateKey, Passphrase, Token);
+
+    // The secret's values stay out of logs and exception messages.
+    private bool PrintMembers(System.Text.StringBuilder builder) => false;
+}
+
+/// <summary>
+/// What to test a connection with: its stored settings when the body is left out, or settings about to replace them
+/// (<c>config</c>, and a secret for them). The stored secret is only used with the stored settings it was saved for.
+/// <c>probeTarget</c> is the bucket or container an S3 or Azure test reads when the connection's allowed locations
+/// name none.
+/// </summary>
+public sealed record TestConnectionApiRequest(
+    JsonElement? Config = null,
+    string? PrivateKey = null,
+    string? Passphrase = null,
+    string? Token = null,
+    string? ProbeTarget = null)
+{
+    internal ConnectionTestRequest Request() => new(
+        Config is null && PrivateKey is null && Passphrase is null && Token is null
+            ? null
+            : new ConnectionSettings(UpdateConnectionApiRequest.ConfigJsonOf(Config), PrivateKey, Passphrase, Token),
+        ProbeTarget);
+
+    // The secret's values stay out of logs and exception messages.
+    private bool PrintMembers(System.Text.StringBuilder builder) => false;
+}
+
+/// <summary>
+/// How a connection test went: what the provider's service said, whether it passed with a warning (and where to fix
+/// it), and the connection's health when the test was of its stored settings.
+/// </summary>
+public sealed record ConnectionTestResponse(bool Success, bool Warning, string Message, string? WarningUrl, ConnectionHealth? Health)
+{
+    public static ConnectionTestResponse From(ConnectionTested tested) => new(
+        tested.Result.Success,
+        tested.Result.Details?.ContainsKey("warning") ?? false,
+        tested.Result.Message,
+        tested.Result.Details?.GetValueOrDefault("warningUrl") as string,
+        tested.Health);
+}
+
 /// <summary>Which of a paused connection's sources to turn back on; all of them when <c>sourceIds</c> is left out.</summary>
 public sealed record ResumeConnectionRequest(IReadOnlyList<Guid>? SourceIds = null);
 
@@ -237,6 +286,94 @@ public static class ConnectionsEndpoints
         .Produces<ConnectionInUseProblem>(StatusCodes.Status409Conflict, "application/problem+json")
         .WithName("connections.delete")
         .WithDescription("Delete a connection that no source uses. confirmName must be its name.");
+
+        // POST /api/v1/connections/{connectionId}/test — the provider's live check, saving nothing but the health when
+        // the stored settings were tested.
+        group.MapPost("/{connectionId:guid}/test", async (
+            Guid connectionId,
+            [FromBody] TestConnectionApiRequest? request,
+            [FromServices] TestConnection test,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var tested = await test.RunAsync(Rest(http), new ConnectionRef(connectionId), request?.Request(), ct);
+            return tested.Succeeded ? Results.Ok(ConnectionTestResponse.From(tested.Result!)) : OperationProblems.Result(tested);
+        })
+        .Produces<ConnectionTestResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status502BadGateway)
+        .WithName("connections.test")
+        .WithDescription("Test a connection against its provider: its stored settings, or settings given in the body before "
+            + "they are saved. A stored secret is only used with the stored settings; other settings need their own. A failed "
+            + "test is a 200 with success false. Nothing is saved but the connection's health.");
+
+        // GET /api/v1/connections/{connectionId}/discover — what the connection reaches, for picking a source's scope.
+        // A listing the provider refuses is a 200 whose outcome says why.
+        group.MapGet("/{connectionId:guid}/discover", async (
+            Guid connectionId,
+            [FromQuery] bool? includePersonal,
+            [FromServices] DiscoverConnection discover,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var found = await discover.RunAsync(Rest(http), new ConnectionRef(connectionId),
+                new ConnectionDiscoveryRequest(includePersonal ?? false), ct);
+            return found.Succeeded ? Results.Ok(found.Result!) : OperationProblems.Result(found);
+        })
+        .Produces<ConnectionDiscovery>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("connections.discover")
+        .WithDescription("List what a connection reaches: an S3 connection's buckets, Azure storage accounts and the "
+            + "connection account's containers, the GitHub App's installations, or an Atlassian site's spaces (?includePersonal=true "
+            + "adds personal spaces) or projects. A listing the provider refuses is a 200 whose outcome is Denied, NotConfigured "
+            + "or Failed. Never returns a secret.");
+
+        // DELETE /api/v1/connections/{connectionId}/host-key — forgets the host key an SFTP connection pinned, so the
+        // next connection pins whatever the server offers. Audited as connection.host_key_forgotten.
+        group.MapDelete("/{connectionId:guid}/host-key", async (
+            Guid connectionId,
+            [FromServices] ForgetConnectionHostKey forget,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var forgotten = await forget.RunAsync(Rest(http), new ConnectionRef(connectionId), ct);
+            return forgotten.Succeeded ? Results.Ok(ConnectionResponse.From(forgotten.Result!)) : OperationProblems.Result(forgotten);
+        })
+        .Produces<ConnectionResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .WithName("connections.forgetHostKey")
+        .WithDescription("Forget the host key an SFTP connection pinned on first connect. The next connection trusts and pins "
+            + "the key the server offers. Forgetting a key that was never pinned changes nothing.");
+
+        // PUT /api/v1/connections/{connectionId}/secret — administrators only, as for every other change to a
+        // connection. Audited as connection.credentials_replaced, without the secret.
+        app.MapPut("/api/v1/connections/{connectionId:guid}/secret", async (
+            Guid connectionId,
+            [FromBody] ReplaceConnectionSecretApiRequest request,
+            [FromServices] ReplaceConnectionSecret replace,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var replaced = await replace.RunAsync(Rest(http), new ConnectionRef(connectionId), request.Secret(), ct);
+            return replaced.Succeeded ? Results.Ok(ConnectionResponse.From(replaced.Result!)) : OperationProblems.Result(replaced);
+        })
+        .WithTags("Connections")
+        .RequireAuthorization("RequireSourcesAdmin")
+        .Produces<ConnectionResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status502BadGateway)
+        .WithName("connections.replaceSecret")
+        .WithDescription("Replace an SFTP connection's private key or a custom source server's token. Owner only. The new "
+            + "secret is checked with the stored settings before it is kept, and is never returned.");
 
         return app;
     }

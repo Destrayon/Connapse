@@ -8,11 +8,15 @@ namespace Connapse.Application.Ports;
 /// </summary>
 public sealed record ConnectionSettings(string? ConfigJson, string? PrivateKey = null, string? Passphrase = null, string? Token = null);
 
-/// <summary>Why the rules refused settings: they are wrong, or something they had to ask couldn't answer.</summary>
+/// <summary>
+/// Why the rules refused settings: they are wrong, something they had to ask couldn't answer, or the connection was
+/// saved after it was read, so its stored secret no longer belongs to the settings read.
+/// </summary>
 public enum SettingsRefusal
 {
     Invalid,
     Unavailable,
+    Changed,
 }
 
 /// <summary>

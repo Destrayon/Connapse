@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Connapse.Application;
 using Connapse.Application.Connections;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
@@ -9,13 +10,13 @@ using Connapse.Storage.Connectors.Atlassian;
 
 namespace Connapse.Web.Services;
 
-public enum AtlassianResolveOutcome { Resolved, InvalidAddress, NotFound }
-
-public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, string? SiteUrl = null, string? CloudId = null);
-
 public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken, Forbidden }
 
-public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
+/// <summary>
+/// <see cref="SiteChanged"/>: the address now answers with another site. <see cref="Changed"/>: the connection was edited
+/// while the new credential was being checked, so nothing was stored.
+/// </summary>
+public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged, Forbidden, Changed }
 
 /// <summary>
 /// How listing a site's spaces or projects went. <see cref="WrongProduct"/>: the connection is the
@@ -82,7 +83,8 @@ public sealed record AtlassianAddResult(
 public sealed record AtlassianReplaceResult(
     AtlassianReplaceOutcome Outcome,
     Connection? Connection = null,
-    ConnectionTestResult? Test = null);
+    ConnectionTestResult? Test = null,
+    string? Refusal = null);
 
 /// <summary>
 /// What a site test reports, in the words the page and the REST API both use: the step that failed,
@@ -135,22 +137,10 @@ public sealed class AtlassianSiteService(
     IAuditLogger audit,
     AtlassianTokenSource tokens,
     CreateConnection create,
+    ReplaceConnectionSecret replace,
     TimeProvider? time = null)
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
-
-    public async Task<AtlassianResolveResult> ResolveAsync(string? siteUrl, CancellationToken ct = default)
-    {
-        string? normalized = AtlassianSiteResolver.NormalizeSiteUrl(siteUrl);
-        if (normalized is null)
-            return new AtlassianResolveResult(AtlassianResolveOutcome.InvalidAddress);
-
-        using var http = httpClients.CreateClient(AtlassianSiteResolver.HttpClientName);
-        string? cloudId = await AtlassianSiteResolver.ResolveCloudIdAsync(http, normalized, ct);
-        return cloudId is null
-            ? new AtlassianResolveResult(AtlassianResolveOutcome.NotFound, normalized)
-            : new AtlassianResolveResult(AtlassianResolveOutcome.Resolved, normalized, cloudId);
-    }
 
     /// <summary>The name a new site's connection is given: its host, marked for Jira.</summary>
     public static string DefaultName(string host, AtlassianProduct product) =>
@@ -237,9 +227,13 @@ public sealed class AtlassianSiteService(
     /// stores them in place of the old ones. The connection keeps its id, so its sources keep syncing.
     /// </summary>
     public async Task<AtlassianReplaceResult> ReplaceCredentialsAsync(
-        Guid connectionId, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
+        OperationContext context, Guid connectionId, string? clientId, string? clientSecret, bool saveAnyway = false,
         CancellationToken ct = default)
     {
+        // Refused before Atlassian is asked, so a caller who may not replace it learns nothing about the new secret.
+        if (!await replace.AllowsAsync(context))
+            return new AtlassianReplaceResult(AtlassianReplaceOutcome.Forbidden, Refusal: ConnectionMessages.CannotReplaceSecrets);
+
         Connection? connection = await connections.GetAsync(connectionId, ct);
         if (connection is not { Provider: ConnectionProvider.Atlassian }
             || AtlassianSite.FromConfigJson(connection.ConfigJson) is not { } site)
@@ -261,14 +255,19 @@ public sealed class AtlassianSiteService(
         JsonObject config = (JsonNode.Parse(connection.ConfigJson!) as JsonObject) ?? [];
         config["clientId"] = trimmedClientId;
 
-        Connection? updated = await connections.UpdateAsync(connectionId,
-            new UpdateConnectionRequest(ConfigJson: config.ToJsonString(), Secret: clientSecret), ct);
-        if (updated is null)
-            return new AtlassianReplaceResult(AtlassianReplaceOutcome.NotFound);
+        var stored = await replace.RunCheckedAsync(context, ConnectionRef.AtlassianSite(connectionId),
+            new CheckedSecret(config.ToJsonString(), clientSecret, connection.UpdatedAt,
+                new { Provider = "Atlassian", site.SiteUrl, PreviousClientId = site.ClientId, ClientId = trimmedClientId, SavedWithWarning = !result.Success }),
+            ct);
+        if (!stored.Succeeded)
+            return new AtlassianReplaceResult(stored.Status switch
+            {
+                ConnectionStatus.Forbidden => AtlassianReplaceOutcome.Forbidden,
+                ConnectionStatus.Conflict => AtlassianReplaceOutcome.Changed,
+                _ => AtlassianReplaceOutcome.NotFound,
+            }, Test: result, Refusal: stored.Detail);
 
-        await audit.LogAsync("connection.credentials_replaced", "connection", connectionId.ToString(),
-            new { Provider = "Atlassian", site.SiteUrl, PreviousClientId = site.ClientId, ClientId = trimmedClientId, SavedWithWarning = !result.Success }, ct);
-
+        Connection updated = stored.Result!;
         if (await connections.RecordHealthAsync(connectionId, HealthOf(result), ct) is { } health)
             updated = updated with { Health = health };
 
@@ -326,7 +325,16 @@ public sealed class AtlassianSiteService(
         if (site is not null && site.Product != product)
             return (AtlassianSpacesOutcome.WrongProduct, null, WrongProductMessage(site.Product), null);
 
-        string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
+        string? secret;
+        try
+        {
+            // Read at the version whose site and product were just checked, so a save in between can't pair them.
+            secret = site is null ? null : await connections.GetSecretAtAsync(connectionId, connection.UpdatedAt, ct);
+        }
+        catch (ConnectionChangedException)
+        {
+            return (AtlassianSpacesOutcome.Unavailable, null, ConnectionMessages.ChangedWhileChecked, null);
+        }
         if (site is null || string.IsNullOrEmpty(secret))
             return (AtlassianSpacesOutcome.Unavailable, null,
                 $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.", null);
@@ -395,32 +403,44 @@ public sealed class AtlassianSiteService(
         obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     /// <summary>
-    /// Runs every probe again with the stored secret and records the outcome as the site's health.
-    /// Null when the connection is gone or unreadable.
+    /// Runs every probe again with the stored secret; the outcome is the site's health, which connections.test records.
+    /// Refused as not found when the connection is gone or its settings unreadable.
     /// </summary>
-    public async Task<ConnectionTestResult?> RetestAsync(Guid connectionId, CancellationToken ct = default)
+    public async Task<ConnectionTestRun> TestStoredAsync(Guid connectionId, CancellationToken ct = default)
     {
         Connection? connection = await connections.GetAsync(connectionId, ct);
         if (connection is not { Provider: ConnectionProvider.Atlassian }
             || AtlassianSite.FromConfigJson(connection.ConfigJson) is not { } site)
-            return null;
+            return Unreadable;
 
         string? secret;
         try
         {
-            secret = await connections.GetSecretAsync(connectionId, ct);
+            // Read at the version whose site and client id were just read, so the secret is never sent to another site.
+            secret = await connections.GetSecretAtAsync(connectionId, connection.UpdatedAt, ct);
+        }
+        catch (ConnectionChangedException)
+        {
+            return ConnectionTestRun.Refuse(ConnectionMessages.ChangedWhileChecked, refusal: ConnectionStatus.Conflict);
         }
         catch (ConnectionSecretUnavailableException)
         {
             secret = null;
         }
+        // A failed test, not a refusal, so the form shows how to fix it; nothing was checked, so no health is recorded.
         if (secret is null)
-            return null;
+            return new ConnectionTestRun(ConnectionTestResult.CreateFailure(
+                "The stored credential for this site can't be read. Choose Replace credentials and enter it again.",
+                new Dictionary<string, object> { ["step"] = AtlassianConnectionTester.TokenStep, ["troubleshoot"] = AtlassianSiteTroubleshooting.CredentialsRejected }));
 
         var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret, site.Product), ct);
-        await connections.RecordHealthAsync(connectionId, HealthOf(result), ct);
-        return result;
+
+        // Atlassian not answering says nothing about the credential, so the health it last had stands.
+        return new ConnectionTestRun(result, result.Details?.ContainsKey(AtlassianConnectionTester.UnansweredDetail) == true ? null : HealthOf(result));
     }
+
+    private static readonly ConnectionTestRun Unreadable = ConnectionTestRun.Refuse(
+        "No such Atlassian site, or its settings can't be read.", refusal: ConnectionStatus.NotFound);
 
     /// <summary>A passing test, or one whose only problem is a warning the admin chose to save past.</summary>
     private static bool Saveable(ConnectionTestResult result, bool saveAnyway) =>

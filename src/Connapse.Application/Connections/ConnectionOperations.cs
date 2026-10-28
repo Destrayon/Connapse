@@ -112,7 +112,12 @@ internal static class ConnectionRules
     /// <summary>The settings rules' refusal as the operation's: wrong settings, or a check that couldn't run.</summary>
     public static Attempt<T, ConnectionStatus> Refused<T>(SettingsCheck check) =>
         Attempt<T, ConnectionStatus>.Fail(
-            check.Refusal == SettingsRefusal.Unavailable ? ConnectionStatus.Unavailable : ConnectionStatus.Invalid,
+            check.Refusal switch
+            {
+                SettingsRefusal.Unavailable => ConnectionStatus.Unavailable,
+                SettingsRefusal.Changed => ConnectionStatus.Conflict,
+                _ => ConnectionStatus.Invalid,
+            },
             check.Error!, check.Field);
 
     public static Guid? UserIdOf(OperationContext context) =>
@@ -152,6 +157,16 @@ public static class ConnectionMessages
     /// <summary>Why connections.create won't make an Atlassian site: only the site's own check may.</summary>
     public const string AtlassianSiteOnly =
         "Add an Atlassian site with POST /api/v1/atlassian/sites, which checks its service account before saving it.";
+
+    /// <summary>Why anyone but an administrator is refused a secret replacement.</summary>
+    public const string CannotReplaceSecrets = "You don't have permission to replace a connection's secret.";
+
+    /// <summary>Why a stored secret was not used: the connection was saved after its settings were read.</summary>
+    public const string ChangedWhileChecked = "The connection changed while it was being checked. Reload it and try again.";
+
+    /// <summary>Why connections.replaceSecret won't take an Atlassian site's credential: only the site's own check may.</summary>
+    public const string AtlassianCredentialsOnly =
+        "Replace an Atlassian site's credentials with PUT /api/v1/atlassian/sites/{id}/credentials, which checks them against the site first.";
 }
 
 /// <summary>Lists connections by name, each with whether it is paused. Administrators only; never a secret.</summary>
@@ -300,6 +315,138 @@ public sealed class UpdateConnection(
         return Attempt<ConnectionView, ConnectionStatus>.Succeed(
             new ConnectionView(updated, await ConnectionRules.IsPausedAsync(sources, updated.Id, ct)));
     }
+}
+
+/// <summary>A connection's new credential: an SFTP connection's key and its passphrase, or a custom source server's token.</summary>
+public sealed record ConnectionSecret(string? PrivateKey = null, string? Passphrase = null, string? Token = null)
+{
+    // The generated ToString would print the credential into any log line or message it reached.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"PrivateKey = {(PrivateKey is null ? "null" : "***")}, Passphrase = {(Passphrase is null ? "null" : "***")}, "
+            + $"Token = {(Token is null ? "null" : "***")}");
+        return true;
+    }
+}
+
+/// <summary>
+/// A credential its provider's own service has checked already, as an Atlassian site's service account is checked
+/// against the site. <see cref="ExpectedUpdatedAt"/> is the connection as the check read it; <see cref="AuditDetails"/>
+/// is what <c>connection.credentials_replaced</c> records.
+/// </summary>
+public sealed record CheckedSecret(string? ConfigJson, string Secret, DateTime ExpectedUpdatedAt, object AuditDetails)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"ConfigJson = {ConfigJson}, Secret = ***, ExpectedUpdatedAt = {ExpectedUpdatedAt:O}");
+        return true;
+    }
+}
+
+/// <summary>
+/// Replaces a connection's secret and keeps its settings: an SFTP connection's key, or a custom source server's token,
+/// checked as a save on the Connections page checks it. Any administrator, as for every other change to a connection.
+/// An Atlassian site's credential is checked against the site first and stored through
+/// <see cref="RunCheckedAsync"/>. Audited as <c>connection.credentials_replaced</c>, never with the secret.
+/// </summary>
+[Operation("connections.replaceSecret", Scope = "admin:sources", Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
+public sealed class ReplaceConnectionSecret(
+    IConnectionStore connections, ISourceStore sources, IConnectionSettingsRules rules, IAuditLogger audit, IOperationAuthorizer authorizer)
+{
+    /// <summary>Whether the caller may replace secrets, asked before a provider's check reaches out with the new one.</summary>
+    public async Task<bool> AllowsAsync(OperationContext context) =>
+        await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin);
+
+    public async Task<Attempt<ConnectionView, ConnectionStatus>> RunAsync(
+        OperationContext context, ConnectionRef key, ConnectionSecret secret, CancellationToken ct = default)
+    {
+        if (!await AllowsAsync(context))
+            return Fail<ConnectionView>(ConnectionStatus.Forbidden, ConnectionMessages.CannotReplaceSecrets);
+
+        var current = await ConnectionRules.FindAsync(connections, key, ct);
+        if (current is null)
+            return ConnectionRules.NotFound<ConnectionView>(key);
+
+        ConnectionSettings settings;
+        switch (current.Provider)
+        {
+            case ConnectionProvider.Atlassian:
+                return Fail<ConnectionView>(ConnectionStatus.Invalid, ConnectionMessages.AtlassianCredentialsOnly);
+            case ConnectionProvider.Sftp when string.IsNullOrWhiteSpace(secret.PrivateKey):
+                return Fail<ConnectionView>(ConnectionStatus.Invalid, "privateKey is required: the SFTP key that replaces the stored one.", "privateKey");
+            case ConnectionProvider.Sftp:
+                settings = new ConnectionSettings(null, secret.PrivateKey, secret.Passphrase);
+                break;
+            case ConnectionProvider.Custom when string.IsNullOrWhiteSpace(secret.Token):
+                return Fail<ConnectionView>(ConnectionStatus.Invalid, "token is required: the token the source server expects.", "token");
+            case ConnectionProvider.Custom:
+                settings = new ConnectionSettings(null, Token: secret.Token);
+                break;
+            default:
+                return Fail<ConnectionView>(ConnectionStatus.Invalid, $"A {current.Provider} connection holds no secret to replace.");
+        }
+
+        // Null settings keep the stored ones, so the new secret is checked against the address it will be sent to.
+        SettingsCheck check = await rules.CheckAsync(current.Name, current.Provider, settings, current, ct);
+        if (!check.Ok)
+            return ConnectionRules.Refused<ConnectionView>(check);
+        if (check.Secret is null)
+            return Fail<ConnectionView>(ConnectionStatus.Invalid, "This connection's secret is held by its custom provider. Replace it on the provider.");
+
+        var stored = await StoreAsync(current, key, check.ConfigJson, check.Secret,
+            new { current.Name, Provider = current.Provider.ToString() }, current.UpdatedAt, ct);
+        if (!stored.Succeeded)
+            return Fail<ConnectionView>(stored.Status, stored.Detail!);
+
+        Connection updated = stored.Result!;
+        if (check.Verified && await ConnectionRules.RecordVerifiedAsync(connections, updated.Id, ct) is { } health)
+            updated = updated with { Health = health };
+        return Attempt<ConnectionView, ConnectionStatus>.Succeed(
+            new ConnectionView(updated, await ConnectionRules.IsPausedAsync(sources, updated.Id, ct)));
+    }
+
+    /// <summary>
+    /// Stores a credential its provider's own service has checked: an Atlassian site's service account, after every
+    /// probe of the site passed. Who may do it, the audit, and the refusal of a connection changed since the check are
+    /// the same as for any other secret.
+    /// </summary>
+    public async Task<Attempt<Connection, ConnectionStatus>> RunCheckedAsync(
+        OperationContext context, ConnectionRef key, CheckedSecret secret, CancellationToken ct = default)
+    {
+        if (!await AllowsAsync(context))
+            return Fail<Connection>(ConnectionStatus.Forbidden, ConnectionMessages.CannotReplaceSecrets);
+
+        var current = await ConnectionRules.FindAsync(connections, key, ct);
+        return current is null
+            ? ConnectionRules.NotFound<Connection>(key)
+            : await StoreAsync(current, key, secret.ConfigJson, secret.Secret, secret.AuditDetails, secret.ExpectedUpdatedAt, ct);
+    }
+
+    private async Task<Attempt<Connection, ConnectionStatus>> StoreAsync(
+        Connection current, ConnectionRef key, string? configJson, string secret, object auditDetails, DateTime expectedUpdatedAt,
+        CancellationToken ct)
+    {
+        Connection? saved;
+        try
+        {
+            saved = await connections.UpdateAsync(current.Id,
+                new UpdateConnectionRequest(ConfigJson: configJson, Secret: secret, ExpectedUpdatedAt: expectedUpdatedAt), ct);
+        }
+        // Another save landed after the secret was checked; storing it now could pair it with settings it was never checked against.
+        catch (ConnectionChangedException)
+        {
+            return Fail<Connection>(ConnectionStatus.Conflict,
+                $"The {ConnectionRules.Noun(key)} changed while the new secret was being checked. Reload it and try again.");
+        }
+        if (saved is null)
+            return ConnectionRules.NotFound<Connection>(key);
+
+        await audit.LogAsync("connection.credentials_replaced", "connection", current.Id.ToString(), auditDetails, ct);
+        return Attempt<Connection, ConnectionStatus>.Succeed(saved);
+    }
+
+    private static Attempt<T, ConnectionStatus> Fail<T>(ConnectionStatus status, string detail, string? field = null) =>
+        Attempt<T, ConnectionStatus>.Fail(status, detail, field);
 }
 
 /// <summary>
@@ -514,7 +661,8 @@ public sealed class DeleteConnection(IConnectionStore connections, ISourceStore 
 /// <summary>Every connection operation in one place, for the pages that offer several of them.</summary>
 public sealed class ConnectionOperations(
     ListConnections list, GetConnection get, CreateConnection create, UpdateConnection update,
-    PauseConnection pause, ResumeConnection resume, DeleteConnection delete)
+    ReplaceConnectionSecret replaceSecret, PauseConnection pause, ResumeConnection resume, DeleteConnection delete,
+    TestConnection test, ForgetConnectionHostKey forgetHostKey, DiscoverConnection discover)
 {
     public ListConnections List { get; } = list;
 
@@ -524,9 +672,17 @@ public sealed class ConnectionOperations(
 
     public UpdateConnection Update { get; } = update;
 
+    public ReplaceConnectionSecret ReplaceSecret { get; } = replaceSecret;
+
     public PauseConnection Pause { get; } = pause;
 
     public ResumeConnection Resume { get; } = resume;
 
     public DeleteConnection Delete { get; } = delete;
+
+    public TestConnection Test { get; } = test;
+
+    public ForgetConnectionHostKey ForgetHostKey { get; } = forgetHostKey;
+
+    public DiscoverConnection Discover { get; } = discover;
 }

@@ -39,10 +39,21 @@ public class AtlassianConnectionFormTests : IDisposable
         ctx.Services.AddSingleton(audit);
         var authorizer = Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>();
         authorizer.AllowsAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
-        ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
+        var sites = new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
             new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System),
             new Connapse.Application.Connections.CreateConnection(store, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
-                audit, authorizer)));
+                audit, authorizer),
+            new Connapse.Application.Connections.ReplaceConnectionSecret(store, Substitute.For<ISourceStore>(),
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), audit, authorizer));
+        ctx.Services.AddSingleton(sites);
+
+        // connections.test runs an Atlassian site's test through the site service, as the real runner does.
+        var runner = Substitute.For<Connapse.Application.Ports.IConnectionTestRunner>();
+        runner.TestAsync(Arg.Any<Connapse.Application.Ports.ConnectionTestSubject>(), Arg.Any<CancellationToken>())
+            .Returns(c => sites.TestStoredAsync(c.Arg<Connapse.Application.Ports.ConnectionTestSubject>().Stored!.Id));
+        ctx.Services.AddSingleton(new Connapse.Application.Connections.AtlassianSiteChecks(
+            new Connapse.Application.Connections.ResolveAtlassianSite(http, authorizer),
+            new Connapse.Application.Connections.TestAtlassianSite(new Connapse.Application.Connections.TestConnection(store, runner, authorizer))));
     }
 
     public void Dispose() => ctx.Dispose();
@@ -606,7 +617,7 @@ public class AtlassianConnectionFormTests : IDisposable
     {
         Connection site = AtlassianConnection();
         store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
 
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
         cut.Find("#atlassian-retest").Click();
@@ -615,9 +626,9 @@ public class AtlassianConnectionFormTests : IDisposable
             cut.Find("#atlassian-retest-result").TextContent.Should()
                 .Contain("Atlassian rejected the client ID or secret.").And.Contain("Signing in as the service account"));
         cut.Find("#atlassian-retest-result").TextContent.Should().NotContain("(step:");
-        store.Received(1).GetSecretAsync(site.Id, Arg.Any<CancellationToken>());
-        store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => !h.Succeeded && h.CredentialRejected && h.Step == "token"), Arg.Any<CancellationToken>());
+        store.Received(1).GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>());
+        store.Received(1).RecordHealthAtAsync(site.Id,
+            Arg.Is<ConnectionHealth>(h => !h.Succeeded && h.CredentialRejected && h.Step == "token"), site.UpdatedAt, Arg.Any<CancellationToken>());
         cut.Markup.Should().NotContain(Secret);
     }
 
@@ -629,8 +640,9 @@ public class AtlassianConnectionFormTests : IDisposable
         {
             Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token", Message: "m", Origin: "test", CredentialRejected: true),
         };
-        store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site, refreshed);
-        store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
+        store.RecordHealthAtAsync(site.Id, Arg.Any<ConnectionHealth>(), site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(refreshed.Health);
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
 
         cut.Find("#atlassian-retest").Click();
@@ -752,9 +764,8 @@ public class AtlassianConnectionFormTests : IDisposable
         string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
             "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
 
-        page.Should().Contain("await Admin.SaveAsync(editing!.Id,").And.NotContain("Admin.UpdateAsync(");
-        page.Should().Contain("ConnectionRenameOutcome.NameTaken")
-            .And.Contain("await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));")
+        page.Should().Contain("await Operations.SaveAsync(await Authentication, editing!, form.Name,").And.NotContain("ConnectionStore.UpdateAsync(");
+        page.Should().Contain("Fail, RefuseNameAsync, RefuseCustomFieldAsync);")
             .And.Contain("<div id=\"connection-name-error\" class=\"invalid-feedback d-block\" role=\"alert\">");
         page.Should().NotContain("Fail(ex.Message)", "the exception goes to the log and the page says what happened");
     }

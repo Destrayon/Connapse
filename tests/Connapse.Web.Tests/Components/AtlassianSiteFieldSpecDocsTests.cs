@@ -220,9 +220,9 @@ public class ConnectionsPageLifecycleTests
     [Fact]
     public void RenameDeleteAndPause_GoThroughTheOperationsTheRestApiUses()
     {
-        Markup.Should().Contain("await Admin.SaveAsync(editing!.Id,")
-            .And.Contain("await Admin.DeleteAsync(connection, Fail)")
-            .And.Contain("await Admin.SetSyncingAsync(connection, enabled, only, Succeed, Fail)")
+        Markup.Should().Contain("await Operations.SaveAsync(await Authentication, editing!,")
+            .And.Contain("await Operations.DeleteAsync(await Authentication, connection, Fail)")
+            .And.Contain("await Operations.SetSyncingAsync(await Authentication, connection, enabled, only, Succeed, Fail)")
             .And.NotContain("ConnectionStore.DeleteAsync(")
             .And.NotContain("ConnectionStore.UpdateAsync(");
     }

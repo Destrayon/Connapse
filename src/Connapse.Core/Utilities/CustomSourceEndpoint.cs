@@ -8,17 +8,25 @@ namespace Connapse.Core.Utilities;
 public static class CustomSourceEndpoint
 {
     /// <summary>
-    /// Whether two middle man addresses are the same, ignoring a trailing slash and the case of the scheme and host.
-    /// The path's case counts: a server may route <c>/A</c> and <c>/a</c> to different backends.
+    /// Whether two middle man addresses are the same, ignoring scheme and host case, a default port and a trailing
+    /// slash. The path is compared exactly: a server may route paths by case, so a case-only change can reach a
+    /// different application, and a stored token must never be sent there.
     /// </summary>
     public static bool SameAddress(string? a, string? b)
     {
-        string? x = a?.Trim().TrimEnd('/'), y = b?.Trim().TrimEnd('/');
-        if (x is null || y is null) return x is null && y is null;
-        if (!Uri.TryCreate(x, UriKind.Absolute, out Uri? left) || !Uri.TryCreate(y, UriKind.Absolute, out Uri? right))
-            return string.Equals(x, y, StringComparison.Ordinal);
-        return Uri.Compare(left, right, UriComponents.SchemeAndServer, UriFormat.UriEscaped, StringComparison.OrdinalIgnoreCase) == 0
-            && string.Equals(left.PathAndQuery, right.PathAndQuery, StringComparison.Ordinal);
+        if (a is null || b is null)
+            return a is null && b is null;
+
+        if (!Uri.TryCreate(a.Trim(), UriKind.Absolute, out Uri? x) || !Uri.TryCreate(b.Trim(), UriKind.Absolute, out Uri? y))
+            return string.Equals(a.Trim().TrimEnd('/'), b.Trim().TrimEnd('/'), StringComparison.Ordinal);
+
+        return x.Scheme == y.Scheme
+            && string.Equals(x.Host, y.Host, StringComparison.OrdinalIgnoreCase)
+            && x.Port == y.Port
+            && x.UserInfo == y.UserInfo
+            && x.Query == y.Query
+            && x.Fragment == y.Fragment
+            && string.Equals(x.AbsolutePath.TrimEnd('/'), y.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
     }
 
     public const string AllowedHttpHostsKey = CustomSourceSettings.SectionName + ":AllowedHttpHosts";

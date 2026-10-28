@@ -154,14 +154,16 @@ public class ConnectionSettingsRulesTests
         await _gitHubApp.DidNotReceiveWithAnyArgs().ListInstallationsAsync(default);
     }
 
-    [Fact]
-    public async Task Check_CustomAddressChangedWithoutAToken_IsRefusedBeforeTheStoredTokenIsSent()
+    [Theory]
+    [InlineData("https://old.example", "https://evil.example")]
+    [InlineData("https://old.example/TenantA", "https://old.example/tenanta")]
+    public async Task Check_CustomAddressChangedWithoutAToken_IsRefusedBeforeTheStoredTokenIsSent(string storedUrl, string newUrl)
     {
-        Connection stored = Stored(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan("https://old.example"));
+        Connection stored = Stored(ConnectionProvider.Custom, CustomConnectionConfig.ForMiddleMan(storedUrl));
         Connection current = stored with { HasSecret = true };
 
         SettingsCheck check = await Rules().CheckAsync("src", ConnectionProvider.Custom,
-            new ConnectionSettings(CustomConnectionConfig.ForMiddleMan("https://evil.example")), current);
+            new ConnectionSettings(CustomConnectionConfig.ForMiddleMan(newUrl)), current);
 
         check.Field.Should().Be("secret");
         await _connections.DidNotReceiveWithAnyArgs().GetSecretAsync(default, default);

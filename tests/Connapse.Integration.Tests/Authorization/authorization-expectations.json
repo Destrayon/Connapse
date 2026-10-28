@@ -100,6 +100,11 @@
       "risk": "destructive",
       "scope": "admin:sources"
     },
+    "DELETE /api/v1/connections/{connectionId:guid}/host-key": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:sources"
+    },
     "DELETE /api/v1/oauth-clients/{clientId}": {
       "requires": "admin",
       "risk": "destructive",
@@ -266,6 +271,11 @@
       "scope": "admin:sources"
     },
     "GET /api/v1/connections/{connectionId:guid}": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:sources"
+    },
+    "GET /api/v1/connections/{connectionId:guid}/discover": {
       "requires": "admin",
       "risk": "read",
       "scope": "admin:sources"
@@ -708,7 +718,7 @@
     "POST /api/v1/atlassian/sites/resolve": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/atlassian/sites/{connectionId:guid}/pause": {
       "requires": "admin",
@@ -723,7 +733,7 @@
     "POST /api/v1/atlassian/sites/{connectionId:guid}/test": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/auth/cloud/aws/acs": {
       "requires": "anonymous",
@@ -756,6 +766,11 @@
       "scope": "admin:sources"
     },
     "POST /api/v1/connections/{connectionId:guid}/resume": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:sources"
+    },
+    "POST /api/v1/connections/{connectionId:guid}/test": {
       "requires": "admin",
       "risk": "write",
       "scope": "admin:sources"
@@ -873,7 +888,12 @@
     "PUT /api/v1/atlassian/sites/{connectionId:guid}/credentials": {
       "requires": "admin",
       "risk": "credential",
-      "scope": null
+      "scope": "admin:sources"
+    },
+    "PUT /api/v1/connections/{connectionId:guid}/secret": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:sources"
     },
     "PUT /api/v1/providers/aws/access": {
       "requires": "admin",

@@ -1,5 +1,5 @@
-@using System.Security.Claims
 @using System.Text.Json
+@using Connapse.Application.Connections
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.ConnectionTesters
@@ -8,7 +8,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @implements IDisposable
 @inject AtlassianSiteService Sites
-@inject IConnectionStore Store
+@inject AtlassianSiteChecks Checks
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -632,19 +632,13 @@
         lookingUp = true;
         try
         {
-            var resolved = await Sites.ResolveAsync(siteUrl);
-            switch (resolved.Outcome)
-            {
-                case AtlassianResolveOutcome.Resolved:
-                    cloudId = resolved.CloudId;
-                    break;
-                case AtlassianResolveOutcome.InvalidAddress:
-                    siteUrlError = InvalidAddressMessage;
-                    break;
-                default:
-                    resolveError = $"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}. Check the spelling against your browser's address bar.";
-                    break;
-            }
+            var resolved = await Checks.Resolve.RunAsync(await AuthState.OperationContextAsync(), siteUrl);
+            if (resolved.Succeeded)
+                cloudId = resolved.Result!.CloudId;
+            else if (resolved.Status == ConnectionStatus.Invalid)
+                siteUrlError = InvalidAddressMessage;
+            else
+                resolveError = resolved.Detail;
         }
         catch (Exception ex)
         {
@@ -655,12 +649,6 @@
         {
             lookingUp = false;
         }
-    }
-
-    private async Task<Guid?> UserIdAsync()
-    {
-        var state = await AuthState.GetAuthenticationStateAsync();
-        return Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
     }
 
     private async Task SaveAsync(bool saveAnyway)
@@ -746,11 +734,9 @@
         retest = null;
         try
         {
-            retest = await Sites.RetestAsync(site.Id)
-                ?? ConnectionTestResult.CreateFailure(
-                    "The stored credential for this site can't be read. Choose Replace credentials and enter it again.",
-                    new Dictionary<string, object> { ["step"] = AtlassianConnectionTester.TokenStep, ["troubleshoot"] = AtlassianSiteTroubleshooting.CredentialsRejected });
-            current = await Store.GetAsync(site.Id) ?? current;
+            var tested = await Checks.Test.RunAsync(await AuthState.OperationContextAsync(), site.Id);
+            retest = tested.Result?.Result ?? ConnectionTestResult.CreateFailure(tested.Detail!);
+            current = site with { Health = tested.Result?.Health ?? site.Health };
         }
         catch (Exception ex)
         {
@@ -805,7 +791,7 @@
         replaceBusy = true;
         try
         {
-            var replaced = await Sites.ReplaceCredentialsAsync(site.Id, replaceClientId, submittedSecret, await UserIdAsync(), saveAnyway);
+            var replaced = await Sites.ReplaceCredentialsAsync(await AuthState.OperationContextAsync(), site.Id, replaceClientId, submittedSecret, saveAnyway);
             switch (replaced.Outcome)
             {
                 case AtlassianReplaceOutcome.Replaced:
@@ -819,6 +805,9 @@
                     break;
                 case AtlassianReplaceOutcome.MissingFields:
                     ValidateReplaceField();
+                    break;
+                case AtlassianReplaceOutcome.Forbidden or AtlassianReplaceOutcome.Changed:
+                    replaceError = replaced.Refusal;
                     break;
                 case AtlassianReplaceOutcome.SiteChanged:
                     replaceError = "The site at this address has a different Cloud ID than when it was added, so it is a different site. Add it as a new connection.";

@@ -22,7 +22,7 @@ public class TokenFormScopeTests(SharedWebAppFixture fixture)
     [Fact]
     public async Task PersonalTokenForm_LeftAsItOpens_IssuesKnowledgeRead()
     {
-        string[] scopes = await CreatePersonalTokenAsync(_ => { });
+        string[] scopes = await CreatePersonalTokenAsync(_ => Task.CompletedTask);
 
         scopes.Should().BeEquivalentTo([TokenScopeChoices.Default]);
     }
@@ -30,10 +30,10 @@ public class TokenFormScopeTests(SharedWebAppFixture fixture)
     [Fact]
     public async Task PersonalTokenForm_ScopesTicked_IssuesJustThoseScopes()
     {
-        string[] scopes = await CreatePersonalTokenAsync(page =>
+        string[] scopes = await CreatePersonalTokenAsync(async page =>
         {
-            page.Find("#new-pat-scope-knowledge\\:read").Change(false);
-            page.Find("#new-pat-scope-admin\\:audit").Change(true);
+            await page.InvokeAsync(() => page.Find("#new-pat-scope-knowledge\\:read").Change(false));
+            await page.InvokeAsync(() => page.Find("#new-pat-scope-admin\\:audit").Change(true));
         });
 
         scopes.Should().BeEquivalentTo(["admin:audit"]);
@@ -62,16 +62,17 @@ public class TokenFormScopeTests(SharedWebAppFixture fixture)
         keys.Should().ContainSingle().Which.Scopes.Should().BeEquivalentTo([TokenScopeChoices.Default, "agent:ingest"]);
     }
 
-    private async Task<string[]> CreatePersonalTokenAsync(Action<IRenderedComponent<PersonalTokens>> tick)
+    private async Task<string[]> CreatePersonalTokenAsync(Func<IRenderedComponent<PersonalTokens>, Task> tick)
     {
         using var ui = await Surfaces.UiAsync(fixture);
         var page = ui.Context.Render<PersonalTokens>();
-        page.FindAll("button").Single(b => b.TextContent.Contains("New Token")).Click();
+        // Each find and its event on the renderer's dispatcher, so a render the page's loads finish with can't come between them.
+        await page.InvokeAsync(() => page.FindAll("button").Single(b => b.TextContent.Contains("New Token")).Click());
         string name = $"form-scopes-{Guid.NewGuid():N}";
-        page.Find("input[placeholder='e.g. my-script']").Change(name);
-        tick(page);
+        await page.InvokeAsync(() => page.Find("input[placeholder='e.g. my-script']").Change(name));
+        await tick(page);
 
-        page.FindAll("button").Single(b => b.TextContent.Contains("Create Token")).Click();
+        await page.InvokeAsync(() => page.FindAll("button").Single(b => b.TextContent.Contains("Create Token")).Click());
 
         page.WaitForAssertion(() => page.Find("#new-pat-token"));
         var pats = ui.Context.Services.GetRequiredService<PatService>();

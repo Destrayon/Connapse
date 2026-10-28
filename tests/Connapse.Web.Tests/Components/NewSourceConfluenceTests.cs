@@ -74,8 +74,10 @@ public class NewSourceConfluenceTests : IDisposable
             .Returns(Task.FromResult<IReadOnlyList<Connection>>([connection, otherConnection]));
         connections.GetAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(connection);
         connections.GetSecretAsync(connection.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
+        connections.GetSecretAtAsync(connection.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-secret");
         connections.GetAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns(otherConnection);
         connections.GetSecretAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns("the-other-secret");
+        connections.GetSecretAtAsync(otherConnection.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-other-secret");
         sources.ListByConnectionAsync(otherConnection.Id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
 
@@ -112,7 +114,10 @@ public class NewSourceConfluenceTests : IDisposable
         ctx.Services.AddSingleton(new AtlassianSiteService(
             http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens,
             new Connapse.Application.Connections.CreateConnection(connections, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
-                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
+                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>()),
+            new Connapse.Application.Connections.ReplaceConnectionSecret(connections, Substitute.For<Connapse.Core.Interfaces.ISourceStore>(),
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), Substitute.For<IAuditLogger>(),
+                Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));
