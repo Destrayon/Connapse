@@ -410,7 +410,8 @@ public sealed partial class ConfluenceSpaceConnector(
             config.Site.CloudId, config.SpaceKey, page.Id, page.Title,
             page.ParentType == "page" ? page.ParentId : null,
             content.Labels?.Results?.Select(l => l.Name).OfType<string>() ?? [],
-            body);
+            body,
+            AtlassianLinks.SiteHosts(config.Site.SiteUrl));
         return new MetadataStream(Encoding.UTF8.GetBytes(rendered.Markdown), links);
     }
 

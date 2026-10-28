@@ -19,17 +19,21 @@ public static partial class AtlassianLinks
     public static string TitleNode(string site, string spaceKey, string title) =>
         $"confluence:{site}:{spaceKey.ToUpperInvariant()}/{title.Trim()}";
 
+    /// <summary>The hosts a site's own links are on: its <c>https://{name}.atlassian.net</c> URL's, or none.</summary>
+    public static IReadOnlyCollection<string> SiteHosts(string? siteUrl) =>
+        Uri.TryCreate(siteUrl, UriKind.Absolute, out Uri? uri) ? [uri.Host] : [];
+
     /// <summary>Derived from the link itself, so every document asserting it writes the same id.</summary>
     public static string EdgeId(string type, string from, string to) => $"{type}|{from}|{to}";
 
     /// <summary>
-    /// Confluence pages a text links to, as <c>id:{pageId}</c> or <c>title:{SPACE}/{title}</c>. Any host is taken: a
-    /// page id or title only resolves to a page this site's Confluence holds, and Atlassian serves Confluence from
-    /// both <c>/wiki</c> on the site and, on Data Center, a host of its own.
+    /// Confluence pages a text links to, as <c>id:{pageId}</c> or <c>title:{SPACE}/{title}</c>. Only relative URLs
+    /// and URLs on <paramref name="hosts"/> are taken: another site can have a page with the same id or title, and a
+    /// link to it must not become a link to this site's page.
     /// </summary>
-    public static IEnumerable<string> PageRefs(string text)
+    public static IEnumerable<string> PageRefs(string text, IReadOnlyCollection<string>? hosts)
     {
-        foreach (Match m in PageUrl().Matches(text))
+        foreach (Match m in SitePaths(text, hosts).SelectMany(p => PageUrl().Matches(p)))
         {
             if (m.Groups["id"].Success)
                 yield return "id:" + m.Groups["id"].Value;
@@ -55,9 +59,33 @@ public static partial class AtlassianLinks
         return null;
     }
 
-    /// <summary>Jira issue keys a text links to by <c>/browse/{KEY}</c> URL.</summary>
-    public static IEnumerable<string> IssueUrlKeys(string text) =>
-        BrowseUrl().Matches(text).Select(m => m.Groups["key"].Value.ToUpperInvariant());
+    /// <summary>Jira issue keys a text links to by <c>/browse/{KEY}</c> URL, relative or on <paramref name="hosts"/>.</summary>
+    public static IEnumerable<string> IssueUrlKeys(string text, IReadOnlyCollection<string>? hosts) =>
+        SitePaths(text, hosts).SelectMany(p => BrowseUrl().Matches(p)).Select(m => m.Groups["key"].Value.ToUpperInvariant());
+
+    /// <summary>The path and query of each URL in a text that is relative or whose host is one of the site's.</summary>
+    private static IEnumerable<string> SitePaths(string text, IReadOnlyCollection<string>? hosts)
+    {
+        foreach (Match m in Url().Matches(text))
+        {
+            string url = m.Value;
+            if (url.StartsWith('/'))
+            {
+                yield return url;
+                continue;
+            }
+            int authority = url.IndexOf("://", StringComparison.Ordinal) + 3;
+            int path = url.IndexOf('/', authority);
+            if (path > 0 && hosts is not null && Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+                && hosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase))
+                yield return url[path..];
+        }
+    }
+
+    [GeneratedRegex(
+        @"https?://[^\s""'<>\]\[|\\]+|(?<![\w.:/\\-])/(?:wiki|confluence|jira|browse|display|spaces|pages)/[^\s""'<>\]\[|\\]*",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex Url();
 
     public static bool IsIssueKey(string? key) => key is not null && IssueKey().IsMatch(key);
 

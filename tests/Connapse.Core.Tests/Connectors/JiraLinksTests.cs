@@ -13,9 +13,10 @@ public sealed class JiraLinksTests
 {
     private const string Doc = "0b8a4f3e-0000-0000-0000-000000000002";
     private const string Site = "site-1";
+    private static readonly string[] Hosts = ["acme.atlassian.net", "cwiki.apache.org"];
 
     private static DocumentLinks Links(string issueJson, string? epicLinkField = null) =>
-        JiraLinks.For(Doc, JiraLinks.Metadata(Site, JsonDocument.Parse(issueJson).RootElement, epicLinkField))!;
+        JiraLinks.For(Doc, JiraLinks.Metadata(Site, JsonDocument.Parse(issueJson).RootElement, epicLinkField, Hosts))!;
 
     private static IEnumerable<(string Type, string From, string To)> Edges(DocumentLinks links) =>
         links.Links.Select(l => (l.Type, l.FromId, l.ToId));
@@ -106,6 +107,25 @@ public sealed class JiraLinksTests
             ("confluence-page", "jira:site-1:FLINK-5", "confluence:site-1:FLINK/FLIP-1 Fine Grained"),
             ("confluence-page", "jira:site-1:FLINK-5", "confluence:site-1:456"),
         });
+    }
+
+    [Fact]
+    public void For_DescriptionUrlOnAnotherSite_IsNotALink()
+    {
+        DocumentLinks links = Links("""
+            {"key":"FLINK-5","fields":{"description":"https://other.atlassian.net/wiki/spaces/ENG/pages/123/Design"}}
+            """);
+
+        links.Links.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void For_FixVersionNodes_AreNamed()
+    {
+        // The link reader only walks to nodes a readable document names.
+        DocumentLinks links = Links("""{"key":"FLINK-5","fields":{"fixVersions":[{"name":"1.17.0"}]}}""");
+
+        links.Facts.Should().Contain(new LinkFact("jiraversion:site-1:FLINK/1.17.0", LinkFactField.Name, "1.17.0"));
     }
 
     [Fact]

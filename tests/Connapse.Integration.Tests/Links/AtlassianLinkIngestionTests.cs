@@ -4,6 +4,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Links;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -92,7 +93,7 @@ public class AtlassianLinkIngestionTests(SharedWebAppFixture fixture)
         (Guid container, Guid document) = await SeedAsync(sp);
 
         await IngestAsync(sp, container, document,
-            ConfluenceLinks.Metadata(site, "FLINK", "100", "FLIP-1 Design", "42", ["accepted"], "<p>x</p>"));
+            ConfluenceLinks.Metadata(site, "FLINK", "100", "FLIP-1 Design", "42", ["accepted"], "<p>x</p>", []));
 
         (await EdgesAsync(sp, document)).Should().Equal(
             ("parent", $"confluence:{site}:42"), ("labelled", $"confluencelabel:{site}:accepted"));
@@ -115,5 +116,38 @@ public class AtlassianLinkIngestionTests(SharedWebAppFixture fixture)
         await IngestAsync(sp, container, document, Issue(site, """{"key":"FLINK-5","fields":{}}"""));
 
         (await EdgesAsync(sp, document)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExpandAsync_TitleLabelAndVersionLinks_AreWalked()
+    {
+        // The reader walks only to nodes a readable document names, so a link by title, label or fix version needs
+        // the target page, the labelled pages and the issues to name those nodes.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        string site = $"s{Guid.NewGuid():N}";
+        string a = Guid.NewGuid().ToString(), b = Guid.NewGuid().ToString(), issue = Guid.NewGuid().ToString();
+        await sp.GetRequiredService<PostgresLinkStore>().ReplaceAsync([
+            ConfluenceLinks.For(a, ConfluenceLinks.Metadata(site, "FLINK", "100", "FLIP-1 Design", null, ["accepted"],
+                """<ac:link><ri:page ri:content-title="Roadmap" /></ac:link>""", []))!,
+            ConfluenceLinks.For(b, ConfluenceLinks.Metadata(site, "FLINK", "200", "Roadmap", null, ["accepted"], "", []))!,
+            JiraLinks.For(issue, Issue(site, """{"key":"FLINK-5","fields":{"fixVersions":[{"name":"1.17.0"}]}}"""))!,
+        ]);
+        var access = new DocumentAccessStub();
+        Guid reader = Guid.NewGuid();
+        access.Grant(reader, [a, b, issue]);
+        var linkReader = new PostgresLinkReader(sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>(), access);
+
+        LinkExpansion page = await linkReader.ExpandAsync(
+            new LinkExpandRequest(reader, [$"confluence:{site}:100"], MaxHops: 1, MaxNodes: 500));
+        LinkExpansion version = await linkReader.ExpandAsync(
+            new LinkExpandRequest(reader, [$"jira:{site}:FLINK-5"], MaxHops: 1, MaxNodes: 500));
+
+        page.Edges.Select(e => (e.Type, e.ToId)).Should().BeEquivalentTo(new[]
+        {
+            ("links-to", $"confluence:{site}:FLINK/Roadmap"),
+            ("labelled", $"confluencelabel:{site}:accepted"),
+        });
+        version.Edges.Select(e => e.ToId).Should().Equal($"jiraversion:{site}:FLINK/1.17.0");
     }
 }

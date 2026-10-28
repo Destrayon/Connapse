@@ -42,11 +42,12 @@ public static partial class ConfluenceLinks
     /// <summary>
     /// The link metadata of a page. Every key is present, empty when the page has none of that kind, so a reindex
     /// does not keep links the page has dropped. <paramref name="parentPageId"/> is null when the page sits at the
-    /// space's root or under a folder.
+    /// space's root or under a folder. <paramref name="hosts"/> are the site's hosts: a URL on any other host is not
+    /// taken as a link, because another site's page or issue with the same id or key is not this site's.
     /// </summary>
     public static Dictionary<string, string> Metadata(
         string site, string spaceKey, string pageId, string title, string? parentPageId,
-        IEnumerable<string> labels, string storageBody)
+        IEnumerable<string> labels, string storageBody, IReadOnlyCollection<string>? hosts)
     {
         List<string> pages = [];
         foreach (Match m in PageMacro().Matches(storageBody))
@@ -57,11 +58,11 @@ public static partial class ConfluenceLinks
             string space = Attribute(attributes, "ri:space-key") is { Length: > 0 } other ? other : spaceKey;
             pages.Add($"title:{space.ToUpperInvariant()}/{linked.Trim()}");
         }
-        pages.AddRange(AtlassianLinks.PageRefs(storageBody));
+        pages.AddRange(AtlassianLinks.PageRefs(storageBody, hosts));
 
         IEnumerable<string> issues = JiraMacroKey().Matches(storageBody)
             .Select(m => m.Groups["key"].Value.ToUpperInvariant())
-            .Concat(AtlassianLinks.IssueUrlKeys(storageBody));
+            .Concat(AtlassianLinks.IssueUrlKeys(storageBody, hosts));
 
         return new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -92,6 +93,9 @@ public static partial class ConfluenceLinks
         List<LinkFact> facts = [new(self, LinkFactField.Kind, "page")];
         if (title.Length > 0)
             facts.Add(new(self, LinkFactField.Name, title));
+        // The reader only walks to a node some readable document names, so the title node needs its own facts.
+        if (titleNode is not null)
+            facts.AddRange([new(titleNode, LinkFactField.Kind, "page"), new(titleNode, LinkFactField.Name, title.Trim())]);
         List<LinkAssertion> links = [];
         HashSet<string> seen = new(StringComparer.Ordinal);
 
@@ -115,7 +119,11 @@ public static partial class ConfluenceLinks
                 Add(LinksTo, node);
         }
         foreach (string label in AtlassianLinks.Values(metadata.GetValueOrDefault(LabelsKey)))
-            Add(Labelled, LabelNode(site, label));
+        {
+            string node = LabelNode(site, label);
+            facts.AddRange([new(node, LinkFactField.Kind, "label"), new(node, LinkFactField.Name, label)]);
+            Add(Labelled, node);
+        }
 
         return new DocumentLinks(documentId, self, facts, links, titleNode is null ? null : [titleNode]);
     }

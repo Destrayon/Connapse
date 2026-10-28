@@ -38,8 +38,10 @@ public static class JiraLinks
     /// The link metadata of an issue as Jira's REST API returns it (v2 or v3). Every key is present, empty when the
     /// issue has none of that kind, so a reindex does not keep links the issue has dropped.
     /// <paramref name="epicLinkField"/> names Data Center's "Epic Link" field; Cloud gives an issue's epic as its parent.
+    /// <paramref name="hosts"/> are the site's hosts; a page URL on any other host is not taken as a link.
     /// </summary>
-    public static Dictionary<string, string> Metadata(string site, JsonElement issue, string? epicLinkField = null)
+    public static Dictionary<string, string> Metadata(
+        string site, JsonElement issue, string? epicLinkField = null, IReadOnlyCollection<string>? hosts = null)
     {
         JsonElement fields = Prop(issue, "fields") ?? default;
         List<string> links = [];
@@ -76,7 +78,7 @@ public static class JiraLinks
         // The raw JSON is searched, not rendered text: Cloud's description is a document tree whose links sit in
         // attributes, Data Center's is wiki markup, and the URL is the same in both.
         IEnumerable<string> pages = Prop(fields, "description") is { ValueKind: not JsonValueKind.Null } description
-            ? AtlassianLinks.PageRefs(description.GetRawText())
+            ? AtlassianLinks.PageRefs(description.GetRawText(), hosts)
             : [];
 
         return new Dictionary<string, string>(StringComparer.Ordinal)
@@ -128,7 +130,12 @@ public static class JiraLinks
 
         string project = key[..key.LastIndexOf('-')];
         foreach (string version in AtlassianLinks.Values(metadata.GetValueOrDefault(FixVersionsKey)))
-            Add(FixVersion, self, VersionNode(site, project, version));
+        {
+            // The reader only walks to a node some readable document names, so the version hub needs its own facts.
+            string node = VersionNode(site, project, version);
+            facts.AddRange([new(node, LinkFactField.Kind, "version"), new(node, LinkFactField.Name, version)]);
+            Add(FixVersion, self, node);
+        }
 
         foreach (string page in AtlassianLinks.Values(metadata.GetValueOrDefault(PagesKey)))
         {

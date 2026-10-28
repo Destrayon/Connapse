@@ -25,6 +25,9 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
     /// <summary>The site every Jira and Confluence record is on: the snapshots are all Apache's.</summary>
     private const string Site = "apache";
 
+    /// <summary>The hosts the ASF's Jira and Confluence serve the snapshot's records from.</summary>
+    private static readonly IReadOnlyCollection<string> Hosts = ["issues.apache.org", "cwiki.apache.org"];
+
     /// <summary>issues.apache.org's Epic Link field, which Data Center keeps outside <c>parent</c>.</summary>
     private const string EpicLinkField = "customfield_12311120";
 
@@ -152,7 +155,7 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
         string markdown = JiraRecordRenderer.RenderIssue(projectName, issue, comments, [], new Dictionary<string, string>());
         string issueId = issue.GetProperty("id").GetString() ?? id;
         // What the connector hands the pipeline at read time, so the link layer sees what a synced source stores (CON-34).
-        Dictionary<string, string> metadata = JiraLinks.Metadata(Site, issue, EpicLinkField);
+        Dictionary<string, string> metadata = JiraLinks.Metadata(Site, issue, EpicLinkField, Hosts);
         return new EvalDocument(id, DocumentKind.Text, null, markdown, null, metadata)
         {
             FileName = issueId + ".md",
@@ -179,7 +182,7 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
 
         ConfluenceRenderOutput rendered = ConfluenceStorageRenderer.Render(new ConfluenceRenderInput(
             [space, .. ancestors, title], body, [], new Dictionary<string, string>()));
-        Dictionary<string, string> metadata = ConfluenceLinks.Metadata(Site, space, pageId, title, parent, labels, body);
+        Dictionary<string, string> metadata = ConfluenceLinks.Metadata(Site, space, pageId, title, parent, labels, body, Hosts);
         return new EvalDocument(id, DocumentKind.Text, null, rendered.Markdown, null, metadata)
         {
             FileName = pageId + ".md",

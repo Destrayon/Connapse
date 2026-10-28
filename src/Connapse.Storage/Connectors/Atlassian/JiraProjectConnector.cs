@@ -559,7 +559,7 @@ public sealed partial class JiraProjectConnector(
 
         string projectName = string.IsNullOrWhiteSpace(state.ProjectName) ? config.ProjectKey : state.ProjectName;
         string markdown = JiraRecordRenderer.RenderIssue(projectName, issue, comments, state.RichTextFieldIds, state.FieldNames);
-        return new MetadataStream(Encoding.UTF8.GetBytes(markdown), JiraLinks.Metadata(config.Site.CloudId, issue));
+        return new MetadataStream(Encoding.UTF8.GetBytes(markdown), JiraLinks.Metadata(config.Site.CloudId, issue, hosts: AtlassianLinks.SiteHosts(config.Site.SiteUrl)));
     }
 
     /// <summary>
