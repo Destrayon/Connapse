@@ -75,6 +75,8 @@ public class ProviderOperationRandomInputTests
             }
             read.Result!.Select(l => l.Provider).Should().Equal(providers);
             read.Result!.Sum(l => l.Connections.Count).Should().Be(using_.Count);
+            if (providerCount == 0)
+                connections.ReceivedCalls().Should().BeEmpty("with no custom providers there is no use to count, and the Providers page lists them on every load");
         }, iter: 200);
 
     [Fact]

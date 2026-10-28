@@ -81,6 +81,8 @@ public sealed class ListCustomProviders(ICustomProviderStore store, IConnectionS
             return Attempt<IReadOnlyList<CustomProviderListing>, CustomProviderStatus>.Fail(CustomProviderStatus.Forbidden, CustomProviderRules.Refused);
 
         IReadOnlyList<CustomProvider> providers = await store.ListAsync(ct);
+        if (providers.Count == 0)
+            return Attempt<IReadOnlyList<CustomProviderListing>, CustomProviderStatus>.Succeed([]);
         ILookup<Guid, CustomProviderUse> uses = await CustomProviderRules.UsesAsync(connections, ct);
         return Attempt<IReadOnlyList<CustomProviderListing>, CustomProviderStatus>.Succeed(
             [.. providers.Select(p => new CustomProviderListing(p, [.. uses[p.Id]]))]);
