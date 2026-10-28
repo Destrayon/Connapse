@@ -6,8 +6,13 @@ spent waiting for a free runner isn't counted, because it depends on how much ot
 stack of PRs queues behind itself), not on this pipeline. Each job's latest attempt is used, so a
 re-run of one job is measured like a first run. The raw wall time is printed alongside, for reference.
 
+A step that only waits on a third-party service, such as the Codecov upload or a container registry, is
+counted up to its --network-step allowance and no further (CON-127): one slow response from that
+service is the runner's network, not this pipeline, and it used to fail PRs whose tests all passed. The
+time over the allowance is printed as a warning, so a service that stays slow is still seen.
+
 Usage (in a workflow step, with GH_TOKEN set; run it as the job's last step):
-  pipeline_wall.py --max-seconds 360 --current build-and-test
+  pipeline_wall.py --max-seconds 360 --current build-and-test --network-step "Upload coverage reports=15"
 """
 import argparse
 import json
@@ -34,11 +39,43 @@ def at(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def allowance(s: str) -> tuple[str, float]:
+    """A --network-step value, "<step name>=<seconds>"."""
+    name, sep, seconds = s.rpartition("=")
+    try:
+        if not sep or not name:
+            raise ValueError
+        return name, float(seconds)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected <step name>=<seconds>, got {s!r}") from None
+
+
+def counted(j: dict, allowances: dict[str, float]) -> tuple[float, list[tuple[str, float, float]]]:
+    """A finished job's run time with each network step capped at its allowance, and the steps that went over."""
+    seconds = (at(j["completed_at"]) - at(j["started_at"])).total_seconds()
+    over = []
+    for s in j.get("steps") or []:
+        if s["name"] not in allowances or not s.get("started_at") or not s.get("completed_at"):
+            continue
+        took = (at(s["completed_at"]) - at(s["started_at"])).total_seconds()
+        if took > allowances[s["name"]]:
+            seconds -= took - allowances[s["name"]]
+            over.append((s["name"], took, allowances[s["name"]]))
+    return seconds, over
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--max-seconds", type=float, required=True)
     p.add_argument("--current", required=True, help="the name of the job running this script")
+    p.add_argument("--network-step", type=allowance, action="append", default=[], metavar="NAME=SECONDS",
+                   help="a step that only waits on a third-party service, counted up to SECONDS")
     a = p.parse_args()
+    allowances = dict(a.network_step)
 
     # A job that has just finished can still read as running for a few seconds after the jobs
     # waiting on it start, so re-read until every job has its finish time or a minute has passed.
@@ -61,19 +98,24 @@ def main() -> int:
     if current is None or not current.get("started_at"):
         print(f"::error::no job named {a.current} with a start time in this run")
         return 1
-    now = datetime.now(timezone.utc)
+    now = utcnow()
 
     def runtime(j: dict) -> float:
         return (at(j["completed_at"]) - at(j["started_at"])).total_seconds()
 
     start = min(at(j["started_at"]) for j in done)
     for j in sorted(done, key=lambda j: j["started_at"]):
-        print(f"  {(at(j['started_at']) - start).total_seconds():5.0f} s  ran {runtime(j):4.0f} s  {j['name']} ({j['conclusion']})")
+        seconds, over = counted(j, allowances)
+        print(f"  {(at(j['started_at']) - start).total_seconds():5.0f} s  ran {runtime(j):4.0f} s"
+              f"  counted {seconds:4.0f} s  {j['name']} ({j['conclusion']})")
+        for name, took, allowed in over:
+            print(f"::warning::{j['name']}: {name} took {took:.0f} s; counted {allowed:g} s, the rest waited on a slow third-party service")
     own = (now - at(current["started_at"])).total_seconds()
-    longest = max(done, key=runtime)
-    pipeline = runtime(longest) + own
+    longest = max(done, key=lambda j: counted(j, allowances)[0])
+    longest_seconds = counted(longest, allowances)[0]
+    pipeline = longest_seconds + own
     print(f"  raw wall time, first start to now: {(now - start).total_seconds():.0f} s")
-    print(f"  pipeline: {longest['name']} {runtime(longest):.0f} s + {a.current} {own:.0f} s = {pipeline:.0f} s")
+    print(f"  pipeline: {longest['name']} {longest_seconds:.0f} s + {a.current} {own:.0f} s = {pipeline:.0f} s")
     if pipeline > a.max_seconds:
         print(f"::error::PrPipeline_WallTimeUnder6Min: the pipeline takes {pipeline:.0f} s, over its {a.max_seconds:g} s budget")
         return 1

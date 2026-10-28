@@ -115,11 +115,28 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # The test fixtures' container images, pulled while the build runs. Testcontainers otherwise pulls them
+    # inside the test step, where a slow registry looked like slow tests (CON-127: one MinIO pull took 78 s
+    # longer than usual). Keep the list in step with the fixtures' WithImage calls; an image missing here
+    # is still pulled by the fixture, just not ahead of time.
+    - name: Start pulling container images
+      run: |
+        (printf '%s\n' pgvector/pgvector:pg17 cgr.dev/chainguard/minio localstack/localstack:3 \
+           mcr.microsoft.com/azure-storage/azurite:3.37.0 atmoz/sftp:alpine \
+           | xargs -P 5 -n 1 docker pull -q > "$RUNNER_TEMP/pulls.log" 2>&1; echo $? > "$RUNNER_TEMP/pulls.done") &
+
     - uses: ./.github/actions/build
       with:
         project: tests/Connapse.Integration.Tests
 
     - uses: ./.github/actions/ollama
+
+    # Normally done before the build is. A failed pull isn't fatal: the fixture pulls the image itself.
+    - name: Wait for container images
+      run: |
+        timeout 300 bash -c 'until [ -f "$RUNNER_TEMP/pulls.done" ]; do sleep 1; done' || echo "::warning::the image pulls were still running after 5 minutes"
+        cat "$RUNNER_TEMP/pulls.log"
+        [ "$(cat "$RUNNER_TEMP/pulls.done" 2>/dev/null)" = 0 ] || echo "::warning::an image pull failed; the fixtures will pull it themselves"
 
     - name: Run Integration.Tests shard ${{ matrix.shard }} of 3
       run: |
@@ -324,12 +341,16 @@ jobs:
         git commit -m "Update test badge"
         git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
 
-    # Last, so the measurement includes this job's own steps.
+    # Last, so the measurement includes this job's own steps. Steps that only wait on a third-party service
+    # count up to an allowance a little over their usual time (CON-127); the rest is printed as a warning.
+    # On 2026-10-28 the Codecov upload took 105 s instead of 3 s and failed a PR whose tests all passed.
     - name: PrPipeline_WallTimeUnder6Min
       if: success() || failure()
       env:
         GH_TOKEN: ${{ github.token }}
-      run: python3 .github/scripts/pipeline_wall.py --max-seconds 360 --current build-and-test
+      run: |
+        python3 .github/scripts/pipeline_wall.py --max-seconds 360 --current build-and-test \
+          --network-step "Upload coverage reports=15" --network-step "Wait for container images=15"
 
   code-quality:
     runs-on: ubuntu-latest
