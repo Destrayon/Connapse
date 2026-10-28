@@ -686,4 +686,3 @@ public sealed class ConnectionOperations(
 
     public DiscoverConnection Discover { get; } = discover;
 }
-
