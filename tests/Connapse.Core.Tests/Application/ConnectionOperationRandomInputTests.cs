@@ -30,20 +30,26 @@ public sealed class ConnectionOperationRandomInputTests
 
     private sealed class World
     {
-        public IConnectionStore Connections { get; } = Substitute.For<IConnectionStore>();
-        public ISourceStore Sources { get; } = Substitute.For<ISourceStore>();
-        public IAuditLogger Audit { get; } = Substitute.For<IAuditLogger>();
+        private IConnectionStore? connections;
+        private ISourceStore? sources;
+        private IAuditLogger? audit;
+        private IConnectionSettingsRules? rules;
+
+        // Each sample builds a world, so a fake is only made when the sample uses it.
+        public IConnectionStore Connections => connections ??= Substitute.For<IConnectionStore>();
+        public ISourceStore Sources => sources ??= Substitute.For<ISourceStore>();
+        public IAuditLogger Audit => audit ??= Substitute.For<IAuditLogger>();
         public PolicyAuthorizer Authorizer { get; }
-        public IConnectionSettingsRules Rules { get; } = Substitute.For<IConnectionSettingsRules>();
+        public IConnectionSettingsRules Rules => rules ??= Substitute.For<IConnectionSettingsRules>();
 
         public World(bool admin) => Authorizer = new PolicyAuthorizer(_ => admin);
 
-        public int AuditCalls => Audit.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAuditLogger.LogAsync));
+        public int AuditCalls => audit?.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAuditLogger.LogAsync)) ?? 0;
 
-        public bool WroteSources => Sources.ReceivedCalls().Any(c => c.GetMethodInfo().Name == nameof(ISourceStore.UpdateAsync));
+        public bool WroteSources => sources?.ReceivedCalls().Any(c => c.GetMethodInfo().Name == nameof(ISourceStore.UpdateAsync)) ?? false;
 
-        public bool WroteConnections => Connections.ReceivedCalls()
-            .Any(c => c.GetMethodInfo().Name is nameof(IConnectionStore.UpdateAsync) or nameof(IConnectionStore.DeleteAsync));
+        public bool WroteConnections => connections?.ReceivedCalls()
+            .Any(c => c.GetMethodInfo().Name is nameof(IConnectionStore.UpdateAsync) or nameof(IConnectionStore.DeleteAsync)) ?? false;
 
         public List<Source> Store(Connection connection, bool exists, IEnumerable<bool> enabled)
         {
