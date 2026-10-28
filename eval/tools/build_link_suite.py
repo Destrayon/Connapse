@@ -435,9 +435,12 @@ def save_snapshot(name, path):
     """Saves the pinned records as the suite's snapshot, once register has accepted them."""
     records = os.path.join(dataset_dir(name), "records.jsonl")
     if os.path.exists(path):
-        with lzma.open(path, "rb") as f:
-            if hashlib.sha256(f.read()).hexdigest() == sha256(records):
-                return
+        try:
+            with lzma.open(path, "rb") as f:
+                if hashlib.sha256(f.read()).hexdigest() == sha256(records):
+                    return
+        except (lzma.LZMAError, EOFError):
+            pass  # a damaged snapshot is replaced, so --repin can recover from it
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(records, "rb") as f, lzma.open(path + ".part", "wb", preset=9) as out:
         out.write(f.read())
