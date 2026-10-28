@@ -86,7 +86,11 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
                 await Task.Delay(250);
                 scansAfter = await IndexScansAsync(scope, index);
             }
-            scansAfter.Should().BeGreaterThan(scansBefore, "the planner must be able to use the per-container index");
+            await using KnowledgeDbContext ctx = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            bool catalogued = await VectorIndexCatalog.IsIndexedAsync(ctx, container, Model, 3, CancellationToken.None);
+            scansAfter.Should().BeGreaterThan(scansBefore,
+                "the planner must be able to use the per-container index (the search's catalog sees it: {0})", catalogued);
         }
         finally
         {

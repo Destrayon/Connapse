@@ -206,12 +206,25 @@ public class VectorColumnManager(
 internal static class VectorIndexCatalog
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(1);
-    private static (DateTime At, HashSet<string> Names) _ready = (DateTime.MinValue, []);
+    private static readonly Lock Gate = new();
+    // One list per database: hosts in one process (tests, the eval harness) can each use their own.
+    private static readonly Dictionary<string, (DateTime At, HashSet<string> Names)> Ready = new(StringComparer.Ordinal);
+    private static long _generation;
 
     public static async Task<bool> IsIndexedAsync(KnowledgeDbContext context, Guid ownerId, string modelId, int dimensions, CancellationToken ct)
     {
-        (DateTime at, HashSet<string> names) = _ready;
-        if (DateTime.UtcNow - at > Lifetime)
+        DbConnection connection = context.Database.GetDbConnection();
+        string database = $"{connection.DataSource}/{connection.Database}";
+        long generation;
+        (DateTime At, HashSet<string> Names) ready;
+        lock (Gate)
+        {
+            generation = _generation;
+            ready = Ready.GetValueOrDefault(database, (DateTime.MinValue, []));
+        }
+
+        HashSet<string> names = ready.Names;
+        if (DateTime.UtcNow - ready.At > Lifetime)
         {
             List<string> valid = await context.Database.SqlQueryRaw<string>(
                     "SELECT c.relname AS \"Value\" FROM pg_index i "
@@ -219,11 +232,23 @@ internal static class VectorIndexCatalog
                     + $"WHERE t.relname = 'chunk_vectors' AND c.relname LIKE '{VectorColumnManager.IndexPrefix}%' AND i.indisvalid")
                 .ToListAsync(ct);
             names = valid.ToHashSet(StringComparer.Ordinal);
-            _ready = (DateTime.UtcNow, names);
+            // A list read before an Invalidate may miss the index just built, so it is used but not kept.
+            lock (Gate)
+            {
+                if (generation == _generation)
+                    Ready[database] = (DateTime.UtcNow, names);
+            }
         }
         return names.Contains(VectorColumnManager.GetIndexName(ownerId, modelId, dimensions));
     }
 
-    /// <summary>Forget the cached list, so the next search sees indexes built or dropped just now.</summary>
-    public static void Invalidate() => _ready = (DateTime.MinValue, []);
+    /// <summary>Forget the cached lists, so the next search sees indexes built or dropped just now.</summary>
+    public static void Invalidate()
+    {
+        lock (Gate)
+        {
+            _generation++;
+            Ready.Clear();
+        }
+    }
 }
