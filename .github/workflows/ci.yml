@@ -211,10 +211,13 @@ jobs:
         python3 .github/scripts/spectral_baseline.py --results "$RUNNER_TEMP/spectral.json" --known .github/spectral-known.json
 
   # Keeps the check name the repository already reports, and fails unless every test job passed.
+  # !cancelled() rather than always(): when the concurrency group cancels a superseded run, this job is
+  # cancelled with it instead of running and failing on the cancelled jobs it waits on (CON-123). A failed
+  # or skipped job still runs it, and it fails.
   build-and-test:
     runs-on: ubuntu-latest
     needs: [small, medium, integration, code-quality, mcp-conformance, api-contract]
-    if: always()
+    if: ${{ !cancelled() }}
     permissions:
       contents: write
       actions: read
