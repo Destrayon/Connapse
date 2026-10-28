@@ -121,7 +121,9 @@ jobs:
     # is still pulled by the fixture, just not ahead of time.
     - name: Start pulling container images
       run: |
-        (printf '%s\n' pgvector/pgvector:pg17 cgr.dev/chainguard/minio localstack/localstack:3 \
+        # set +e: the step's bash -e would otherwise end the subshell on a failed pull before it writes
+        # pulls.done, and the wait step would sit out its whole timeout.
+        (set +e; printf '%s\n' pgvector/pgvector:pg17 cgr.dev/chainguard/minio localstack/localstack:3 \
            mcr.microsoft.com/azure-storage/azurite:3.37.0 atmoz/sftp:alpine \
            | xargs -P 5 -n 1 docker pull -q > "$RUNNER_TEMP/pulls.log" 2>&1; echo $? > "$RUNNER_TEMP/pulls.done") &
 
