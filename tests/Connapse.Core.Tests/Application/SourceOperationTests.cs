@@ -457,4 +457,26 @@ public class SourceOperationTests
         deleted.Field.Should().Be("confirmName");
         await _sources.DidNotReceiveWithAnyArgs().DeleteAsync(default);
     }
+
+    [Fact]
+    public async Task EveryChange_NotASourcesAdmin_IsForbiddenAndTouchesNothing()
+    {
+        // Only the sources policy is refused: an administrator's token without admin:sources still passes Policies.Admin.
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(false);
+        var scopes = Substitute.For<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
+        Guid id = Guid.NewGuid();
+
+        (await Create().RunAsync(Caller, new NewSource("docs", Guid.NewGuid(), "{}"))).Status.Should().Be(SourceWriteStatus.Forbidden);
+        (await Update().RunAsync(Caller, id, new UpdateSourceRequest(Name: "renamed"))).Status.Should().Be(SourceWriteStatus.Forbidden);
+        (await Sync().RunAsync(Caller, id)).Status.Should().Be(SourceWriteStatus.Forbidden);
+        (await new RetryFailedDocuments(_sources, scopes, _audit, _authorizer).RunAsync(Caller, id)).Status
+            .Should().Be(SourceWriteStatus.Forbidden);
+        (await new DeleteSource(_sources, _audit, _authorizer).RunAsync(Caller, id, "docs")).Status.Should().Be(SourceWriteStatus.Forbidden);
+
+        _sources.ReceivedCalls().Should().BeEmpty();
+        _connections.ReceivedCalls().Should().BeEmpty();
+        _sync.ReceivedCalls().Should().BeEmpty();
+        scopes.ReceivedCalls().Should().BeEmpty();
+        _audit.ReceivedCalls().Should().BeEmpty();
+    }
 }

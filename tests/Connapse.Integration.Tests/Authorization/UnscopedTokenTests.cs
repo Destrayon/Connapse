@@ -68,6 +68,75 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    private async Task<HttpClient> AdminPatClientAsync(params string[] scopes)
+    {
+        using var created = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
+            new PatCreateRequest($"scoped-{Guid.NewGuid():N}", scopes, RequiresApproval: false));
+        created.EnsureSuccessStatusCode();
+        var pat = (await created.Content.ReadFromJsonAsync<PatCreateResponse>())!;
+        var client = fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, pat.Token);
+        return client;
+    }
+
+    private static HttpRequestMessage SourceChange(string action)
+    {
+        string source = $"/api/sources/{Guid.NewGuid()}";
+        return action switch
+        {
+            "create" => new HttpRequestMessage(HttpMethod.Post, "/api/sources/") { Content = JsonContent.Create(new { name = "x", connectionId = Guid.NewGuid() }) },
+            "update" => new HttpRequestMessage(HttpMethod.Patch, source) { Content = JsonContent.Create(new { name = "renamed" }) },
+            "sync" => new HttpRequestMessage(HttpMethod.Post, $"{source}/sync"),
+            "retry-failed" => new HttpRequestMessage(HttpMethod.Post, $"{source}/retry-failed"),
+            "delete" => new HttpRequestMessage(HttpMethod.Delete, $"{source}?confirmName=x"),
+            _ => throw new ArgumentOutOfRangeException(nameof(action)),
+        };
+    }
+
+    [Theory]
+    [InlineData("create", "knowledge:read")]
+    [InlineData("update", "knowledge:read")]
+    [InlineData("sync", "knowledge:read")]
+    [InlineData("retry-failed", "knowledge:read")]
+    [InlineData("delete", "knowledge:read")]
+    [InlineData("create", "knowledge:write")]
+    [InlineData("update", "knowledge:write")]
+    [InlineData("sync", "knowledge:write")]
+    [InlineData("retry-failed", "knowledge:write")]
+    [InlineData("delete", "knowledge:write")]
+    [InlineData("create", null)]
+    [InlineData("update", null)]
+    [InlineData("sync", null)]
+    [InlineData("retry-failed", null)]
+    [InlineData("delete", null)]
+    public async Task SourceChange_AdministratorsTokenWithoutAdminSources_IsForbidden(string action, string? scope)
+    {
+        // An administrator's token keeps their roles; without admin:sources it can't create, change, sync or delete a
+        // source, the same rule connections follow (CON-124).
+        using var client = await AdminPatClientAsync(scope is null ? [] : [scope]);
+
+        using var request = SourceChange(action);
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("update")]
+    [InlineData("sync")]
+    [InlineData("retry-failed")]
+    [InlineData("delete")]
+    public async Task SourceChange_AdministratorsTokenWithAdminSources_IsLetThrough(string action)
+    {
+        using var client = await AdminPatClientAsync("admin:sources");
+
+        using var request = SourceChange(action);
+        using var response = await client.SendAsync(request);
+
+        // The source doesn't exist, so a caller the rule admits is told so rather than refused.
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     [Fact]
     public async Task McpTools_AdministratorsTokenWithNoScopes_ListsNoScopedTool()
     {
