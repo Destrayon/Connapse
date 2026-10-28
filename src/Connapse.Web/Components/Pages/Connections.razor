@@ -2944,7 +2944,7 @@
 
                 if (saved.Status == Connapse.Application.Connections.ConnectionStatus.NotFound)
                 {
-                    Fail($"Connection '{editing.Name}' no longer exists — it was deleted elsewhere.");
+                    Fail($"Connection '{editing!.Name}' no longer exists — it was deleted elsewhere.");
                     editing = null;
                     await LoadAsync();
                     return;
