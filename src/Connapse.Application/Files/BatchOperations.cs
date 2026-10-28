@@ -52,3 +52,4 @@ public sealed class GetBatchStatus(IIngestionJobs jobs, IDocumentStore documents
             document.Metadata.GetValueOrDefault("ErrorMessage")));
     }
 }
+
