@@ -6,6 +6,7 @@ using Connapse.Storage.Vectors;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
 
 namespace Connapse.Web.Endpoints;
 
@@ -39,32 +40,38 @@ public static class SettingsEndpoints
             [FromRoute] string category,
             [FromServices] ISettingsStore settingsStore,
             [FromServices] IServiceProvider serviceProvider,
+            HttpResponse response,
             CancellationToken ct) =>
         {
             var categoryLower = category.ToLowerInvariant();
 
             return categoryLower switch
             {
-                "embedding" => Results.Ok(await GetSettingsAsync<EmbeddingSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "chunking" => Results.Ok(await GetSettingsAsync<ChunkingSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "search" => Results.Ok(await GetSettingsAsync<SearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "llm" => Results.Ok(await GetSettingsAsync<LlmSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "embedding" => await GetWithETagAsync<EmbeddingSettings>(categoryLower, settingsStore, serviceProvider, response, ct),
+                "chunking" => await GetWithETagAsync<ChunkingSettings>(categoryLower, settingsStore, serviceProvider, response, ct),
+                "search" => await GetWithETagAsync<SearchSettings>(categoryLower, settingsStore, serviceProvider, response, ct),
+                "llm" => await GetWithETagAsync<LlmSettings>(categoryLower, settingsStore, serviceProvider, response, ct),
+                "upload" => await GetWithETagAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, response, ct),
                 _ => Results.NotFound(new { error = $"Unknown settings category: {category}" })
             };
         })
         .WithName("GetSettings")
-        .WithDescription("Get settings for a specific category");
+        .WithDescription("Get settings for a specific category. The ETag header identifies this copy; send it back in If-Match on PUT to save only if nobody changed the settings since.");
 
         // PUT /api/settings/{category} - Update settings for a category
+        // With If-Match (the ETag from GET) the save is refused with 412 when the stored
+        // settings changed since that read; without it the save replaces them, as before.
         group.MapPut("/{category}", async (
             [FromRoute] string category,
             [FromBody] JsonElement settingsJson,
             [FromServices] ISettingsStore settingsStore,
             [FromServices] IServiceProvider serviceProvider,
+            HttpRequest request,
+            HttpResponse response,
             CancellationToken ct) =>
         {
             var categoryLower = category.ToLowerInvariant();
+            var ifMatch = request.Headers.IfMatch;
 
             try
             {
@@ -72,32 +79,36 @@ public static class SettingsEndpoints
                 // (passing object? erases the type, making JsonSerializer.Serialize<object> fragile)
                 var rawJson = settingsJson.GetRawText();
                 EmbeddingSettings? embeddingSettings = null;
+                string? etag;
 
                 switch (categoryLower)
                 {
                     case "embedding":
                         embeddingSettings = JsonSerializer.Deserialize<EmbeddingSettings>(rawJson, JsonOptions);
-                        if (embeddingSettings != null) await settingsStore.SaveAsync(categoryLower, embeddingSettings, ct);
+                        etag = await SaveIfPresentAsync(categoryLower, embeddingSettings, ifMatch, settingsStore, serviceProvider, ct);
                         break;
                     case "chunking":
                         var chunking = JsonSerializer.Deserialize<ChunkingSettings>(rawJson, JsonOptions);
-                        if (chunking != null) await settingsStore.SaveAsync(categoryLower, chunking, ct);
+                        etag = await SaveIfPresentAsync(categoryLower, chunking, ifMatch, settingsStore, serviceProvider, ct);
                         break;
                     case "search":
                         var search = JsonSerializer.Deserialize<SearchSettings>(rawJson, JsonOptions);
-                        if (search != null) await settingsStore.SaveAsync(categoryLower, search, ct);
+                        etag = await SaveIfPresentAsync(categoryLower, search, ifMatch, settingsStore, serviceProvider, ct);
                         break;
                     case "llm":
                         var llm = JsonSerializer.Deserialize<LlmSettings>(rawJson, JsonOptions);
-                        if (llm != null) await settingsStore.SaveAsync(categoryLower, llm, ct);
+                        etag = await SaveIfPresentAsync(categoryLower, llm, ifMatch, settingsStore, serviceProvider, ct);
                         break;
                     case "upload":
                         var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, JsonOptions);
-                        if (upload != null) await settingsStore.SaveAsync(categoryLower, upload, ct);
+                        etag = await SaveIfPresentAsync(categoryLower, upload, ifMatch, settingsStore, serviceProvider, ct);
                         break;
                     default:
                         return Results.NotFound(new { error = $"Unknown settings category: {category}" });
                 }
+
+                if (etag is not null)
+                    response.Headers.ETag = etag;
 
                 // When embedding settings change, reconcile partial IVFFlat indexes
                 // and detect legacy vectors for cross-model search notification.
@@ -144,6 +155,10 @@ public static class SettingsEndpoints
 
                 return Results.Ok(new { success = true, message = $"Settings for '{category}' updated successfully" });
             }
+            catch (SettingsChangedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status412PreconditionFailed);
+            }
             catch (JsonException ex)
             {
                 return Results.BadRequest(new { error = $"Invalid JSON: {ex.Message}" });
@@ -157,7 +172,7 @@ public static class SettingsEndpoints
             }
         })
         .WithName("UpdateSettings")
-        .WithDescription("Update settings for a specific category");
+        .WithDescription("Update settings for a specific category. Send the ETag from GET in If-Match to have the save refused with 412 if the settings changed since.");
 
         // POST /api/settings/test-connection - Test connection with provided settings
         group.MapPost("/test-connection", async (
@@ -326,6 +341,38 @@ public static class SettingsEndpoints
     /// which is particularly important for integration tests where IOptionsMonitor live-reload
     /// may not propagate correctly inside WebApplicationFactory.
     /// </summary>
+    private static async Task<IResult> GetWithETagAsync<T>(
+        string category,
+        ISettingsStore settingsStore,
+        IServiceProvider serviceProvider,
+        HttpResponse response,
+        CancellationToken ct) where T : class
+    {
+        T settings = await GetSettingsAsync<T>(category, settingsStore, serviceProvider, ct);
+        response.Headers.ETag = SettingsConcurrency.ETagFor(settings);
+        return Results.Ok(settings);
+    }
+
+    /// <summary>
+    /// Saves the deserialized body and returns its ETag. A JSON <c>null</c> body saves nothing,
+    /// as before, and returns null.
+    /// </summary>
+    private static async Task<string?> SaveIfPresentAsync<T>(
+        string category,
+        T? settings,
+        StringValues ifMatch,
+        ISettingsStore settingsStore,
+        IServiceProvider serviceProvider,
+        CancellationToken ct) where T : class
+    {
+        if (settings is null)
+            return null;
+
+        return await SettingsConcurrency.SaveAsync(
+            settingsStore, category, settings, ifMatch,
+            () => serviceProvider.GetRequiredService<IOptionsMonitor<T>>().CurrentValue, ct);
+    }
+
     private static async Task<T> GetSettingsAsync<T>(
         string category,
         ISettingsStore settingsStore,
