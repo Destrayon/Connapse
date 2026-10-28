@@ -118,4 +118,3 @@ public sealed class UpdateSource(
         return Attempt<Source, SourceWriteStatus>.Succeed(updated);
     }
 }
-
