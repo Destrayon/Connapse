@@ -275,6 +275,11 @@
       "risk": "read",
       "scope": "admin:sources"
     },
+    "GET /api/v1/connections/{connectionId:guid}/discover": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:sources"
+    },
     "GET /api/v1/sources/scope-schema/{provider}": {
       "requires": "viewer",
       "risk": "read",

@@ -662,7 +662,7 @@ public sealed class DeleteConnection(IConnectionStore connections, ISourceStore 
 public sealed class ConnectionOperations(
     ListConnections list, GetConnection get, CreateConnection create, UpdateConnection update,
     ReplaceConnectionSecret replaceSecret, PauseConnection pause, ResumeConnection resume, DeleteConnection delete,
-    TestConnection test, ForgetConnectionHostKey forgetHostKey)
+    TestConnection test, ForgetConnectionHostKey forgetHostKey, DiscoverConnection discover)
 {
     public ListConnections List { get; } = list;
 
@@ -683,4 +683,6 @@ public sealed class ConnectionOperations(
     public TestConnection Test { get; } = test;
 
     public ForgetConnectionHostKey ForgetHostKey { get; } = forgetHostKey;
+
+    public DiscoverConnection Discover { get; } = discover;
 }

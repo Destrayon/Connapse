@@ -39,7 +39,8 @@ public sealed class ConnectionCallersTests
             new ReplaceConnectionSecret(_connections, sources, _rules, audit, _authorizer), new PauseConnection(_connections, sources, audit, _authorizer),
             new ResumeConnection(_connections, sources, audit, _authorizer), new DeleteConnection(_connections, sources, audit, _authorizer),
             new TestConnection(_connections, Substitute.For<IConnectionTestRunner>(), _authorizer),
-            new ForgetConnectionHostKey(_connections, sources, audit, _authorizer));
+            new ForgetConnectionHostKey(_connections, sources, audit, _authorizer),
+            new DiscoverConnection(_connections, Substitute.For<IConnectionDiscovery>(), _authorizer));
     }
 
     private Connection Stored()

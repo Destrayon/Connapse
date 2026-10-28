@@ -64,8 +64,8 @@ public class ConnectionInUseListTests : IDisposable
             PageTestPaths.RepositoryRoot(), "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
 
         markup.Should().Contain("<ConnectionInUseList Id=\"delete-blocked-sources\"")
-            .And.Contain("await SourceStore.ListByConnectionAsync(connection.Id)")
-            .And.Contain("blockedDelete = new BlockedDelete(connection, await SourceStore.ListByConnectionAsync(connection.Id))")
+            .And.Contain("await SourceOperations.OnConnectionAsync(await Authentication, connection, Fail)")
+            .And.Contain("blockedDelete = new BlockedDelete(connection, await SourceOperations.OnConnectionAsync(await Authentication, connection, Fail) ?? [])")
             .And.Contain("HoldDialogFocusAsync(\"delete-blocked-dialog\"")
             .And.NotContain("source(s) using it");
     }

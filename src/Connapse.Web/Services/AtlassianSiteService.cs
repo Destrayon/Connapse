@@ -325,7 +325,16 @@ public sealed class AtlassianSiteService(
         if (site is not null && site.Product != product)
             return (AtlassianSpacesOutcome.WrongProduct, null, WrongProductMessage(site.Product), null);
 
-        string? secret = site is null ? null : await connections.GetSecretAsync(connectionId, ct);
+        string? secret;
+        try
+        {
+            // Read at the version whose site and product were just checked, so a save in between can't pair them.
+            secret = site is null ? null : await connections.GetSecretAtAsync(connectionId, connection.UpdatedAt, ct);
+        }
+        catch (ConnectionChangedException)
+        {
+            return (AtlassianSpacesOutcome.Unavailable, null, ConnectionMessages.ChangedWhileChecked, null);
+        }
         if (site is null || string.IsNullOrEmpty(secret))
             return (AtlassianSpacesOutcome.Unavailable, null,
                 $"Connection '{connection.Name}' is missing its site details or credential. Open it on the Connections page and choose Replace credentials.", null);

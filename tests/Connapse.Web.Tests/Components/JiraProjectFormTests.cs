@@ -75,6 +75,7 @@ public class JiraProjectFormTests : IDisposable
         {
             connections.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
             connections.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
+            connections.GetSecretAtAsync(site.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-secret");
             sources.ListByConnectionAsync(site.Id, Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
         }

@@ -74,8 +74,10 @@ public class NewSourceConfluenceTests : IDisposable
             .Returns(Task.FromResult<IReadOnlyList<Connection>>([connection, otherConnection]));
         connections.GetAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(connection);
         connections.GetSecretAsync(connection.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
+        connections.GetSecretAtAsync(connection.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-secret");
         connections.GetAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns(otherConnection);
         connections.GetSecretAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns("the-other-secret");
+        connections.GetSecretAtAsync(otherConnection.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-other-secret");
         sources.ListByConnectionAsync(otherConnection.Id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
 

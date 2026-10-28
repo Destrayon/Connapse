@@ -309,6 +309,28 @@ public static class ConnectionsEndpoints
             + "they are saved. A stored secret is only used with the stored settings; other settings need their own. A failed "
             + "test is a 200 with success false. Nothing is saved but the connection's health.");
 
+        // GET /api/v1/connections/{connectionId}/discover — what the connection reaches, for picking a source's scope.
+        // A listing the provider refuses is a 200 whose outcome says why.
+        group.MapGet("/{connectionId:guid}/discover", async (
+            Guid connectionId,
+            [FromQuery] bool? includePersonal,
+            [FromServices] DiscoverConnection discover,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var found = await discover.RunAsync(Rest(http), new ConnectionRef(connectionId),
+                new ConnectionDiscoveryRequest(includePersonal ?? false), ct);
+            return found.Succeeded ? Results.Ok(found.Result!) : OperationProblems.Result(found);
+        })
+        .Produces<ConnectionDiscovery>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("connections.discover")
+        .WithDescription("List what a connection reaches: an S3 connection's buckets, Azure storage accounts and the "
+            + "connection account's containers, the GitHub App's installations, or an Atlassian site's spaces (?includePersonal=true "
+            + "adds personal spaces) or projects. A listing the provider refuses is a 200 whose outcome is Denied, NotConfigured "
+            + "or Failed. Never returns a secret.");
+
         // DELETE /api/v1/connections/{connectionId}/host-key — forgets the host key an SFTP connection pinned, so the
         // next connection pins whatever the server offers. Audited as connection.host_key_forgotten.
         group.MapDelete("/{connectionId:guid}/host-key", async (

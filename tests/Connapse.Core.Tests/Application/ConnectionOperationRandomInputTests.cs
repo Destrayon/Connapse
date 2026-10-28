@@ -315,6 +315,40 @@ public sealed class ConnectionOperationRandomInputTests
             }, iter: 500);
 
     [Fact]
+    [RandomInputTestOf(typeof(DiscoverConnection))]
+    public Task Discover_AnyConnectionOrDraft_AsksOnlyForAnAdministrator_AndNeverWrites() =>
+        Gen.Select(Gen.Bool, Gen.OneOfConst<ConnectionProvider?>(null, ConnectionProvider.S3, ConnectionProvider.AzureBlob,
+                ConnectionProvider.GitHub, ConnectionProvider.Custom, ConnectionProvider.Atlassian, ConnectionProvider.Sftp), Gen.Bool, Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (admin, provider, exists, draft) = t;
+                var world = new World(admin);
+                var connection = new Connection(Guid.NewGuid(), "c", provider ?? ConnectionProvider.S3, "{}", null,
+                    DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                world.Store(connection, exists, []);
+                var discovery = Substitute.For<IConnectionDiscovery>();
+                var listed = Attempt<ConnectionDiscovery, ConnectionStatus>.Succeed(new ConnectionDiscovery(DiscoveryOutcome.Listed));
+                discovery.DiscoverAsync(default!, default!, default).ReturnsForAnyArgs(listed);
+                discovery.DiscoverDraftAsync(default!, default).ReturnsForAnyArgs(listed);
+                var discover = new DiscoverConnection(world.Connections, discovery, world.Authorizer);
+
+                var found = draft
+                    ? await discover.RunDraftAsync(Caller, new DraftDiscovery(provider))
+                    : await discover.RunAsync(Caller, new ConnectionRef(connection.Id));
+
+                bool hasPicker = provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.GitHub or ConnectionProvider.Custom;
+                ConnectionStatus expected =
+                    !admin ? ConnectionStatus.Forbidden
+                    : draft ? hasPicker ? ConnectionStatus.Success : ConnectionStatus.Invalid
+                    : !exists ? ConnectionStatus.NotFound
+                    : ConnectionStatus.Success;
+                found.Status.Should().Be(expected);
+                discovery.ReceivedCalls().Count().Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
+                world.WroteConnections.Should().BeFalse();
+                world.AuditCalls.Should().Be(0);
+            }, iter: 500);
+
+    [Fact]
     [RandomInputTestOf(typeof(ResolveAtlassianSite))]
     public Task ResolveSite_AnyAddress_SendsNothingUnlessAnAdministratorGaveAnAtlassianAddress() =>
         Gen.Select(Gen.Bool, Gen.OneOfConst<string?>(null, "", " ", "not a url", "https://example.com", "http://x.atlassian.net/../"))

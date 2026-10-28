@@ -73,11 +73,12 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..(prefix.Length + 13)];
 
-    private async Task<Connection> CreateAsync(string name, string config = """{"host":"sftp.example.com","port":22}""")
+    private async Task<Connection> CreateAsync(string name, string config = """{"host":"sftp.example.com","port":22}""",
+        ConnectionProvider provider = ConnectionProvider.Sftp)
     {
         using var scope = fixture.Factory.Services.CreateScope();
         return await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-            new CreateConnectionRequest(name, ConnectionProvider.Sftp, config, Secret), null);
+            new CreateConnectionRequest(name, provider, config, Secret), null);
     }
 
     private async Task<Guid> AddSourceAsync(Guid connectionId, string name)
@@ -112,6 +113,7 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
         (await editor.PutAsJsonAsync($"{Connections}/{id}/secret", new { privateKey = "x" })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await editor.PostAsJsonAsync($"{Connections}/{id}/test", new { })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await editor.DeleteAsync($"{Connections}/{id}/host-key")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.GetAsync($"{Connections}/{id}/discover")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await AuditActionsFor(id)).Should().BeEmpty();
     }
 
@@ -130,6 +132,24 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
         body.GetProperty("detail").GetString().Should().Contain("reader@sftp.example.com:22");
         (await fixture.AdminClient.PostAsJsonAsync($"{Connections}/{Guid.NewGuid()}/test", new { }))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Discover_ListsWhatAConnectionReaches_RefusingAProviderWithNothingToList()
+    {
+        Connection gitHub = await CreateAsync(Unique("discover-gh"), """{"installationId":1,"account":"acme"}""", ConnectionProvider.GitHub);
+        Connection sftp = await CreateAsync(Unique("discover-sftp"));
+
+        var found = await fixture.AdminClient.GetAsync($"{Connections}/{gitHub.Id}/discover");
+        found.StatusCode.Should().Be(HttpStatusCode.OK);
+        string body = await found.Content.ReadAsStringAsync();
+        JsonDocument.Parse(body).RootElement.TryGetProperty("outcome", out _).Should().BeTrue();
+        body.Should().NotContain(Secret);
+
+        var refused = await fixture.AdminClient.GetAsync($"{Connections}/{sftp.Id}/discover");
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("provider");
+        (await fixture.AdminClient.GetAsync($"{Connections}/{Guid.NewGuid()}/discover")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

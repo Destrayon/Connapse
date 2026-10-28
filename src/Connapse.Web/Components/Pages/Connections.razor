@@ -14,23 +14,14 @@
 @using Microsoft.Extensions.Options
 @using System.Text.Json
 @using System.Text.Json.Nodes
-@inject IConnectionStore ConnectionStore
-@inject ISourceStore SourceStore
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
 @inject IContainerHostResolver HostResolver
-@inject SftpConnectionTester SftpTester
-@inject IS3Discovery S3Discovery
-@inject IAzureBlobDiscovery AzureDiscovery
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IProviderSetupReader SetupReader
-@inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
 @inject Connapse.Storage.Connectors.GitHub.GitHubCredentialPool GitHubPool
-@inject IProviderCredentialStore CredentialStore
-@inject ICustomProviderStore CustomProviders
-@inject CustomSourceSetup CustomSetup
 @inject NavigationManager Navigation
-@inject IAuditLogger AuditLogger
 @inject ConnectionOperations Operations
+@inject Connapse.Application.Sources.SourceOperations SourceOperations
 @inject ILogger<Connections> Logger
 
 @*
@@ -1632,18 +1623,19 @@
     protected override async Task OnInitializedAsync()
     {
         allowedRoots = SourceSecurity.CurrentValue.AllowedFilesystemRoots;
-        customProviders = await CustomProviders.ListAsync();
+        customProviders = (await Operations.DiscoverAsync(await Authentication, new DraftDiscovery(ConnectionProvider.Custom)))
+            .Result?.CustomProviders;
         await LoadAsync();
     }
 
-    private IReadOnlyList<Connapse.Storage.Connectors.GitHub.GitHubAppInstallation>? gitHubInstallations;
+    private IReadOnlyList<DiscoveredInstallation>? gitHubInstallations;
     private string? gitHubInstallationsError;
 
     /// <summary>Null until checked. GitHub connections are installations of the provider's App, so none can exist without it.</summary>
     private bool? gitHubAppConfigured;
 
     /// <summary>The custom providers a Custom connection may name.</summary>
-    private IReadOnlyList<CustomProvider>? customProviders;
+    private IReadOnlyList<DiscoveredCustomProvider>? customProviders;
 
     private const string NoCustomProvider = "none";
 
@@ -1711,57 +1703,6 @@
     private string? customField;
 
     /// <summary>
-    /// Checks a content-only custom connection's middle man with the address and token about to be saved (the
-    /// stored token when none was typed), and keeps the address as normalised. Null when it may be saved.
-    /// </summary>
-    private async Task<string?> CheckCustomMiddleManAsync()
-    {
-        (customError, customField) = (null, null);
-        string? stored = CustomConnectionConfig.BaseUrlOf(editing?.ConfigJson);
-        bool typedToken = !string.IsNullOrWhiteSpace(form.CustomToken);
-
-        // The stored token is only ever sent to the stored address: a new address needs its token typed, or
-        // anyone who can edit the connection could have the stored token sent to a server of their choosing.
-        if (!typedToken && !isNew && !CustomSourceEndpoint.SameAddress(form.CustomBaseUrl, stored))
-        {
-            (customError, customField) = ($"Enter the token for this address. The saved token is only sent to {stored}.", "secret");
-            await AuditCustomCheckAsync(passed: false, "token", checkedUrl: null);
-            return customError;
-        }
-
-        string? token = typedToken ? form.CustomToken
-            : !isNew && editing is { HasSecret: true } ? await ConnectionStore.GetSecretAsync(editing.Id)
-            : null;
-
-        CustomSourceProbe probe = await CustomSetup.ProbeAsync(form.CustomBaseUrl, token, CancellationToken.None);
-        if (probe.Error is not null)
-        {
-            (customError, customField) = (probe.Error, probe.Field);
-            await AuditCustomCheckAsync(passed: false, probe.Field == "secret" ? "token" : "endpoint", probe.BaseUrl);
-            return probe.Error;
-        }
-
-        if (CustomAddressLocked && !string.Equals(probe.BaseUrl, stored, StringComparison.Ordinal))
-        {
-            (customError, customField) = ("Sources read this address, so it cannot change.", "baseUrl");
-            return customError;
-        }
-
-        form.CustomBaseUrl = probe.BaseUrl;
-        await AuditCustomCheckAsync(passed: true, "scopes", probe.BaseUrl);
-        return null;
-    }
-
-    /// <summary>
-    /// Audits a custom connection check with the step it reached, so setup drop-off can be measured. The address is
-    /// only ever one that passed normalisation: the raw text typed could hold a credential or a pasted token.
-    /// </summary>
-    private Task AuditCustomCheckAsync(bool passed, string step, string? checkedUrl) =>
-        AuditLogger.LogAsync(passed ? "connection.test_verified" : "connection.test_step_failed", "connection",
-            isNew ? null : editing?.Id.ToString(),
-            new { Provider = nameof(ConnectionProvider.Custom), BaseUrl = checkedUrl, Step = step });
-
-    /// <summary>
     /// The custom fields' problems, each shown beside its field rather than above the form. Null when there are none.
     /// </summary>
     private (string Field, string Message)? CustomFieldProblem() =>
@@ -1789,45 +1730,22 @@
     /// </summary>
     private async Task LoadGitHubInstallationsAsync()
     {
-        try
+        var found = await Operations.DiscoverAsync(await Authentication, new DraftDiscovery(ConnectionProvider.GitHub));
+        switch (found.Result)
         {
-            gitHubAppConfigured = await GitHubApp.IsConfiguredAsync();
-            if (gitHubAppConfigured == false)
-            {
-                gitHubInstallationsError = "No GitHub App is set up yet.";
-                return;
-            }
-
-            gitHubInstallations = await GitHubApp.ListInstallationsAsync();
-            gitHubInstallationsError = null;
-            if (await CredentialStore.GetGitHubAppAsync() is { } app)
-                gitHubInstallUrl = app.HtmlUrl.TrimEnd('/') + "/installations/new";
-        }
-        catch (Exception ex)
-        {
-            gitHubInstallationsError = "Could not list the GitHub App's installations. " + GitHubMessages.Describe(ex);
-        }
-    }
-
-    /// <summary>
-    /// Why a new GitHub connection cannot be saved: no provider App, or an installation the App no
-    /// longer has. Asked again at save, since the page may have been open while either changed.
-    /// </summary>
-    private async Task<string?> GitHubInstallationProblemAsync()
-    {
-        try
-        {
-            if (!await GitHubApp.IsConfiguredAsync())
-                return "Set up the GitHub App on the Providers page first.";
-
-            var installations = await GitHubApp.ListInstallationsAsync();
-            return installations.Any(i => i.Id == form.GitHubInstallationId)
-                ? null
-                : "The GitHub App is no longer installed there. Choose another installation.";
-        }
-        catch (Exception ex)
-        {
-            return "Could not check the installation. " + GitHubMessages.Describe(ex, form.GitHubAccount);
+            case { Outcome: DiscoveryOutcome.NotConfigured } notSetUp:
+                gitHubAppConfigured = false;
+                gitHubInstallationsError = notSetUp.Message;
+                break;
+            case { Outcome: DiscoveryOutcome.Listed } listed:
+                gitHubAppConfigured = true;
+                gitHubInstallations = listed.Installations;
+                gitHubInstallationsError = null;
+                gitHubInstallUrl = listed.InstallUrl ?? gitHubInstallUrl;
+                break;
+            default:
+                gitHubInstallationsError = found.Result?.Message ?? found.Detail;
+                break;
         }
     }
 
@@ -2118,8 +2036,8 @@
         statusMessage = null;
         try
         {
-            var sources = await SourceStore.ListByConnectionAsync(connection.Id);
-            pendingResume = new PendingResume(connection, sources, sources.Select(s => s.Id).ToHashSet());
+            if (await SourceOperations.OnConnectionAsync(await Authentication, connection, Fail) is { } sources)
+                pendingResume = new PendingResume(connection, sources, sources.Select(s => s.Id).ToHashSet());
         }
         catch (Exception ex)
         {
@@ -2292,20 +2210,10 @@
         bucketListMessage = null;
         try
         {
-            var probe = await S3Discovery.ListBucketsAsync(NullIfBlank(form.RoleArn));
+            var found = await Operations.DiscoverAsync(await Authentication, new DraftDiscovery(ConnectionProvider.S3, RoleArn: form.RoleArn));
 
-            discoveredBuckets = probe.Value;
-            bucketListMessage = probe.Outcome switch
-            {
-                AwsProbeOutcome.Succeeded when probe.Value is { Count: 0 } =>
-                    "No buckets in this account.",
-                AwsProbeOutcome.Succeeded => null,
-                AwsProbeOutcome.NoCredentials =>
-                    "Connapse has no AWS identity yet — set one up on the AWS provider page.",
-                AwsProbeOutcome.Denied =>
-                    "This identity may not list buckets, so type the name instead.",
-                _ => probe.Detail
-            };
+            discoveredBuckets = found.Result?.Buckets;
+            bucketListMessage = found.Result is { } discovery ? discovery.Message : found.Detail;
         }
         finally
         {
@@ -2366,8 +2274,9 @@
 
         try
         {
-            var probe = await S3Discovery.GetBucketRegionAsync(bucket, NullIfBlank(form.RoleArn));
-            if (probe is { Succeeded: true, Value: { Length: > 0 } region })
+            var found = await Operations.DiscoverAsync(await Authentication,
+                new DraftDiscovery(ConnectionProvider.S3, RoleArn: form.RoleArn, Bucket: bucket));
+            if (found.Result?.BucketRegion is { Length: > 0 } region)
                 form.Region = region;
         }
         catch
@@ -2449,20 +2358,10 @@
         accountListMessage = null;
         try
         {
-            var probe = await AzureDiscovery.ListStorageAccountsAsync();
+            var found = await Operations.DiscoverAsync(await Authentication, new DraftDiscovery(ConnectionProvider.AzureBlob));
 
-            discoveredAccounts = probe.Value;
-            accountListMessage = probe.Outcome switch
-            {
-                AzureProbeOutcome.Succeeded when probe.Value is { Count: 0 } =>
-                    "No storage accounts in this subscription.",
-                AzureProbeOutcome.Succeeded => null,
-                AzureProbeOutcome.NotConfigured =>
-                    "Connapse has no Azure identity yet — set one up on the Azure provider page.",
-                AzureProbeOutcome.Denied =>
-                    "This identity may not list storage accounts, so type the name instead.",
-                _ => probe.Detail
-            };
+            discoveredAccounts = found.Result?.StorageAccounts;
+            accountListMessage = found.Result is { } discovery ? discovery.Message : found.Detail;
         }
         finally
         {
@@ -2494,29 +2393,26 @@
     private async Task ListContainers()
     {
         string endpoint = AzureEndpointForForm() ?? "";
+        if (string.IsNullOrWhiteSpace(form.StorageAccountName))
+        {
+            containerListMessage = "Enter the storage account first.";
+            return;
+        }
+
         listingContainers = true;
         containerListMessage = null;
         try
         {
-            var probe = await AzureDiscovery.ListContainersAsync(endpoint);
+            var found = await Operations.DiscoverAsync(await Authentication, new DraftDiscovery(ConnectionProvider.AzureBlob,
+                StorageAccountName: form.StorageAccountName, BlobEndpoint: form.BlobEndpoint));
 
             // The account may have changed while the request was in flight; a list for the old
             // endpoint must not be offered as the new one's.
             if (endpoint != (AzureEndpointForForm() ?? "")) return;
 
             discoveredContainersFor = endpoint;
-            discoveredContainers = probe.Value;
-            containerListMessage = probe.Outcome switch
-            {
-                AzureProbeOutcome.Succeeded when probe.Value is { Count: 0 } =>
-                    "No containers in this storage account.",
-                AzureProbeOutcome.Succeeded => null,
-                AzureProbeOutcome.NotConfigured =>
-                    "Connapse has no Azure identity yet — set one up on the Azure provider page.",
-                AzureProbeOutcome.Denied =>
-                    "This identity may not list containers here, so type the name instead.",
-                _ => probe.Detail
-            };
+            discoveredContainers = found.Result?.Containers;
+            containerListMessage = found.Result is { } discovery ? discovery.Message : found.Detail;
         }
         finally
         {
@@ -2705,18 +2601,11 @@
         {
             var form = BuildLocalForm(result);
 
-            var outcome = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
-            {
-                Host = HostResolver.Resolve(form.Host).Host,
-                Port = int.TryParse(form.Port, out int guidedPort) ? guidedPort : 22,
-                Username = form.Username!,
-                AllowedRoot = form.AllowedRoot!,
-                PrivateKey = form.PrivateKey!,
-                PinnedHostKeyFingerprint = form.HostKeyFingerprint,
-            }, TimeSpan.FromSeconds(15));
+            var tested = await Operations.TestAsync(await Authentication, null, form.Name, ConnectionProvider.Sftp,
+                new ConnectionSettings(form.ToConfigJson(), form.PrivateKey, form.Passphrase), null);
 
-            testSuccess = outcome.Success;
-            testMessage = outcome.Message;
+            testSuccess = tested.Result?.Result.Success == true;
+            testMessage = tested.Result?.Result.Message ?? tested.Detail ?? "The test could not run.";
         }
         catch (Exception ex)
         {
@@ -2854,14 +2743,6 @@
             return;
         }
 
-        bool installationChanged = !isNew && form.GitHubInstallationId != editingGitHubInstallationId;
-        if (installationChanged && form.Provider == ConnectionProvider.GitHub
-            && await GitHubInstallationProblemAsync() is { } gitHubProblem)
-        {
-            Fail(gitHubProblem);
-            return;
-        }
-
         // The region is optional on the form because choosing a bucket fills it in. That leaves one
         // way to reach a save with it blank -- typing a bucket name instead of picking one, or a
         // lookup that failed -- and ToConfigJson writes "us-east-1" for a blank, which is a guess.
@@ -2887,14 +2768,8 @@
         saving = true;
         try
         {
-            // Checked before anything is stored: a token the middle man refuses is never saved. The refusal is
-            // shown beside its field, so it is not repeated above the form.
-            if (!isNew && form.Provider == ConnectionProvider.Custom && form.CustomContentOnly
-                && await CheckCustomMiddleManAsync() is not null)
-            {
-                await RefuseCustomFieldAsync(customError, customField);
-                return;
-            }
+            // The save checks the source server itself, and shows a refusal beside its field.
+            (customError, customField) = (null, null);
 
             // Applied to the form itself, not just on the way to the store, so the operator ends
             // up looking at the address their connection actually holds. Saving what was typed
@@ -2983,7 +2858,9 @@
         {
             try
             {
-                var blocking = await SourceStore.ListByConnectionAsync(connection.Id);
+                var blocking = await SourceOperations.OnConnectionAsync(await Authentication, connection, Fail);
+                if (blocking is null)
+                    return;
                 if (blocking.Count > 0)
                 {
                     blockedDelete = new BlockedDelete(connection, blocking);
@@ -3016,7 +2893,7 @@
             if (deleted == Connapse.Application.Connections.ConnectionStatus.Success)
                 Succeed($"Connection '{connection.Name}' deleted.");
             else if (deleted == Connapse.Application.Connections.ConnectionStatus.InUse)
-                blockedDelete = new BlockedDelete(connection, await SourceStore.ListByConnectionAsync(connection.Id));
+                blockedDelete = new BlockedDelete(connection, await SourceOperations.OnConnectionAsync(await Authentication, connection, Fail) ?? []);
 
             await LoadAsync();
         }

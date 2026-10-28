@@ -92,6 +92,27 @@ public static class ConnectionCallers
             : operations.Test.RunDraftAsync(Caller(authentication),
                 new DraftConnectionTest(name, provider, settings ?? new ConnectionSettings("{}"), probeTarget));
 
+    /// <summary>What the form's unsaved settings reach, through connections.discover: buckets, accounts, containers,
+    /// installations or custom providers.</summary>
+    public static Task<Attempt<ConnectionDiscovery, ConnectionStatus>> DiscoverAsync(
+        this ConnectionOperations operations, AuthenticationState authentication, DraftDiscovery draft) =>
+        operations.Discover.RunDraftAsync(Caller(authentication), draft);
+
+    /// <summary>
+    /// Every source on the connection, through sources.list. Null when they could not be listed, with the reason sent
+    /// to <paramref name="failed"/>.
+    /// </summary>
+    public static async Task<IReadOnlyList<Source>?> OnConnectionAsync(
+        this Connapse.Application.Sources.SourceOperations operations, AuthenticationState authentication, Connection connection,
+        Action<string> failed)
+    {
+        var listed = await operations.List.RunAsync(Caller(authentication),
+            new Connapse.Application.Sources.ListSourcesQuery(ConnectionId: connection.Id));
+        if (!listed.Succeeded)
+            failed($"Could not list the sources on '{connection.Name}': {listed.Detail}");
+        return listed.Result?.Items;
+    }
+
     /// <summary>Forgets the SFTP server's pinned host key through connections.forgetHostKey; a refusal goes to <paramref name="failed"/>.</summary>
     public static async Task<bool> ForgetHostKeyAsync(
         this ConnectionOperations operations, AuthenticationState authentication, Connection connection, Action<string> failed)
