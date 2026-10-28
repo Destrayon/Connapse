@@ -244,7 +244,10 @@ public class ProblemDetailsTests(SharedWebAppFixture fixture)
     private static bool AcceptsJson(RouteEndpoint endpoint) =>
         endpoint.Metadata.GetMetadata<IAcceptsMetadata>()?.ContentTypes.Any(t => t.Contains("json", StringComparison.OrdinalIgnoreCase)) == true;
 
+    // A DELETE with no ids at all has nothing unknown to send: called as the owner, it would really clear
+    // something the shared host's other tests rely on (DELETE /api/v1/providers/azure/permissions did).
     private static bool OnlyIdParameters(RouteEndpoint endpoint) =>
-        endpoint.RoutePattern.Parameters.All(p => p.Name.EndsWith("Id", StringComparison.Ordinal) || p.Name == "id"
+        endpoint.RoutePattern.Parameters.Count > 0
+        && endpoint.RoutePattern.Parameters.All(p => p.Name.EndsWith("Id", StringComparison.Ordinal) || p.Name == "id"
             || p.ParameterPolicies.Any(pp => pp.Content?.Contains("guid", StringComparison.OrdinalIgnoreCase) == true));
 }
