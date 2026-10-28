@@ -36,13 +36,27 @@ public class ReindexStatusEndpointTests(SharedWebAppFixture fixture)
     [Fact]
     public async Task ReindexStatus_AfterSuccessfulReindex_ReflectsCompletedState()
     {
-        // Trigger a reindex with no documents — completes immediately
-        var triggerResponse = await fixture.AdminClient.PostAsJsonAsync(
-            "/api/settings/reindex", new { });
-        triggerResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        // Scope the reindex to a new, empty container. An unscoped reindex walks every
+        // document other tests in the shared fixture left behind and can outlast the wait.
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"reindex-status-{Guid.NewGuid().ToString("N")[..8]}" });
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
 
-        // Poll until the background task finishes (should be near-instant with no docs)
-        var status = await PollUntilTerminalState(timeoutSeconds: 10);
+        ReindexStatusDto status;
+        try
+        {
+            var triggerResponse = await fixture.AdminClient.PostAsJsonAsync(
+                "/api/settings/reindex", new { ContainerId = container!.Id });
+            triggerResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            // Poll until the background task finishes (should be near-instant with no docs)
+            status = await PollUntilTerminalState(timeoutSeconds: 10);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+        }
 
         status.Status.Should().Be("Completed");
         status.IsFailed.Should().BeFalse();
@@ -71,6 +85,8 @@ public class ReindexStatusEndpointTests(SharedWebAppFixture fixture)
         throw new TimeoutException(
             $"Reindex status did not reach a terminal state within {timeoutSeconds} seconds");
     }
+
+    private record ContainerDto(string Id);
 
     private record ReindexStatusDto(
         int QueueDepth,
