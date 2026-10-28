@@ -23,7 +23,7 @@ public sealed class SyncSource(
         static Attempt<SourceSynced, SourceWriteStatus> Fail(SourceWriteStatus status, string detail) =>
             Attempt<SourceSynced, SourceWriteStatus>.Fail(status, detail);
 
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Fail(SourceWriteStatus.Forbidden, "You don't have permission to sync sources.");
 
         var source = await sources.GetAsync(sourceId, ct);
@@ -66,7 +66,7 @@ public sealed class RetryFailedDocuments(ISourceStore sources, IServiceScopeFact
     /// <summary>How many failed documents were queued again.</summary>
     public async Task<Attempt<int, SourceWriteStatus>> RunAsync(OperationContext context, Guid sourceId, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<int, SourceWriteStatus>.Fail(SourceWriteStatus.Forbidden, "You don't have permission to retry a source's documents.");
 
         var source = await sources.GetAsync(sourceId, ct);

@@ -3632,7 +3632,7 @@
         "tags": [
           "Sources"
         ],
-        "description": "Create a source inside an existing connection. Administrator only — a source chooses what external data is indexed.",
+        "description": "Create a source inside an existing connection. Administrator only, and a token needs admin:sources: a source chooses what external data is indexed.",
         "operationId": "CreateSource",
         "requestBody": {
           "content": {
@@ -3793,7 +3793,7 @@
         "tags": [
           "Sources"
         ],
-        "description": "Update a source's name, description, scope, sync interval, or enabled state.",
+        "description": "Update a source's name, description, scope, sync interval, or enabled state. Administrator only; a token needs admin:sources.",
         "operationId": "UpdateSource",
         "parameters": [
           {
@@ -3893,7 +3893,7 @@
         "tags": [
           "Sources"
         ],
-        "description": "Delete a source and its indexed documents. confirmName must be the source's name. The external data itself is untouched.",
+        "description": "Delete a source and its indexed documents. confirmName must be the source's name. The external data itself is untouched. Administrator only; a token needs admin:sources.",
         "operationId": "DeleteSource",
         "parameters": [
           {
@@ -4047,7 +4047,7 @@
         "tags": [
           "Sources"
         ],
-        "description": "Run one sync cycle for a source immediately, rather than waiting for the next scheduled poll.",
+        "description": "Run one sync cycle for a source immediately, rather than waiting for the next scheduled poll. Administrator only; a token needs admin:sources.",
         "operationId": "SyncSource",
         "parameters": [
           {
@@ -4147,7 +4147,7 @@
         "tags": [
           "Sources"
         ],
-        "description": "Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file.",
+        "description": "Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file. Administrator only; a token needs admin:sources.",
         "operationId": "RetryFailedSourceDocuments",
         "parameters": [
           {

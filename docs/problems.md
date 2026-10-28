@@ -25,7 +25,8 @@ models, testing a connection, clearing all summaries), need Administrator, and a
 
 Connections: listing, reading, renaming, pausing, resuming, deleting them and replacing their secret
 (over `PUT /api/v1/connections/{id}/secret`, `PUT /api/v1/atlassian/sites/{id}/credentials` or a change that
-carries one) need Administrator, and a token needs `admin:sources`.
+carries one) need Administrator, and a token needs `admin:sources`. Sources: creating, changing, syncing,
+retrying and deleting them follow the same rule.
 
 ## invalid-link-provider
 

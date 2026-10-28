@@ -55,24 +55,43 @@ public class OperationRandomInputTests
     /// <summary>A world of fakes for one sample: the caller's roles, and the stores and ports the operations call.</summary>
     private sealed class World
     {
-        public readonly ISourceStore Sources = Substitute.For<ISourceStore>();
-        public readonly IConnectionStore Connections = Substitute.For<IConnectionStore>();
         public readonly ISourceVisibility Visibility = Substitute.For<ISourceVisibility>();
         public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
-        public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
-        public readonly ISourceScopeRules UpdateRules = Substitute.For<ISourceScopeRules>();
-        public readonly ISourceCreateRules CreateRules = Substitute.For<ISourceCreateRules>();
-        public readonly ISourceSync Sync = Substitute.For<ISourceSync>();
-        public readonly IReindexService Reindex = Substitute.For<IReindexService>();
-        public readonly IMcpApprovalStore Approvals = Substitute.For<IMcpApprovalStore>();
-        public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
+
+        // Built on first use: a sample uses few of them, and each costs a proxy.
+        private ISourceStore? sources;
+        private IConnectionStore? connections;
+        private IAuditLogger? audit;
+        private ISourceScopeRules? updateRules;
+        private ISourceCreateRules? createRules;
+        private ISourceSync? sync;
+        private IReindexService? reindex;
+        private IMcpApprovalStore? approvals;
+        private IDocumentStore? documents;
+
+        public ISourceStore Sources => sources ??= Substitute.For<ISourceStore>();
+        public IConnectionStore Connections => connections ??= Substitute.For<IConnectionStore>();
+        public IAuditLogger Audit => audit ??= Substitute.For<IAuditLogger>();
+        public ISourceScopeRules UpdateRules => updateRules ??= Substitute.For<ISourceScopeRules>();
+        public ISourceCreateRules CreateRules => createRules ??= Substitute.For<ISourceCreateRules>();
+        public ISourceSync Sync => sync ??= Substitute.For<ISourceSync>();
+        public IReindexService Reindex => reindex ??= Substitute.For<IReindexService>();
+        public IMcpApprovalStore Approvals => approvals ??= Substitute.For<IMcpApprovalStore>();
+        public IDocumentStore Documents => documents ??= Substitute.For<IDocumentStore>();
 
         public World(bool viewer, bool admin)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Viewer).Returns(viewer);
-            // The reads that agent keys may also make check Reader; a sample's caller passes both or neither.
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(viewer);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
+            // One stub for every policy: each sample builds a World, so a stub per policy costs CI's small tier.
+            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(c => c.ArgAt<string>(1) switch
+            {
+                Policies.Viewer => viewer,
+                // The reads that agent keys may also make check Reader; a sample's caller passes both or neither.
+                Policies.Reader => viewer,
+                Policies.Admin => admin,
+                // Source changes check the sources policy: an administrator signed in, or their token with admin:sources.
+                Policies.SourcesAdmin => admin,
+                _ => false,
+            });
             Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => true);
         }
 

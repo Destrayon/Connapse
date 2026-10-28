@@ -40,7 +40,7 @@ public sealed class UpdateSource(
 {
     public async Task<Attempt<Source, SourceWriteStatus>> RunAsync(OperationContext context, Guid sourceId, UpdateSourceRequest request, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
+        if (!await authorizer.AllowsAsync(context.User, Policies.SourcesAdmin))
             return Attempt<Source, SourceWriteStatus>.Fail(SourceWriteStatus.Forbidden, "You don't have permission to change sources.");
 
         // Null leaves the name as it is; a present name follows create's rules: not blank, 1-128 characters once trimmed.

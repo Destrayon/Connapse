@@ -1283,15 +1283,17 @@ A **source** is an external system Connapse mirrors read-only — an S3 bucket, 
 
 **Connections have no REST surface**, apart from [Atlassian sites](#atlassian-sites), which are saved only after every check passes, and the [Atlassian linking app](#atlassian-linking-app), which is saved only after Atlassian accepts it. They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
 
+Creating, changing, syncing, retrying and deleting a source need Administrator, and a token of theirs needs the `admin:sources` scope, the rule connections follow; without it the answer is `403`.
+
 | Method | Route | Role |
 |--------|-------|------|
 | GET | `/api/sources` | Viewer |
 | GET | `/api/sources/{id}` | Viewer |
-| POST | `/api/sources` | **Admin** |
-| PATCH | `/api/sources/{id}` | **Admin** |
-| DELETE | `/api/sources/{id}?confirmName=<name>` | **Admin** |
-| POST | `/api/sources/{id}/sync` | **Admin** |
-| POST | `/api/sources/{id}/retry-failed` | **Admin** |
+| POST | `/api/sources` | **Admin**, token needs `admin:sources` |
+| PATCH | `/api/sources/{id}` | **Admin**, token needs `admin:sources` |
+| DELETE | `/api/sources/{id}?confirmName=<name>` | **Admin**, token needs `admin:sources` |
+| POST | `/api/sources/{id}/sync` | **Admin**, token needs `admin:sources` |
+| POST | `/api/sources/{id}/retry-failed` | **Admin**, token needs `admin:sources` |
 
 ### Create Source
 
