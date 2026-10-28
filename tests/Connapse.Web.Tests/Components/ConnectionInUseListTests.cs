@@ -1,4 +1,5 @@
 using Bunit;
+using Connapse.Application.Connections;
 using Connapse.Core;
 using Connapse.Web.Components.Connections;
 using Connapse.Web.Services;
@@ -50,9 +51,9 @@ public class ConnectionInUseListTests : IDisposable
     [Fact]
     public void InUseMessage_NamesTheSources_NotJustACount()
     {
-        ConnectionAdminService.InUseMessage("acme.atlassian.net", [SourceNamed("A"), SourceNamed("B")])
+        ConnectionMessages.InUse("acme.atlassian.net", [SourceNamed("A"), SourceNamed("B")])
             .Should().Be("'acme.atlassian.net' can't be deleted while 2 sources use it: A, B. Delete those sources first.");
-        ConnectionAdminService.InUseMessage("site", [SourceNamed("A")])
+        ConnectionMessages.InUse("site", [SourceNamed("A")])
             .Should().Be("'site' can't be deleted while 1 source uses it: A. Delete that source first.");
     }
 

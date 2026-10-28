@@ -3,7 +3,8 @@ using System.Security.Claims;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
-using Connapse.Web.Services;
+using Connapse.Application.Connections;
+using Connapse.Web.Components;
 using FluentAssertions;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -49,15 +50,17 @@ public sealed class AuditActorIntegrationTests(SharedWebAppFixture fixture)
             await using (var circuit = fixture.Factory.Services.CreateAsyncScope())
             {
                 // What Blazor does when a circuit starts: the signed-in user becomes the scope's state.
-                var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, admin.ToString())], "Cookies"));
+                var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, admin.ToString()), new Claim(ClaimTypes.Role, "Owner")], "Cookies"));
                 ((IHostEnvironmentAuthenticationStateProvider)circuit.ServiceProvider.GetRequiredService<AuthenticationStateProvider>())
                     .SetAuthenticationState(Task.FromResult(new AuthenticationState(principal)));
                 circuit.ServiceProvider.GetRequiredService<IHttpContextAccessor>().HttpContext = null;
 
-                // The Connections page's Save, as a rename.
-                var saved = await circuit.ServiceProvider.GetRequiredService<ConnectionAdminService>()
-                    .SaveAsync(connectionId, new UpdateConnectionRequest(name + "-r"));
-                saved.Outcome.Should().Be(ConnectionRenameOutcome.Renamed);
+                // The Connections page's Save, as a rename: connections.update as the circuit's user.
+                var authentication = await circuit.ServiceProvider.GetRequiredService<AuthenticationStateProvider>().GetAuthenticationStateAsync();
+                var store = circuit.ServiceProvider.GetRequiredService<IConnectionStore>();
+                var saved = await circuit.ServiceProvider.GetRequiredService<ConnectionOperations>().SaveAsync(authentication,
+                    (await store.GetAsync(connectionId))!, name + "-r", null, _ => { }, _ => Task.CompletedTask, (_, _) => Task.CompletedTask);
+                saved.Succeeded.Should().BeTrue(saved.Detail);
             }
 
             await using var read = fixture.Factory.Services.CreateAsyncScope();

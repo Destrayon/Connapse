@@ -110,7 +110,6 @@
   "operation atlassian.sites.test: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation connections.discover: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation connections.forgetHostKey: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
-  "operation connections.replaceSecret: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation connections.test: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation links.connect: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation providers.atlassian.linkingApp.check: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
@@ -123,7 +122,6 @@
   "operation sources.unlocated: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "route connections.discover: missing GET /api/v1/connections/{connectionId:guid}/discover": "No REST route: the capability exists only in the web UI.",
   "route connections.forgetHostKey: missing DELETE /api/v1/connections/{connectionId:guid}/host-key": "No REST route: the capability exists only in the web UI.",
-  "route connections.replaceSecret: missing PUT /api/v1/connections/{connectionId:guid}/secret": "No REST route: the capability exists only in the web UI.",
   "route connections.test: missing POST /api/v1/connections/{connectionId:guid}/test": "No REST route: the capability exists only in the web UI.",
   "route sources.unlocated: missing GET /api/sources/{sourceId:guid}/unlocated": "No REST route: the capability exists only in the web UI."
 }

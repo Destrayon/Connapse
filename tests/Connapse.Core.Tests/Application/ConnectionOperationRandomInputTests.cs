@@ -222,6 +222,52 @@ public sealed class ConnectionOperationRandomInputTests
             }, iter: 2000);
 
     [Fact]
+    [RandomInputTestOf(typeof(ReplaceConnectionSecret))]
+    public Task ReplaceSecret_AnySecret_StoresOnlyTheOwnersCheckedKeyOrToken() =>
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.Custom, ConnectionProvider.S3, ConnectionProvider.Atlassian),
+                Gen.Bool, Gen.OneOfConst<string?>(null, " ", "k"), Gen.OneOfConst<string?>(null, " ", "t"), Gen.Int[0, 2], Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (admin, owner, provider, exists, key, token, rulesAnswer, changed) = t;
+                var world = new World(admin);
+                world.Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesOwner).Returns(owner);
+                var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                world.Store(connection, exists, []);
+                // The rules accept with a secret, refuse, or accept but leave the secret to a custom provider.
+                world.Rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(rulesAnswer switch
+                {
+                    0 => new SettingsCheck("{}", "secret"),
+                    1 => SettingsCheck.Refuse("bad", "secret"),
+                    _ => new SettingsCheck("{}", null),
+                });
+                if (changed)
+                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+                        .Returns<Connection?>(_ => throw new ConnectionChangedException(connection.Id));
+                else
+                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(connection);
+
+                var replaced = await new ReplaceConnectionSecret(world.Connections, world.Sources, world.Rules, world.Audit, world.Authorizer)
+                    .RunAsync(Caller, new ConnectionRef(connection.Id), new ConnectionSecret(key, null, token));
+
+                bool given = provider == ConnectionProvider.Sftp ? !string.IsNullOrWhiteSpace(key) : !string.IsNullOrWhiteSpace(token);
+                ConnectionStatus expected =
+                    !(admin && owner) ? ConnectionStatus.Forbidden
+                    : !exists ? ConnectionStatus.NotFound
+                    : provider is not (ConnectionProvider.Sftp or ConnectionProvider.Custom) || !given ? ConnectionStatus.Invalid
+                    : rulesAnswer != 0 ? ConnectionStatus.Invalid
+                    : changed ? ConnectionStatus.Conflict
+                    : ConnectionStatus.Success;
+                replaced.Status.Should().Be(expected);
+                world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
+                if (expected is ConnectionStatus.Forbidden or ConnectionStatus.NotFound || rulesAnswer != 0)
+                    world.WroteConnections.Should().BeFalse();
+                if (expected == ConnectionStatus.Success)
+                    await world.Connections.Received(1).UpdateAsync(connection.Id,
+                        Arg.Is<UpdateConnectionRequest>(r => r.Name == null && r.Secret == "secret" && r.ExpectedUpdatedAt == connection.UpdatedAt),
+                        Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
+    [Fact]
     [RandomInputTestOf(typeof(PauseConnection))]
     [RandomInputTestOf(typeof(PauseAtlassianSite))]
     public Task Pause_AnyConnection_TurnsOffOnlyTheSourcesStillOn() =>

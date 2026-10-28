@@ -1,4 +1,3 @@
-@using System.Security.Claims
 @using System.Text.Json
 @using Connapse.Core
 @using Connapse.Core.Interfaces
@@ -657,12 +656,6 @@
         }
     }
 
-    private async Task<Guid?> UserIdAsync()
-    {
-        var state = await AuthState.GetAuthenticationStateAsync();
-        return Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
-    }
-
     private async Task SaveAsync(bool saveAnyway)
     {
         saveError = null;
@@ -805,7 +798,7 @@
         replaceBusy = true;
         try
         {
-            var replaced = await Sites.ReplaceCredentialsAsync(site.Id, replaceClientId, submittedSecret, await UserIdAsync(), saveAnyway);
+            var replaced = await Sites.ReplaceCredentialsAsync(await AuthState.OperationContextAsync(), site.Id, replaceClientId, submittedSecret, saveAnyway);
             switch (replaced.Outcome)
             {
                 case AtlassianReplaceOutcome.Replaced:
@@ -819,6 +812,9 @@
                     break;
                 case AtlassianReplaceOutcome.MissingFields:
                     ValidateReplaceField();
+                    break;
+                case AtlassianReplaceOutcome.Forbidden or AtlassianReplaceOutcome.Changed:
+                    replaceError = replaced.Refusal;
                     break;
                 case AtlassianReplaceOutcome.SiteChanged:
                     replaceError = "The site at this address has a different Cloud ID than when it was added, so it is a different site. Add it as a new connection.";

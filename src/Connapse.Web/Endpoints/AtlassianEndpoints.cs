@@ -525,11 +525,13 @@ public static class AtlassianEndpoints
             [FromServices] AtlassianSiteService sites,
             CancellationToken ct) =>
         {
-            var replaced = await sites.ReplaceCredentialsAsync(connectionId, request.ClientId, request.ClientSecret,
-                UserIdOf(http), request.SaveAnyway ?? false, ct);
+            var replaced = await sites.ReplaceCredentialsAsync(new OperationContext(http.User, OperationSurface.Rest), connectionId,
+                request.ClientId, request.ClientSecret, request.SaveAnyway ?? false, ct);
 
             return replaced.Outcome switch
             {
+                AtlassianReplaceOutcome.Forbidden => ApiProblem.Forbidden(replaced.Refusal!),
+                AtlassianReplaceOutcome.Changed => ApiProblem.Conflict(replaced.Refusal!),
                 AtlassianReplaceOutcome.NotFound => ApiProblem.NotFound("No such Atlassian site."),
                 AtlassianReplaceOutcome.MissingFields =>
                     ApiProblem.BadRequest("clientId and clientSecret are required."),
@@ -543,7 +545,7 @@ public static class AtlassianEndpoints
                     AtlassianSite.FromConfigJson(replaced.Connection.ConfigJson)?.ClientId,
                     Report(replaced.Test!))),
             };
-        }).RequireAuthorization("RequireAdmin")
+        }).RequireAuthorization("RequireSourcesOwner")
         .Produces<AtlassianCredentialsReplaced>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)

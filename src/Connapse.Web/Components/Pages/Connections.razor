@@ -32,7 +32,7 @@
 @inject CustomSourceSetup CustomSetup
 @inject NavigationManager Navigation
 @inject IAuditLogger AuditLogger
-@inject ConnectionAdminService Admin
+@inject ConnectionOperations Operations
 @inject ILogger<Connections> Logger
 
 @*
@@ -1570,6 +1570,8 @@
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> Authentication { get; set; } = default!;
+
     private List<Connection> connections = [];
     private IReadOnlyList<string> allowedRoots = [];
     private bool loading = true;
@@ -2101,7 +2103,7 @@
     private async Task LoadAsync()
     {
         loading = true;
-        (connections, pausedConnections) = await Admin.ListAllAsync(Fail);
+        (connections, pausedConnections) = await Operations.ListAllAsync(await Authentication, Fail);
         loading = false;
     }
 
@@ -2149,7 +2151,7 @@
         pausing = connection.Id;
         try
         {
-            await Admin.SetSyncingAsync(connection, enabled, only, Succeed, Fail);
+            await Operations.SetSyncingAsync(await Authentication, connection, enabled, only, Succeed, Fail);
             await LoadAsync();
         }
         catch (Exception ex)
@@ -2740,7 +2742,7 @@
         try
         {
             var form = BuildLocalForm(result);
-            if (await Admin.CreateAsync(new NewConnection(form.Name, ConnectionProvider.Sftp,
+            if (await Operations.CreateAsync(await Authentication, new NewConnection(form.Name, ConnectionProvider.Sftp,
                     new ConnectionSettings(form.ToConfigJson(), form.PrivateKey, form.Passphrase)), Fail) is null)
                 return;
 
@@ -2915,15 +2917,11 @@
 
             string config = form.ToConfigJson();
 
-            // Null for every provider but SFTP, and null again for an SFTP connection saved
-            // without retyping its key — which the store reads as "leave the stored one alone".
-            string? secret = form.ToSecretJson();
-
             if (isNew)
             {
                 // The same checks and audit as POST /api/v1/connections: the GitHub installation and the custom
                 // source server are checked there. The host above is already rewritten, so it leaves the note alone.
-                var created = await Admin.CreateAsync(new NewConnection(form.Name, form.Provider,
+                var created = await Operations.CreateAsync(await Authentication, new NewConnection(form.Name, form.Provider,
                     new ConnectionSettings(config, form.PrivateKey, form.Passphrase, form.CustomToken)), Fail, RefuseNameAsync, RefuseCustomFieldAsync);
                 if (created is null)
                     return;
@@ -2939,33 +2937,22 @@
                 // form opening and saving. Reporting "saved" there would be a lie.
                 // A null config leaves the stored one alone. An Atlassian site's config belongs to
                 // AtlassianSiteService, so a rename here must not rewrite it.
-                // Saved as the REST API renames, so a taken name is refused in plain words.
-                var saved = await Admin.SaveAsync(editing!.Id,
-                    new UpdateConnectionRequest(form.Name.Trim(), form.OwnsConfig ? config : null, secret));
+                // Saved as the REST API saves it, so a taken name is refused in plain words.
+                var saved = await Operations.SaveAsync(await Authentication, editing!, form.Name, form.OwnsConfig
+                    ? new ConnectionSettings(config, form.PrivateKey, form.Passphrase, form.CustomToken) : null, Fail, RefuseNameAsync, RefuseCustomFieldAsync);
                 ForgetGitHubInstallations(form.Provider);
 
-                if (saved.Outcome == ConnectionRenameOutcome.NameTaken)
-                {
-                    await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));
-                    return;
-                }
-                if (saved.Outcome == ConnectionRenameOutcome.InvalidName)
-                {
-                    await RefuseNameAsync(ConnectionAdminService.InvalidNameMessage);
-                    return;
-                }
-                var updated = saved.Connection;
-                if (updated is null)
+                if (saved.Status == Connapse.Application.Connections.ConnectionStatus.NotFound)
                 {
                     Fail($"Connection '{editing.Name}' no longer exists — it was deleted elsewhere.");
                     editing = null;
                     await LoadAsync();
                     return;
                 }
+                if (!saved.Succeeded)
+                    return;
 
-                if (form.Provider == ConnectionProvider.Custom && secret is not null)
-                    await AuditLogger.LogAsync("connection.credentials_replaced", "connection", updated.Id.ToString(),
-                        new { updated.Name });
+                var updated = saved.Result!.Connection;
                 await RecordCustomCheckAsync(updated.Id);
                 Succeed($"Connection '{form.Name.Trim()}' saved.{HostRewriteSuffix()}");
                 ReturnFocusToList(updated.Id);
@@ -3066,7 +3053,7 @@
         {
             // SourceCount above is a snapshot from the last load, so a source added since then
             // still reaches the store's own refusal — caught below rather than assumed away.
-            var deleted = await Admin.DeleteAsync(connection, Fail);
+            var deleted = await Operations.DeleteAsync(await Authentication, connection, Fail);
             ForgetGitHubInstallations(connection.Provider);
             if (deleted == Connapse.Application.Connections.ConnectionStatus.Success)
                 Succeed($"Connection '{connection.Name}' deleted.");

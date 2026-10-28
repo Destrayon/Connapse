@@ -15,7 +15,11 @@ public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, str
 
 public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken, Forbidden }
 
-public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged }
+/// <summary>
+/// <see cref="SiteChanged"/>: the address now answers with another site. <see cref="Changed"/>: the connection was edited
+/// while the new credential was being checked, so nothing was stored.
+/// </summary>
+public enum AtlassianReplaceOutcome { Replaced, NotFound, MissingFields, TestFailed, SiteChanged, Forbidden, Changed }
 
 /// <summary>
 /// How listing a site's spaces or projects went. <see cref="WrongProduct"/>: the connection is the
@@ -82,7 +86,8 @@ public sealed record AtlassianAddResult(
 public sealed record AtlassianReplaceResult(
     AtlassianReplaceOutcome Outcome,
     Connection? Connection = null,
-    ConnectionTestResult? Test = null);
+    ConnectionTestResult? Test = null,
+    string? Refusal = null);
 
 /// <summary>
 /// What a site test reports, in the words the page and the REST API both use: the step that failed,
@@ -135,6 +140,7 @@ public sealed class AtlassianSiteService(
     IAuditLogger audit,
     AtlassianTokenSource tokens,
     CreateConnection create,
+    ReplaceConnectionSecret replace,
     TimeProvider? time = null)
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
@@ -237,9 +243,13 @@ public sealed class AtlassianSiteService(
     /// stores them in place of the old ones. The connection keeps its id, so its sources keep syncing.
     /// </summary>
     public async Task<AtlassianReplaceResult> ReplaceCredentialsAsync(
-        Guid connectionId, string? clientId, string? clientSecret, Guid? userId, bool saveAnyway = false,
+        OperationContext context, Guid connectionId, string? clientId, string? clientSecret, bool saveAnyway = false,
         CancellationToken ct = default)
     {
+        // Refused before Atlassian is asked, so an administrator who isn't the Owner learns nothing about the new secret.
+        if (!await replace.AllowsAsync(context))
+            return new AtlassianReplaceResult(AtlassianReplaceOutcome.Forbidden, Refusal: ConnectionMessages.OwnerReplacesSecrets);
+
         Connection? connection = await connections.GetAsync(connectionId, ct);
         if (connection is not { Provider: ConnectionProvider.Atlassian }
             || AtlassianSite.FromConfigJson(connection.ConfigJson) is not { } site)
@@ -261,14 +271,19 @@ public sealed class AtlassianSiteService(
         JsonObject config = (JsonNode.Parse(connection.ConfigJson!) as JsonObject) ?? [];
         config["clientId"] = trimmedClientId;
 
-        Connection? updated = await connections.UpdateAsync(connectionId,
-            new UpdateConnectionRequest(ConfigJson: config.ToJsonString(), Secret: clientSecret), ct);
-        if (updated is null)
-            return new AtlassianReplaceResult(AtlassianReplaceOutcome.NotFound);
+        var stored = await replace.RunCheckedAsync(context, ConnectionRef.AtlassianSite(connectionId),
+            new CheckedSecret(config.ToJsonString(), clientSecret, connection.UpdatedAt,
+                new { Provider = "Atlassian", site.SiteUrl, PreviousClientId = site.ClientId, ClientId = trimmedClientId, SavedWithWarning = !result.Success }),
+            ct);
+        if (!stored.Succeeded)
+            return new AtlassianReplaceResult(stored.Status switch
+            {
+                ConnectionStatus.Forbidden => AtlassianReplaceOutcome.Forbidden,
+                ConnectionStatus.Conflict => AtlassianReplaceOutcome.Changed,
+                _ => AtlassianReplaceOutcome.NotFound,
+            }, Test: result, Refusal: stored.Detail);
 
-        await audit.LogAsync("connection.credentials_replaced", "connection", connectionId.ToString(),
-            new { Provider = "Atlassian", site.SiteUrl, PreviousClientId = site.ClientId, ClientId = trimmedClientId, SavedWithWarning = !result.Success }, ct);
-
+        Connection updated = stored.Result!;
         if (await connections.RecordHealthAsync(connectionId, HealthOf(result), ct) is { } health)
             updated = updated with { Health = health };
 

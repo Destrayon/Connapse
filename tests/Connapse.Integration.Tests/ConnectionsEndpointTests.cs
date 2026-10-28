@@ -27,31 +27,41 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
     private const string Secret = "connection-secret-value-456";
     private const string EditorEmail = "editor@connections-endpoint-tests.connapse.io";
     private const string EditorPassword = "EditorTest1!";
+    // An administrator who isn't the Owner: the fixture's own administrator is the instance's Owner.
+    private const string AdminEmail = "admin@connections-endpoint-tests.connapse.io";
 
     public async Task InitializeAsync()
     {
+        await AddUserAsync(EditorEmail, "Editor");
+        await AddUserAsync(AdminEmail, "Admin");
+    }
+
+    private async Task AddUserAsync(string email, string role)
+    {
         using var scope = fixture.Factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
-        if (await users.FindByEmailAsync(EditorEmail) is not null)
+        if (await users.FindByEmailAsync(email) is not null)
             return;
         var user = new ConnapseUser
         {
-            UserName = EditorEmail,
-            Email = EditorEmail,
+            UserName = email,
+            Email = email,
             EmailConfirmed = true,
-            DisplayName = EditorEmail,
+            DisplayName = email,
             CreatedAt = DateTime.UtcNow,
         };
         (await users.CreateAsync(user, EditorPassword)).Succeeded.Should().BeTrue();
-        await users.AddToRoleAsync(user, "Editor");
+        await users.AddToRoleAsync(user, role);
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private async Task<HttpClient> EditorClientAsync()
+    private Task<HttpClient> EditorClientAsync() => ClientAsync(EditorEmail);
+
+    private async Task<HttpClient> ClientAsync(string email)
     {
         using var anon = fixture.Factory.CreateClient();
-        var response = await anon.PostAsJsonAsync("/api/v1/auth/token", new { email = EditorEmail, password = EditorPassword });
+        var response = await anon.PostAsJsonAsync("/api/v1/auth/token", new { email, password = EditorPassword });
         response.EnsureSuccessStatusCode();
         var token = await response.Content.ReadFromJsonAsync<JsonElement>();
 
@@ -63,11 +73,11 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..(prefix.Length + 13)];
 
-    private async Task<Connection> CreateAsync(string name)
+    private async Task<Connection> CreateAsync(string name, string config = """{"host":"sftp.example.com","port":22}""")
     {
         using var scope = fixture.Factory.Services.CreateScope();
         return await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-            new CreateConnectionRequest(name, ConnectionProvider.Sftp, """{"host":"sftp.example.com","port":22}""", Secret), null);
+            new CreateConnectionRequest(name, ConnectionProvider.Sftp, config, Secret), null);
     }
 
     private async Task<Guid> AddSourceAsync(Guid connectionId, string name)
@@ -99,7 +109,51 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
         (await editor.PostAsync($"{Connections}/{id}/pause", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await editor.PostAsJsonAsync($"{Connections}/{id}/resume", new { })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await editor.DeleteAsync($"{Connections}/{id}?confirmName=x")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.PutAsJsonAsync($"{Connections}/{id}/secret", new { privateKey = "x" })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await AuditActionsFor(id)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ReplaceSecret_Owner_ReplacesTheKeyKeepingTheSettings_NeverReturningIt()
+    {
+        Connection created = await CreateAsync(Unique("secret"),
+            """{"host":"sftp.example.com","port":22,"username":"reader","allowedRoot":"/data"}""");
+        const string newKey = "replaced-connection-key-789";
+
+        var response = await fixture.AdminClient.PutAsJsonAsync($"{Connections}/{created.Id}/secret", new { privateKey = newKey });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        string raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain(newKey);
+        var body = JsonDocument.Parse(raw).RootElement;
+        body.GetProperty("config").GetProperty("host").GetString().Should().Be("sftp.example.com");
+        using (var scope = fixture.Factory.Services.CreateScope())
+            (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetSecretAsync(created.Id)).Should().Contain(newKey);
+        (await AuditActionsFor(created.Id)).Should().Equal("connection.credentials_replaced");
+
+        var missing = await fixture.AdminClient.PutAsJsonAsync($"{Connections}/{created.Id}/secret", new { passphrase = "p" });
+        missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await missing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("privateKey");
+        (await fixture.AdminClient.PutAsJsonAsync($"{Connections}/{Guid.NewGuid()}/secret", new { privateKey = newKey }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ReplaceSecret_AdminWhoIsNotTheOwner_Returns403OverEveryRoute()
+    {
+        using var admin = await ClientAsync(AdminEmail);
+        Connection created = await CreateAsync(Unique("not-owner"));
+
+        (await admin.GetAsync($"{Connections}/{created.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PutAsJsonAsync($"{Connections}/{created.Id}/secret", new { privateKey = "x" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await admin.PatchAsJsonAsync($"{Connections}/{created.Id}", new { privateKey = "x" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await admin.PutAsJsonAsync($"/api/v1/atlassian/sites/{created.Id}/credentials", new { clientId = "c", clientSecret = "s" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using (var scope = fixture.Factory.Services.CreateScope())
+            (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetSecretAsync(created.Id)).Should().Be(Secret);
+        (await AuditActionsFor(created.Id)).Should().BeEmpty();
     }
 
     [Fact]

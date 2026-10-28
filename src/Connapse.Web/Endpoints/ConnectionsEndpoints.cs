@@ -83,6 +83,18 @@ public sealed record UpdateConnectionApiRequest(
         config is { ValueKind: not JsonValueKind.Null } element ? element.GetRawText() : null;
 }
 
+/// <summary>
+/// A connection's new secret: <c>privateKey</c> and <c>passphrase</c> for an SFTP connection, <c>token</c> for a custom
+/// source server's. Its settings are kept and checked with it.
+/// </summary>
+public sealed record ReplaceConnectionSecretApiRequest(string? PrivateKey = null, string? Passphrase = null, string? Token = null)
+{
+    internal ConnectionSecret Secret() => new(PrivateKey, Passphrase, Token);
+
+    // The secret's values stay out of logs and exception messages.
+    private bool PrintMembers(System.Text.StringBuilder builder) => false;
+}
+
 /// <summary>Which of a paused connection's sources to turn back on; all of them when <c>sourceIds</c> is left out.</summary>
 public sealed record ResumeConnectionRequest(IReadOnlyList<Guid>? SourceIds = null);
 
@@ -237,6 +249,31 @@ public static class ConnectionsEndpoints
         .Produces<ConnectionInUseProblem>(StatusCodes.Status409Conflict, "application/problem+json")
         .WithName("connections.delete")
         .WithDescription("Delete a connection that no source uses. confirmName must be its name.");
+
+        // PUT /api/v1/connections/{connectionId}/secret — the Owner's alone, so it sits outside the group's
+        // administrator policy. Audited as connection.credentials_replaced, without the secret.
+        app.MapPut("/api/v1/connections/{connectionId:guid}/secret", async (
+            Guid connectionId,
+            [FromBody] ReplaceConnectionSecretApiRequest request,
+            [FromServices] ReplaceConnectionSecret replace,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var replaced = await replace.RunAsync(Rest(http), new ConnectionRef(connectionId), request.Secret(), ct);
+            return replaced.Succeeded ? Results.Ok(ConnectionResponse.From(replaced.Result!)) : OperationProblems.Result(replaced);
+        })
+        .WithTags("Connections")
+        .RequireAuthorization("RequireSourcesOwner")
+        .Produces<ConnectionResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status502BadGateway)
+        .WithName("connections.replaceSecret")
+        .WithDescription("Replace an SFTP connection's private key or a custom source server's token. Owner only. The new "
+            + "secret is checked with the stored settings before it is kept, and is never returned.");
 
         return app;
     }

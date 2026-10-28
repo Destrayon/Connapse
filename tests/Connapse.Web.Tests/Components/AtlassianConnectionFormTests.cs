@@ -42,7 +42,9 @@ public class AtlassianConnectionFormTests : IDisposable
         ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
             new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System),
             new Connapse.Application.Connections.CreateConnection(store, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
-                audit, authorizer)));
+                audit, authorizer),
+            new Connapse.Application.Connections.ReplaceConnectionSecret(store, Substitute.For<ISourceStore>(),
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), audit, authorizer)));
     }
 
     public void Dispose() => ctx.Dispose();
@@ -752,9 +754,8 @@ public class AtlassianConnectionFormTests : IDisposable
         string page = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(),
             "src", "Connapse.Web", "Components", "Pages", "Connections.razor"));
 
-        page.Should().Contain("await Admin.SaveAsync(editing!.Id,").And.NotContain("Admin.UpdateAsync(");
-        page.Should().Contain("ConnectionRenameOutcome.NameTaken")
-            .And.Contain("await RefuseNameAsync(ConnectionAdminService.NameTakenMessage(form.Name));")
+        page.Should().Contain("await Operations.SaveAsync(await Authentication, editing!, form.Name,").And.NotContain("ConnectionStore.UpdateAsync(");
+        page.Should().Contain("Fail, RefuseNameAsync, RefuseCustomFieldAsync);")
             .And.Contain("<div id=\"connection-name-error\" class=\"invalid-feedback d-block\" role=\"alert\">");
         page.Should().NotContain("Fail(ex.Message)", "the exception goes to the log and the page says what happened");
     }
