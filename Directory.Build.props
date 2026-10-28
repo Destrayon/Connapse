@@ -25,6 +25,12 @@
     <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.13" />
   </ItemGroup>
 
+  <!-- A test host lives for seconds; instrumenting hot methods for profile-guided JIT costs more than it
+       wins back. Off, the quick tier's testhost CPU drops about 8% in Core.Tests and 11% in Eval.Tests (CON-135). -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+
   <PropertyGroup>
     <!-- MinVer reads git tags like "v0.3.2" to set the version automatically.
          Push a higher tag to bump the version. Untagged commits get a pre-release suffix. -->
