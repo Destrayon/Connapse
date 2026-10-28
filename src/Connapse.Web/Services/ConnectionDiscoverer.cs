@@ -101,7 +101,8 @@ public sealed class ConnectionDiscoverer(
         return probe.Outcome switch
         {
             AwsProbeOutcome.Succeeded => new ConnectionDiscovery(DiscoveryOutcome.Listed,
-                probe.Value is { Count: 0 } ? "No buckets in this account." : null) { Buckets = probe.Value ?? [] },
+                probe.Value is { Count: 0 } ? "No buckets in this account." : null)
+            { Buckets = probe.Value ?? [] },
             AwsProbeOutcome.NoCredentials => new ConnectionDiscovery(DiscoveryOutcome.NotConfigured,
                 "Connapse has no AWS identity yet — set one up on the AWS provider page."),
             AwsProbeOutcome.Denied => new ConnectionDiscovery(DiscoveryOutcome.Denied,
@@ -137,7 +138,8 @@ public sealed class ConnectionDiscoverer(
         return probe.Outcome switch
         {
             AzureProbeOutcome.Succeeded => new ConnectionDiscovery(DiscoveryOutcome.Listed,
-                probe.Value is { Count: 0 } ? "No storage accounts in this subscription." : null) { StorageAccounts = probe.Value ?? [] },
+                probe.Value is { Count: 0 } ? "No storage accounts in this subscription." : null)
+            { StorageAccounts = probe.Value ?? [] },
             AzureProbeOutcome.NotConfigured => new ConnectionDiscovery(DiscoveryOutcome.NotConfigured, NoAzureIdentity),
             AzureProbeOutcome.Denied => new ConnectionDiscovery(DiscoveryOutcome.Denied,
                 "This identity may not list storage accounts, so type the name instead."),
@@ -151,7 +153,8 @@ public sealed class ConnectionDiscoverer(
         return probe.Outcome switch
         {
             AzureProbeOutcome.Succeeded => new ConnectionDiscovery(DiscoveryOutcome.Listed,
-                probe.Value is { Count: 0 } ? "No containers in this storage account." : null) { Containers = probe.Value ?? [] },
+                probe.Value is { Count: 0 } ? "No containers in this storage account." : null)
+            { Containers = probe.Value ?? [] },
             AzureProbeOutcome.NotConfigured => new ConnectionDiscovery(DiscoveryOutcome.NotConfigured, NoAzureIdentity),
             AzureProbeOutcome.Denied => new ConnectionDiscovery(DiscoveryOutcome.Denied,
                 "This identity may not list containers here, so type the name instead."),
