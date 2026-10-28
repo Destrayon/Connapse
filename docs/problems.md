@@ -23,9 +23,9 @@ Search needs `knowledge:read`: the Viewer role or above, or an agent key or toke
 Settings: reading, changing and resetting them, and the settings actions (re-indexing, listing embedding
 models, testing a connection, clearing all summaries), need Administrator, and a token needs `admin:settings`.
 
-Connections: listing, reading, renaming, pausing, resuming and deleting them need Administrator,
-and a token needs `admin:sources`. Replacing a connection's secret, over `PUT /api/v1/connections/{id}/secret`,
-`PUT /api/v1/atlassian/sites/{id}/credentials` or a change that carries one, needs the Owner.
+Connections: listing, reading, renaming, pausing, resuming, deleting them and replacing their secret
+(over `PUT /api/v1/connections/{id}/secret`, `PUT /api/v1/atlassian/sites/{id}/credentials` or a change that
+carries one) need Administrator, and a token needs `admin:sources`.
 
 ## invalid-link-provider
 
