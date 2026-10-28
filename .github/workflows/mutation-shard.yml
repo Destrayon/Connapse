@@ -27,6 +27,11 @@ jobs:
     name: shard ${{ fromJSON(inputs.shard).index }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A fresh runner's first dotnet command makes an HTTPS dev certificate, which nothing here uses.
+    env:
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -61,11 +66,16 @@ jobs:
 
     # The patterns and commit come in through the environment, so a file name can't reach the shell as code.
     # All the runner's CPUs run mutants (Stryker defaults to half), and Release matches ci.yml's build.
+    # Stryker has no option to shape its build, and MSBuild reads environment variables as properties: the
+    # build skips analyzers (diagnostics only; source generators still run) and Connapse.Web's build-time
+    # OpenAPI document, which Core.Tests never reads. Neither changes the compiled code (CON-138).
     - name: Mutation test Connapse.Application
       working-directory: tests/Connapse.Core.Tests
       env:
         SHARD: ${{ inputs.shard }}
         SINCE: ${{ inputs.since }}
+        RunAnalyzers: 'false'
+        OpenApiGenerateDocuments: 'false'
       run: |
         args=(--concurrency "$(nproc)" --configuration Release --break-at 0)
         while IFS= read -r pattern; do
