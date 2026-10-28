@@ -222,6 +222,115 @@ public sealed class ConnectionOperationRandomInputTests
             }, iter: 2000);
 
     [Fact]
+    [RandomInputTestOf(typeof(TestConnection))]
+    public Task Test_AnyConnection_RunsOnlyForAnAdministrator_AndRecordsOnlyTheHealthTheRunnerReports() =>
+        Gen.Select(Gen.Bool, AnyProvider, Gen.Bool, Gen.Bool, Gen.Int[0, 2])
+            .SampleAsync(async t =>
+            {
+                var (admin, provider, exists, withSettings, runnerAnswer) = t;
+                var world = new World(admin);
+                var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                world.Store(connection, exists, []);
+                var health = new ConnectionHealth(DateTime.UtcNow, true, null, "ok", "test");
+                var runner = Substitute.For<IConnectionTestRunner>();
+                // The runner refuses, tests without touching the stored settings, or tests exactly them.
+                runner.TestAsync(default!, default).ReturnsForAnyArgs(runnerAnswer switch
+                {
+                    0 => ConnectionTestRun.Refuse("no", "privateKey", ConnectionStatus.Unavailable),
+                    1 => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok")),
+                    _ => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok"), health),
+                });
+                world.Connections.RecordHealthAsync(connection.Id, health, Arg.Any<CancellationToken>()).Returns(health);
+
+                var tested = await new TestConnection(world.Connections, runner, world.Authorizer).RunAsync(Caller,
+                    new ConnectionRef(connection.Id), new ConnectionTestRequest(withSettings ? new ConnectionSettings("{}") : null));
+
+                ConnectionStatus expected =
+                    !admin ? ConnectionStatus.Forbidden
+                    : !exists ? ConnectionStatus.NotFound
+                    : provider == ConnectionProvider.Atlassian && withSettings ? ConnectionStatus.Invalid
+                    : runnerAnswer == 0 ? ConnectionStatus.Unavailable
+                    : ConnectionStatus.Success;
+                tested.Status.Should().Be(expected);
+                bool ran = admin && exists && !(provider == ConnectionProvider.Atlassian && withSettings);
+                await runner.Received(ran ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
+                await world.Connections.Received(ran && runnerAnswer == 2 ? 1 : 0)
+                    .RecordHealthAsync(Arg.Any<Guid>(), Arg.Any<ConnectionHealth>(), Arg.Any<CancellationToken>());
+                world.WroteConnections.Should().BeFalse();
+                world.AuditCalls.Should().Be(0);
+            }, iter: 500);
+
+    [Fact]
+    [RandomInputTestOf(typeof(TestAtlassianSite))]
+    public Task TestSite_AnyConnection_FindsOnlyAnAtlassianSite() =>
+        Gen.Select(Gen.Bool, AnyProvider, Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (admin, provider, exists) = t;
+                var world = new World(admin);
+                var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                world.Store(connection, exists, []);
+                var runner = Substitute.For<IConnectionTestRunner>();
+                runner.TestAsync(default!, default).ReturnsForAnyArgs(new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok")));
+
+                var tested = await new TestAtlassianSite(new TestConnection(world.Connections, runner, world.Authorizer))
+                    .RunAsync(Caller, connection.Id);
+
+                tested.Status.Should().Be(!admin ? ConnectionStatus.Forbidden
+                    : !Found(connection, exists, alias: true) ? ConnectionStatus.NotFound
+                    : ConnectionStatus.Success);
+                await runner.Received(tested.Succeeded ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
+            }, iter: 300);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ForgetConnectionHostKey))]
+    public Task ForgetHostKey_AnyConnection_RemovesOnlyAPinnedSftpKey_AuditingOnlyThat() =>
+        Gen.Select(Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.S3, ConnectionProvider.Atlassian), Gen.Bool, Gen.Bool, Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (admin, provider, exists, pinned, changed) = t;
+                var world = new World(admin);
+                string config = pinned ? """{"host":"h","hostKeyFingerprint":"SHA256:x"}""" : """{"host":"h"}""";
+                var connection = new Connection(Guid.NewGuid(), "c", provider, config, null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                world.Store(connection, exists, []);
+                if (changed)
+                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+                        .Returns<Connection?>(_ => throw new ConnectionChangedException(connection.Id));
+                else
+                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(connection);
+
+                var forgotten = await new ForgetConnectionHostKey(world.Connections, world.Sources, world.Audit, world.Authorizer)
+                    .RunAsync(Caller, new ConnectionRef(connection.Id));
+
+                ConnectionStatus expected =
+                    !admin ? ConnectionStatus.Forbidden
+                    : !exists ? ConnectionStatus.NotFound
+                    : provider != ConnectionProvider.Sftp ? ConnectionStatus.Invalid
+                    : pinned && changed ? ConnectionStatus.Conflict
+                    : ConnectionStatus.Success;
+                forgotten.Status.Should().Be(expected);
+                world.AuditCalls.Should().Be(expected == ConnectionStatus.Success && pinned ? 1 : 0);
+                if (expected != ConnectionStatus.Success && expected != ConnectionStatus.Conflict || !pinned)
+                    world.WroteConnections.Should().BeFalse();
+            }, iter: 500);
+
+    [Fact]
+    [RandomInputTestOf(typeof(ResolveAtlassianSite))]
+    public Task ResolveSite_AnyAddress_SendsNothingUnlessAnAdministratorGaveAnAtlassianAddress() =>
+        Gen.Select(Gen.Bool, Gen.OneOfConst<string?>(null, "", " ", "not a url", "https://example.com", "http://x.atlassian.net/../"))
+            .SampleAsync(async t =>
+            {
+                var (admin, siteUrl) = t;
+                var world = new World(admin);
+                var http = Substitute.For<IHttpClientFactory>();
+
+                var resolved = await new ResolveAtlassianSite(http, world.Authorizer).RunAsync(Caller, siteUrl);
+
+                resolved.Status.Should().Be(admin ? ConnectionStatus.Invalid : ConnectionStatus.Forbidden);
+                http.DidNotReceiveWithAnyArgs().CreateClient(default!);
+            }, iter: 100);
+
+    [Fact]
     [RandomInputTestOf(typeof(ReplaceConnectionSecret))]
     public Task ReplaceSecret_AnySecret_StoresOnlyAnAdministratorsCheckedKeyOrToken() =>
         Gen.Select(Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.Custom, ConnectionProvider.S3, ConnectionProvider.Atlassian),

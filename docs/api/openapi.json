@@ -4930,6 +4930,206 @@
         }
       }
     },
+    "/api/v1/connections/{connectionId}/test": {
+      "post": {
+        "tags": [
+          "Connections"
+        ],
+        "description": "Test a connection against its provider: its stored settings, or settings given in the body before they are saved. A stored secret is only used with the stored settings; other settings need their own. A failed test is a 200 with success false. Nothing is saved but the connection's health.",
+        "operationId": "connections.test",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TestConnectionApiRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionTestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connections/{connectionId}/host-key": {
+      "delete": {
+        "tags": [
+          "Connections"
+        ],
+        "description": "Forget the host key an SFTP connection pinned on first connect. The next connection trusts and pins the key the server offers. Forgetting a key that was never pinned changes nothing.",
+        "operationId": "connections.forgetHostKey",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connections/{connectionId}/secret": {
       "put": {
         "tags": [
@@ -12654,6 +12854,43 @@
           }
         }
       },
+      "ConnectionTestResponse": {
+        "required": [
+          "success",
+          "warning",
+          "message",
+          "warningUrl",
+          "health"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "warning": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "warningUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "health": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectionHealth"
+              }
+            ]
+          }
+        }
+      },
       "ConnectionTestResult": {
         "required": [
           "success",
@@ -16899,6 +17136,36 @@
           "Succeeded",
           "Failed"
         ]
+      },
+      "TestConnectionApiRequest": {
+        "type": "object",
+        "properties": {
+          "config": { },
+          "privateKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "passphrase": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "probeTarget": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "TestConnectionRequest": {
         "required": [

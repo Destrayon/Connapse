@@ -81,6 +81,28 @@ public static class ConnectionCallers
     }
 
     /// <summary>
+    /// Tests the form's settings through connections.test: those of <paramref name="editing"/> when given (null
+    /// <paramref name="settings"/> tests it as stored), otherwise an unsaved connection's.
+    /// </summary>
+    public static Task<Attempt<ConnectionTested, ConnectionStatus>> TestAsync(
+        this ConnectionOperations operations, AuthenticationState authentication, Connection? editing, string name,
+        ConnectionProvider? provider, ConnectionSettings? settings, string? probeTarget) =>
+        editing is not null
+            ? operations.Test.RunAsync(Caller(authentication), new ConnectionRef(editing.Id), new ConnectionTestRequest(settings, probeTarget))
+            : operations.Test.RunDraftAsync(Caller(authentication),
+                new DraftConnectionTest(name, provider, settings ?? new ConnectionSettings("{}"), probeTarget));
+
+    /// <summary>Forgets the SFTP server's pinned host key through connections.forgetHostKey; a refusal goes to <paramref name="failed"/>.</summary>
+    public static async Task<bool> ForgetHostKeyAsync(
+        this ConnectionOperations operations, AuthenticationState authentication, Connection connection, Action<string> failed)
+    {
+        var forgotten = await operations.ForgetHostKey.RunAsync(Caller(authentication), new ConnectionRef(connection.Id));
+        if (!forgotten.Succeeded)
+            failed(forgotten.Detail ?? $"The host key of '{connection.Name}' could not be forgotten.");
+        return forgotten.Succeeded;
+    }
+
+    /// <summary>
     /// Deletes the connection through connections.delete, confirmed by its own name. Any refusal but
     /// <see cref="ConnectionStatus.InUse"/>, which the page shows with the sources blocking it, goes to <paramref name="failed"/>.
     /// </summary>

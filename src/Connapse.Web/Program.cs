@@ -214,7 +214,9 @@ builder.Services.AddSingleton<Connapse.Application.Ports.IBackgroundReindex, Con
 builder.Services.AddScoped<Connapse.Application.Ports.IConnectionTests, Connapse.Web.Services.ConnectionTests>();
 builder.Services.AddScoped<Connapse.Web.Components.SettingsPageSaves>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
-builder.Services.AddScoped<Connapse.Application.Ports.IConnectionSettingsRules, Connapse.Web.Services.ConnectionSettingsRules>();
+builder.Services.AddScoped<Connapse.Web.Services.ConnectionSettingsRules>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionSettingsRules>(sp => sp.GetRequiredService<Connapse.Web.Services.ConnectionSettingsRules>());
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionTestRunner, Connapse.Web.Services.ConnectionTestRunner>();
 builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
 builder.Services.AddScoped<Connapse.Application.Ports.IDocumentAccess, Connapse.Web.Services.DocumentAccess>();

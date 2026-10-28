@@ -100,6 +100,11 @@
       "risk": "destructive",
       "scope": "admin:sources"
     },
+    "DELETE /api/v1/connections/{connectionId:guid}/host-key": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:sources"
+    },
     "DELETE /api/v1/oauth-clients/{clientId}": {
       "requires": "admin",
       "risk": "destructive",
@@ -708,7 +713,7 @@
     "POST /api/v1/atlassian/sites/resolve": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/atlassian/sites/{connectionId:guid}/pause": {
       "requires": "admin",
@@ -723,7 +728,7 @@
     "POST /api/v1/atlassian/sites/{connectionId:guid}/test": {
       "requires": "admin",
       "risk": "write",
-      "scope": null
+      "scope": "admin:sources"
     },
     "POST /api/v1/auth/cloud/aws/acs": {
       "requires": "anonymous",
@@ -756,6 +761,11 @@
       "scope": "admin:sources"
     },
     "POST /api/v1/connections/{connectionId:guid}/resume": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:sources"
+    },
+    "POST /api/v1/connections/{connectionId:guid}/test": {
       "requires": "admin",
       "risk": "write",
       "scope": "admin:sources"

@@ -1,5 +1,4 @@
 [
-  "Connections.AtlassianConnectionForm -> IConnectionStore",
   "Pages.Connections -> IConnectionStore",
   "Pages.Connections -> ICustomProviderStore",
   "Pages.Connections -> IProviderCredentialStore",

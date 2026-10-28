@@ -653,7 +653,8 @@ public sealed class DeleteConnection(IConnectionStore connections, ISourceStore 
 /// <summary>Every connection operation in one place, for the pages that offer several of them.</summary>
 public sealed class ConnectionOperations(
     ListConnections list, GetConnection get, CreateConnection create, UpdateConnection update,
-    ReplaceConnectionSecret replaceSecret, PauseConnection pause, ResumeConnection resume, DeleteConnection delete)
+    ReplaceConnectionSecret replaceSecret, PauseConnection pause, ResumeConnection resume, DeleteConnection delete,
+    TestConnection test, ForgetConnectionHostKey forgetHostKey)
 {
     public ListConnections List { get; } = list;
 
@@ -670,4 +671,8 @@ public sealed class ConnectionOperations(
     public ResumeConnection Resume { get; } = resume;
 
     public DeleteConnection Delete { get; } = delete;
+
+    public TestConnection Test { get; } = test;
+
+    public ForgetConnectionHostKey ForgetHostKey { get; } = forgetHostKey;
 }

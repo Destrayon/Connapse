@@ -152,7 +152,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
         _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
 
-        var result = await _sites.RetestAsync(site.Id);
+        var result = (await _sites.TestStoredAsync(site.Id)).Result;
 
         result!.Success.Should().BeTrue();
         result.Message.Should().Contain("read Jira");
@@ -347,11 +347,10 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
         _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
 
-        var result = await _sites.RetestAsync(site.Id);
+        var run = await _sites.TestStoredAsync(site.Id);
 
-        result!.Success.Should().BeFalse();
-        await _store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => h.CredentialRejected && h.Origin == "test" && h.Step == "token"), Arg.Any<CancellationToken>());
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().Match<ConnectionHealth>(h => h.CredentialRejected && h.Origin == "test" && h.Step == "token");
         _events.Select(e => e.Action).Should().Equal("connection.test_started", "connection.test_step_failed");
         _events.Should().OnlyContain(e => e.Id == site.Id.ToString());
     }
@@ -369,11 +368,10 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         else
             _api.AnswerTokenWith("{}");
 
-        var result = await _sites.RetestAsync(site.Id);
+        var run = await _sites.TestStoredAsync(site.Id);
 
-        result!.Success.Should().BeFalse();
-        await _store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token"), Arg.Any<CancellationToken>());
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().Match<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token");
     }
 
     [Fact]

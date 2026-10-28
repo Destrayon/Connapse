@@ -2,16 +2,13 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Connapse.Application;
 using Connapse.Application.Connections;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors.Atlassian;
 
 namespace Connapse.Web.Services;
-
-public enum AtlassianResolveOutcome { Resolved, InvalidAddress, NotFound }
-
-public sealed record AtlassianResolveResult(AtlassianResolveOutcome Outcome, string? SiteUrl = null, string? CloudId = null);
 
 public enum AtlassianAddOutcome { Created, MissingFields, TestFailed, Conflict, NameTaken, Forbidden }
 
@@ -144,19 +141,6 @@ public sealed class AtlassianSiteService(
     TimeProvider? time = null)
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
-
-    public async Task<AtlassianResolveResult> ResolveAsync(string? siteUrl, CancellationToken ct = default)
-    {
-        string? normalized = AtlassianSiteResolver.NormalizeSiteUrl(siteUrl);
-        if (normalized is null)
-            return new AtlassianResolveResult(AtlassianResolveOutcome.InvalidAddress);
-
-        using var http = httpClients.CreateClient(AtlassianSiteResolver.HttpClientName);
-        string? cloudId = await AtlassianSiteResolver.ResolveCloudIdAsync(http, normalized, ct);
-        return cloudId is null
-            ? new AtlassianResolveResult(AtlassianResolveOutcome.NotFound, normalized)
-            : new AtlassianResolveResult(AtlassianResolveOutcome.Resolved, normalized, cloudId);
-    }
 
     /// <summary>The name a new site's connection is given: its host, marked for Jira.</summary>
     public static string DefaultName(string host, AtlassianProduct product) =>
@@ -410,15 +394,15 @@ public sealed class AtlassianSiteService(
         obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     /// <summary>
-    /// Runs every probe again with the stored secret and records the outcome as the site's health.
-    /// Null when the connection is gone or unreadable.
+    /// Runs every probe again with the stored secret; the outcome is the site's health, which connections.test records.
+    /// Refused as not found when the connection is gone or its settings unreadable.
     /// </summary>
-    public async Task<ConnectionTestResult?> RetestAsync(Guid connectionId, CancellationToken ct = default)
+    public async Task<ConnectionTestRun> TestStoredAsync(Guid connectionId, CancellationToken ct = default)
     {
         Connection? connection = await connections.GetAsync(connectionId, ct);
         if (connection is not { Provider: ConnectionProvider.Atlassian }
             || AtlassianSite.FromConfigJson(connection.ConfigJson) is not { } site)
-            return null;
+            return Unreadable;
 
         string? secret;
         try
@@ -429,13 +413,18 @@ public sealed class AtlassianSiteService(
         {
             secret = null;
         }
+        // A failed test, not a refusal, so the form shows how to fix it; nothing was checked, so no health is recorded.
         if (secret is null)
-            return null;
+            return new ConnectionTestRun(ConnectionTestResult.CreateFailure(
+                "The stored credential for this site can't be read. Choose Replace credentials and enter it again.",
+                new Dictionary<string, object> { ["step"] = AtlassianConnectionTester.TokenStep, ["troubleshoot"] = AtlassianSiteTroubleshooting.CredentialsRejected }));
 
         var result = await TestAsync("retest", connectionId, new AtlassianSiteTestRequest(site.SiteUrl, site.ClientId, secret, site.Product), ct);
-        await connections.RecordHealthAsync(connectionId, HealthOf(result), ct);
-        return result;
+        return new ConnectionTestRun(result, HealthOf(result));
     }
+
+    private static readonly ConnectionTestRun Unreadable = ConnectionTestRun.Refuse(
+        "No such Atlassian site, or its settings can't be read.", refusal: ConnectionStatus.NotFound);
 
     /// <summary>A passing test, or one whose only problem is a warning the admin chose to save past.</summary>
     private static bool Saveable(ConnectionTestResult result, bool saveAnyway) =>

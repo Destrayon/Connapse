@@ -18,8 +18,6 @@
 @inject ISourceStore SourceStore
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
 @inject IContainerHostResolver HostResolver
-@inject S3ConnectionTester S3Tester
-@inject AzureBlobConnectionTester AzureBlobTester
 @inject SftpConnectionTester SftpTester
 @inject IS3Discovery S3Discovery
 @inject IAzureBlobDiscovery AzureDiscovery
@@ -1742,7 +1740,6 @@
             await AuditCustomCheckAsync(passed: false, probe.Field == "secret" ? "token" : "endpoint", probe.BaseUrl);
             return probe.Error;
         }
-        customScopeCount = probe.Scopes.Count;
 
         if (CustomAddressLocked && !string.Equals(probe.BaseUrl, stored, StringComparison.Ordinal))
         {
@@ -1754,8 +1751,6 @@
         await AuditCustomCheckAsync(passed: true, "scopes", probe.BaseUrl);
         return null;
     }
-
-    private int customScopeCount;
 
     /// <summary>
     /// Audits a custom connection check with the step it reached, so setup drop-off can be measured. The address is
@@ -2953,7 +2948,11 @@
                     return;
 
                 var updated = saved.Result!.Connection;
-                await RecordCustomCheckAsync(updated.Id);
+
+                // A change of settings keeps the pinned key; only forgetting it re-arms trust on first use.
+                if (form.Provider == ConnectionProvider.Sftp && form.ForgetHostKey
+                    && !await Operations.ForgetHostKeyAsync(await Authentication, updated, Fail))
+                    return;
                 Succeed($"Connection '{form.Name.Trim()}' saved.{HostRewriteSuffix()}");
                 ReturnFocusToList(updated.Id);
             }
@@ -2971,47 +2970,6 @@
         {
             saving = false;
         }
-    }
-
-    /// <summary>
-    /// Checks a custom connection without saving it: a content-only one against the address and token in the form
-    /// (the stored token, for the stored address), one with a provider against the provider's middle man.
-    /// </summary>
-    private async Task TestCustomAsync()
-    {
-        if (CustomFieldProblem() is { } problem)
-        {
-            await RefuseCustomFieldAsync(problem.Message, problem.Field);
-            return;
-        }
-
-        if (form.CustomContentOnly)
-        {
-            if (await CheckCustomMiddleManAsync() is not null)
-            {
-                await RefuseCustomFieldAsync(customError, customField);
-                return;
-            }
-            testSuccess = true;
-            testMessage = $"Reachable, token accepted, and it offers {customScopeCount} scope{(customScopeCount == 1 ? "" : "s")}. Nothing was saved.";
-            if (!isNew && editing is not null) await RecordCustomCheckAsync(editing.Id);
-            return;
-        }
-
-        Connection draft = new(editing?.Id ?? Guid.Empty, form.Name, ConnectionProvider.Custom,
-            CustomConnectionConfig.ToJson(form.CustomProviderId!.Value), null, DateTime.UtcNow, DateTime.UtcNow);
-        CustomSourceProbe probe = await CustomSetup.ProbeConnectionAsync(draft, CancellationToken.None);
-        testSuccess = probe.Error is null;
-        testMessage = probe.Error ?? $"The provider's source server is reachable, accepts its token, and offers {probe.Scopes.Count} scope{(probe.Scopes.Count == 1 ? "" : "s")}.";
-        await AuditCustomCheckAsync(testSuccess, testSuccess ? "scopes" : "provider", probe.BaseUrl);
-    }
-
-    /// <summary>A content-only custom connection was just checked against its middle man: that is its health.</summary>
-    private async Task RecordCustomCheckAsync(Guid id)
-    {
-        if (form.Provider != ConnectionProvider.Custom || !form.CustomContentOnly) return;
-        await ConnectionStore.RecordHealthAsync(id, new ConnectionHealth(
-            DateTime.UtcNow, Succeeded: true, Step: null, "Reachable, token accepted.", Origin: "test"));
     }
 
     /// <summary>Refuses while sources depend on the connection; otherwise asks before deleting.</summary>
@@ -3071,36 +3029,17 @@
         }
     }
 
-    /// <summary>
-    /// The key a test should use: the one typed into the form, or the connection's stored one
-    /// when the field was left blank. Returns a problem message instead when neither is available.
-    /// </summary>
-    private async Task<(string? Key, string? Passphrase, string? Problem)> ResolveTestKeyAsync()
-    {
-        if (!string.IsNullOrWhiteSpace(form.PrivateKey))
-            return (form.PrivateKey.Trim(), NullIfBlank(form.Passphrase), null);
-
-        if (editing is null)
-            return (null, null, "Paste the private key to test this connection.");
-
-        string? secret = await ConnectionStore.GetSecretAsync(editing.Id);
-        if (string.IsNullOrWhiteSpace(secret))
-            return (null, null, "This connection has no stored key. Paste one to test.");
-
-        var credential = SftpCredential.TryParse(secret);
-        if (credential is null || string.IsNullOrWhiteSpace(credential.PrivateKey))
-            return (null, null, "The stored key could not be read. Paste a key to replace it.");
-
-        // A passphrase typed now is preferred: the operator may be correcting one that is wrong.
-        return (credential.PrivateKey, NullIfBlank(form.Passphrase) ?? credential.Passphrase, null);
-    }
-
     /// <summary>The provider's own error text from a failed test, or null when there is none to show.</summary>
     private static string? RawError(ConnectionTestResult result) =>
         !result.Success && result.Details is { } details && details.TryGetValue("error", out object? raw)
             ? raw?.ToString()
             : null;
 
+    /// <summary>
+    /// Tests the form as the REST API's connections.test does. A key or token left blank means the stored one, which
+    /// is only ever used with the stored settings it was saved for. The secrets stay on the server either way: this
+    /// runs inside the circuit, and only the outcome is rendered.
+    /// </summary>
     private async Task Test()
     {
         testing = true;
@@ -3111,148 +3050,37 @@
 
         try
         {
-            if (form.Provider == ConnectionProvider.Custom)
+            if (CustomFieldProblem() is { } problem)
             {
-                await TestCustomAsync();
+                await RefuseCustomFieldAsync(problem.Message, problem.Field);
                 return;
             }
+            (customError, customField) = (null, null);
 
-            if (form.Provider == ConnectionProvider.GitHub)
+            ConnectionSettings? settings = isNew || form.OwnsConfig
+                ? new ConnectionSettings(form.ToConfigJson(), form.PrivateKey, form.Passphrase, form.CustomToken)
+                : null;
+            var tested = await Operations.TestAsync(await Authentication, isNew ? null : editing, form.Name, form.Provider,
+                settings, probeTarget);
+
+            if (!tested.Succeeded)
             {
-                if (form.GitHubInstallationId is not { } installationId)
+                if (form.Provider == ConnectionProvider.Custom && tested.Field is "baseUrl" or "secret" or "provider")
                 {
-                    testSuccess = false;
-                    testMessage = "Choose an installation to test.";
+                    await RefuseCustomFieldAsync(tested.Detail, tested.Field);
                     return;
                 }
-
-                // Each layer in turn, so a failure says which: the App's key signs in, the
-                // installation still exists (a token is minted for it), and it covers repositories.
-                string account = form.GitHubAccount ?? "the chosen account";
-                try
-                {
-                    var covered = await GitHubApp.ListInstallationRepositoriesAsync(installationId, max: 1);
-                    var installation = gitHubInstallations?.FirstOrDefault(i => i.Id == installationId);
-                    testSuccess = true;
-                    testWarning = covered.TotalCount == 0;
-                    testWarningLink = testWarning && installation?.HtmlUrl is { Length: > 0 } url ? url : null;
-                    testMessage = covered.TotalCount > 0
-                        ? $"Signed in as the App. The {account} installation is active and covers {covered.TotalCount} "
-                          + (covered.TotalCount == 1 ? "repository" : "repositories")
-                          + (installation?.RepositorySelection == "all" ? " (all repositories)." : " (selected repositories).")
-                        : $"Signed in as the App, and the {account} installation is active, but it covers no repositories yet, so there is nothing to add as a source. Choose repositories on GitHub.";
-                }
-                catch (Exception ex)
-                {
-                    testSuccess = false;
-                    testMessage = GitHubMessages.Describe(ex, account);
-                    testDetail = ex.Message;
-                }
-                return;
-            }
-
-            if (form.Provider == ConnectionProvider.Sftp)
-            {
-                // A key typed into the form wins, so a new one can be checked before it is
-                // committed. Otherwise the stored one is used — the field says "leave blank to
-                // keep the stored key", and a test that then demanded the key back would be
-                // asking for something the operator was told they would never see again.
-                //
-                // The key never reaches the browser either way: this runs on the server, inside
-                // the circuit, and only the outcome is rendered.
-                (string? key, string? passphrase, string? problem) = await ResolveTestKeyAsync();
-                if (problem is not null)
-                {
-                    testSuccess = false;
-                    testMessage = problem;
-                    return;
-                }
-
-                // What Connapse will actually dial, which is not always what was typed. See
-                // IContainerHostResolver: loopback means the container, not the operator's machine.
-                var resolved = HostResolver.Resolve(form.Host);
-
-                var sftpResult = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
-                {
-                    Host = resolved.Host,
-                    Port = int.TryParse(form.Port, out int p) ? p : 22,
-                    Username = form.Username?.Trim() ?? "",
-                    AllowedRoot = form.AllowedRoot?.Trim() ?? "",
-                    PrivateKey = key!,
-                    Passphrase = passphrase,
-
-                    // Honoured unless the operator has chosen to forget it, so a test reports a
-                    // changed host key the same way a sync would.
-                    PinnedHostKeyFingerprint = form.ForgetHostKey ? null : NullIfBlank(form.HostKeyFingerprint),
-                }, TimeSpan.FromSeconds(15));
-
-                testSuccess = sftpResult.Success;
-                testDetail = RawError(sftpResult);
-
-                // Which key was used, always. Two keys can be in play and they can disagree, so
-                // a bare "Connected" would leave the operator unsure what they just proved.
-                string usedKey = string.IsNullOrWhiteSpace(form.PrivateKey)
-                    ? "Using the stored key."
-                    : "Using the key in this form.";
-
-                // The rewrite is reported on success as well as failure. A test that passes
-                // against a different address than the one on screen is exactly the result an
-                // operator would misread.
-                string rewrite = resolved.Rewritten ? $" ({resolved.Reason})" : "";
-                testMessage = $"{usedKey} {sftpResult.Message}{rewrite}";
-                return;
-            }
-
-            if (form.Provider == ConnectionProvider.AzureBlob)
-            {
-                // Unlike a bucket name, "$root" is not a safe default: Azure storage accounts
-                // do not auto-create a root container, so probing it when nobody has chosen a
-                // container yet would report a perfectly valid account as unreachable.
-                var azureProbe = form.ResolveProbeTarget(probeTarget);
-                if (azureProbe is null)
-                {
-                    testSuccess = false;
-                    testMessage = "Enter a container name (or configure an allowed location) to test this Azure connection.";
-                    return;
-                }
-
-                ConnectionTestResult azureResult = await AzureBlobTester.TestConnectionAsync(new AzureBlobConnectorConfig
-                {
-                    AccountName = form.StorageAccountName?.Trim() ?? "",
-                    BlobEndpoint = NullIfBlank(form.BlobEndpoint),
-                    ContainerName = azureProbe.Value.Container,
-                    Prefix = azureProbe.Value.Prefix,
-                }, TimeSpan.FromSeconds(15));
-
-                testSuccess = azureResult.Success;
-                testMessage = azureResult.Message;
-                testDetail = RawError(azureResult);
-                return;
-            }
-
-            string? target = NullIfBlank(probeTarget) ?? form.FirstAllowedLocation();
-            if (target is null)
-            {
                 testSuccess = false;
-                testMessage = form.Provider == ConnectionProvider.S3
-                    ? "Enter a bucket to test against."
-                    : "Enter a container to test against.";
+                testMessage = tested.Detail ?? "The test could not run.";
                 return;
             }
 
-            var (container, prefix) = ConnectionForm.SplitLocation(target);
-
-            ConnectionTestResult result = await S3Tester.TestConnectionAsync(new S3ConnectorConfig
-            {
-                Region = NullIfBlank(form.Region) ?? "us-east-1",
-                RoleArn = NullIfBlank(form.RoleArn),
-                BucketName = container,
-                Prefix = prefix,
-            }, TimeSpan.FromSeconds(15));
-
+            ConnectionTestResult result = tested.Result!.Result;
             testSuccess = result.Success;
             testMessage = result.Message;
             testDetail = RawError(result);
+            testWarning = result.Details?.TryGetValue("warning", out object? warning) == true && warning is true;
+            testWarningLink = result.Details?.TryGetValue("warningUrl", out object? url) == true ? url as string : null;
         }
         catch (Exception ex)
         {

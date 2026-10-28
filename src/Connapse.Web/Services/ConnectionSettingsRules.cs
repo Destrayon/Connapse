@@ -8,6 +8,9 @@ using Connapse.Web.Components.Settings;
 
 namespace Connapse.Web.Services;
 
+/// <summary>How checking a custom source server went: why it was refused, or how many scopes it offers.</summary>
+public sealed record SourceServerCheck(SettingsCheck? Refused, int Scopes);
+
 /// <summary>
 /// The Connections page's save checks, which connections.create and connections.update call: the form's rules,
 /// a GitHub installation the App still has, an S3 bucket's region, a custom source server that accepts its
@@ -58,7 +61,7 @@ public sealed class ConnectionSettingsRules(
                 break;
 
             case ConnectionProvider.Custom:
-                if (await CheckSourceServerAsync(form, current, ct) is { } refused)
+                if ((await CheckSourceServerAsync(form, current, ct)).Refused is { } refused)
                     return refused;
                 verified = true;
                 break;
@@ -95,9 +98,10 @@ public sealed class ConnectionSettingsRules(
 
     /// <summary>
     /// Checks a content-only custom connection's source server with the address and token about to be saved (the
-    /// stored token when none was given), and keeps the address as normalised. Null when it may be saved.
+    /// stored token when none was given), and keeps the address as normalised. Refused null when it may be saved;
+    /// connections.test runs the same check.
     /// </summary>
-    private async Task<SettingsCheck?> CheckSourceServerAsync(ConnectionForm form, Connection? current, CancellationToken ct)
+    public async Task<SourceServerCheck> CheckSourceServerAsync(ConnectionForm form, Connection? current, CancellationToken ct)
     {
         string? stored = CustomConnectionConfig.BaseUrlOf(current?.ConfigJson);
         bool typedToken = !string.IsNullOrWhiteSpace(form.CustomToken);
@@ -107,7 +111,8 @@ public sealed class ConnectionSettingsRules(
         if (!typedToken && current is not null && !CustomSourceEndpoint.SameAddress(form.CustomBaseUrl, stored))
         {
             await AuditCheckAsync(current, passed: false, "token", checkedUrl: null, ct);
-            return SettingsCheck.Refuse($"Enter the token for this address. The saved token is only sent to {stored}.", "secret");
+            return new SourceServerCheck(
+                SettingsCheck.Refuse($"Enter the token for this address. The saved token is only sent to {stored}.", "secret"), 0);
         }
 
         string? token = typedToken ? form.CustomToken
@@ -118,17 +123,17 @@ public sealed class ConnectionSettingsRules(
         if (probe.Error is not null)
         {
             await AuditCheckAsync(current, passed: false, probe.Field == "secret" ? "token" : "endpoint", probe.BaseUrl, ct);
-            return SettingsCheck.Refuse(probe.Error, probe.Field,
-                probe.Unreachable ? SettingsRefusal.Unavailable : SettingsRefusal.Invalid);
+            return new SourceServerCheck(SettingsCheck.Refuse(probe.Error, probe.Field,
+                probe.Unreachable ? SettingsRefusal.Unavailable : SettingsRefusal.Invalid), 0);
         }
 
         // A content-only connection's address is what its sources read, so it is fixed while any exist.
         if (current is { SourceCount: > 0 } && !string.Equals(probe.BaseUrl, stored, StringComparison.Ordinal))
-            return SettingsCheck.Refuse("Sources read this address, so it cannot change.", "baseUrl");
+            return new SourceServerCheck(SettingsCheck.Refuse("Sources read this address, so it cannot change.", "baseUrl"), 0);
 
         form.CustomBaseUrl = probe.BaseUrl;
         await AuditCheckAsync(current, passed: true, "scopes", probe.BaseUrl, ct);
-        return null;
+        return new SourceServerCheck(null, probe.Scopes.Count);
     }
 
     /// <summary>

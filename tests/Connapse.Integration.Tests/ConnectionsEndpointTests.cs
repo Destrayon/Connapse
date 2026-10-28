@@ -110,7 +110,45 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
         (await editor.PostAsJsonAsync($"{Connections}/{id}/resume", new { })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await editor.DeleteAsync($"{Connections}/{id}?confirmName=x")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await editor.PutAsJsonAsync($"{Connections}/{id}/secret", new { privateKey = "x" })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.PostAsJsonAsync($"{Connections}/{id}/test", new { })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.DeleteAsync($"{Connections}/{id}/host-key")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await AuditActionsFor(id)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Test_SftpSettingsForAnotherServerWithoutAKey_Returns400WithoutUsingTheStoredKey()
+    {
+        Connection created = await CreateAsync(Unique("test-other"),
+            """{"host":"sftp.example.com","port":22,"username":"reader","allowedRoot":"/data"}""");
+
+        var refused = await fixture.AdminClient.PostAsJsonAsync($"{Connections}/{created.Id}/test",
+            new { config = new { host = "attacker.example.com", port = 22, username = "reader", allowedRoot = "/data" } });
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("field").GetString().Should().Be("privateKey");
+        body.GetProperty("detail").GetString().Should().Contain("reader@sftp.example.com:22");
+        (await fixture.AdminClient.PostAsJsonAsync($"{Connections}/{Guid.NewGuid()}/test", new { }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ForgetHostKey_RemovesOnlyThePinnedKeyAndAudits()
+    {
+        Connection created = await CreateAsync(Unique("host-key"),
+            """{"host":"sftp.example.com","port":22,"username":"reader","allowedRoot":"/data","hostKeyFingerprint":"SHA256:pinned"}""");
+
+        var response = await fixture.AdminClient.DeleteAsync($"{Connections}/{created.Id}/host-key");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var config = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("config");
+        config.TryGetProperty("hostKeyFingerprint", out _).Should().BeFalse();
+        config.GetProperty("host").GetString().Should().Be("sftp.example.com");
+        using (var scope = fixture.Factory.Services.CreateScope())
+            (await scope.ServiceProvider.GetRequiredService<IConnectionStore>().GetSecretAsync(created.Id)).Should().Be(Secret);
+        (await AuditActionsFor(created.Id)).Should().Equal("connection.host_key_forgotten");
+        (await fixture.AdminClient.DeleteAsync($"{Connections}/{Guid.NewGuid()}/host-key"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

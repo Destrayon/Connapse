@@ -330,19 +330,15 @@ public static class AtlassianEndpoints
         // this cannot be pointed at another host.
         group.MapPost("/resolve", async (
             [FromBody] ResolveAtlassianSiteRequest request,
-            [FromServices] AtlassianSiteService sites,
+            [FromServices] ResolveAtlassianSite resolve,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var resolved = await sites.ResolveAsync(request.SiteUrl, ct);
-            return resolved.Outcome switch
-            {
-                AtlassianResolveOutcome.InvalidAddress =>
-                    ApiProblem.BadRequest("The site address must look like https://your-site.atlassian.net."),
-                AtlassianResolveOutcome.NotFound =>
-                    ApiProblem.NotFound($"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}."),
-                _ => Results.Ok(new AtlassianSiteResolved(resolved.SiteUrl, resolved.CloudId)),
-            };
-        }).RequireAuthorization("RequireAdmin")
+            var resolved = await resolve.RunAsync(Rest(http), request.SiteUrl, ct);
+            return resolved.Succeeded
+                ? Results.Ok(new AtlassianSiteResolved(resolved.Result!.SiteUrl, resolved.Result.CloudId))
+                : OperationProblems.Result(resolved);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianSiteResolved>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound);
@@ -504,14 +500,15 @@ public static class AtlassianEndpoints
         // secret. The result is recorded as the site's health either way.
         group.MapPost("/{connectionId:guid}/test", async (
             Guid connectionId,
-            [FromServices] AtlassianSiteService sites,
+            [FromServices] TestAtlassianSite test,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var result = await sites.RetestAsync(connectionId, ct);
-            return result is null
-                ? ApiProblem.NotFound("No such Atlassian site, or its stored credential can't be read.")
-                : Results.Ok(Report(result));
-        }).RequireAuthorization("RequireAdmin")
+            var tested = await test.RunAsync(Rest(http), connectionId, ct);
+            return tested.Succeeded
+                ? Results.Ok(Report(tested.Result!.Result))
+                : OperationProblems.Result(tested);
+        }).RequireAuthorization("RequireSourcesAdmin")
         .Produces<AtlassianTestReport>()
         .ProducesProblem(StatusCodes.Status404NotFound);
 

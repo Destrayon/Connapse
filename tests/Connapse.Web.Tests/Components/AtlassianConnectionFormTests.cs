@@ -39,12 +39,21 @@ public class AtlassianConnectionFormTests : IDisposable
         ctx.Services.AddSingleton(audit);
         var authorizer = Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>();
         authorizer.AllowsAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
-        ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
+        var sites = new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
             new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System),
             new Connapse.Application.Connections.CreateConnection(store, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
                 audit, authorizer),
             new Connapse.Application.Connections.ReplaceConnectionSecret(store, Substitute.For<ISourceStore>(),
-                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), audit, authorizer)));
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), audit, authorizer));
+        ctx.Services.AddSingleton(sites);
+
+        // connections.test runs an Atlassian site's test through the site service, as the real runner does.
+        var runner = Substitute.For<Connapse.Application.Ports.IConnectionTestRunner>();
+        runner.TestAsync(Arg.Any<Connapse.Application.Ports.ConnectionTestSubject>(), Arg.Any<CancellationToken>())
+            .Returns(c => sites.TestStoredAsync(c.Arg<Connapse.Application.Ports.ConnectionTestSubject>().Stored!.Id));
+        ctx.Services.AddSingleton(new Connapse.Application.Connections.AtlassianSiteChecks(
+            new Connapse.Application.Connections.ResolveAtlassianSite(http, authorizer),
+            new Connapse.Application.Connections.TestAtlassianSite(new Connapse.Application.Connections.TestConnection(store, runner, authorizer))));
     }
 
     public void Dispose() => ctx.Dispose();
@@ -631,8 +640,9 @@ public class AtlassianConnectionFormTests : IDisposable
         {
             Health = new ConnectionHealth(DateTime.UtcNow, Succeeded: false, Step: "token", Message: "m", Origin: "test", CredentialRejected: true),
         };
-        store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site, refreshed);
+        store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
         store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        store.RecordHealthAsync(site.Id, Arg.Any<ConnectionHealth>(), Arg.Any<CancellationToken>()).Returns(refreshed.Health);
         var cut = ctx.Render<AtlassianConnectionForm>(p => p.Add(f => f.Existing, site));
 
         cut.Find("#atlassian-retest").Click();
