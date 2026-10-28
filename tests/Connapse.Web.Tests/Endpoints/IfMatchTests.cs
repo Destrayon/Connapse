@@ -18,12 +18,10 @@ public class IfMatchTests
         versions.Should().BeNull();
     }
 
-    [Theory]
-    [InlineData("*")]
-    [InlineData("\"abc\", *")]
-    public void TryRead_Star_IsUnconditional(string header)
+    [Fact]
+    public void TryRead_StarAlone_IsUnconditional()
     {
-        IfMatch.TryRead(header, out var versions).Should().BeTrue();
+        IfMatch.TryRead("*", out var versions).Should().BeTrue();
         versions.Should().BeNull();
     }
 
@@ -50,8 +48,16 @@ public class IfMatchTests
     [InlineData("\"abc")]
     [InlineData("")]
     [InlineData(",")]
-    public void TryRead_NotAListOfTags_IsRefused(string header) =>
+    [InlineData("\"stale\", *")]
+    [InlineData("*, *")]
+    [InlineData("\"abc\", junk")]
+    [InlineData("junk, \"abc\"")]
+    public void TryRead_NotStarAloneOrAListOfTags_IsRefused(string header) =>
         IfMatch.TryRead(header, out _).Should().BeFalse();
+
+    [Fact]
+    public void TryRead_StarOnAnotherHeaderLine_IsRefused() =>
+        IfMatch.TryRead(new StringValues(["\"stale\"", "*"]), out _).Should().BeFalse();
 
     [Fact]
     public void ETag_QuotesTheVersion() =>

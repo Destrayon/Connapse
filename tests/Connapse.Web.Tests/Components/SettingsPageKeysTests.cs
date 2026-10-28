@@ -153,8 +153,8 @@ public class SettingsPageKeysTests : IDisposable
         LlmSettings? stored = null;
         ctx.Services.GetRequiredService<IOperationAuthorizer>()
             .AllowsAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
-        store.UpdateAsync("llm", Arg.Any<Func<LlmSettings?, LlmSettings>>(), Arg.Any<CancellationToken>())
-            .Returns(call => stored = call.Arg<Func<LlmSettings?, LlmSettings>>()(null));
+        store.UpdateWithRevisionAsync("llm", Arg.Any<Func<LlmSettings?, string?, LlmSettings>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (stored = call.Arg<Func<LlmSettings?, string?, LlmSettings>>()(null, null), "1"));
         var saves = ctx.Services.GetRequiredService<SettingsPageSaves>();
         var opened = saves.Open<LlmSettings>("llm");
 

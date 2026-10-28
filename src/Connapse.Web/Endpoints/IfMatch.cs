@@ -11,18 +11,20 @@ namespace Connapse.Web.Endpoints;
 public static class IfMatch
 {
     /// <summary>
-    /// False when the header is present but isn't a list of entity tags. Otherwise <paramref name="versions"/> is
-    /// null when the write is unconditional (no header, or <c>*</c>), or the strong tags' values, unquoted.
+    /// False when the header is present but isn't exactly <c>*</c> or a list of entity tags, checked strictly so
+    /// nothing malformed is skipped over. Otherwise <paramref name="versions"/> is null when the write is
+    /// unconditional (no header, or <c>*</c> alone), or the strong tags' values, unquoted.
     /// </summary>
     public static bool TryRead(StringValues header, out IReadOnlyCollection<string>? versions)
     {
         versions = null;
         if (header.Count == 0)
             return true;
-        if (!EntityTagHeaderValue.TryParseList(header, out var tags) || tags.Count == 0)
+        if (!EntityTagHeaderValue.TryParseStrictList(header, out var tags) || tags.Count == 0)
             return false;
+        // "*" / #entity-tag: a wildcard in a list of tags is malformed, not a licence to write unconditionally.
         if (tags.Any(t => t.Equals(EntityTagHeaderValue.Any)))
-            return true;
+            return tags.Count == 1;
 
         versions = tags.Where(t => !t.IsWeak).Select(t => t.Tag.ToString()[1..^1]).ToList();
         return true;

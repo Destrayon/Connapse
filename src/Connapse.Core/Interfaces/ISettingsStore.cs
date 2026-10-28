@@ -36,6 +36,18 @@ public interface ISettingsStore
     Task<T> UpdateAsync<T>(string category, Func<T?, T> update, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
+    /// <see cref="GetAsync{T}"/>, with the stored value's revision: an opaque string that changes on every write
+    /// of the category, secrets included, and that derives from nothing stored. Both are null when nothing is.
+    /// </summary>
+    Task<(T? Value, string? Revision)> GetWithRevisionAsync<T>(string category, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// <see cref="UpdateAsync{T}(string, Func{T?, T}, CancellationToken)"/>, with <paramref name="update"/> also given
+    /// the current revision (null when nothing is stored), and the new revision returned with the value stored.
+    /// </summary>
+    Task<(T Value, string Revision)> UpdateWithRevisionAsync<T>(string category, Func<T?, string?, T> update, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
     /// Resets settings for a specific category to defaults (removes from store).
     /// </summary>
     /// <param name="category">The settings category identifier.</param>

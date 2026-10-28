@@ -80,11 +80,43 @@ public class SettingsConcurrencyIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task UpdateSettings_MalformedIfMatch_Returns400AndSavesNothing()
+    public async Task UpdateSettings_OnlyAKeyChangedSinceTheRead_Returns412()
+    {
+        const string llm = "/api/settings/llm";
+        var read = await fixture.AdminClient.GetAsync(llm);
+        var original = (await read.Content.ReadFromJsonAsync<LlmSettings>())!;
+        string staleTag = read.Headers.ETag!.ToString();
+        try
+        {
+            // Another administrator changes nothing but a key, which GET never shows.
+            (await fixture.AdminClient.PutAsJsonAsync(llm, original with { OpenAiApiKey = "sk-other-admin" }))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var request = new HttpRequestMessage(HttpMethod.Put, llm) { Content = JsonContent.Create(original with { Model = original.Model + "-x" }) };
+            request.Headers.TryAddWithoutValidation("If-Match", staleTag);
+            var response = await fixture.AdminClient.SendAsync(request);
+
+            response.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        }
+        finally
+        {
+            await fixture.AdminClient.PutAsJsonAsync(llm, original with { OpenAiApiKey = "" });
+        }
+    }
+
+    [Theory]
+    [InlineData("not-a-tag")]
+    [InlineData("\"stale\", *")]
+    [InlineData("*, *")]
+    [InlineData("\"abc")]
+    [InlineData(",")]
+    [InlineData("\"abc\", junk")]
+    [InlineData("junk, \"abc\"")]
+    public async Task UpdateSettings_MalformedIfMatch_Returns400AndSavesNothing(string ifMatch)
     {
         var (original, etag) = await ReadAsync();
 
-        var response = await PutAsync(original with { MaxChunkSize = original.MaxChunkSize + 5 }, "not-a-tag");
+        var response = await PutAsync(original with { MaxChunkSize = original.MaxChunkSize + 5 }, ifMatch);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
