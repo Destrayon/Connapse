@@ -101,6 +101,7 @@ def main():
     p.add_argument("--max-turns", type=int, default=25)
     p.add_argument("--timeout", type=int, default=600)
     p.add_argument("--only", nargs="*")
+    p.add_argument("--pause-file", help="wait before each question while this file exists (memory guard)")
     args = p.parse_args()
 
     out = Path(args.out)
@@ -119,6 +120,8 @@ def main():
     for i, q in enumerate(questions, 1):
         if q["id"] in done:
             continue
+        while args.pause_file and Path(args.pause_file).exists():
+            time.sleep(30)
         rec = run_one(q, args.setup, args, out, mcp_path, system_prompt)
         with summary.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
