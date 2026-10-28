@@ -735,12 +735,12 @@ public class OperationRandomInputTests
     };
 
     /// <summary>An in-memory identity database per sample, as the link stores read and write it.</summary>
-    private static IDbContextFactory<ConnapseIdentityDbContext> IdentityDb()
+    private static IDbContextFactory<ConnapseIdentityDbContext> IdentityDb() =>
+        new InMemoryIdentityDb(new DbContextOptionsBuilder<ConnapseIdentityDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+    private sealed class InMemoryIdentityDb(DbContextOptions<ConnapseIdentityDbContext> options) : IDbContextFactory<ConnapseIdentityDbContext>
     {
-        var options = new DbContextOptionsBuilder<ConnapseIdentityDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
-        var factory = Substitute.For<IDbContextFactory<ConnapseIdentityDbContext>>();
-        factory.CreateDbContextAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(new ConnapseIdentityDbContext(options)));
-        return factory;
+        public ConnapseIdentityDbContext CreateDbContext() => new(options);
     }
 
     private static IOptionsMonitor<T> Unconfigured<T>() where T : class, new()
@@ -848,12 +848,13 @@ public class OperationRandomInputTests
                     CustomAnswer.Missing => Task.FromException(new CustomProviderNotFoundException("gone")),
                     _ => Task.CompletedTask,
                 });
-                var gitHub = new GitHubIdentityLinkStore(IdentityDb(), TimeProvider.System);
+                var db = IdentityDb();
+                var gitHub = new GitHubIdentityLinkStore(db, TimeProvider.System);
                 if (caller.UserId is Guid owner && gitHubLinked)
                     await gitHub.SaveAsync(owner, 42, "octo");
 
                 var unlinked = await new UnlinkAccount(aws, azure, gitHub, new GitHubLinkFlow(new MemoryCache(new MemoryCacheOptions())),
-                    new AtlassianIdentityLinkStore(IdentityDb(), TimeProvider.System), new AtlassianLinkFlow(new MemoryCache(new MemoryCacheOptions())),
+                    new AtlassianIdentityLinkStore(db, TimeProvider.System), new AtlassianLinkFlow(new MemoryCache(new MemoryCacheOptions())),
                     custom, Substitute.For<IConnectorScopeCache>(), Substitute.For<ISourceStore>(), Substitute.For<IConnectionStore>(), audit, authorizer)
                     .RunAsync(caller.Context, new UnlinkAccountRequest(provider, customId));
 

@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- The test host lives for seconds; instrumenting hot methods for profile-guided JIT costs more than it wins back (CON-135). -->
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>
