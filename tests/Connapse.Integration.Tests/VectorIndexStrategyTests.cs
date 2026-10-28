@@ -61,10 +61,16 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
     public async Task Search_WithTheContainerIndex_MatchesExactSearch()
     {
         Guid container = await CreateContainerAsync("vidx-search");
+        Guid other = await CreateContainerAsync("vidx-other");
         try
         {
-            await SeedAsync(container, 300, i => "/doc.txt");
+            // Statistics from before the container had vectors, as autovacuum leaves them: they
+            // estimate it at a row, which makes sorting through the owner_id index look cheaper.
+            await SeedAsync(other, 4000, i => "/doc.txt");
             await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+            await ExecAsync(scope, $"UPDATE chunk_vectors SET model_id = 'other-model' WHERE owner_id = '{other}'");
+            await ExecAsync(scope, "ANALYZE chunk_vectors");
+            await SeedAsync(container, 300, i => "/doc.txt");
             await Manager(scope, threshold: 100).EnsureIndexesAsync();
             (await IndexesAsync(scope)).Should().Contain(VectorColumnManager.GetIndexName(container, Model, 3));
 
@@ -95,6 +101,7 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
         finally
         {
             await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{other}");
         }
     }
 

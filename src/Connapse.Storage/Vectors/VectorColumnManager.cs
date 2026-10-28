@@ -80,12 +80,21 @@ public class VectorColumnManager(
                     await DropIndexAsync(connection, name, "container no longer large enough", ct);
             }
 
+            bool built = false;
             foreach ((string name, VectorGroup group) in byName.OrderBy(g => g.Value.Count))
             {
                 bool wanted = group.Count >= threshold && group.Dimensions <= MaxIndexedDimensions;
                 if (wanted && !(existing.TryGetValue(name, out bool valid) && valid))
+                {
                     await CreateIndexAsync(connection, name, group, ct);
+                    built = true;
+                }
             }
+
+            // Statistics gathered before a container grew estimate it at a row or two, and the
+            // planner then sorts its vectors through the owner_id index instead of using the new one.
+            if (built)
+                await ExecuteAsync(connection, "ANALYZE chunk_vectors", ct);
         }
         finally
         {
