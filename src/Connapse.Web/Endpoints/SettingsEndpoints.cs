@@ -37,15 +37,20 @@ public static class SettingsEndpoints
             CancellationToken ct) =>
         {
             var read = await get.RunAsync(Rest(http), category, ct);
-            return read.Succeeded ? Results.Ok(read.Result!.Settings) : OperationProblems.Result(read);
+            if (!read.Succeeded)
+                return OperationProblems.Result(read);
+            http.Response.Headers.ETag = IfMatch.ETag(read.Result!.Version);
+            return Results.Ok(read.Result.Settings);
         })
         .Produces<object>()
         .AddOpenApiOperationTransformer(DescribeCategoryShapesAsync)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetSettings")
-        .WithDescription("Get settings for a specific category. API keys are never returned.");
+        .WithDescription("Get settings for a specific category. API keys are never returned. The ETag header identifies these settings; send it in If-Match on PUT to save only if nobody changed them since.");
 
         // PUT /api/settings/{category} - Update settings for a category
+        // With If-Match (the ETag from GET) the save is refused with 412 when the settings changed since that
+        // read; without it the save replaces them, as before.
         group.MapPut("/{category}", async (
             [FromRoute] string category,
             [FromBody] JsonElement settingsJson,
@@ -53,9 +58,18 @@ public static class SettingsEndpoints
             HttpContext http,
             CancellationToken ct) =>
         {
-            var updated = await update.RunAsync(Rest(http), category, settingsJson, UnsentSecrets.Keep, ct);
+            if (!IfMatch.TryRead(http.Request.Headers.IfMatch, out var expectedVersions))
+            {
+                var problem = OperationProblems.For(SettingsStatus.Invalid, "If-Match must be * or a list of ETags from GET.");
+                problem.Extensions["field"] = "If-Match";
+                return Results.Problem(problem);
+            }
+
+            var updated = await update.RunAsync(Rest(http), category, settingsJson, UnsentSecrets.Keep, expectedVersions, ct);
             if (!updated.Succeeded)
                 return OperationProblems.Result(updated);
+
+            http.Response.Headers.ETag = IfMatch.ETag(updated.Result!.Version);
 
             var legacy = updated.Result!.LegacyModels;
             return Results.Ok(legacy.Count == 0
@@ -72,9 +86,10 @@ public static class SettingsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status412PreconditionFailed)
         .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithName("UpdateSettings")
-        .WithDescription("Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it.");
+        .WithDescription("Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it. Send the ETag from GET in If-Match to have the save refused with 412 if the settings changed since.");
 
         // POST /api/settings/test-connection - Test connection with provided settings
         group.MapPost("/test-connection", async (

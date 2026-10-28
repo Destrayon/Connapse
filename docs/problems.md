@@ -111,6 +111,12 @@ Connapse has no settings category by that name. The categories are `embedding`, 
 These settings change who can sign in or switch per-user permission enforcement on, so only provider
 setup changes them. They can still be read here. The detail names the provider route that changes them.
 
+## settings-changed
+
+The settings were changed after you read them, so your save was refused rather than overwrite that
+change. Read them again (`GET /api/settings/{category}`), make your change again, and save with the new
+`ETag` in `If-Match`. Only a save that sends `If-Match` is checked.
+
 ## invalid-settings
 
 The settings were refused: the body isn't a JSON object, isn't valid JSON, or names a property the

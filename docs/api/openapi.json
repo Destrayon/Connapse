@@ -6956,7 +6956,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Get settings for a specific category. API keys are never returned.",
+        "description": "Get settings for a specific category. API keys are never returned. The ETag header identifies these settings; send it in If-Match on PUT to save only if nobody changed them since.",
         "operationId": "GetSettings",
         "parameters": [
           {
@@ -7045,7 +7045,7 @@
         "tags": [
           "Settings"
         ],
-        "description": "Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it.",
+        "description": "Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it. Send the ETag from GET in If-Match to have the save refused with 412 if the settings changed since.",
         "operationId": "UpdateSettings",
         "parameters": [
           {
@@ -7140,6 +7140,16 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
             "content": {
               "application/problem+json": {
                 "schema": {
