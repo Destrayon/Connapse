@@ -81,7 +81,8 @@ Measured on the same 185 files after ingestion (`chunks_vs_files.py`, `chunk_cov
   the stored text: gaps between consecutive chunks (VectorColumnManager.cs lost the `EnsureIndexesAsync` signature
   between chunk 0 and chunk 1), a space inserted after every `.` (`searchSettings. CurrentValue`), and text inside angle
   brackets removed (`List<Group> groups` stored as `List groups`). The root cause in the parser or chunker was not
-  traced; it should be filed as a bug.
+  traced; filed as CON-143. RAG's 79% on code was measured with only 63% of code lines stored faithfully, so fixing
+  CON-143 may close part of the gap to files.
 
 So for exact search, chunk text cannot stand in for the original files today, at least for code.
 
@@ -95,7 +96,7 @@ So for exact search, chunk text cannot stand in for the original files today, at
   `Storage/Extensions/ServiceCollectionExtensions.cs` failed four times: the Semantic chunker produced a chunk longer
   than nomic-embed-text's context, and Ollama answered 400 "the input length exceeds the context length". Connapse
   reports this as "Failed to connect to Ollama", which is misleading. These files hold evidence for six questions, so
-  they were re-uploaded with Recursive (which caps chunk size). Worth a bug of its own.
+  they were re-uploaded with Recursive (which caps chunk size). Filed as CON-144.
 - **Corpus cut from 773 to 185 files.** Ingesting all 773 under the CPU cap would have taken about 3 hours. The cut keeps
   all 46 evidence files plus 139 already-ingested distractors (`shrink_corpus.py`, list in
   `results/corpus-small-files.txt`). Files-only was re-run on the same 185 files so all three setups saw the same set.
