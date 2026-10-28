@@ -86,6 +86,11 @@ jobs:
         SINCE: ${{ inputs.since }}
         RunAnalyzers: 'false'
         OpenApiGenerateDocuments: 'false'
+        # Core.Tests, Connapse.Web and Connapse.ParserHost each get about 1 GB of native runtimes and models
+        # copied into their output, about 3.4 GB written per build. Hard links make those copies near free.
+        CreateHardLinksForCopyLocalIfPossible: 'true'
+        CreateHardLinksForCopyFilesToOutputDirectoryIfPossible: 'true'
+        CreateHardLinksForAdditionalFilesIfPossible: 'true'
       run: |
         args=(--concurrency "$(nproc)" --configuration Release --break-at 0)
         while IFS= read -r pattern; do
