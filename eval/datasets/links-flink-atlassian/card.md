@@ -50,5 +50,18 @@ split only.
 
 ## Rebuilding
 
-`python eval/tools/build_link_suite.py links-flink-atlassian` re-snapshots and checks the pins. Records edited
-after the snapshot change the hash and the build fails; `--repin` takes a new snapshot.
+The records are saved outside the repository (CON-132), because they hold Apache contributors' names and comments.
+On the project's eval PC the snapshot is `E:\tmp\eval-snapshots\links-flink-atlassian\records.jsonl.xz`.
+
+    python eval/tools/build_link_suite.py links-flink-atlassian --snapshot=<path>/records.jsonl.xz
+
+rebuilds `records.jsonl` and `links.jsonl` from that file, with no network call, and checks them against the pins.
+The snapshot's contents must hash to the pinned `records.jsonl`, so a wrong or damaged file stops the build.
+**This set can be rebuilt only where that file exists.** Without `--snapshot` the build fetches from the APIs,
+which no longer return the pinned bytes. `--repin --snapshot=<path>` fetches the records again, writes new pins
+and replaces the snapshot at that path; earlier results are then not comparable.
+
+The records first pinned for this suite (sha256 `e32d05b3…`, used for CON-34's gate) were never saved, and the
+APIs now return different bytes for some of them, so they cannot be rebuilt. The saved snapshot is the re-fetch
+of 2026-10-28 (sha256 `164bb398…`), which CON-107's runs used. It has the same 3,423 issues and 815 pages, and its
+`links.jsonl`, and so every answer key, is byte for byte the one pinned before. Only record text changed.
