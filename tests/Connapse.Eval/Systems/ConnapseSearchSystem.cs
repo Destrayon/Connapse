@@ -452,7 +452,8 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         : $"{index:D7}.txt";
 
     public static string UploadFolder(EvalDocument doc, int index) =>
-        doc.Kind == DocumentKind.Text && (SafeFileName(doc.FileName) ?? SafeFileName(doc.Title)) is not null ? $"/{index:D7}" : "/";
+        doc.Folder is not null ? doc.Folder
+        : doc.Kind == DocumentKind.Text && (SafeFileName(doc.FileName) ?? SafeFileName(doc.Title)) is not null ? $"/{index:D7}" : "/";
 
     // A named record goes in as the connector sends it: markdown when it is .md.
     private static string? ContentType(EvalDocument doc) =>
