@@ -761,8 +761,11 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         _clock.Advance(ConfluenceSpaceConfig.DefaultReconcileInterval);
         await _connector.GetChangesAsync(cursor);
 
-        string state = await File.ReadAllTextAsync(Path.Combine(_root, "state.json"));
-        state.Should().NotContain("900");
+        // Look only at the folder records: the file also holds a random cycle id, which can contain "900".
+        using var state = System.Text.Json.JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(_root, "state.json")));
+        state.RootElement.GetProperty("folderTitles").EnumerateObject().Select(p => p.Name).Should().NotContain("900");
+        state.RootElement.GetProperty("folderParents").EnumerateObject().Select(p => p.Name).Should().NotContain("900");
+        state.RootElement.GetProperty("folderUnavailable").EnumerateArray().Select(e => e.GetString()).Should().NotContain("900");
     }
 
     [Fact]
