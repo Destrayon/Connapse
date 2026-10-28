@@ -105,9 +105,9 @@
     "IsEmpty": false
   },
   "Pages/CustomProviderPage.razor": {
-    "CodeLines": 285,
-    "Injects": 7,
-    "Complexity": 79,
+    "CodeLines": 261,
+    "Injects": 5,
+    "Complexity": 70,
     "MarkupLogic": 45,
     "IsEmpty": false
   },
@@ -154,10 +154,10 @@
     "IsEmpty": false
   },
   "Pages/Providers.razor": {
-    "CodeLines": 2004,
-    "Injects": 23,
-    "Complexity": 385,
-    "MarkupLogic": 194,
+    "CodeLines": 1769,
+    "Injects": 19,
+    "Complexity": 341,
+    "MarkupLogic": 193,
     "IsEmpty": false
   },
   "Pages/Search.razor": {

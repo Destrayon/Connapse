@@ -105,6 +105,41 @@
       "risk": "destructive",
       "scope": "admin:oauth-clients"
     },
+    "DELETE /api/v1/providers/aws/access": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/v1/providers/aws/identity-center": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/v1/providers/aws/permissions": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/v1/providers/azure/access": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/v1/providers/azure/permissions": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/v1/providers/github/app": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/v1/providers/custom/{providerId:guid}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
     "DELETE /api/v1/settings/{category}": {
       "requires": "admin",
       "risk": "destructive",
@@ -390,6 +425,26 @@
       "risk": "read",
       "scope": "admin:oauth-clients"
     },
+    "GET /api/v1/providers/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:settings"
+    },
+    "GET /api/v1/providers/aws/access": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:settings"
+    },
+    "GET /api/v1/providers/custom/": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:settings"
+    },
+    "GET /api/v1/providers/github/app": {
+      "requires": "admin",
+      "risk": "read",
+      "scope": "admin:settings"
+    },
     "GET /api/v1/providers/github/installed": {
       "requires": "admin",
       "risk": "read",
@@ -398,7 +453,7 @@
     "GET /api/v1/providers/github/manifest/callback": {
       "requires": "admin",
       "risk": "credential",
-      "scope": null
+      "scope": "admin:settings"
     },
     "GET /health": {
       "requires": "anonymous",
@@ -549,6 +604,11 @@
       "requires": "admin",
       "risk": "write",
       "scope": "admin:sources"
+    },
+    "PATCH /api/v1/providers/custom/{providerId:guid}": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:settings"
     },
     "POST /api/containers/": {
       "requires": "editor",
@@ -740,6 +800,21 @@
       "risk": "credential",
       "scope": null
     },
+    "POST /api/v1/providers/custom/": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:settings"
+    },
+    "POST /api/v1/providers/github/manifest": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:settings"
+    },
+    "POST /api/v1/providers/custom/{providerId:guid}/check": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:settings"
+    },
     "POST /api/v1/settings/summaries/clear": {
       "requires": "admin",
       "risk": "destructive",
@@ -799,6 +874,41 @@
       "requires": "admin",
       "risk": "credential",
       "scope": null
+    },
+    "PUT /api/v1/providers/aws/access": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/aws/identity-center": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/aws/permissions": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/azure/access": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/azure/permissions": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/github/app": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:settings"
+    },
+    "PUT /api/v1/providers/custom/{providerId:guid}/link-secret": {
+      "requires": "admin",
+      "risk": "credential",
+      "scope": "admin:settings"
     },
     "PUT /api/v1/auth/users/{id:guid}/roles": {
       "requires": "admin",

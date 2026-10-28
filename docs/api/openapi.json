@@ -6727,6 +6727,16 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal Server Error",
             "content": {
@@ -7061,6 +7071,16 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
             "content": {
@@ -7125,11 +7145,1509 @@
         }
       }
     },
+    "/api/v1/providers": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "List each built-in provider (aws, azure, github, atlassian) with its requirements and their status. Checks AWS, Entra and GitHub live, so it can take a few seconds. A provider's overall status is its weakest requirement's.",
+        "operationId": "providers.status",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderSetup"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/aws/access": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Read Connapse's stored IAM Roles Anywhere credential: certificate, ARNs and region, with when it was saved and last verified. The private key is never returned. Both fields are null when no credential is stored.",
+        "operationId": "providers.aws.access.get",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsAccessView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Set Connapse's AWS access to an IAM Roles Anywhere credential: certificate, trust anchor, profile and role ARNs, region and private key. AWS is asked for a session first, and nothing is saved unless it gives one. A blank privateKeyPem keeps the stored key; pass expected (the credential last read) to refuse the save if someone changed it since. A credential someone else saves while AWS is checking this one is never overwritten: the save is refused with 409. The key is never returned.",
+        "operationId": "providers.aws.access",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwsAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolesAnywhereConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Remove Connapse's stored AWS credential. It stays valid in AWS until cleanupScript (an AWS CloudShell command) deletes its resources, or it expires. Without one, Connapse reads S3 with whatever credentials its environment provides. If another credential is saved while this runs, nothing is removed and the response is 409.",
+        "operationId": "providers.aws.access.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsAccessReset"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/aws/identity-center": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Record the IAM Identity Center instance per-user AWS permissions are resolved against: its region, instance ARN and identity store id. applied is false when the settings take effect only after a restart. Read them at GET /api/settings/identitycenter.",
+        "operationId": "providers.aws.identityCenter",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityCenterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfIdentityCenterSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear the recorded IAM Identity Center instance. Blanks are stored, so values from configuration don't come back.",
+        "operationId": "providers.aws.identityCenter.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfIdentityCenterSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/aws/permissions": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Save the IAM Identity Center SAML application people sign in through: Connapse's entityId and acsUrl, and Identity Center's idpEntityId, idpSingleSignOnUrl and idpSigningCertificate. Once all five are set, per-user AWS permission enforcement is switched on first, and it can't be switched off again. Read the values at GET /api/settings/samlsignin.",
+        "operationId": "providers.aws.permissions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwsPermissionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfSamlSignInSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear the recorded SAML application, for one removed in AWS. Per-user enforcement stays on, so searches of AWS sources return nothing for everyone until the application is saved again.",
+        "operationId": "providers.aws.permissions.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsSettingsSavedOfSamlSignInSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/azure/access": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Set Connapse's Azure access identity: a certificate app (clientId and clientCertificatePath, a file on this host), a user-assigned managed identity, or the host's own (useHostManagedIdentity), with its tenantId and the subscriptionId per-user filtering reads. Entra is asked for a token first, and nothing is saved unless it gives one. A null clientCertificatePassword keeps the stored one for the same certificate; it is never returned. Read the values at GET /api/settings/azure.",
+        "operationId": "providers.azure.access",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzureAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureProviderSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear Connapse's Azure access identity. The app registration and its role assignments stay in Azure until removed there.",
+        "operationId": "providers.azure.access.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureProviderSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/azure/permissions": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Save the Entra application people sign in through: tenantId, clientId, redirectUri and clientCertificatePath. Once all four are set, Entra is asked for a token with it, and per-user Azure permission enforcement is switched on before anything is saved; it can't be switched off again. Admin consent needs a browser: while adminConsentPending is true, adminConsentUrl is the link to open, and GET /api/v1/providers shows the sign-in requirement as waiting on it. Once consent is granted, save again with adminConsentPending false. Read the values at GET /api/settings/azuread.",
+        "operationId": "providers.azure.permissions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzurePermissionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureAdSignInSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Clear the recorded sign-in application, for one removed in Entra. Per-user enforcement stays on, so searches of Azure sources return nothing for everyone until the application is saved again.",
+        "operationId": "providers.azure.permissions.reset",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureSettingsSavedOfAzureAdSignInSettings"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/custom": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "List the custom providers, each with the connections that check permissions with it. Tokens and link secrets are never returned.",
+        "operationId": "providers.custom.list",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomProviderListing"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Add a custom provider. Its source server is checked first (address, token, that a wrong token is refused, and a real permission check), and nothing is saved unless every step passes. A blank name is the one the server reports.",
+        "operationId": "providers.custom.create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/custom/{providerId}": {
+      "patch": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Change a custom provider's name, address or token; what is left out stays. The source server is checked again first. A new address needs its token: the saved one is only sent to the saved address. The address can't change while connections use it.",
+        "operationId": "providers.custom.update",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Delete a custom provider with its token and link secret. Refused while connections use it, since their sources would lose their permission checks.",
+        "operationId": "providers.custom.delete",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/custom/{providerId}/check": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Check a custom provider's source server, with its saved address and token or the ones given, without saving anything. A failed check is still a 200: endpointOk, permissionsOk, error and field say what passed and what to change.",
+        "operationId": "providers.custom.check",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CustomProviderCheckRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomProviderCheck"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/custom/{providerId}/link-secret": {
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Generate a new link secret for a custom provider, so its users can link their accounts. This response is the only time it is shown, and any earlier secret stops working at once.",
+        "operationId": "providers.custom.linkSecret",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomProviderLinkSecret"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/github/app": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Read the stored GitHub App: its id, slug, client id, owner and address, with when it was saved and last verified. The private key and client secret are never returned. Both fields are null when no App is stored.",
+        "operationId": "providers.github.app.get",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Store a GitHub App registered by hand: appId, privateKeyPem and, for people to link their GitHub accounts, clientSecret. GitHub is asked who the id and key belong to, and whether the secret is the App's, before anything is stored. A blank key or secret keeps the stored one for the same App; replacing a different App needs replaceExisting true. Secrets are never returned.",
+        "operationId": "providers.github.app",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Remove the GitHub App's key and secret from Connapse. Every GitHub connection and source stops syncing, and linked GitHub accounts no longer unlock private repositories. The App itself stays on GitHub.",
+        "operationId": "providers.github.app.remove",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppRemoved"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/github/manifest": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "description": "Start creating Connapse's GitHub App through GitHub's manifest flow, owned by the caller's account or by organisation, which GitHub must confirm is one. Creating it needs a browser: a person signed in to both Connapse and GitHub opens setupPageUrl and clicks once, or a browser posts a form with one field, manifest, to formAction. GitHub then sends that person back to Connapse, which stores the App. A stored App is replaced only with replaceExisting true. Each start is good for an hour, once, and only for the person who made it. Poll GET /api/v1/providers until the github requirement leaves Missing.",
+        "operationId": "providers.github.createApp",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GitHubAppCreationRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppCreation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers/github/manifest/callback": {
       "get": {
         "tags": [
           "Providers"
         ],
+        "operationId": "providers.github.createApp.callback",
         "parameters": [
           {
             "name": "code",
@@ -7188,6 +8706,7 @@
         "tags": [
           "Providers"
         ],
+        "operationId": "providers.github.installed",
         "parameters": [
           {
             "name": "installation_id",
@@ -9968,6 +11487,419 @@
           }
         }
       },
+      "AwsAccessRequest": {
+        "required": [
+          "certificatePem",
+          "trustAnchorArn",
+          "profileArn",
+          "roleArn",
+          "region"
+        ],
+        "type": "object",
+        "properties": {
+          "certificatePem": {
+            "type": "string"
+          },
+          "trustAnchorArn": {
+            "type": "string"
+          },
+          "profileArn": {
+            "type": "string"
+          },
+          "roleArn": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "privateKeyPem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RolesAnywhereConfig"
+              }
+            ]
+          }
+        }
+      },
+      "AwsAccessReset": {
+        "required": [
+          "removed",
+          "cleanupScript"
+        ],
+        "type": "object",
+        "properties": {
+          "removed": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RolesAnywhereConfig"
+              }
+            ]
+          },
+          "cleanupScript": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AwsAccessView": {
+        "required": [
+          "config",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RolesAnywhereConfig"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderCredentialStatus"
+              }
+            ]
+          }
+        }
+      },
+      "AwsPermissionsRequest": {
+        "type": "object",
+        "properties": {
+          "entityId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acsUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "idpEntityId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "idpSingleSignOnUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "idpSigningCertificate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AwsSettingsSavedOfIdentityCenterSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IdentityCenterSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AwsSettingsSavedOfSamlSignInSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SamlSignInSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AzureAccessRequest": {
+        "required": [
+          "tenantId"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string"
+          },
+          "subscriptionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "userAssignedManagedIdentityClientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "useHostManagedIdentity": {
+            "type": "boolean",
+            "default": false
+          },
+          "managedIdentityPrincipalId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AzureAdSignInSettings": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "redirectUri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "adminConsentPending": {
+            "type": "boolean"
+          },
+          "isConfigured": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AzurePermissionsRequest": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "redirectUri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "adminConsentPending": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "AzureProviderSettings": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientCertificatePassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "userAssignedManagedIdentityClientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "useHostManagedIdentity": {
+            "type": "boolean"
+          },
+          "managedIdentityPrincipalId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "subscriptionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AzureSettingsSavedOfAzureAdSignInSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AzureAdSignInSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "adminConsentUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AzureSettingsSavedOfAzureProviderSettings": {
+        "required": [
+          "settings",
+          "applied"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AzureProviderSettings"
+              }
+            ]
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "adminConsentUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "BatchStatusResponse": {
         "required": [
           "jobId",
@@ -11252,6 +13184,27 @@
           }
         }
       },
+      "CreateCustomProviderRequest": {
+        "required": [
+          "baseUrl",
+          "token"
+        ],
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CreatedConnectionResponse": {
         "required": [
           "connection",
@@ -11438,6 +13391,197 @@
                 "custom": "#/components/schemas/SourceScopeCustomSourceScope"
               }
             }
+          }
+        }
+      },
+      "CustomProvider": {
+        "required": [
+          "id",
+          "name",
+          "baseUrl",
+          "hasToken",
+          "maxCheckBatch",
+          "supportsAccessKeys",
+          "linkUrl",
+          "verifiedAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "hasToken": {
+            "type": "boolean"
+          },
+          "maxCheckBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "supportsAccessKeys": {
+            "type": "boolean"
+          },
+          "linkUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "verifiedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hasLinkSecret": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "CustomProviderCheck": {
+        "required": [
+          "baseUrl",
+          "endpointOk",
+          "permissionsOk"
+        ],
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "endpointOk": {
+            "type": "boolean"
+          },
+          "permissionsOk": {
+            "type": "boolean"
+          },
+          "maxCheckBatch": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "supportsAccessKeys": {
+            "type": "boolean",
+            "default": false
+          },
+          "linkUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "field": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CustomProviderCheckRequest": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CustomProviderLinkSecret": {
+        "required": [
+          "linkSecret"
+        ],
+        "type": "object",
+        "properties": {
+          "linkSecret": {
+            "type": "string"
+          }
+        }
+      },
+      "CustomProviderListing": {
+        "required": [
+          "provider",
+          "connections"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/CustomProvider"
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomProviderUse"
+            }
+          }
+        }
+      },
+      "CustomProviderUse": {
+        "required": [
+          "connectionId",
+          "name",
+          "tokenRefused"
+        ],
+        "type": "object",
+        "properties": {
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tokenRefused": {
+            "type": "boolean"
           }
         }
       },
@@ -11877,6 +14021,167 @@
           }
         }
       },
+      "GitHubAppCreation": {
+        "required": [
+          "formAction",
+          "manifest",
+          "setupPageUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "formAction": {
+            "type": "string"
+          },
+          "manifest": {
+            "type": "string"
+          },
+          "setupPageUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubAppCreationRequest": {
+        "type": "object",
+        "properties": {
+          "organisation": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replaceExisting": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "GitHubAppRegistration": {
+        "required": [
+          "appId",
+          "slug",
+          "clientId",
+          "ownerLogin",
+          "htmlUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "appId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ownerLogin": {
+            "type": "string"
+          },
+          "htmlUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubAppRemoved": {
+        "required": [
+          "removed"
+        ],
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GitHubAppRequest": {
+        "required": [
+          "appId"
+        ],
+        "type": "object",
+        "properties": {
+          "appId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "privateKeyPem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientSecret": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replaceExisting": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "GitHubAppSaved": {
+        "required": [
+          "app",
+          "canSignIn",
+          "newApp"
+        ],
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/components/schemas/GitHubAppRegistration"
+          },
+          "canSignIn": {
+            "type": "boolean"
+          },
+          "newApp": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GitHubAppView": {
+        "required": [
+          "app",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "app": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GitHubAppRegistration"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderCredentialStatus"
+              }
+            ]
+          }
+        }
+      },
       "GitHubContentKind": {
         "enum": [
           "Docs",
@@ -11949,6 +14254,42 @@
                 "type": "string"
               }
             }
+          }
+        }
+      },
+      "IdentityCenterRequest": {
+        "required": [
+          "region",
+          "instanceArn",
+          "identityStoreId"
+        ],
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "instanceArn": {
+            "type": "string"
+          },
+          "identityStoreId": {
+            "type": "string"
+          }
+        }
+      },
+      "IdentityCenterSettings": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "instanceArn": {
+            "type": "string"
+          },
+          "identityStoreId": {
+            "type": "string"
+          },
+          "isConfigured": {
+            "type": "boolean"
           }
         }
       },
@@ -12857,6 +15198,92 @@
           }
         }
       },
+      "ProviderCredentialStatus": {
+        "required": [
+          "createdAt",
+          "verifiedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verifiedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ProviderRequirement": {
+        "required": [
+          "name",
+          "description",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequirementStatus"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "actionLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "actionHref": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ProviderSetup": {
+        "required": [
+          "key",
+          "displayName",
+          "requirements"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderRequirement"
+            }
+          },
+          "inUse": {
+            "type": "boolean",
+            "default": false
+          },
+          "overall": {
+            "$ref": "#/components/schemas/RequirementStatus"
+          }
+        }
+      },
       "RefreshRequest": {
         "required": [
           "refreshToken"
@@ -13016,6 +15443,16 @@
           }
         }
       },
+      "RequirementStatus": {
+        "enum": [
+          "Unknown",
+          "NotConfigured",
+          "Satisfied",
+          "Warning",
+          "Provisioning",
+          "Failed"
+        ]
+      },
       "ResendConfirmationEmailRequest": {
         "required": [
           "email"
@@ -13103,6 +15540,56 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "RolesAnywhereConfig": {
+        "required": [
+          "certificatePem",
+          "trustAnchorArn",
+          "profileArn",
+          "roleArn",
+          "region"
+        ],
+        "type": "object",
+        "properties": {
+          "certificatePem": {
+            "type": "string"
+          },
+          "trustAnchorArn": {
+            "type": "string"
+          },
+          "profileArn": {
+            "type": "string"
+          },
+          "roleArn": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          }
+        }
+      },
+      "SamlSignInSettings": {
+        "type": "object",
+        "properties": {
+          "entityId": {
+            "type": "string"
+          },
+          "acsUrl": {
+            "type": "string"
+          },
+          "idpEntityId": {
+            "type": "string"
+          },
+          "idpSingleSignOnUrl": {
+            "type": "string"
+          },
+          "idpSigningCertificate": {
+            "type": "string"
+          },
+          "isConfigured": {
+            "type": "boolean"
           }
         }
       },
@@ -14432,6 +16919,29 @@
             ]
           },
           "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "UpdateCustomProviderRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "token": {
             "type": [
               "null",
               "string"

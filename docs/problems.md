@@ -103,7 +103,12 @@ or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
 ## settings-category-not-found
 
 Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,
-`llm`, `upload` and `summary`, in any case. The provider sign-in categories (`azure`, `azuread`, `samlsignin`, `identitycenter`) are refused here: provider setup owns them.
+`llm`, `upload` and `summary`, in any case, and `samlsignin`, `identitycenter`, `azure` and `azuread` can be read.
+
+## provider-owned-settings
+
+These settings change who can sign in or switch per-user permission enforcement on, so only provider
+setup changes them. They can still be read here. The detail names the provider route that changes them.
 
 ## invalid-settings
 
@@ -334,3 +339,94 @@ each one with a link; delete those sources first.
 ## connection-has-no-sources
 
 The connection has no sources, so there is no syncing to pause or resume.
+
+## custom-provider-not-found
+
+No custom provider has that id. It may have been deleted.
+
+## invalid-custom-provider
+
+The custom provider can't be saved as asked. Its source server didn't pass the check: the address
+breaks a rule or doesn't answer (`field` is `baseUrl`), or the token was refused, a wrong token was
+accepted, or the saved token can't go to a new address (`field` is `token`). Or the name isn't 1 to
+128 characters (`field` is `name`). Nothing was saved; run the check to see each step.
+
+## custom-provider-conflict
+
+Another custom provider already has that name (`field` is `name`), or connections use this provider,
+so its address can't change (`field` is `baseUrl`).
+
+## custom-provider-in-use
+
+Connections still check permissions with this custom provider, so it can't be deleted: their sources
+would lose their permission checks. The detail names them; delete them or move them to another
+provider first.
+
+## invalid-aws-setup
+
+The AWS setup can't be saved as asked: a value is missing, the region isn't an AWS region such as
+`us-east-1`, an address isn't a full http or https address, or a blank `privateKeyPem` was sent with no
+stored key to keep (or one that can't be read). `field` names the input at fault. Nothing was saved.
+
+## aws-credential-refused
+
+AWS didn't give a session for this IAM Roles Anywhere credential, so nothing was saved and the current
+credential still works. The detail is AWS's reason; check the certificate, ARNs and region match.
+
+## aws-access-changed
+
+The stored AWS credential changed since it was read, so nothing was changed. This happens when it no longer
+matches `expected`, or when someone else saved or removed a credential while this save or removal was running.
+Read the providers again, review the values and try again.
+
+## invalid-azure-setup
+
+The Azure setup can't be saved as asked: the tenant id is missing, the tenant isn't the one this host's
+managed identity is in, or the redirect address isn't a full http or https address. `field` names the input
+at fault. Nothing was saved.
+
+## azure-credential-refused
+
+Entra didn't give a token for this credential, so nothing was saved and the current one still works. The
+detail is the reason; check the tenant, client id and certificate path, and that Connapse can read the file.
+Right after the setup script runs, Entra may still be registering the certificate: wait a minute and save again.
+
+## enforcement-not-on
+
+Per-user permission enforcement for the provider (AWS or Azure) couldn't be switched on in this process, so
+the sign-in application wasn't saved: saving it with enforcement off would show every user every document
+from that provider. Restart Connapse and save again.
+
+## invalid-github-app
+
+The GitHub App values can't be used as sent: the App ID is missing or not a positive number, no private
+key was sent and none is stored for that App, the key isn't a readable `.pem` file, or an organisation
+named to own a new App isn't one on GitHub. `field` names the input at fault. Nothing was changed.
+
+## github-app-replace-unconfirmed
+
+A different GitHub App is stored. Replacing it disconnects every GitHub connection, because each is an
+installation of the stored App, so send `replaceExisting: true` to confirm, or use the stored App's ID.
+It is also the answer when the stored App changed while GitHub was checking the values sent; read it
+again and resend. Nothing was changed.
+
+## github-app-refused
+
+GitHub didn't accept the App ID and private key together, or the client secret isn't the App's. `field`
+names which. Nothing was stored, and the current App still works; check the App ID, and that the key or
+secret was generated for that App.
+
+## github-unavailable
+
+GitHub couldn't be reached, or answered in a way Connapse couldn't use, so nothing was changed. Check that
+this server can reach api.github.com, then try again.
+
+## github-manifest-expired
+
+GitHub sent back a GitHub App creation that this person didn't start, or started more than an hour ago,
+or that was already finished. Nothing was stored; start the creation again.
+
+## github-manifest-no-code
+
+GitHub sent the person back without the code that hands over the new App, so nothing was stored. Start
+the creation again.

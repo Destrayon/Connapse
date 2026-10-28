@@ -71,6 +71,7 @@ public static class SettingsEndpoints
         .AddOpenApiOperationTransformer(DescribeCategoryShapesAsync)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithName("UpdateSettings")
         .WithDescription("Update settings for a specific category. An API key left out or null keeps its value; an empty one clears it.");
@@ -176,6 +177,7 @@ public static class SettingsEndpoints
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("settings.reset")
         .WithDescription("Reset a settings category to its configured defaults by removing what is stored for it.");
 

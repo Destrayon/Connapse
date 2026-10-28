@@ -110,6 +110,49 @@ public partial class SettingsOperationTests
     public void Find_ProviderSignInCategory_IsNotASettingsCategory(string name) =>
         SettingsCategories.Find(name).Should().BeNull("provider setup owns the categories that change who can sign in");
 
+    [Fact]
+    public async Task Get_ProviderOwnedCategory_ReadsTheStoredValue()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("identitycenter", new IdentityCenterSettings { Region = "us-east-1", InstanceArn = "arn:i" });
+
+        var read = await world.Get().RunAsync(Caller, "IdentityCenter");
+
+        read.Succeeded.Should().BeTrue();
+        read.Result!.Category.Should().Be("identitycenter");
+        read.Result.Settings.Should().BeOfType<IdentityCenterSettings>().Which.InstanceArn.Should().Be("arn:i");
+    }
+
+    [Fact]
+    public async Task Get_AzureCategory_LeavesOutTheCertificatePassword()
+    {
+        var world = new World();
+        await world.Store.SaveAsync("azuread", new AzureAdSignInSettings { TenantId = "t", ClientCertificatePassword = "secret" });
+
+        var read = await world.Get().RunAsync(Caller, "azuread");
+
+        read.Result!.Settings.Should().BeOfType<AzureAdSignInSettings>().Which.ClientCertificatePassword.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("samlsignin", "/api/v1/providers/aws/permissions")]
+    [InlineData("identitycenter", "/api/v1/providers/aws/identity-center")]
+    [InlineData("azure", "/api/v1/providers/azure/access")]
+    [InlineData("azuread", "/api/v1/providers/azure/permissions")]
+    public async Task UpdateAndReset_ProviderOwnedCategory_AreRefusedAndChangeNothing(string category, string route)
+    {
+        var world = new World();
+
+        var updated = await world.Update().RunAsync(Caller, category, Body(new { }));
+        var reset = await world.ResetOperation().RunAsync(Caller, category);
+
+        updated.Status.Should().Be(SettingsStatus.ProviderOwned);
+        reset.Status.Should().Be(SettingsStatus.ProviderOwned);
+        updated.Detail.Should().Contain(route);
+        world.Store.Rows.Should().BeEmpty();
+        world.Store.Reset.Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData("embedding", new[] { "ApiKey", "OpenAiApiKey", "AzureApiKey" })]
     [InlineData("llm", new[] { "ApiKey", "OpenAiApiKey", "AzureApiKey", "AnthropicApiKey" })]

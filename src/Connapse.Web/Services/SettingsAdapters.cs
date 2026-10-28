@@ -16,6 +16,12 @@ public sealed class ConfiguredSettings(IServiceProvider services) : IConfiguredS
         services.GetService<IOptionsMonitor<T>>()?.CurrentValue ?? new T();
 }
 
+/// <summary>Drops the session the runtime's AWS credential holds, so the next AWS call resolves the stored credential.</summary>
+public sealed class AwsSession(Connapse.Storage.CloudScope.ConnapseAwsCredentials credentials) : IAwsSession
+{
+    public void Clear() => credentials.ClearCredentials();
+}
+
 /// <summary>
 /// Rebuilds the vector indexes as a Hangfire job, which gets its own scope and is retried if it fails, so a
 /// settings change neither waits for the build nor loses it.

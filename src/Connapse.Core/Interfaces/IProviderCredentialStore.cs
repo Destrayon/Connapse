@@ -131,6 +131,23 @@ public interface IProviderCredentialStore
         string provider, RolesAnywhereConfig config, string privateKeyPem, string? principalName,
         Guid? createdByUserId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Like <see cref="SaveRolesAnywhereAsync"/>, but only while the stored Roles Anywhere configuration is still
+    /// <paramref name="expected"/>; null expects none to be stored. The check and the write are one statement, so a
+    /// credential saved by someone else in between is never overwritten.
+    /// </summary>
+    /// <returns>Null, with nothing written, when the stored configuration is no longer <paramref name="expected"/>.</returns>
+    Task<ProviderCredentialInfo?> ReplaceRolesAnywhereAsync(
+        string provider, RolesAnywhereConfig? expected, RolesAnywhereConfig config, string privateKeyPem,
+        string? principalName, Guid? createdByUserId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes the provider's credential only while its Roles Anywhere configuration is still <paramref name="expected"/>
+    /// (null: while it holds none), in one statement, so a credential saved by someone else in between is never removed.
+    /// </summary>
+    /// <returns>False, with nothing removed, when no stored credential matches <paramref name="expected"/>.</returns>
+    Task<bool> DeleteRolesAnywhereAsync(string provider, RolesAnywhereConfig? expected, CancellationToken ct = default);
+
     /// <summary>The stored GitHub App, or null when none is.</summary>
     Task<GitHubAppRegistration?> GetGitHubAppAsync(CancellationToken ct = default);
 

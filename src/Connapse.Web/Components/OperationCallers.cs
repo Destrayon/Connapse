@@ -48,6 +48,51 @@ public static class OperationCallers
             new Connapse.Application.Sources.ListSourcesQuery(ConnectionId: connectionId))).Result?.Items ?? [];
 
     /// <summary>
+    /// Each built-in provider's setup, read through providers.status as GET /api/v1/providers reads it;
+    /// none when the caller may not see provider setup, whom the page doesn't let in anyway.
+    /// </summary>
+    public static async Task<IReadOnlyList<Connapse.Core.ProviderSetup>> ReadAsync(
+        this Connapse.Application.Providers.GetProviderStatus status, AuthenticationStateProvider authentication) =>
+        (await status.RunAsync(await authentication.OperationContextAsync())).Result ?? [];
+
+    /// <summary>The custom providers, read through providers.custom.list as GET /api/v1/providers/custom reads them; none when the caller may not list them.</summary>
+    public static async Task<IReadOnlyList<Connapse.Core.CustomProvider>> ReadAsync(
+        this Connapse.Application.Providers.ListCustomProviders list, AuthenticationStateProvider authentication) =>
+        (await list.RunAsync(await authentication.OperationContextAsync())).Result?.Select(l => l.Provider).ToList() ?? [];
+
+    /// <summary>The stored AWS credential, read through providers.aws.access.get; none when the caller may not read it.</summary>
+    public static async Task<Connapse.Application.Providers.AwsAccessView> ReadAsync(
+        this Connapse.Application.Providers.GetAwsAccess read, AuthenticationStateProvider authentication) =>
+        (await read.RunAsync(await authentication.OperationContextAsync())).Result ?? new(null, null);
+
+    /// <summary>The stored GitHub App, read through providers.github.app.get; none when the caller may not read it.</summary>
+    public static async Task<Connapse.Application.Providers.GitHubAppView> ReadAsync(
+        this Connapse.Application.Providers.GetGitHubApp read, AuthenticationStateProvider authentication) =>
+        (await read.RunAsync(await authentication.OperationContextAsync())).Result ?? new(null, null);
+
+    /// <summary>A category's settings in effect, without secrets, read through settings.get; null when they can't be read.</summary>
+    public static async Task<object?> InEffectAsync(
+        this Connapse.Application.Settings.GetSettings get, AuthenticationStateProvider authentication, string category) =>
+        (await get.RunAsync(await authentication.OperationContextAsync(), category)).Result?.Settings;
+
+    /// <summary>
+    /// Whether a category's settings in effect are now exactly <paramref name="settings"/>, secrets aside since
+    /// settings.get never returns them; null when they can't be read, which is not a no. Also null when
+    /// <paramref name="settings"/> carries a secret, since whether that secret landed can't be seen.
+    /// </summary>
+    public static async Task<bool?> InEffectMatchesAsync(
+        this Connapse.Application.Settings.GetSettings get, AuthenticationStateProvider authentication, string category, object settings)
+    {
+        var found = Connapse.Application.Settings.SettingsCategories.Find(category)
+            ?? Connapse.Application.Settings.SettingsCategories.FindProviderOwned(category)?.Category;
+        if (found is null || found.Secrets.Any(s => !string.IsNullOrEmpty((string?)s.GetValue(settings)))
+            || await get.InEffectAsync(authentication, category) is not { } inEffect)
+            return null;
+        return System.Text.Json.JsonSerializer.Serialize(inEffect, found.Type)
+            == System.Text.Json.JsonSerializer.Serialize(found.WithoutSecrets(settings), found.Type);
+    }
+
+    /// <summary>
     /// Tests a connection through settings.testConnection with the settings on the page and any key typed on
     /// it; a saved key is used only at the address it was saved for. Whether it connected, and what the page says.
     /// </summary>

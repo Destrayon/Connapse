@@ -40,6 +40,8 @@ public class CustomProviderPageTests : IDisposable
             .Returns(Task.FromResult<IReadOnlyList<Connection>>([]));
         ctx.Services.AddSingleton(connections);
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
+        ctx.Services.AddSingleton<Connapse.Application.Ports.ICustomProviderChecker>(sp => sp.GetRequiredService<CustomProviderSetup>());
+        ctx.Services.AddSourceOperations();
 
         store.CreateAsync(Arg.Any<SaveCustomProviderRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
@@ -101,11 +103,18 @@ public class CustomProviderPageTests : IDisposable
         Guid.NewGuid(), "Acme bridge", FakeMiddleMan.BaseUrl, true, 100, true, linkUrl,
         DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow, hasLinkSecret);
 
+    /// <summary>A saved provider, listed as <paramref name="versions"/> in turn: the page reads it from the list each time it loads.</summary>
+    private void Know(CustomProvider provider, params CustomProvider[] versions)
+    {
+        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        store.ListAsync(Arg.Any<CancellationToken>()).Returns([provider], [.. versions.Select(v => (IReadOnlyList<CustomProvider>)[v])]);
+    }
+
     [Fact]
     public void SavedProviderOfferingLinking_ShowsTheValuesTheMiddleManNeeds()
     {
         CustomProvider provider = Saved("https://bridge.acme.test/link");
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Know(provider);
 
         var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
 
@@ -118,7 +127,7 @@ public class CustomProviderPageTests : IDisposable
     public void GenerateLinkSecret_ShowsItOnceAndMarksTheStepDone()
     {
         CustomProvider provider = Saved("https://bridge.acme.test/link");
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider, provider with { HasLinkSecret = true });
+        Know(provider, provider with { HasLinkSecret = true });
         store.GenerateLinkSecretAsync(provider.Id, Arg.Any<CancellationToken>()).Returns("s3cret-value");
 
         var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
@@ -137,7 +146,7 @@ public class CustomProviderPageTests : IDisposable
     public void SavedProvider_NewAddressWithoutAToken_NeverSendsTheStoredToken()
     {
         CustomProvider provider = Saved(linkUrl: null);
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Know(provider);
         var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
         cut.Find("#custom-endpoint-edit-toggle").Click();
 
@@ -185,7 +194,7 @@ public class CustomProviderPageTests : IDisposable
     public void ReplaceLinkSecret_AsksFirstAndSaysWhatItBreaks()
     {
         CustomProvider provider = Saved("https://bridge.acme.test/link", hasLinkSecret: true);
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Know(provider);
 
         var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
         cut.FindAll("#custom-linking button").Single(b => b.TextContent.Contains("Show linking values")).Click();
@@ -212,7 +221,7 @@ public class CustomProviderPageTests : IDisposable
     public void SavedProviderUsedByConnections_NamesThemAndCannotBeDeleted()
     {
         CustomProvider provider = Saved(linkUrl: null);
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Know(provider);
         ctx.Services.GetRequiredService<IConnectionStore>().ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Connection>>([new Connection(Guid.NewGuid(), "acme-perms", ConnectionProvider.Custom,
                 CustomConnectionConfig.ToJson(provider.Id), null, DateTime.UtcNow, DateTime.UtcNow)]));
@@ -227,7 +236,7 @@ public class CustomProviderPageTests : IDisposable
     public void SavedProviderWhoseTokenASyncRefused_SaysSoAndClearsItOnceANewTokenIsSaved()
     {
         CustomProvider provider = Saved(linkUrl: null);
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Know(provider);
         store.UpdateAsync(provider.Id, Arg.Any<SaveCustomProviderRequest>(), Arg.Any<CancellationToken>()).Returns(provider);
         IConnectionStore connections = ctx.Services.GetRequiredService<IConnectionStore>();
         Connection refused = new(Guid.NewGuid(), "acme-perms", ConnectionProvider.Custom,
@@ -252,7 +261,7 @@ public class CustomProviderPageTests : IDisposable
     public void SavedProvider_ShowsWhenItWasLastVerified()
     {
         CustomProvider provider = Saved(linkUrl: null);
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Know(provider);
 
         var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
 
@@ -263,7 +272,7 @@ public class CustomProviderPageTests : IDisposable
     public void SavedProviderWithoutLinking_HasNoLinkingStep()
     {
         CustomProvider provider = Saved(linkUrl: null);
-        store.GetAsync(provider.Id, Arg.Any<CancellationToken>()).Returns(provider);
+        Know(provider);
 
         var cut = ctx.Render<CustomProviderPage>(p => p.Add(x => x.Id, provider.Id));
 

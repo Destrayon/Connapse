@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Caching.Memory;
 
-namespace Connapse.Web.Services;
+namespace Connapse.Storage.Connectors.GitHub;
 
 /// <summary>
 /// The manifest that registers Connapse's GitHub App: GitHub's one-click flow, where the browser
@@ -111,30 +111,41 @@ public sealed class GitHubManifestRequests(IMemoryCache cache)
     /// <summary>Makes read-and-remove one step, so two callbacks racing on a state cannot both claim it.</summary>
     private readonly Lock _claim = new();
 
-    public string Start(Guid userId)
+    /// <param name="replacing">The App id stored when the creation started, which the new App may replace; null when none was.</param>
+    public string Start(Guid userId, long? replacing = null)
     {
         string state = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
-        cache.Set(Key(state), userId, Lifetime);
+        cache.Set(Key(state), new Pending(userId, replacing), Lifetime);
         return state;
     }
 
     /// <summary>True, once, when <paramref name="state"/> was started by <paramref name="userId"/>.</summary>
-    public bool TryComplete(string? state, Guid userId)
+    public bool TryComplete(string? state, Guid userId) => TryComplete(state, userId, out _);
+
+    /// <summary>
+    /// True, once, when <paramref name="state"/> was started by <paramref name="userId"/>; <paramref name="replacing"/> is
+    /// the App id the person agreed to replace when starting.
+    /// </summary>
+    public bool TryComplete(string? state, Guid userId, out long? replacing)
     {
+        replacing = null;
         if (string.IsNullOrWhiteSpace(state))
             return false;
 
-        Guid startedBy;
+        Pending? started;
         lock (_claim)
         {
-            if (!cache.TryGetValue(Key(state), out startedBy))
+            if (!cache.TryGetValue(Key(state), out started) || started is null)
                 return false;
 
             cache.Remove(Key(state));
         }
 
-        return startedBy == userId;
+        replacing = started.Replacing;
+        return started.UserId == userId;
     }
+
+    private sealed record Pending(Guid UserId, long? Replacing);
 
     private static string Key(string state) => "github-manifest:" + state;
 }

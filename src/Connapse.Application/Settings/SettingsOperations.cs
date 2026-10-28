@@ -22,6 +22,9 @@ public enum SettingsStatus
 
     [Failure(400, "invalid-settings", "Invalid settings")]
     Invalid,
+
+    [Failure(409, "provider-owned-settings", "Changed through provider setup")]
+    ProviderOwned,
 }
 
 /// <summary>
@@ -178,12 +181,35 @@ public static class SettingsCategories
         new SettingsCategory<SummarySettings>("summary", "Summary"),
     ];
 
+    /// <summary>
+    /// The provider sign-in categories that can be read here, each with the provider route that changes it. Saving one
+    /// can switch per-user enforcement on, which only provider setup does, so settings.update and settings.reset refuse them.
+    /// </summary>
+    public static readonly IReadOnlyList<ProviderOwnedCategory> ProviderOwned =
+    [
+        new(new SettingsCategory<SamlSignInSettings>("samlsignin", "samlsignin"), "/api/v1/providers/aws/permissions"),
+        new(new SettingsCategory<IdentityCenterSettings>("identitycenter", "identitycenter"), "/api/v1/providers/aws/identity-center"),
+        new(new SettingsCategory<AzureProviderSettings>("azure", "azure"), "/api/v1/providers/azure/access"),
+        new(new SettingsCategory<AzureAdSignInSettings>("azuread", "azuread"), "/api/v1/providers/azure/permissions"),
+    ];
+
+    /// <summary>The provider-owned category with this name in any case, or null.</summary>
+    public static ProviderOwnedCategory? FindProviderOwned(string? name) =>
+        ProviderOwned.FirstOrDefault(c => string.Equals(c.Category.Name, name, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>The category with this name in any case, or null.</summary>
     public static SettingsCategory? Find(string? name) =>
         All.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The category whose settings are of this type, or null.</summary>
     public static SettingsCategory? Of(Type type) => All.FirstOrDefault(c => c.Type == type);
+}
+
+/// <summary>A provider sign-in category that settings.get reads, and the provider route that changes it.</summary>
+public sealed record ProviderOwnedCategory(SettingsCategory Category, string ChangedAt)
+{
+    /// <summary>The refusal for changing it through the settings operations.</summary>
+    public string Refusal => $"The {Category.Name} settings are changed through provider setup: PUT or DELETE {ChangedAt}.";
 }
 
 /// <summary>A category's settings as stored, or as configured when nothing is; secrets are left out.</summary>
@@ -209,7 +235,7 @@ public sealed class GetSettings(ISettingsStore store, IConfiguredSettings config
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
             return Attempt<SettingsView, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can read settings.");
-        if (SettingsCategories.Find(category) is not { } found)
+        if ((SettingsCategories.Find(category) ?? SettingsCategories.FindProviderOwned(category)?.Category) is not { } found)
             return Attempt<SettingsView, SettingsStatus>.Fail(SettingsStatus.NotFound, $"Unknown settings category: {category}");
 
         return Attempt<SettingsView, SettingsStatus>.Succeed(new SettingsView(found.Name, await found.ReadAsync(store, configured, ct)));
@@ -233,6 +259,8 @@ public sealed class UpdateSettings(
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
             return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can change settings.");
+        if (SettingsCategories.FindProviderOwned(category) is { } owned)
+            return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.ProviderOwned, owned.Refusal);
         if (SettingsCategories.Find(category) is not { } found)
             return Attempt<SettingsChange, SettingsStatus>.Fail(SettingsStatus.NotFound, $"Unknown settings category: {category}");
 
@@ -286,6 +314,8 @@ public sealed class ResetSettings(ISettingsStore store, IVectorIndexReconciler i
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
             return Attempt<string, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can reset settings.");
+        if (SettingsCategories.FindProviderOwned(category) is { } owned)
+            return Attempt<string, SettingsStatus>.Fail(SettingsStatus.ProviderOwned, owned.Refusal);
         if (SettingsCategories.Find(category) is not { } found)
             return Attempt<string, SettingsStatus>.Fail(SettingsStatus.NotFound, $"Unknown settings category: {category}");
 
