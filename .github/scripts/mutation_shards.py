@@ -8,7 +8,8 @@ into one report of the whole project: each file from the shard that mutated it. 
 exactly as one run's report would be, and saved as the baseline the same way.
 
 A shard's estimate comes from the baseline: a file's mutants that a run tests (Killed, Survived or Timeout last
-time), all of them for a full run or a changed file, else only those a changed test file covers. A file the
+time), all of them for a full run or a changed file, else only those a changed test file covers, with a timeout
+counted as TIMEOUT_COST mutants. A file the
 baseline doesn't have is estimated from its length. With one shard Stryker runs on the whole project with no
 --mutate, exactly as before sharding.
 
@@ -26,6 +27,10 @@ import sys
 from mutation_score import DETECTED, UNDETECTED, normalize, test_files
 
 TESTED = {"Killed", "Survived", "Timeout"}
+# A timeout holds its test session for the whole timeout: about 23 s against 0.2 s for any other mutant in the
+# first sharded full run (40668977895), where the shard with 12 of the 17 timeouts took 6.4 min to test and the
+# ones with none 1.6 to 2.5.
+TIMEOUT_COST = 100
 # Stryker's status reason for a mutant outside the --mutate patterns.
 MUTATE_FILTER = "mutate filter"
 
@@ -68,10 +73,9 @@ def weights(files: list[str], project_dir: str, project_rel: str, mode: str, bas
             out[f] = lines / 8
             continue
         tested = [m for m in source["mutants"] if m["status"] in TESTED]
-        if mode == "full" or f"{project_rel}/{f}" in changed:
-            out[f] = len(tested)
-        else:
-            out[f] = sum(1 for m in tested if changed_tests.intersection(m.get("coveredBy") or []))
+        if not (mode == "full" or f"{project_rel}/{f}" in changed):
+            tested = [m for m in tested if changed_tests.intersection(m.get("coveredBy") or [])]
+        out[f] = sum(TIMEOUT_COST if m["status"] == "Timeout" else 1 for m in tested)
     return out
 
 

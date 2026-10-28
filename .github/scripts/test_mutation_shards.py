@@ -61,6 +61,11 @@ class WeightTests(unittest.TestCase):
         self.assertEqual(self.weights("partial", ["tests/ATests.cs"])["A.cs"], 1)
         self.assertEqual(self.weights("partial")["A.cs"], 0)
 
+    def test_a_timeout_counts_as_many_mutants(self):
+        base = report({"A.cs": [mutant("Killed", line=1), mutant("Timeout", line=2)]})
+        w = mutation_shards.weights(["A.cs"], self.dir, "src/App", "full", base, set(), "/repo")
+        self.assertEqual(w["A.cs"], 1 + mutation_shards.TIMEOUT_COST)
+
     def test_a_file_the_baseline_lacks_is_estimated_from_its_length(self):
         self.assertEqual(self.weights("partial")["New.cs"], 10)
 
