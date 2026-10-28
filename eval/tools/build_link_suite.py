@@ -32,12 +32,17 @@ Steps, in order:
 Sampling and the tuning/held-out split are fixed by SEED and happen in `packets`, before any question is
 written or any run is made. `--repin` replaces existing pins after a deliberate re-snapshot.
 
+links-flink-atlassian rebuilds without the network from a saved snapshot, kept out of the repository:
+    python eval/tools/build_link_suite.py links-flink-atlassian --snapshot=<path>/records.jsonl.xz
+With --repin it fetches again and replaces that file. Without --snapshot it fetches and checks the pins.
+
 Outputs: eval/.cache/datasets/<name>/<version>/records.jsonl and links.jsonl with build.json;
 eval/.cache/link-packets/<name>.jsonl; eval/datasets/<name>/questions.jsonl (committed).
 """
 import hashlib
 import html
 import json
+import lzma
 import os
 import random
 import re
@@ -339,20 +344,44 @@ def wiki_targets(text, space, by_title):
     return out
 
 
-def build_atlassian():
+def pinned_sha(name, file):
+    with open(os.path.join(ROOT, "eval", "MANIFEST.json"), encoding="utf-8") as f:
+        pinned = json.load(f)["datasets"].get(name)
+    return next((x["sha256"] for x in pinned["files"] if x["name"] == file), None) if pinned else None
+
+
+def read_snapshot(name, path):
+    """The records saved by an earlier build (CON-132), kept out of the repository because they hold
+    contributors' names and comments. The APIs keep changing records after they are pinned, so a re-fetch
+    cannot reproduce a pin; this copy can. Its contents must be the pinned records.jsonl byte for byte."""
+    with lzma.open(path, "rb") as f:
+        data = f.read()
+    expected = pinned_sha(name, "records.jsonl")
+    if hashlib.sha256(data).hexdigest() != expected:
+        raise SystemExit(f"{name}: {path} does not hold the pinned records.jsonl (sha256 {expected})")
+    return [json.loads(line) for line in data.decode("utf-8").splitlines() if line.strip()]
+
+
+def build_atlassian(snapshot=None, refetch=False):
     name, project, start_date, end_date, space = ATLASSIAN
-    jql = f'project={project} AND created >= "{start_date}" AND created < "{end_date}" ORDER BY key ASC'
-    global JIRA_FIELDS
-    JIRA_FIELDS = JIRA_FIELDS + "," + EPIC_LINK
-    issues, start = [], 0
-    while True:
-        page = jira_search(jql, start)
-        issues += page["issues"]
-        start += len(page["issues"])
-        if start >= page["total"] or not page["issues"]:
-            break
-    pages = [p for p in confluence_pages(space) if p.get("status") == "current"]
-    print(f"{name}: {len(issues)} issues, {len(pages)} pages", flush=True)
+    if snapshot and not refetch:
+        rows = read_snapshot(name, snapshot)
+        issues = [r["issue"] for r in rows if "issue" in r]
+        pages = [r["page"] for r in rows if "page" in r]
+        print(f"{name}: read {len(issues)} issues, {len(pages)} pages from {snapshot}", flush=True)
+    else:
+        jql = f'project={project} AND created >= "{start_date}" AND created < "{end_date}" ORDER BY key ASC'
+        global JIRA_FIELDS
+        JIRA_FIELDS = JIRA_FIELDS + "," + EPIC_LINK
+        issues, start = [], 0
+        while True:
+            page = jira_search(jql, start)
+            issues += page["issues"]
+            start += len(page["issues"])
+            if start >= page["total"] or not page["issues"]:
+                break
+        pages = [p for p in confluence_pages(space) if p.get("status") == "current"]
+        print(f"{name}: {len(issues)} issues, {len(pages)} pages", flush=True)
     keys = {i["key"] for i in issues}
     page_ids = {p["id"] for p in pages}
     by_title = {(space, p["title"].strip()): p["id"] for p in pages}
@@ -400,6 +429,23 @@ def finish(name, rows, links):
     with open(os.path.join(directory, "build.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump({"files": files, "records": len(rows), "links": len(links)}, f, indent=2)
     print(f"{name}: {len(rows)} records, {len(links)} links", flush=True)
+
+
+def save_snapshot(name, path):
+    """Saves the pinned records as the suite's snapshot, once register has accepted them."""
+    records = os.path.join(dataset_dir(name), "records.jsonl")
+    if os.path.exists(path):
+        try:
+            with lzma.open(path, "rb") as f:
+                if hashlib.sha256(f.read()).hexdigest() == sha256(records):
+                    return
+        except (lzma.LZMAError, EOFError):
+            pass  # a damaged snapshot is replaced, so --repin can recover from it
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(records, "rb") as f, lzma.open(path + ".part", "wb", preset=9) as out:
+        out.write(f.read())
+    os.replace(path + ".part", path)
+    print(f"{name}: snapshot saved to {path}; keep it, the pins can only be rebuilt from it")
 
 
 def register(name, repin):
@@ -704,8 +750,11 @@ if __name__ == "__main__":
         build_github(GITHUB2)
         register(GITHUB2[0], "--repin" in sys.argv)
     elif args[0] == ATLASSIAN[0]:
-        build_atlassian()
+        snapshot = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--snapshot=")), None)
+        build_atlassian(snapshot, refetch="--repin" in sys.argv)
         register(ATLASSIAN[0], "--repin" in sys.argv)
+        if snapshot:
+            save_snapshot(ATLASSIAN[0], snapshot)
     elif args[0] == "packets":
         packets(args[1] if len(args) > 1 else None, second="--second" in sys.argv)
     elif args[0] == "questions":
