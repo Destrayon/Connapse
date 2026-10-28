@@ -61,10 +61,16 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
     public async Task Search_WithTheContainerIndex_MatchesExactSearch()
     {
         Guid container = await CreateContainerAsync("vidx-search");
+        Guid other = await CreateContainerAsync("vidx-other");
         try
         {
-            await SeedAsync(container, 300, i => "/doc.txt");
+            // Statistics from before the container had vectors, as autovacuum leaves them: they
+            // estimate it at a row, which makes sorting through the owner_id index look cheaper.
+            await SeedAsync(other, 4000, i => "/doc.txt");
             await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+            await ExecAsync(scope, $"UPDATE chunk_vectors SET model_id = 'other-model' WHERE owner_id = '{other}'");
+            await ExecAsync(scope, "ANALYZE chunk_vectors");
+            await SeedAsync(container, 300, i => "/doc.txt");
             await Manager(scope, threshold: 100).EnsureIndexesAsync();
             (await IndexesAsync(scope)).Should().Contain(VectorColumnManager.GetIndexName(container, Model, 3));
 
@@ -78,18 +84,24 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
             List<string> exact = await ExactTopAsync(scope, container, query, 10);
             hits.Select(h => h.Id).Should().Equal(exact);
 
-            // The search went through the container's index (statistics reach the view within ~1 s).
+            // The search went through the container's index. A backend that flushed its statistics
+            // under a second ago holds the next ones until it has been idle for 10 s, so wait past that.
             long scansAfter = scansBefore;
-            for (int attempt = 0; attempt < 20 && scansAfter == scansBefore; attempt++)
+            for (int attempt = 0; attempt < 60 && scansAfter == scansBefore; attempt++)
             {
                 await Task.Delay(250);
                 scansAfter = await IndexScansAsync(scope, index);
             }
-            scansAfter.Should().BeGreaterThan(scansBefore, "the planner must be able to use the per-container index");
+            await using KnowledgeDbContext ctx = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            bool catalogued = await VectorIndexCatalog.IsIndexedAsync(ctx, container, Model, 3, CancellationToken.None);
+            scansAfter.Should().BeGreaterThan(scansBefore,
+                "the planner must be able to use the per-container index (the search's catalog sees it: {0})", catalogued);
         }
         finally
         {
             await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{other}");
         }
     }
 

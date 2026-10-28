@@ -10,7 +10,7 @@ namespace Connapse.Eval.Datasets;
 /// <summary>
 /// Questions whose answer is a record linked to the one the question describes (CON-30): the pull
 /// request that closed an issue, a ticket's parent, its duplicates. records.jsonl is a snapshot of
-/// GitHub issues and pull requests or Jira issues as their APIs return them, rendered here by the
+/// GitHub issues and pull requests, Jira issues or Confluence pages as their APIs return them, rendered here by the
 /// connectors' own renderers so the indexed text is what a synced source would hold.
 /// questions.jsonl carries each question's kind, hop count, split and the API's answer records.
 /// Built by eval/tools/build_link_suite.py.
@@ -21,6 +21,15 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
     public const string QuestionsFile = "questions.jsonl";
 
     public string Name => "link-questions";
+
+    /// <summary>The site every Jira and Confluence record is on: the snapshots are all Apache's.</summary>
+    private const string Site = "apache";
+
+    /// <summary>The hosts the ASF's Jira and Confluence serve the snapshot's records from.</summary>
+    private static readonly IReadOnlyCollection<string> Hosts = ["issues.apache.org", "cwiki.apache.org"];
+
+    /// <summary>issues.apache.org's Epic Link field, which Data Center keeps outside <c>parent</c>.</summary>
+    private const string EpicLinkField = "customfield_12311120";
 
     private sealed record QuestionLine(
         string Id, string Question, string Kind, int Hops, string Split, string Start, IReadOnlyList<string> Answers);
@@ -87,6 +96,8 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
     internal static EvalDocument Render(JsonElement row, string where)
     {
         string id = row.GetProperty("id").GetString() ?? throw new InvalidDataException($"{where} has no id.");
+        if (row.TryGetProperty("page", out JsonElement page))
+            return RenderConfluence(id, page, row.GetProperty("space").GetString() ?? "");
         JsonElement issue = row.GetProperty("issue");
         return issue.TryGetProperty("fields", out _) ? RenderJira(id, issue) : RenderGitHub(id, issue, row);
     }
@@ -143,10 +154,38 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
         string projectName = prefix[..1] + prefix[1..].ToLowerInvariant();
         string markdown = JiraRecordRenderer.RenderIssue(projectName, issue, comments, [], new Dictionary<string, string>());
         string issueId = issue.GetProperty("id").GetString() ?? id;
-        return new EvalDocument(id, DocumentKind.Text, null, markdown, null, new Dictionary<string, string> { ["jira:issueKey"] = id })
+        // What the connector hands the pipeline at read time, so the link layer sees what a synced source stores (CON-34).
+        Dictionary<string, string> metadata = JiraLinks.Metadata(Site, issue, EpicLinkField, Hosts);
+        return new EvalDocument(id, DocumentKind.Text, null, markdown, null, metadata)
         {
             FileName = issueId + ".md",
             Strategy = nameof(ChunkingStrategy.Record),
+        };
+    }
+
+    /// <summary>A Confluence page as the space connector renders it, without comments, which the snapshot does not hold.</summary>
+    private static EvalDocument RenderConfluence(string id, JsonElement page, string space)
+    {
+        string pageId = page.GetProperty("id").GetString() ?? throw new InvalidDataException($"Record '{id}' has no page id.");
+        string title = page.GetProperty("title").GetString() ?? "";
+        string body = page.GetProperty("body").GetProperty("storage").GetProperty("value").GetString() ?? "";
+        List<string> ancestors = page.TryGetProperty("ancestors", out JsonElement a)
+            ? [.. a.EnumerateArray().Select(x => x.GetProperty("title").GetString() ?? "")]
+            : [];
+        string? parent = a.ValueKind == JsonValueKind.Array && a.GetArrayLength() > 0
+            ? a[a.GetArrayLength() - 1].GetProperty("id").GetString()
+            : null;
+        IEnumerable<string> labels = page.TryGetProperty("metadata", out JsonElement m)
+            && m.TryGetProperty("labels", out JsonElement l) && l.TryGetProperty("results", out JsonElement results)
+            ? [.. results.EnumerateArray().Select(x => x.GetProperty("name").GetString() ?? "")]
+            : [];
+
+        ConfluenceRenderOutput rendered = ConfluenceStorageRenderer.Render(new ConfluenceRenderInput(
+            [space, .. ancestors, title], body, [], new Dictionary<string, string>()));
+        Dictionary<string, string> metadata = ConfluenceLinks.Metadata(Site, space, pageId, title, parent, labels, body, Hosts);
+        return new EvalDocument(id, DocumentKind.Text, null, rendered.Markdown, null, metadata)
+        {
+            FileName = pageId + ".md",
         };
     }
 }

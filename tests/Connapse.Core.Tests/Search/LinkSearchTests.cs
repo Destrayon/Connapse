@@ -74,6 +74,21 @@ public class LinkSearchTests
     }
 
     [Fact]
+    public void PropagateScores_LightLinks_PassOnLessOnEveryHop()
+    {
+        // s -links-to-> x -labelled-> y, and s -parent-> p: page links and labels count for less (CON-34).
+        LinkExpansion walk = new(
+            [Node("s"), Node("x"), Node("y"), Node("p")],
+            [new("e1", "s", "x", "links-to", [], []), new("e2", "x", "y", "labelled", [], []), new("e3", "s", "p", "parent", [], [])]);
+
+        Dictionary<string, float> scores = LinkSearch.PropagateScores(new Dictionary<string, float> { ["s"] = 1f }, walk, maxHops: 2);
+
+        scores["p"].Should().BeApproximately(1f, 1e-6f);
+        scores["x"].Should().BeApproximately(0.5f, 1e-6f);
+        scores["y"].Should().BeApproximately(0.125f, 1e-6f);
+    }
+
+    [Fact]
     public void PropagateScores_SeedHiddenFromReader_StartsNothing()
     {
         // The walk did not return s (its reader cannot see it), so no score flows from it.

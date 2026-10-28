@@ -8,7 +8,7 @@ using Connapse.Ingestion.Parsers.Code;
 using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
-using Connapse.Storage.Connectors.GitHub;
+using Connapse.Storage.Connectors;
 using Connapse.Storage.Documents;
 using Connapse.Storage.Links;
 using Microsoft.EntityFrameworkCore;
@@ -511,12 +511,12 @@ public class IngestionPipeline : IKnowledgeIngester
     private async Task<bool> StageLinksAsync(
         Guid documentId, Dictionary<string, string> metadata, DocumentEntity? existing, CancellationToken ct)
     {
-        bool had = existing?.Metadata is { } previous && GitHubLinks.MayHaveLinks(previous);
-        if (!had && !GitHubLinks.MayHaveLinks(metadata))
+        bool had = existing?.Metadata is { } previous && RecordLinks.MayHaveLinks(previous);
+        if (!had && !RecordLinks.MayHaveLinks(metadata))
             return false;
 
         string id = documentId.ToString();
-        DocumentLinks links = GitHubLinks.For(id, metadata) ?? new DocumentLinks(id, null, [], []);
+        DocumentLinks links = RecordLinks.For(id, metadata) ?? new DocumentLinks(id, null, [], []);
         await PostgresLinkStore.StageReplaceAsync(_context, [links], ct);
         await _context.SaveChangesAsync(ct);
         return true;
@@ -771,7 +771,7 @@ public class IngestionPipeline : IKnowledgeIngester
         string jobPath = connector.ResolveJobPath(virtualPath.TrimStart('/'));
 
         await using Stream stream = await ReadSourceFileAsync(connector, jobPath, ct);
-        return await IngestAsync(stream, options, ct);
+        return await IngestAsync(stream, MetadataStream.Merge(options, stream), ct);
     }
 
     /// <summary>
@@ -799,7 +799,7 @@ public class IngestionPipeline : IKnowledgeIngester
         try
         {
             await using Stream stream = await ReadSourceFileAsync(connector, path, ct);
-            return await IngestAsync(stream, options, ct);
+            return await IngestAsync(stream, MetadataStream.Merge(options, stream), ct);
         }
         finally
         {

@@ -7,7 +7,7 @@ using Connapse.Eval.Model;
 using Connapse.Search.Reranking;
 using Connapse.Search.Keyword;
 using Connapse.Search.Vector;
-using Connapse.Storage.Connectors.GitHub;
+using Connapse.Storage.Connectors;
 using Hangfire;
 using Hangfire.Common;
 using Hangfire.Storage;
@@ -319,14 +319,14 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     }
 
     /// <summary>
-    /// The links a synced GitHub source would write (CON-33). Uploads carry no connector metadata, so the harness
-    /// writes what the pipeline would have, from the same <see cref="GitHubLinks"/> reading the same metadata.
+    /// The links a synced GitHub or Jira source would write (CON-33, CON-34). Uploads carry no connector metadata, so
+    /// the harness writes what the pipeline would have, from the same <see cref="RecordLinks"/> reading the same metadata.
     /// </summary>
     private async Task WriteLinksAsync(EvalDataset dataset, IEnumerable<KeyValuePair<string, string>> docMap, CancellationToken ct)
     {
         Dictionary<string, EvalDocument> byId = dataset.Corpus.ToDictionary(d => d.Id, StringComparer.Ordinal);
         List<DocumentLinks> links = docMap
-            .Select(p => GitHubLinks.For(p.Key, byId[p.Value].Metadata))
+            .Select(p => RecordLinks.For(p.Key, byId[p.Value].Metadata))
             .OfType<DocumentLinks>()
             .ToList();
         if (links.Count == 0)

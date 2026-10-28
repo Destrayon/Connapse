@@ -549,6 +549,28 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadFile_PageWithLinks_HandsThePipelineTheirMetadata()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Root"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Design",
+            Body: """<p><ac:link><ri:page ri:content-title="Roadmap" /></ac:link> and <ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">ENG-4</ac:parameter></ac:structured-macro></p>""",
+            ParentId: "1", ParentType: "page", Labels: ["Architecture"]));
+
+        await _connector.GetChangesAsync(null);
+        await using Stream read = await _connector.ReadFileAsync("/pages/2.md");
+
+        read.Should().BeOfType<Connapse.Core.MetadataStream>().Which.Metadata.Should().Contain(new Dictionary<string, string>
+        {
+            ["confluence:site"] = CloudId,
+            ["confluence:pageId"] = "2",
+            ["confluence:parent"] = "1",
+            ["confluence:labels"] = "architecture",
+            ["confluence:pages"] = "title:ENG/Roadmap",
+            ["confluence:issues"] = "ENG-4",
+        });
+    }
+
+    [Fact]
     public async Task ReadFile_RendersBreadcrumbFromAncestorsAndFolders()
     {
         // Root page > Guides (folder) > Deep (folder) > Child page > Leaf page
