@@ -369,4 +369,3 @@ internal static class GitHubRules
         ? $"Nothing was changed: {app.Message}"
         : "GitHub could not be reached or refused the request, so nothing was changed. Check that this server can reach api.github.com, then try again.";
 }
-
