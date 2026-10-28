@@ -173,7 +173,9 @@ jobs:
         fi
         exit "$status"
 
+    # A failing score still uploads its report; status is set only once the shards merged.
     - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() && steps.score.outputs.status != '' }}
       with:
         name: mutation-report
         path: mutation-report.json
@@ -230,20 +232,20 @@ jobs:
           --config tests/Connapse.Core.Tests/stryker-config.json | tee -a "$GITHUB_STEP_SUMMARY"
 
     - name: Save mutation baseline
-      if: github.event_name != 'pull_request' && (steps.score.outcome == 'success' || steps.score.outcome == 'failure')
+      if: ${{ !cancelled() && github.event_name != 'pull_request' && (steps.score.outcome == 'success' || steps.score.outcome == 'failure') }}
       run: |
         mkdir -p mutation-baseline
         cp mutation-report.json mutation-baseline/
         echo "${{ github.sha }}" > mutation-baseline/commit
 
     - uses: actions/cache/save@v4
-      if: github.event_name != 'pull_request' && (steps.score.outcome == 'success' || steps.score.outcome == 'failure')
+      if: ${{ !cancelled() && github.event_name != 'pull_request' && (steps.score.outcome == 'success' || steps.score.outcome == 'failure') }}
       with:
         path: mutation-baseline
         key: mutation-baseline-${{ github.ref_name }}-${{ github.sha }}
 
     - uses: actions/upload-artifact@v4
-      if: steps.score.outcome == 'success' || steps.score.outcome == 'failure'
+      if: ${{ !cancelled() && (steps.score.outcome == 'success' || steps.score.outcome == 'failure') }}
       with:
         name: mutation-report-full
         path: mutation-report.json
