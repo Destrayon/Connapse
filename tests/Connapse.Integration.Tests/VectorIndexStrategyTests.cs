@@ -78,9 +78,10 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
             List<string> exact = await ExactTopAsync(scope, container, query, 10);
             hits.Select(h => h.Id).Should().Equal(exact);
 
-            // The search went through the container's index (statistics reach the view within ~1 s).
+            // The search went through the container's index. A backend that flushed its statistics
+            // under a second ago holds the next ones until it has been idle for 10 s, so wait past that.
             long scansAfter = scansBefore;
-            for (int attempt = 0; attempt < 20 && scansAfter == scansBefore; attempt++)
+            for (int attempt = 0; attempt < 60 && scansAfter == scansBefore; attempt++)
             {
                 await Task.Delay(250);
                 scansAfter = await IndexScansAsync(scope, index);
