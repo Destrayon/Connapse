@@ -30,9 +30,7 @@ public class ProviderOperationRandomInputTests
             var reader = Substitute.For<IProviderSetupReader>();
             IReadOnlyList<ProviderSetup> setups = [.. Enumerable.Range(0, count).Select(i => new ProviderSetup($"p{i}", $"P{i}", []))];
             reader.ReadAsync(Arg.Any<CancellationToken>()).Returns(setups);
-            var authorizer = Substitute.For<IOperationAuthorizer>();
-            authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-            authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SettingsAdmin).Returns(allowed);
+            var authorizer = new PolicyAuthorizer(policy => policy == Policies.SettingsAdmin && allowed);
 
             var read = await new GetProviderStatus(reader, authorizer).RunAsync(new OperationContext(new ClaimsPrincipal(), surface));
 
@@ -772,10 +770,7 @@ public class ProviderOperationRandomInputTests
 
     private static IOperationAuthorizer Authorizer(bool allowed, string policy = Policies.SettingsAdmin)
     {
-        var authorizer = Substitute.For<IOperationAuthorizer>();
-        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), policy).Returns(allowed);
-        return authorizer;
+        return new PolicyAuthorizer(asked => asked == policy && allowed);
     }
 
     private static CustomProvider Provider(Guid id) =>

@@ -30,7 +30,7 @@ public class UserOperationRandomInputTests
     private sealed class World
     {
         public readonly IUserDirectory Directory = Substitute.For<IUserDirectory>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly ICustomLinkRemovalStore Removals = Substitute.For<ICustomLinkRemovalStore>();
         public readonly Guid CallerId = Guid.NewGuid();
@@ -38,9 +38,7 @@ public class UserOperationRandomInputTests
 
         public World(bool admin, bool scope, bool owner, OperationSurface surface)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.AdminUsersScope).Returns(scope);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Owner).Returns(owner);
+            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.Admin => admin, Policies.AdminUsersScope => scope, Policies.Owner => owner, _ => false });
             Caller = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, CallerId.ToString())], "test")), surface);
         }
 

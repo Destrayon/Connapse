@@ -71,12 +71,11 @@ public partial class SettingsOperationTests
         public readonly VectorModelDiscovery Models = Substitute.For<VectorModelDiscovery>(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance);
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
 
         public World(bool admin = true)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SettingsAdmin).Returns(admin);
+            Authorizer = new PolicyAuthorizer(policy => policy == Policies.SettingsAdmin && admin);
             Models.GetModelsAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns([]);
         }
 

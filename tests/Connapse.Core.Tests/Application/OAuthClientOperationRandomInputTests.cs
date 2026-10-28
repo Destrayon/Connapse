@@ -19,10 +19,7 @@ public class OAuthClientOperationRandomInputTests
 
     private static IOperationAuthorizer Authorizer(bool allowed)
     {
-        var authorizer = Substitute.For<IOperationAuthorizer>();
-        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.ClientAdmin).Returns(allowed);
-        return authorizer;
+        return new PolicyAuthorizer(policy => policy == Policies.ClientAdmin && allowed);
     }
 
     private static readonly Gen<OperationContext> AnyCaller =

@@ -50,12 +50,12 @@ public class ContainerRandomInputTests
         public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
+        public bool Admin;
 
         public World(bool reader, bool writer)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(reader);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Writer).Returns(writer);
+            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.Reader => reader, Policies.Writer => writer, Policies.Admin => Admin, _ => false });
         }
 
         /// <summary>The store holds <paramref name="container"/> when <paramref name="exists"/>, by id and by name.</summary>
@@ -520,7 +520,7 @@ public class ContainerRandomInputTests
             {
                 var (caller, admin, writer, container, exists) = t;
                 var world = new World(reader: true, writer);
-                world.Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
+                world.Admin = admin;
                 world.Holds(container, exists);
                 var id = Guid.Parse(container.Id);
                 var rollup = Substitute.For<ISummaryRollup>();
@@ -549,7 +549,7 @@ public class ContainerRandomInputTests
             {
                 var (caller, admin, writer, container, exists, summaries) = t;
                 var world = new World(reader: true, writer);
-                world.Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
+                world.Admin = admin;
                 world.Holds(container, exists);
                 var id = Guid.Parse(container.Id);
                 world.Documents.ClearDocumentSummariesAsync(id, Arg.Any<CancellationToken>()).Returns(summaries);

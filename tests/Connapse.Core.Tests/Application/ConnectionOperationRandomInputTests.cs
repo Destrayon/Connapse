@@ -33,11 +33,10 @@ public sealed class ConnectionOperationRandomInputTests
         public IConnectionStore Connections { get; } = Substitute.For<IConnectionStore>();
         public ISourceStore Sources { get; } = Substitute.For<ISourceStore>();
         public IAuditLogger Audit { get; } = Substitute.For<IAuditLogger>();
-        public IOperationAuthorizer Authorizer { get; } = Substitute.For<IOperationAuthorizer>();
+        public PolicyAuthorizer Authorizer { get; }
         public IConnectionSettingsRules Rules { get; } = Substitute.For<IConnectionSettingsRules>();
 
-        public World(bool admin) =>
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(admin);
+        public World(bool admin) => Authorizer = new PolicyAuthorizer(_ => admin);
 
         public int AuditCalls => Audit.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAuditLogger.LogAsync));
 

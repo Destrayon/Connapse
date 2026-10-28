@@ -45,9 +45,7 @@ public class AuditOperationRandomInputTests
                 asked = c.ArgAt<AuditQuery>(0);
                 return page;
             });
-            var authorizer = Substitute.For<IOperationAuthorizer>();
-            authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-            authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.AuditReader).Returns(allowed);
+            var authorizer = new PolicyAuthorizer(policy => policy == Policies.AuditReader && allowed);
 
             var listed = await new ListAuditLog(reader, authorizer).RunAsync(new OperationContext(new ClaimsPrincipal(), surface), query);
 

@@ -28,14 +28,13 @@ public class SearchOperationTests
         public readonly ISourceVisibility Visibility = Substitute.For<ISourceVisibility>();
         public readonly IKnowledgeSearch Search = Substitute.For<IKnowledgeSearch>();
         public readonly IOptionsMonitor<SearchSettings> Settings = Substitute.For<IOptionsMonitor<SearchSettings>>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
         public SearchOptions? Asked;
         public string? AskedQuery;
 
         public World(bool allowed = true, int hits = 1, double minimumScore = 0.25)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.KnowledgeRead).Returns(allowed);
+            Authorizer = new PolicyAuthorizer(policy => policy == Policies.KnowledgeRead && allowed);
             Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => true);
             Settings.CurrentValue.Returns(new SearchSettings { MinimumScore = minimumScore });
             var found = Enumerable.Range(0, hits).Select(i => new SearchHit($"c{i}", $"d{i}", "text", 0.5f, [])).ToList();

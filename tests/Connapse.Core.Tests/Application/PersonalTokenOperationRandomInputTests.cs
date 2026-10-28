@@ -41,7 +41,7 @@ public class PersonalTokenOperationRandomInputTests
     private sealed class World
     {
         public readonly IPatService Pats = Substitute.For<IPatService>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly TimeProvider Clock = new FixedClock(new DateTimeOffset(Now));
         public readonly Guid CallerId = Guid.NewGuid();
@@ -49,7 +49,7 @@ public class PersonalTokenOperationRandomInputTests
 
         public World(bool person, OperationSurface surface)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Person).Returns(person);
+            Authorizer = new PolicyAuthorizer(policy => policy == Policies.Person && person);
             Caller = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, CallerId.ToString())], "test")), surface);
         }
 
