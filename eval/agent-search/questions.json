@@ -1,0 +1,807 @@
+[
+  {
+    "id": "code-exact-01",
+    "kind": "exact",
+    "area": "code",
+    "question": "Which method throws the error \"Each item's metadata must contain a 'modelId'\", and which other metadata keys must every item carry for that method to accept it?",
+    "answer": "PgVectorStore.UpsertBatchAsync throws it. Every item also needs a valid GUID 'documentId' and a valid GUID 'ownerId' (and the item Id itself must be a GUID); 'contentHash' and 'dimensions' are optional.",
+    "must_include": [
+      "PgVectorStore.UpsertBatchAsync",
+      "documentId (GUID)",
+      "ownerId (GUID)"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:149",
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:161",
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:166",
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:171"
+    ]
+  },
+  {
+    "id": "code-exact-02",
+    "kind": "exact",
+    "area": "code",
+    "question": "Which check produces the reason code `[too_many_entries]`, for which file extensions does it run, and what is the default entry limit?",
+    "answer": "ParseLimits.CheckInput produces it before parsing, but only for ZIP-based Office files (.docx, .pptx, .epub). It reads the declared entry count from the ZIP end-of-central-directory record and refuses files over UploadSettings.MaxZipEntries, which defaults to 10,000.",
+    "must_include": [
+      "ParseLimits.CheckInput",
+      ".docx, .pptx, .epub",
+      "MaxZipEntries default 10,000"
+    ],
+    "evidence": [
+      "src/Connapse.Ingestion/Validation/ParseLimits.cs:16",
+      "src/Connapse.Ingestion/Validation/ParseLimits.cs:41",
+      "src/Connapse.Core/Models/SettingsModels.cs:560"
+    ]
+  },
+  {
+    "id": "code-exact-03",
+    "kind": "exact",
+    "area": "code",
+    "question": "Which operation returns the message \"Category '...' does not support connection testing\", and which settings categories does it actually support?",
+    "answer": "The settings.testConnection operation (class TestConnection in SettingsActions.cs) returns it as a failed test result (not a refused request) for unknown categories. Supported categories are embedding, llm, crossencoder and minio.",
+    "must_include": [
+      "TestConnection / settings.testConnection",
+      "embedding, llm, crossencoder, minio",
+      "returned as a failed test result, not a refusal"
+    ],
+    "evidence": [
+      "src/Connapse.Application/Settings/SettingsActions.cs:151",
+      "src/Connapse.Application/Settings/SettingsActions.cs:175",
+      "src/Connapse.Application/Settings/SettingsActions.cs:189"
+    ]
+  },
+  {
+    "id": "code-exact-04",
+    "kind": "exact",
+    "area": "code",
+    "question": "When is the warning \"Unknown FusionMethod '{Method}', defaulting to ConvexCombination\" logged, and which other fusion method value is recognised?",
+    "answer": "HybridSearchService logs it when SearchSettings.FusionMethod is neither \"DBSF\" nor \"ConvexCombination\" (case-insensitive); it then fuses with the convex-combination method. \"DBSF\" selects distribution-based score fusion (FuseResultsDbsf).",
+    "must_include": [
+      "HybridSearchService",
+      "DBSF",
+      "falls back to ConvexCombination fusion"
+    ],
+    "evidence": [
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:320",
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:327"
+    ]
+  },
+  {
+    "id": "code-exact-05",
+    "kind": "exact",
+    "area": "code",
+    "question": "Under what conditions does `VectorColumnManager.EnsureIndexesAsync` drop an existing vector index?",
+    "answer": "It drops legacy shared indexes (prefix idx_cv_emb_), invalid indexes left by interrupted builds, and per-container ix_cv_hnsw_ indexes whose container is gone or has shrunk below half of VectorIndexMinVectors.",
+    "must_include": [
+      "legacy idx_cv_emb_ indexes",
+      "invalid (interrupted build) indexes",
+      "container gone or below half the VectorIndexMinVectors threshold"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/Vectors/VectorColumnManager.cs:48",
+      "src/Connapse.Storage/Vectors/VectorColumnManager.cs:70",
+      "src/Connapse.Storage/Vectors/VectorColumnManager.cs:76",
+      "src/Connapse.Storage/Vectors/VectorColumnManager.cs:78"
+    ]
+  },
+  {
+    "id": "code-exact-06",
+    "kind": "exact",
+    "area": "code",
+    "question": "What two conditions make `PageGuard.Next` stop paging a custom source server, and what is the default page limit?",
+    "answer": "It throws a CustomSourceException when the server repeats a page token it already sent, or when the number of pages reaches the maximum, DefaultMaxPages = 10,000.",
+    "must_include": [
+      "repeated page token",
+      "page limit exceeded",
+      "DefaultMaxPages = 10,000",
+      "throws CustomSourceException"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/Connectors/Custom/PageGuard.cs:9",
+      "src/Connapse.Storage/Connectors/Custom/PageGuard.cs:16",
+      "src/Connapse.Storage/Connectors/Custom/PageGuard.cs:18"
+    ]
+  },
+  {
+    "id": "code-exact-07",
+    "kind": "exact",
+    "area": "code",
+    "question": "What exactly does `LogSanitizer.Sanitize` do to its input?",
+    "answer": "It returns an empty string for null/empty input, removes carriage return and line feed characters entirely, and replaces any other control character with a space, to prevent log forging.",
+    "must_include": [
+      "null/empty becomes empty string",
+      "CR and LF removed",
+      "other control characters replaced with a space"
+    ],
+    "evidence": [
+      "src/Connapse.Core/Utilities/LogSanitizer.cs:9",
+      "src/Connapse.Core/Utilities/LogSanitizer.cs:19",
+      "src/Connapse.Core/Utilities/LogSanitizer.cs:23"
+    ]
+  },
+  {
+    "id": "code-exact-08",
+    "kind": "exact",
+    "area": "code",
+    "question": "How does `IfMatch.TryRead` treat a `*` wildcard and weak entity tags in an If-Match header?",
+    "answer": "No header or `*` alone means an unconditional write (versions is null). A `*` mixed into a list of tags is malformed and TryRead returns false. Weak tags are dropped from the versions list, so they never match.",
+    "must_include": [
+      "* alone or no header = unconditional (null versions)",
+      "* in a list of tags returns false (malformed)",
+      "weak tags are excluded / never match"
+    ],
+    "evidence": [
+      "src/Connapse.Web/Endpoints/IfMatch.cs:18",
+      "src/Connapse.Web/Endpoints/IfMatch.cs:27",
+      "src/Connapse.Web/Endpoints/IfMatch.cs:29"
+    ]
+  },
+  {
+    "id": "code-exact-09",
+    "kind": "exact",
+    "area": "code",
+    "question": "What is the default value of the `Database:MaxPoolSize` setting, and what happens if it is set to 0?",
+    "answer": "It defaults to 40 (the Npgsql connection pool cap for the app). A value of 0 or below makes AddConnapseStorage throw InvalidOperationException \"Database:MaxPoolSize must be a positive integer.\"",
+    "must_include": [
+      "default 40",
+      "0 or negative throws InvalidOperationException",
+      "AddConnapseStorage"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs:55",
+      "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs:57"
+    ]
+  },
+  {
+    "id": "code-exact-10",
+    "kind": "exact",
+    "area": "code",
+    "question": "What is `IngestionJobs.MaxAttempts`, and what delays are used between retries?",
+    "answer": "MaxAttempts is 4 attempts per file version before the document is marked FailedRetryable. Retry delays are 30 seconds, 2 minutes, then 10 minutes.",
+    "must_include": [
+      "4",
+      "30 seconds",
+      "2 minutes",
+      "10 minutes"
+    ],
+    "evidence": [
+      "src/Connapse.Background/Jobs/IngestionJobs.cs:26",
+      "src/Connapse.Background/Jobs/IngestionJobs.cs:29",
+      "src/Connapse.Background/Jobs/IngestionJobs.cs:169"
+    ]
+  },
+  {
+    "id": "code-exact-11",
+    "kind": "exact",
+    "area": "code",
+    "question": "What is the default of `UploadSettings.ParserFilesPerProcess`, and what does the parser pool do when a host reaches it?",
+    "answer": "The default is 50. When a parser host has parsed that many files (minimum 1), ParserProcessPool kills the host process and removes it from the pool instead of returning it to the idle set, so the next request starts a fresh host.",
+    "must_include": [
+      "50",
+      "host process is killed / recycled",
+      "ParserProcessPool"
+    ],
+    "evidence": [
+      "src/Connapse.Core/Models/SettingsModels.cs:488",
+      "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs:430"
+    ]
+  },
+  {
+    "id": "code-exact-12",
+    "kind": "exact",
+    "area": "code",
+    "question": "What is the default value of `SearchSettings.FusionAlpha`, and where is it used?",
+    "answer": "FusionAlpha defaults to 0.65 (range 0 to 1). HybridSearchService passes it as the vector-vs-keyword weight to both fusion methods, FuseResults (convex combination) and FuseResultsDbsf.",
+    "must_include": [
+      "0.65",
+      "HybridSearchService",
+      "weights vector vs keyword scores in fusion"
+    ],
+    "evidence": [
+      "src/Connapse.Core/Models/SettingsModels.cs:228",
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:322",
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:329"
+    ]
+  },
+  {
+    "id": "code-concept-01",
+    "kind": "concept",
+    "area": "code",
+    "question": "In hybrid search, if a chunk is found only by keyword search and not by vector search, how does it get a vector-side score before the two result lists are combined, and what happens if that extra scoring fails?",
+    "answer": "Before fusion, every pooled candidate that only one side found is scored on the other side (vector similarity for keyword-only hits, keyword rank for vector-only hits), so it is ranked on a real score rather than zero. If that extra scoring throws, a warning is logged and fusion proceeds on each side's own results.",
+    "must_include": [
+      "missing side's score is computed for candidates found by only one side",
+      "both directions (vector score for keyword-only, keyword score for vector-only)",
+      "on failure, fuses each side's own results"
+    ],
+    "evidence": [
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:316",
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:350",
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:383"
+    ]
+  },
+  {
+    "id": "code-concept-02",
+    "kind": "concept",
+    "area": "code",
+    "question": "What happens when a client presents a refresh token that has already been used once (rotated) to get new tokens?",
+    "answer": "The reused token is already revoked, so the refresh is refused and the server revokes the whole token family by following the chain of replacement tokens and marking each one revoked. Normal refreshes revoke the old token and issue a new pair linked to it.",
+    "must_include": [
+      "request refused (no new tokens)",
+      "whole chain/family of successor tokens is revoked",
+      "normal refresh rotates: old token revoked, replacement recorded"
+    ],
+    "evidence": [
+      "src/Connapse.Identity/Services/JwtTokenService.cs:81",
+      "src/Connapse.Identity/Services/JwtTokenService.cs:104",
+      "src/Connapse.Identity/Services/JwtTokenService.cs:229"
+    ]
+  },
+  {
+    "id": "code-concept-03",
+    "kind": "concept",
+    "area": "code",
+    "question": "Before sending text to an embedding model, how does Connapse change it depending on whether the text is a search query or stored content?",
+    "answer": "It prepends the model's published instruction for that side (for nomic models \"search_query: \" for queries and \"search_document: \" for documents); unknown models get no prefix, and custom prefixes can replace the published ones. For models with uncased tokenizers it also lowercases and strips accents. An unspecified side is sent unchanged so it matches older stored vectors.",
+    "must_include": [
+      "different prefix for queries vs documents (e.g. search_query: / search_document:)",
+      "unknown models get no prefix",
+      "lowercasing/accent stripping for uncased models"
+    ],
+    "evidence": [
+      "src/Connapse.Core/Models/EmbeddingPrompts.cs:86",
+      "src/Connapse.Core/Models/EmbeddingPrompts.cs:148",
+      "src/Connapse.Core/Models/EmbeddingPrompts.cs:154",
+      "src/Connapse.Storage/Vectors/OllamaEmbeddingProvider.cs:58"
+    ]
+  },
+  {
+    "id": "code-concept-04",
+    "kind": "concept",
+    "area": "code",
+    "question": "Why are a user's cloud permission restrictions applied inside the vector search query rather than to its results, and what does a user with no cloud grants still get back?",
+    "answer": "Filtering after taking the top K would remove most hits and give less-privileged users far fewer results, so the permission predicates are pushed into the SQL query. With no grants, only cloud-governed documents (those with a resource address) are excluded; uploads and other non-cloud documents still appear.",
+    "must_include": [
+      "post-filtering top K would shrink results for narrowly-privileged users",
+      "filter is part of the query itself",
+      "no grants: only documents with a cloud resource address are excluded; non-cloud documents still show"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:250",
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:256",
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:264"
+    ]
+  },
+  {
+    "id": "code-concept-05",
+    "kind": "concept",
+    "area": "code",
+    "question": "When a sandboxed parser process dies while Connapse is parsing a file, does Connapse retry the file?",
+    "answer": "Only if the host died before signalling it was ready (it never read the file): then one new host gets the file within the same deadline. If it died after being ready, it is treated as having crashed on the file and the document fails permanently with a parse_crashed error; deadline kills and out-of-memory deaths are reported as timeout/out-of-memory instead.",
+    "must_include": [
+      "retried once on a new host if it died before becoming ready",
+      "no retry if it died after being ready",
+      "permanent failure (parse_crashed)"
+    ],
+    "evidence": [
+      "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs:337",
+      "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs:342",
+      "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs:351"
+    ]
+  },
+  {
+    "id": "code-concept-06",
+    "kind": "concept",
+    "area": "code",
+    "question": "How does Connapse produce a summary for a whole container that holds many documents?",
+    "answer": "With 30 or fewer documents, all per-document summaries go to the LLM in one prompt (the \"stuff\" regime). With more, it picks k = min(20, ceil(n/3)) representative documents by farthest-first medoid selection over their embeddings and sends only those summaries, each labelled with how many similar documents it represents (the \"cluster\" regime).",
+    "must_include": [
+      "up to 30 documents: all summaries sent together",
+      "more than 30: clustered into at most 20 groups (about n/3)",
+      "only representative (medoid) summaries sent, with cluster sizes"
+    ],
+    "evidence": [
+      "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs:11",
+      "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs:29",
+      "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs:39"
+    ]
+  },
+  {
+    "id": "code-concept-07",
+    "kind": "concept",
+    "area": "code",
+    "question": "If Connapse cannot work out which Azure resources a user may see (for example, the lookup throws an error), what does search do for that user?",
+    "answer": "It fails closed: the error is logged and a 'failed' scope is returned, denying rather than widening access, so cloud-governed documents are excluded from that user's results. Failed results are not cached; only granted or no-grant outcomes are cached.",
+    "must_include": [
+      "denies rather than widening (fail closed)",
+      "cloud-governed (Azure) documents excluded",
+      "failure is not cached"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/CloudScope/AzureSearchScopeResolver.cs:57",
+      "src/Connapse.Storage/CloudScope/AzureSearchScopeResolver.cs:63",
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:256"
+    ]
+  },
+  {
+    "id": "code-concept-08",
+    "kind": "concept",
+    "area": "code",
+    "question": "How are personal access tokens generated and stored?",
+    "answer": "A token is the prefix \"cnp_\" plus 32 random bytes in base64url. Only its SHA-256 hash and its first 12 characters (for display) are stored; the full token is returned once, in the create response.",
+    "must_include": [
+      "cnp_ prefix + 32 random bytes",
+      "only SHA-256 hash stored",
+      "first 12 characters kept for display; full token shown only at creation"
+    ],
+    "evidence": [
+      "src/Connapse.Identity/Services/PatService.cs:23",
+      "src/Connapse.Identity/Services/PatService.cs:26",
+      "src/Connapse.Identity/Services/PatService.cs:50",
+      "src/Connapse.Identity/Authentication/ApiKeyAuthenticationOptions.cs:9"
+    ]
+  },
+  {
+    "id": "code-concept-09",
+    "kind": "concept",
+    "area": "code",
+    "question": "How does Connapse decide that text extracted from a PDF is unreadable junk and refuse to index it?",
+    "answer": "For PDF, DOCX and PPTX files with at least 200 non-whitespace characters, it measures the share of suspicious characters (replacement characters, controls, private-use glyphs) and of letters/digits/symbols. At 50% or more suspicious, or under 25% letters/digits/symbols, ingestion fails permanently with garbled_text; 10% or more suspicious only adds a warning.",
+    "must_include": [
+      "only PDF/DOCX/PPTX, at least 200 characters",
+      "50% suspicious characters or under 25% letters/digits fails permanently",
+      "10% suspicious only warns"
+    ],
+    "evidence": [
+      "src/Connapse.Ingestion/Validation/TextQuality.cs:24",
+      "src/Connapse.Ingestion/Validation/TextQuality.cs:66",
+      "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs:274",
+      "src/Connapse.Core/Models/SettingsModels.cs:539"
+    ]
+  },
+  {
+    "id": "code-concept-10",
+    "kind": "concept",
+    "area": "code",
+    "question": "When search results include Confluence or Jira content, how does Connapse make sure the person searching may actually read it?",
+    "answer": "Each Atlassian hit is checked live against Confluence/Jira as the searcher's linked Atlassian account; non-Atlassian hits pass untouched. Unlinked users lose all Atlassian hits, and any check that errors or doesn't finish within the time budget (3 seconds by default) is denied. It over-fetches candidates (3x by default) when an Atlassian connection exists so dropped hits can be backfilled.",
+    "must_include": [
+      "live per-hit check as the user's linked Atlassian account",
+      "unlinked user: all Atlassian hits dropped",
+      "checks failing or exceeding the time budget are denied (fail closed)"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/CloudScope/AtlassianSearchResultVerifier.cs:32",
+      "src/Connapse.Storage/CloudScope/AtlassianSearchResultVerifier.cs:73",
+      "src/Connapse.Storage/CloudScope/AtlassianSearchResultVerifier.cs:89",
+      "src/Connapse.Storage/CloudScope/AtlassianSearchResultVerifier.cs:93",
+      "src/Connapse.Core/Models/AtlassianVerifierSettings.cs:15"
+    ]
+  },
+  {
+    "id": "code-concept-11",
+    "kind": "concept",
+    "area": "code",
+    "question": "With the sentence-window chunking strategy, what text gets embedded and what text is returned in search results?",
+    "answer": "Each sentence is its own chunk and only that sentence is embedded; the chunk's metadata also stores a window of neighbouring sentences (3 on each side by default, 7 in total). After reranking, search replaces each hit's content with that wider window when substitution is enabled (the default).",
+    "must_include": [
+      "one sentence per chunk is embedded",
+      "window of neighbouring sentences stored (default 3 each side)",
+      "window substituted into results after reranking"
+    ],
+    "evidence": [
+      "src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs:61",
+      "src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs:80",
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:15",
+      "src/Connapse.Search/Hybrid/HybridSearchService.cs:214"
+    ]
+  },
+  {
+    "id": "code-concept-12",
+    "kind": "concept",
+    "area": "code",
+    "question": "What happens to a GitHub source's already-indexed documents if its repository stops being public, and what brings them back?",
+    "answer": "The sync fails with an access-revoked error and the source is marked access-revoked; its documents are not deleted but are excluded from search. When a later sync reads the remote successfully, the mark is cleared and the documents return to search.",
+    "must_include": [
+      "documents stay indexed (not deleted)",
+      "hidden from search while access is revoked",
+      "restored after a later successful sync"
+    ],
+    "evidence": [
+      "src/Connapse.Storage/Connectors/GitHubConnector.cs:17",
+      "src/Connapse.Web/Services/SourceSyncService.cs:248",
+      "src/Connapse.Web/Services/SourceSyncService.cs:264",
+      "src/Connapse.Storage/Vectors/PgVectorStore.cs:207"
+    ]
+  },
+  {
+    "id": "docs-exact-01",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the research report on whether ~0.98 recall@30 from per-container HNSW is acceptable, what ef_construction range and index expression does it recommend to reach >= 0.99 recall?",
+    "answer": "Build the per-container HNSW index over `halfvec(768)` with ef_construction 200-256 (keeping m 16), and search with ef_search at least 2-3x the inner LIMIT.",
+    "must_include": [
+      "ef_construction 200-256",
+      "halfvec(768)",
+      "m 16",
+      "ef_search 2-3x the LIMIT"
+    ],
+    "evidence": [
+      "docs/research/vector-recall-tradeoff-2026-09-29.md:7",
+      "docs/research/vector-recall-tradeoff-2026-09-29.md:25"
+    ]
+  },
+  {
+    "id": "docs-exact-02",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the Linux layout-model memory levers report (#681), what did the 640x640 input variant fail to detect, and why was the loss not due to image detail?",
+    "answer": "At 640 the model missed 39 of 103 text regions, 15 of 32 paragraph titles and all 4 footers. The 800 model on pages downscaled to 640 and back missed only 3 of 103, so the model simply does not transfer to a smaller grid without retraining.",
+    "must_include": [
+      "39 of 103 text regions",
+      "15 of 32 paragraph titles",
+      "all 4 footers",
+      "does not transfer to a smaller grid without retraining"
+    ],
+    "evidence": [
+      "docs/research/layout-model-memory-levers-2026-10-08.md:45",
+      "docs/research/layout-model-memory-levers-2026-10-08.md:46"
+    ]
+  },
+  {
+    "id": "docs-exact-03",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the embedding-prefix research's follow-up finding that Ollama does not lowercase uncased models (#561), what dense-only nDCG@10 did dev-fever get with Ollama as-is versus with lowercased input?",
+    "answer": "dev-fever scored 0.172 with Ollama's nomic-embed-text as-is versus 0.814 when the text was lowercased first (dev-scifact went 0.493 to 0.700, with TEI at 0.701).",
+    "must_include": [
+      "0.172",
+      "0.814",
+      "lowercased"
+    ],
+    "evidence": [
+      "docs/research/embedding-instruction-prefixes-2026-09-28.md:69"
+    ]
+  },
+  {
+    "id": "docs-exact-04",
+    "kind": "exact",
+    "area": "docs",
+    "question": "During the Jira live validation on connapseos.atlassian.net, which error did the group-restricted comment fail with, and what site setting fixed it?",
+    "answer": "It failed with `GROUP_VISIBILITY_SETTING_NOT_ENABLED` until General configuration -> Comment visibility was set to Groups & Project Roles (a new site allows roles only).",
+    "must_include": [
+      "GROUP_VISIBILITY_SETTING_NOT_ENABLED",
+      "Comment visibility",
+      "Groups & Project Roles"
+    ],
+    "evidence": [
+      "docs/research/atlassian-jira-live-validation-2026-10-13.md:25"
+    ]
+  },
+  {
+    "id": "docs-exact-05",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the AWS setup guide's per-user permissions step, how must the `Subject` attribute mapping be configured in the Identity Center SAML application, and which value must be avoided?",
+    "answer": "`Subject` must map to `${user:subject}` with format `unspecified`; not `${user:preferredUsername}`, which gives the display name and matches nobody.",
+    "must_include": [
+      "${user:subject}",
+      "unspecified",
+      "not ${user:preferredUsername} (display name, matches nobody)"
+    ],
+    "evidence": [
+      "docs/aws-setup.md:87"
+    ]
+  },
+  {
+    "id": "docs-exact-06",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the GitHub setup guide's Manual values, what Setup URL must be registered on a self-registered GitHub App, and what should be done with the Webhook setting?",
+    "answer": "The Setup URL is `https://<your Connapse>/api/v1/providers/github/installed` with Redirect on update ticked, and the Webhook's Active box is unticked because Connapse polls.",
+    "must_include": [
+      "/api/v1/providers/github/installed",
+      "Redirect on update",
+      "untick webhook Active because Connapse polls"
+    ],
+    "evidence": [
+      "docs/github-setup.md:49",
+      "docs/github-setup.md:50"
+    ]
+  },
+  {
+    "id": "docs-exact-07",
+    "kind": "exact",
+    "area": "docs",
+    "question": "According to the Azure setup guide's section \"How quickly a permission change takes effect\", how long are each of the per-user filtering lookups cached?",
+    "answer": "Identity and group membership are cached 5 minutes, role and deny assignments 5 minutes, and Data Lake Gen2 directory traversals 60 seconds, so a change shows within at most five minutes; blob tags and Gen2 file ACLs are read live.",
+    "must_include": [
+      "identity/groups 5 minutes",
+      "role and deny assignments 5 minutes",
+      "Gen2 directory traversals 60 seconds",
+      "at most five minutes"
+    ],
+    "evidence": [
+      "docs/azure-setup.md:80",
+      "docs/azure-setup.md:82"
+    ]
+  },
+  {
+    "id": "docs-exact-08",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the custom source setup guide, which setting lets an administrator allow plain HTTP to a custom source server, and what example environment variable is given?",
+    "answer": "Hosts listed in `CustomSources:AllowedHttpHosts` may be called over plain HTTP; the example is `CustomSources__AllowedHttpHosts__0=bridge`. Otherwise Connapse only calls https:// addresses.",
+    "must_include": [
+      "CustomSources:AllowedHttpHosts",
+      "CustomSources__AllowedHttpHosts__0=bridge",
+      "otherwise HTTPS only"
+    ],
+    "evidence": [
+      "docs/custom-source-setup.md:25",
+      "docs/custom-source-setup.md:26",
+      "docs/custom-source-setup.md:27"
+    ]
+  },
+  {
+    "id": "docs-exact-09",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the problem types reference, what input limits cause an `invalid-search` problem?",
+    "answer": "The query is missing or over 10,000 characters, `topK` is outside 1 to 100, or `minScore` is outside 0.0 to 1.0.",
+    "must_include": [
+      "query missing or over 10,000 characters",
+      "topK outside 1-100",
+      "minScore outside 0.0-1.0"
+    ],
+    "evidence": [
+      "docs/problems.md:102"
+    ]
+  },
+  {
+    "id": "docs-exact-10",
+    "kind": "exact",
+    "area": "docs",
+    "question": "According to the deployment guide, what model does the optional `with-reranker` profile run, how many candidates does it re-score, and what happens if it is down or slower than its timeout?",
+    "answer": "It runs the cross-encoder `Alibaba-NLP/gte-reranker-modernbert-base` served by Hugging Face TEI, re-scoring the top 30 hybrid-search candidates; if it is down or exceeds the 5 s timeout, search returns the un-reranked order and logs the error.",
+    "must_include": [
+      "gte-reranker-modernbert-base",
+      "top 30 candidates",
+      "5 s timeout",
+      "returns un-reranked order and logs the error"
+    ],
+    "evidence": [
+      "docs/deployment.md:74",
+      "docs/deployment.md:75",
+      "docs/deployment.md:78"
+    ]
+  },
+  {
+    "id": "docs-exact-11",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the research on making plain-SQL BM25 match pg_textsearch's latency, what are the \"frequency-tier markers\" and what do they enable?",
+    "answer": "They are positionless lexemes `term\\x1Fn` for n in {2,3,4,5,6,8,11,16}, stored in the existing `search_vector`, which let the existing GIN index bound every chunk's BM25 score so each round only fetches chunks that can beat the top-k threshold.",
+    "must_include": [
+      "positionless lexemes term\\x1Fn",
+      "n in {2,3,4,5,6,8,11,16}",
+      "stored in search_vector",
+      "GIN index can bound BM25 scores"
+    ],
+    "evidence": [
+      "docs/research/bm25-sql-latency-parity-2026-09-27.md:9",
+      "docs/research/bm25-sql-latency-parity-2026-09-27.md:11"
+    ]
+  },
+  {
+    "id": "docs-exact-12",
+    "kind": "exact",
+    "area": "docs",
+    "question": "In the delete guard and SFTP ingestion design, what rule does `ShouldWithholdDeletions` apply?",
+    "answer": "Deletions are withheld when the number of vanished documents exceeds both 10 and 10% of the source's indexed documents (`vanished > 10 && vanished > indexed / 10`).",
+    "must_include": [
+      "more than 10 documents",
+      "more than 10% of the source's index",
+      "both conditions"
+    ],
+    "evidence": [
+      "docs/superpowers/specs/2026-08-23-sftp-ingestion-and-delete-guard-design.md:32",
+      "docs/superpowers/specs/2026-08-23-sftp-ingestion-and-delete-guard-design.md:51"
+    ]
+  },
+  {
+    "id": "docs-concept-01",
+    "kind": "concept",
+    "area": "docs",
+    "question": "What did the research on indexing vectors for search limited to one container recommend about the single approximate index that all containers shared per embedding model, and why?",
+    "answer": "Stop building it. The planner ignores it today and searches each container exactly, but the day it gets picked it becomes a recall hazard: one probe by default, filtering applied after the scan, and lists trained on little data.",
+    "must_include": [
+      "stop building the shared IVFFlat index",
+      "unused today (planner does exact search per container)",
+      "recall hazard: probes = 1 / post-filtering / untrained lists"
+    ],
+    "evidence": [
+      "docs/research/vector-index-strategy-2026-09-29.md:7",
+      "docs/research/vector-index-strategy-2026-09-29.md:29"
+    ]
+  },
+  {
+    "id": "docs-concept-02",
+    "kind": "concept",
+    "area": "docs",
+    "question": "When someone types a plain question into the keyword side of search, should results be required to contain every word, and how should quoted phrases and words with a leading minus be treated?",
+    "answer": "No: a plain query should match any term (OR) and be ranked by score, as mature engines do. Quoted phrases become optional higher-scoring clauses, a minus-prefixed term is a hard exclusion, and words like \"or\" are plain text rather than operators.",
+    "must_include": [
+      "any-term (OR) matching ranked by score",
+      "phrases are optional, higher-scoring clauses",
+      "-term is a hard exclusion"
+    ],
+    "evidence": [
+      "docs/research/keyword-query-matching-2026-09-26.md:7"
+    ]
+  },
+  {
+    "id": "docs-concept-03",
+    "kind": "concept",
+    "area": "docs",
+    "question": "Why did the proposed design for model-specific query/document text added before embedding use an explicit on/off switch, rather than letting an empty custom value mean \"use the built-in default\"?",
+    "answer": "Because Connapse's database settings provider stores a JSON null as an empty string, so \"null means default\" would silently turn prefixes off the first time settings were saved.",
+    "must_include": [
+      "database settings provider stores null as empty string",
+      "would silently disable prefixes on first settings save"
+    ],
+    "evidence": [
+      "docs/research/embedding-instruction-prefixes-2026-09-28.md:62"
+    ]
+  },
+  {
+    "id": "docs-concept-04",
+    "kind": "concept",
+    "area": "docs",
+    "question": "What did research recommend for adapting the balance between vector and keyword results to each deployment, and what role should relevance ratings from calling AI agents play?",
+    "answer": "Use a single global weight tuned offline on the multi-domain dev suite, with per-container adaptation only as an opt-in override that must clearly win. Agent ratings are the weakest signal; if collected they should go to a per-container judgment store and be replayed offline as a drift monitor, never applied directly.",
+    "must_include": [
+      "global default tuned offline on the multi-domain dev suite",
+      "per-container adaptation opt-in only",
+      "agent ratings weakest; replayed offline, never applied directly"
+    ],
+    "evidence": [
+      "docs/research/adaptive-fusion-feedback-2026-09-28.md:7",
+      "docs/research/adaptive-fusion-feedback-2026-09-28.md:41"
+    ]
+  },
+  {
+    "id": "docs-concept-05",
+    "kind": "concept",
+    "area": "docs",
+    "question": "In the late-September evaluation of retrieval over a GitHub repository's docs and issues, did choosing settings like blend weight and chunk size separately for each kind of content pay off, and where did the gains actually come from?",
+    "answer": "No: per-source fusion weight and chunk size never beat one shared value on held-out questions (and overfit once). Almost all the gain came from changes that help every source: a cross-encoder reranker, score blending instead of RRF, and the qwen3-embedding:0.6b model.",
+    "must_include": [
+      "per-source tuning did not beat a shared value on held-out",
+      "reranker",
+      "score blending instead of RRF",
+      "qwen3-embedding:0.6b"
+    ],
+    "evidence": [
+      "docs/research/retrieval-eval-github-sources-2026-09-24.md:7",
+      "docs/research/retrieval-eval-github-sources-2026-09-24.md:16"
+    ]
+  },
+  {
+    "id": "docs-concept-06",
+    "kind": "concept",
+    "area": "docs",
+    "question": "With per-person filtering on for Amazon storage, what do people see when they search a bucket that nobody has been given explicit rights to yet, and why?",
+    "answer": "Nothing, for anyone: until an S3 Access Grant covers the bucket, searches over it return no results, because filtering hides what it cannot confirm.",
+    "must_include": [
+      "returns nothing to anyone",
+      "until an S3 Access Grant exists",
+      "filtering hides what it cannot confirm"
+    ],
+    "evidence": [
+      "docs/aws-setup.md:90"
+    ]
+  },
+  {
+    "id": "docs-concept-07",
+    "kind": "concept",
+    "area": "docs",
+    "question": "When an administrator renews the certificate Connapse uses to sign in to Microsoft's cloud, how does Connapse make sure a bad renewal cannot break the working setup?",
+    "answer": "Save is a check first: Connapse writes the new certificate to its own file named by thumbprint, asks Entra for a token with it, and only then commits settings naming that file. The key in use is never moved or overwritten and is removed only after the new settings are stored; anything Entra rejects is deleted with the working setup untouched.",
+    "must_include": [
+      "new cert written to its own file (by thumbprint)",
+      "Entra token requested before settings are committed",
+      "old key never overwritten; rejected cert deleted, working setup untouched"
+    ],
+    "evidence": [
+      "docs/azure-setup.md:102",
+      "docs/azure-setup.md:103",
+      "docs/azure-setup.md:104",
+      "docs/azure-setup.md:105"
+    ]
+  },
+  {
+    "id": "docs-concept-08",
+    "kind": "concept",
+    "area": "docs",
+    "question": "Why does the architecture document prefer mixing normalized relevance values from both retrievers over a merge based only on result positions?",
+    "answer": "Rank-only fusion (RRF) discards score magnitude and produces tiny ~0.016 scores that need misleading post-normalization, while the convex combination preserves score information, gives genuine 0-1 output, and outperforms RRF by 1-5 nDCG@10 points (Bruch et al. 2023).",
+    "must_include": [
+      "RRF discards score magnitude",
+      "convex combination preserves scores with genuine [0,1] output",
+      "outperforms RRF by 1-5 nDCG@10 points"
+    ],
+    "evidence": [
+      "docs/architecture.md:449"
+    ]
+  },
+  {
+    "id": "docs-concept-09",
+    "kind": "concept",
+    "area": "docs",
+    "question": "Is it worth training a model that predicts, for each incoming query, the ideal weighting between vector and keyword results, according to the early-October research?",
+    "answer": "No: no study found a learned per-query predictor beating a well-tuned fixed weight on out-of-domain queries, and the ~20% oracle headroom is mostly an artefact. The recommendation is to ship the reranker, after which first-stage fusion barely matters, and build a learned gate only if headroom survives held-out testing.",
+    "must_include": [
+      "no learned per-query predictor beat a tuned fixed weight out of domain",
+      "oracle headroom mostly an artefact",
+      "ship the reranker first"
+    ],
+    "evidence": [
+      "docs/research/learned-query-fusion-2026-10-05.md:7",
+      "docs/research/learned-query-fusion-2026-10-05.md:9",
+      "docs/research/learned-query-fusion-2026-10-05.md:23"
+    ]
+  },
+  {
+    "id": "docs-concept-10",
+    "kind": "concept",
+    "area": "docs",
+    "question": "Why would capping the .NET garbage-collected heap not stop PDF parsing from running out of memory when page-layout detection is on?",
+    "answer": "Because over 90% of the memory is native ONNX Runtime memory used by layout inference; the managed heap never exceeds 40 MB, so a heap limit like DOTNET_GCHeapHardLimit is irrelevant and only the process watchdog sees it.",
+    "must_include": [
+      "over 90% is native ONNX Runtime memory",
+      "managed heap stays under 40 MB",
+      "GC heap limit irrelevant; only the watchdog sees it"
+    ],
+    "evidence": [
+      "docs/research/parser-memory-adaptive-2026-10-07.md:38",
+      "docs/research/parser-memory-adaptive-2026-10-07.md:39"
+    ]
+  },
+  {
+    "id": "docs-concept-11",
+    "kind": "concept",
+    "area": "docs",
+    "question": "Why did the team propose grouping documents by their existing chunk vectors instead of by AI-written per-file synopses when picking representative files for an overview of a whole container?",
+    "answer": "Research (HERCULES) found clustering on raw embeddings far better than on summary embeddings (+76% ARI, +286% silhouette), since summaries discard the variance that separates clusters; per-document summaries had no deployed secondary use, and summarizing every upload wasted LLM spend. The new method pools existing chunk vectors and lazily summarizes only the K medoids.",
+    "must_include": [
+      "raw-embedding clustering beats summary-embedding clustering (+76% ARI)",
+      "per-doc summaries had no real secondary use",
+      "avoids LLM cost on every upload; summarize only K medoids lazily"
+    ],
+    "evidence": [
+      "docs/superpowers/specs/2026-05-27-hercules-swap-design.md:20",
+      "docs/superpowers/specs/2026-05-27-hercules-swap-design.md:21",
+      "docs/superpowers/specs/2026-05-27-hercules-swap-design.md:23",
+      "docs/superpowers/specs/2026-05-27-hercules-swap-design.md:30"
+    ]
+  },
+  {
+    "id": "docs-concept-12",
+    "kind": "concept",
+    "area": "docs",
+    "question": "How does Connapse decide whether someone searching may see content from a non-public code repository hosted on GitHub, and how quickly does it notice an access change?",
+    "answer": "The person must link their GitHub account under Profile -> Integrations; at search time Connapse asks GitHub, as the App installation, whether that account can read each private repository and remembers the answer for five minutes.",
+    "must_include": [
+      "person links their GitHub account",
+      "Connapse asks GitHub (as the installation) per private repository",
+      "answer cached for five minutes"
+    ],
+    "evidence": [
+      "docs/github-setup.md:10",
+      "docs/github-setup.md:86",
+      "docs/github-setup.md:110"
+    ]
+  }
+]
