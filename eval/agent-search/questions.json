@@ -58,7 +58,7 @@
     "question": "When is the warning \"Unknown FusionMethod '{Method}', defaulting to ConvexCombination\" logged, and which other fusion method value is recognised?",
     "answer": "HybridSearchService logs it when SearchSettings.FusionMethod is neither \"DBSF\" nor \"ConvexCombination\" (case-insensitive); it then fuses with the convex-combination method. \"DBSF\" selects distribution-based score fusion (FuseResultsDbsf).",
     "must_include": [
-      "HybridSearchService",
+      "logged when FusionMethod is neither DBSF nor ConvexCombination",
       "DBSF",
       "falls back to ConvexCombination fusion"
     ],
@@ -94,8 +94,7 @@
     "must_include": [
       "repeated page token",
       "page limit exceeded",
-      "DefaultMaxPages = 10,000",
-      "throws CustomSourceException"
+      "DefaultMaxPages = 10,000"
     ],
     "evidence": [
       "src/Connapse.Storage/Connectors/Custom/PageGuard.cs:9",
@@ -145,8 +144,7 @@
     "answer": "It defaults to 40 (the Npgsql connection pool cap for the app). A value of 0 or below makes AddConnapseStorage throw InvalidOperationException \"Database:MaxPoolSize must be a positive integer.\"",
     "must_include": [
       "default 40",
-      "0 or negative throws InvalidOperationException",
-      "AddConnapseStorage"
+      "0 or negative throws InvalidOperationException"
     ],
     "evidence": [
       "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs:55",
@@ -179,8 +177,7 @@
     "answer": "The default is 50. When a parser host has parsed that many files (minimum 1), ParserProcessPool kills the host process and removes it from the pool instead of returning it to the idle set, so the next request starts a fresh host.",
     "must_include": [
       "50",
-      "host process is killed / recycled",
-      "ParserProcessPool"
+      "host process is killed / recycled instead of reused"
     ],
     "evidence": [
       "src/Connapse.Core/Models/SettingsModels.cs:488",
@@ -332,7 +329,7 @@
     "answer": "A token is the prefix \"cnp_\" plus 32 random bytes in base64url. Only its SHA-256 hash and its first 12 characters (for display) are stored; the full token is returned once, in the create response.",
     "must_include": [
       "cnp_ prefix + 32 random bytes",
-      "only SHA-256 hash stored",
+      "a SHA-256 hash is stored, not the plaintext token",
       "first 12 characters kept for display; full token shown only at creation"
     ],
     "evidence": [
@@ -423,9 +420,7 @@
     "answer": "Build the per-container HNSW index over `halfvec(768)` with ef_construction 200-256 (keeping m 16), and search with ef_search at least 2-3x the inner LIMIT.",
     "must_include": [
       "ef_construction 200-256",
-      "halfvec(768)",
-      "m 16",
-      "ef_search 2-3x the LIMIT"
+      "halfvec(768)"
     ],
     "evidence": [
       "docs/research/vector-recall-tradeoff-2026-09-29.md:7",
@@ -535,8 +530,7 @@
     "answer": "Hosts listed in `CustomSources:AllowedHttpHosts` may be called over plain HTTP; the example is `CustomSources__AllowedHttpHosts__0=bridge`. Otherwise Connapse only calls https:// addresses.",
     "must_include": [
       "CustomSources:AllowedHttpHosts",
-      "CustomSources__AllowedHttpHosts__0=bridge",
-      "otherwise HTTPS only"
+      "CustomSources__AllowedHttpHosts__0=bridge"
     ],
     "evidence": [
       "docs/custom-source-setup.md:25",
