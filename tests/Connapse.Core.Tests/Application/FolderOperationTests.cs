@@ -44,12 +44,12 @@ public class FolderOperationTests
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly IIngestionJobs Jobs = Substitute.For<IIngestionJobs>();
         public readonly IDocumentAccess Access = Substitute.For<IDocumentAccess>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
 
         public World(bool allowed = true, bool containerExists = true)
         {
             Storage.CreateConnector(Arg.Any<string>()).Returns(Files);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(allowed);
+            Authorizer = new PolicyAuthorizer(_ => allowed);
             Containers.GetAsync(Here, Arg.Any<CancellationToken>())
                 .Returns(containerExists ? new Container(Here.ToString(), "here", null, Epoch, Epoch) : null);
             Access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(true);

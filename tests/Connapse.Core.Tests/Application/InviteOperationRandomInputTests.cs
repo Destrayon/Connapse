@@ -32,15 +32,14 @@ public class InviteOperationRandomInputTests
     private sealed class World
     {
         public readonly IInviteStore Store = Substitute.For<IInviteStore>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly Guid CallerId = Guid.NewGuid();
         public readonly OperationContext Caller;
 
         public World(bool admin, bool scope, OperationSurface surface)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Admin).Returns(admin);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.AdminUsersScope).Returns(scope);
+            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.Admin => admin, Policies.AdminUsersScope => scope, _ => false });
             Caller = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, CallerId.ToString())], "test")), surface);
         }
 

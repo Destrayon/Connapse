@@ -62,11 +62,11 @@ public class UploadRandomInputTests
         public readonly IManagedStorageProvider Storage = Substitute.For<IManagedStorageProvider>();
         public readonly IFileTypeValidator Types = Substitute.For<IFileTypeValidator>();
         public readonly IUploadService Uploads = Substitute.For<IUploadService>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
 
         public World(bool writer, bool exists, bool writable)
         {
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Writer).Returns(writer);
+            Authorizer = new PolicyAuthorizer(policy => policy == Policies.Writer && writer);
             Containers.GetAsync(Here, Arg.Any<CancellationToken>()).Returns(exists ? new Container(Here.ToString(), "here", null, Epoch, Epoch) : null);
             Storage.CreateConnector(Here.ToString()).Returns(_ => writable ? Substitute.For<IWritableConnector>() : Substitute.For<IConnector>());
             Types.IsSupported(Arg.Any<string>()).Returns(c => c.Arg<string>().EndsWith(".md", StringComparison.Ordinal) || c.Arg<string>().EndsWith(".txt", StringComparison.Ordinal));

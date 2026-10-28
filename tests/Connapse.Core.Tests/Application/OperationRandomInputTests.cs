@@ -55,8 +55,8 @@ public class OperationRandomInputTests
     /// <summary>A world of fakes for one sample: the caller's roles, and the stores and ports the operations call.</summary>
     private sealed class World
     {
-        public readonly ISourceVisibility Visibility = Substitute.For<ISourceVisibility>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly FixedVisibility Visibility = new();
+        public readonly PolicyAuthorizer Authorizer;
 
         // Built on first use: a sample uses few of them, and each costs a proxy.
         private ISourceStore? sources;
@@ -82,7 +82,7 @@ public class OperationRandomInputTests
         public World(bool viewer, bool admin)
         {
             // One stub for every policy: each sample builds a World, so a stub per policy costs CI's small tier.
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(c => c.ArgAt<string>(1) switch
+            Authorizer = new PolicyAuthorizer(policy => policy switch
             {
                 Policies.Viewer => viewer,
                 // The reads that agent keys may also make check Reader; a sample's caller passes both or neither.
@@ -92,7 +92,6 @@ public class OperationRandomInputTests
                 Policies.SourcesAdmin => admin,
                 _ => false,
             });
-            Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => true);
         }
 
         public IServiceScopeFactory Scopes =>
@@ -115,7 +114,7 @@ public class OperationRandomInputTests
                 bool byConnection = connectionId is not null;
                 var world = new World(viewer, admin);
                 var visible = stored.Where((_, i) => visibleMask[i]).ToHashSet();
-                world.Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => s => visible.Contains(s));
+                world.Visibility.Sees = s => visible.Contains(s);
                 world.Sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                     .Returns(c => (IReadOnlyList<Source>)stored.Take(c.ArgAt<int>(1)).ToList());
                 // Another connection's sources, so listing the wrong connection shows up as the wrong items.
@@ -171,7 +170,7 @@ public class OperationRandomInputTests
                 var (caller, viewer, admin, source, exists, visible) = t;
                 var world = new World(viewer, admin);
                 world.Sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(exists ? source : null);
-                world.Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => _ => visible);
+                world.Visibility.Sees = _ => visible;
 
                 var read = await new GetSource(world.Sources, world.Visibility, world.Authorizer).RunAsync(caller, source.Id);
 
@@ -207,7 +206,7 @@ public class OperationRandomInputTests
                 string stored = source.Name.Trim().ToLowerInvariant();
                 world.Sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(exists ? source : null);
                 world.Sources.GetByNameAsync(stored, Arg.Any<CancellationToken>()).Returns(exists ? source : null);
-                world.Visibility.ForAsync(Arg.Any<ClaimsPrincipal?>(), Arg.Any<CancellationToken>()).Returns(_ => _ => visible);
+                world.Visibility.Sees = _ => visible;
                 var counts = new ContainerStats(3, 2, 1, 0, 12, 4096, null);
                 world.Documents.GetContainerStatsAsync(source.Id, Arg.Any<CancellationToken>()).Returns(counts);
                 // By id, by its name as typed, by its stored name, or by a name nothing has.
@@ -736,12 +735,12 @@ public class OperationRandomInputTests
     };
 
     /// <summary>An in-memory identity database per sample, as the link stores read and write it.</summary>
-    private static IDbContextFactory<ConnapseIdentityDbContext> IdentityDb()
+    private static IDbContextFactory<ConnapseIdentityDbContext> IdentityDb() =>
+        new InMemoryIdentityDb(new DbContextOptionsBuilder<ConnapseIdentityDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+    private sealed class InMemoryIdentityDb(DbContextOptions<ConnapseIdentityDbContext> options) : IDbContextFactory<ConnapseIdentityDbContext>
     {
-        var options = new DbContextOptionsBuilder<ConnapseIdentityDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
-        var factory = Substitute.For<IDbContextFactory<ConnapseIdentityDbContext>>();
-        factory.CreateDbContextAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(new ConnapseIdentityDbContext(options)));
-        return factory;
+        public ConnapseIdentityDbContext CreateDbContext() => new(options);
     }
 
     private static IOptionsMonitor<T> Unconfigured<T>() where T : class, new()
@@ -762,8 +761,7 @@ public class OperationRandomInputTests
                 var azure = Substitute.For<IAzureIdentityLinkService>();
                 var custom = Substitute.For<ICustomAccountLinks>();
                 var credentials = Substitute.For<IProviderCredentialStore>();
-                var authorizer = Substitute.For<IOperationAuthorizer>();
-                authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Account).Returns(caller.Allowed);
+                var authorizer = new PolicyAuthorizer(policy => policy == Policies.Account && caller.Allowed);
                 var db = IdentityDb();
                 var gitHub = new GitHubIdentityLinkStore(db, TimeProvider.System);
                 var providers = answers.Select(_ => Custom(Guid.NewGuid())).ToList();
@@ -839,8 +837,7 @@ public class OperationRandomInputTests
                 var azure = Substitute.For<IAzureIdentityLinkService>();
                 var custom = Substitute.For<ICustomAccountLinks>();
                 var audit = Substitute.For<IAuditLogger>();
-                var authorizer = Substitute.For<IOperationAuthorizer>();
-                authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Person).Returns(caller.Allowed);
+                var authorizer = new PolicyAuthorizer(policy => policy == Policies.Person && caller.Allowed);
                 aws.DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
                     .Returns(new AwsIdentityLinkDisconnectResult(linked && !awsChanged, awsChanged));
                 azure.DisconnectAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(linked);
@@ -851,12 +848,13 @@ public class OperationRandomInputTests
                     CustomAnswer.Missing => Task.FromException(new CustomProviderNotFoundException("gone")),
                     _ => Task.CompletedTask,
                 });
-                var gitHub = new GitHubIdentityLinkStore(IdentityDb(), TimeProvider.System);
+                var db = IdentityDb();
+                var gitHub = new GitHubIdentityLinkStore(db, TimeProvider.System);
                 if (caller.UserId is Guid owner && gitHubLinked)
                     await gitHub.SaveAsync(owner, 42, "octo");
 
                 var unlinked = await new UnlinkAccount(aws, azure, gitHub, new GitHubLinkFlow(new MemoryCache(new MemoryCacheOptions())),
-                    new AtlassianIdentityLinkStore(IdentityDb(), TimeProvider.System), new AtlassianLinkFlow(new MemoryCache(new MemoryCacheOptions())),
+                    new AtlassianIdentityLinkStore(db, TimeProvider.System), new AtlassianLinkFlow(new MemoryCache(new MemoryCacheOptions())),
                     custom, Substitute.For<IConnectorScopeCache>(), Substitute.For<ISourceStore>(), Substitute.For<IConnectionStore>(), audit, authorizer)
                     .RunAsync(caller.Context, new UnlinkAccountRequest(provider, customId));
 

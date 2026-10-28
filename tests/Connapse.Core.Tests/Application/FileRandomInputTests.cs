@@ -43,13 +43,12 @@ public class FileRandomInputTests
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly IDocumentAccess Access = Substitute.For<IDocumentAccess>();
-        public readonly IOperationAuthorizer Authorizer = Substitute.For<IOperationAuthorizer>();
+        public readonly PolicyAuthorizer Authorizer;
 
         public World(bool reader, bool writer, bool containerExists)
         {
             Storage.CreateConnector(Arg.Any<string>()).Returns(Files);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(reader);
-            Authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Writer).Returns(writer);
+            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.Reader => reader, Policies.Writer => writer, _ => false });
             Containers.GetAsync(Here, Arg.Any<CancellationToken>())
                 .Returns(containerExists ? new Container(Here.ToString(), "here", null, Epoch, Epoch) : null);
         }

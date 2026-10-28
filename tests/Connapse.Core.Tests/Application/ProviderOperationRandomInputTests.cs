@@ -30,9 +30,7 @@ public class ProviderOperationRandomInputTests
             var reader = Substitute.For<IProviderSetupReader>();
             IReadOnlyList<ProviderSetup> setups = [.. Enumerable.Range(0, count).Select(i => new ProviderSetup($"p{i}", $"P{i}", []))];
             reader.ReadAsync(Arg.Any<CancellationToken>()).Returns(setups);
-            var authorizer = Substitute.For<IOperationAuthorizer>();
-            authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-            authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SettingsAdmin).Returns(allowed);
+            var authorizer = new PolicyAuthorizer(policy => policy == Policies.SettingsAdmin && allowed);
 
             var read = await new GetProviderStatus(reader, authorizer).RunAsync(new OperationContext(new ClaimsPrincipal(), surface));
 
@@ -93,7 +91,7 @@ public class ProviderOperationRandomInputTests
             checker.CheckAsync(Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
                 .Returns(new CustomProviderCheck(SavedUrl, true, true));
 
-            var check = await new CheckCustomProvider(store, checker, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var check = await new CheckCustomProvider(store, checker, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), saved ? id : null, new CustomProviderCheckRequest(url, token));
 
             if (!allowed)
@@ -124,7 +122,7 @@ public class ProviderOperationRandomInputTests
             checker.CheckAsync(Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
                 .Returns(passes ? new CustomProviderCheck(SavedUrl, true, true) : new CustomProviderCheck(null, false, false, Error: "no", Field: "secret"));
 
-            var created = await new CreateCustomProvider(store, checker, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var created = await new CreateCustomProvider(store, checker, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), new CreateCustomProviderRequest(url!, token!, name));
 
             bool saves = allowed && !string.IsNullOrWhiteSpace(token) && passes && name?.Length is not > 128;
@@ -155,7 +153,7 @@ public class ProviderOperationRandomInputTests
             checker.CheckAsync(Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
                 .Returns(c => new CustomProviderCheck(c.ArgAt<string?>(0) is { Length: > 0 } u && u.StartsWith("https") ? u : null, true, c.ArgAt<string?>(0) is { Length: > 0 }));
 
-            var updated = await new UpdateCustomProvider(store, connections, checker, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var updated = await new UpdateCustomProvider(store, connections, checker, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), id, new UpdateCustomProviderRequest(BaseUrl: url, Token: token));
 
             if (!allowed)
@@ -190,7 +188,7 @@ public class ProviderOperationRandomInputTests
             store.GetAsync(id, Arg.Any<CancellationToken>()).Returns(exists ? Provider(id) : null);
             store.GenerateLinkSecretAsync(id, Arg.Any<CancellationToken>()).Returns(exists ? "secret" : null);
 
-            var replaced = await new ReplaceCustomProviderLinkSecret(store, Substitute.For<IAuditLogger>(), Authorizer(allowed)).RunAsync(Context(), id);
+            var replaced = await new ReplaceCustomProviderLinkSecret(store, NoAudit.Instance, Authorizer(allowed)).RunAsync(Context(), id);
 
             replaced.Status.Should().Be(!allowed ? CustomProviderStatus.Forbidden : exists ? CustomProviderStatus.Success : CustomProviderStatus.NotFound);
             if (!allowed)
@@ -212,7 +210,7 @@ public class ProviderOperationRandomInputTests
             connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                 .Returns([.. Enumerable.Range(0, uses).Select(i => Using(id, $"c{i}"))]);
 
-            var deleted = await new DeleteCustomProvider(store, connections, Substitute.For<IAuditLogger>(), Authorizer(allowed)).RunAsync(Context(), id);
+            var deleted = await new DeleteCustomProvider(store, connections, NoAudit.Instance, Authorizer(allowed)).RunAsync(Context(), id);
 
             CustomProviderStatus expected = !allowed ? CustomProviderStatus.Forbidden
                 : !exists ? CustomProviderStatus.NotFound
@@ -259,7 +257,7 @@ public class ProviderOperationRandomInputTests
             // 0: none, 1: what is stored, 2: an older credential.
             RolesAnywhereConfig? expected = expectedKind switch { 1 => StoredAccess, 2 => StoredAccess with { RoleArn = "arn:old" }, _ => null };
 
-            var saved = await new SetAwsAccess(credentials, validator, session, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var saved = await new SetAwsAccess(credentials, validator, session, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), new AwsAccessRequest(cert, arn, arn, arn, region, key, expected));
 
             bool complete = cert.Trim().Length > 0 && arn.Trim().Length > 0 && region.Length > 0;
@@ -318,7 +316,7 @@ public class ProviderOperationRandomInputTests
             credentials.DeleteRolesAnywhereAsync("aws", Arg.Any<RolesAnywhereConfig?>(), Arg.Any<CancellationToken>()).Returns(stored && !raced);
             var session = Substitute.For<IAwsSession>();
 
-            var reset = await new ResetAwsAccess(credentials, session, Substitute.For<IAuditLogger>(), Authorizer(allowed)).RunAsync(Context());
+            var reset = await new ResetAwsAccess(credentials, session, NoAudit.Instance, Authorizer(allowed)).RunAsync(Context());
 
             AwsSetupStatus status = !allowed ? AwsSetupStatus.Forbidden : stored && raced ? AwsSetupStatus.Changed : AwsSetupStatus.Success;
             reset.Status.Should().Be(status);
@@ -338,7 +336,7 @@ public class ProviderOperationRandomInputTests
             var (store, reloader) = (Substitute.For<ISettingsStore>(), Substitute.For<ISettingsReloader>());
             reloader.Reload().Returns(reloads);
 
-            var saved = await new SetIdentityCenter(store, reloader, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var saved = await new SetIdentityCenter(store, reloader, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), new IdentityCenterRequest(region, arn, storeId));
 
             bool valid = region is "us-east-1" or "eu-west-2" && arn.Trim().Length > 0 && storeId.Trim().Length > 0;
@@ -355,7 +353,7 @@ public class ProviderOperationRandomInputTests
         {
             var store = Substitute.For<ISettingsStore>();
 
-            var reset = await new ResetIdentityCenter(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var reset = await new ResetIdentityCenter(store, Substitute.For<ISettingsReloader>(), NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context());
 
             reset.Status.Should().Be(allowed ? AwsSetupStatus.Success : AwsSetupStatus.Forbidden);
@@ -386,7 +384,7 @@ public class ProviderOperationRandomInputTests
                 return true;
             });
 
-            var saved = await new SetAwsPermissions(store, reloader, configured, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var saved = await new SetAwsPermissions(store, reloader, configured, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), new AwsPermissionsRequest(entity, acs, idpEntity, sso, cert));
 
             bool addresses = acs is "" or "https://c.example/acs" && sso is "" or "https://idp.example/sso";
@@ -408,7 +406,7 @@ public class ProviderOperationRandomInputTests
         {
             var store = Substitute.For<ISettingsStore>();
 
-            var reset = await new ResetAwsPermissions(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var reset = await new ResetAwsPermissions(store, Substitute.For<ISettingsReloader>(), NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context());
 
             reset.Status.Should().Be(allowed ? AwsSetupStatus.Success : AwsSetupStatus.Forbidden);
@@ -437,7 +435,7 @@ public class ProviderOperationRandomInputTests
             host.DetectAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
                 .Returns(onAzure ? new AzureHostIdentityInfo("t1", "p", "c", null, null, false) : null);
 
-            var saved = await new SetAzureAccess(store, reloader, new Enforcement(), discovery, host, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var saved = await new SetAzureAccess(store, reloader, new Enforcement(), discovery, host, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), hostManaged
                     ? new AzureAccessRequest(tenant, UseHostManagedIdentity: true)
                     : new AzureAccessRequest(tenant, ClientId: "app", ClientCertificatePath: "c.pem", ClientCertificatePassword: "pw"));
@@ -465,7 +463,7 @@ public class ProviderOperationRandomInputTests
         {
             var store = Substitute.For<ISettingsStore>();
 
-            var reset = await new ResetAzureAccess(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var reset = await new ResetAzureAccess(store, Substitute.For<ISettingsReloader>(), NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context());
 
             reset.Status.Should().Be(allowed ? AzureSetupStatus.Success : AzureSetupStatus.Forbidden);
@@ -490,7 +488,7 @@ public class ProviderOperationRandomInputTests
             });
             var discovery = Entra(accepts);
 
-            var saved = await new SetAzurePermissions(store, reloader, configured, discovery, Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var saved = await new SetAzurePermissions(store, reloader, configured, discovery, NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), new AzurePermissionsRequest(tenant, client, redirect, cert));
 
             bool address = redirect is "" or "https://c.example/api/v1/auth/cloud/azure/callback";
@@ -520,7 +518,7 @@ public class ProviderOperationRandomInputTests
     public async Task SetAzurePermissions_ConsentPending_AnswersWithTheConsentLinkBackToTheProvidersPage(bool pending, string? link)
     {
         var saved = await new SetAzurePermissions(Substitute.For<ISettingsStore>(), Substitute.For<ISettingsReloader>(), new AzureAccessApp(),
-                Entra(accepts: true), Substitute.For<IAuditLogger>(), Authorizer(true))
+                Entra(accepts: true), NoAudit.Instance, Authorizer(true))
             .RunAsync(Context(), new AzurePermissionsRequest("t", "signin", "https://h.example/api/v1/auth/cloud/azure/callback", "/c.pfx",
                 AdminConsentPending: pending));
 
@@ -535,7 +533,7 @@ public class ProviderOperationRandomInputTests
         {
             var store = Substitute.For<ISettingsStore>();
 
-            var reset = await new ResetAzurePermissions(store, Substitute.For<ISettingsReloader>(), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var reset = await new ResetAzurePermissions(store, Substitute.For<ISettingsReloader>(), NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context());
 
             reset.Status.Should().Be(allowed ? AzureSetupStatus.Success : AzureSetupStatus.Forbidden);
@@ -579,7 +577,7 @@ public class ProviderOperationRandomInputTests
             credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
                 .Returns(hasStored ? new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old") : null);
 
-            var saved = await new SetGitHubApp(credentials, GitHub(credentials, keyAccepted, secretAccepted), Substitute.For<IAuditLogger>(), Authorizer(allowed))
+            var saved = await new SetGitHubApp(credentials, GitHub(credentials, keyAccepted, secretAccepted), NoAudit.Instance, Authorizer(allowed))
                 .RunAsync(Context(), new GitHubAppRequest(appId, key, secret, replace));
 
             bool sameApp = hasStored && appId == 42;
@@ -672,7 +670,7 @@ public class ProviderOperationRandomInputTests
             };
 
             var completed = await new CompleteGitHubAppCreation(requests, GitHub(credentials, gitHubUp, true), credentials,
-                    Substitute.For<IAuditLogger>(), Authorizer(allowed), NullLogger<CompleteGitHubAppCreation>.Instance)
+                    NoAudit.Instance, Authorizer(allowed), NullLogger<CompleteGitHubAppCreation>.Instance)
                 .RunAsync(person ? Person() : Context(), code, state);
 
             GitHubAppStatus status = !allowed || !person ? GitHubAppStatus.Forbidden
@@ -694,7 +692,7 @@ public class ProviderOperationRandomInputTests
             new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old"),
             new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "rotated meanwhile"));
 
-        var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), Substitute.For<IAuditLogger>(), Authorizer(true))
+        var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), NoAudit.Instance, Authorizer(true))
             .RunAsync(Context(), new GitHubAppRequest(42, ClientSecret: "secret"));
 
         saved.Status.Should().Be(GitHubAppStatus.ReplaceUnconfirmed);
@@ -724,7 +722,7 @@ public class ProviderOperationRandomInputTests
         {
             var (allowed, installationId, setupAction) = t;
 
-            var recorded = await new RecordGitHubAppInstalled(Substitute.For<IAuditLogger>(), Authorizer(allowed, Policies.Admin))
+            var recorded = await new RecordGitHubAppInstalled(NoAudit.Instance, Authorizer(allowed, Policies.Admin))
                 .RunAsync(Context(), installationId, setupAction);
 
             recorded.Status.Should().Be(allowed ? GitHubAppStatus.Success : GitHubAppStatus.Forbidden);
@@ -772,10 +770,7 @@ public class ProviderOperationRandomInputTests
 
     private static IOperationAuthorizer Authorizer(bool allowed, string policy = Policies.SettingsAdmin)
     {
-        var authorizer = Substitute.For<IOperationAuthorizer>();
-        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
-        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), policy).Returns(allowed);
-        return authorizer;
+        return new PolicyAuthorizer(asked => asked == policy && allowed);
     }
 
     private static CustomProvider Provider(Guid id) =>
