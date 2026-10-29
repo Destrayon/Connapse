@@ -902,4 +902,33 @@ public class SemanticChunkerTests
         foreach (string line in CodeSample.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0))
             result.Should().Contain(c => c.Content.Contains(line));
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Intro sentence. ")]
+    public async Task ChunkAsync_RepeatedDottedCalls_NoChunkOrEmbeddingInputOverTheLimit(string prefix)
+    {
+        // Codex review: the splits inside "foo.Bar()" join into one span, which must be split before
+        // it is embedded or returned as a chunk.
+        string content = prefix + string.Concat(Enumerable.Repeat("foo.Bar(); ", 300));
+        var embedded = new List<string>();
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                List<string> texts = callInfo.Arg<IEnumerable<string>>().ToList();
+                embedded.AddRange(texts);
+                return Task.FromResult<IReadOnlyList<float[]>>(texts.Select(_ => new float[] { 1f, 0f, 0f }).ToList());
+            });
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 50, Overlap = 0, MinChunkSize = 1 };
+        TiktokenTokenCounter counter = new();
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().HaveCountGreaterThan(1);
+        result.Should().OnlyContain(c => c.TokenCount <= 50);
+        // Each embedding input is a sentence plus one neighbour either side (SemanticBufferSize 1).
+        embedded.Should().NotBeEmpty();
+        embedded.Should().OnlyContain(text => counter.CountTokens(text) <= 3 * 50 + 2);
+    }
 }

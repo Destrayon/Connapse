@@ -36,7 +36,9 @@ public class SemanticChunker(
 
         // Sentences are spans of the source that tile it end to end, so every chunk below is a
         // slice of the content: nothing between chunks is dropped and code keeps its exact text.
-        IReadOnlyList<(int Start, int End)> spans = SentenceSpans.Locate(content, sentenceSegmenter.Split(content));
+        // Spans over MaxChunkSize are split first so none reaches the embedder whole.
+        IReadOnlyList<(int Start, int End)> spans = await SentenceSpans.SplitOversize(
+            content, SentenceSpans.Locate(content, sentenceSegmenter.Split(content)), settings, tokenCounter, cancellationToken);
         List<string> sentences = spans.Select(s => content[s.Start..s.End].Trim()).ToList();
 
         if (sentences.Count == 1)

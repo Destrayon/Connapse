@@ -1,3 +1,6 @@
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+
 namespace Connapse.Ingestion.Chunking;
 
 /// <summary>
@@ -48,6 +51,40 @@ internal static class SentenceSpans
         return spans;
     }
 
+    /// <summary>
+    /// Splits every span over <c>settings.MaxChunkSize</c> tokens with <see cref="RecursiveChunker"/>
+    /// (no overlap). Sentences whose splits had no whitespace after them are joined into one span, so a
+    /// run of <c>foo.Bar();</c> calls can come back as a single span far over the limit; this keeps it
+    /// from reaching the embedder or a chunk whole. The result still tiles the content.
+    /// </summary>
+    public static async Task<IReadOnlyList<(int Start, int End)>> SplitOversize(
+        string content,
+        IReadOnlyList<(int Start, int End)> spans,
+        ChunkingSettings settings,
+        ITokenCounter tokenCounter,
+        CancellationToken cancellationToken)
+    {
+        RecursiveChunker recursive = new(tokenCounter);
+        ChunkingSettings noOverlap = settings with { Overlap = 0, MinChunkSize = 0 };
+        var result = new List<(int Start, int End)>(spans.Count);
+        foreach ((int Start, int End) span in spans)
+        {
+            string text = content[span.Start..span.End];
+            if (tokenCounter.CountTokens(text) <= settings.MaxChunkSize)
+            {
+                result.Add(span);
+                continue;
+            }
+
+            IReadOnlyList<ChunkInfo> parts = await recursive.ChunkAsync(
+                new ParsedDocument(text, new Dictionary<string, string>(), new List<string>()), noOverlap, cancellationToken);
+            var starts = new List<int> { span.Start };
+            starts.AddRange(parts.Skip(1).Select(p => span.Start + p.StartOffset));
+            for (int i = 0; i < starts.Count; i++)
+                result.Add((starts[i], i + 1 < starts.Count ? starts[i + 1] : span.End));
+        }
+        return result;
+    }
     /// <summary>The span without its leading and trailing whitespace; an all-whitespace span comes back empty.</summary>
     public static (int Start, int End) Trim(string content, (int Start, int End) span)
     {

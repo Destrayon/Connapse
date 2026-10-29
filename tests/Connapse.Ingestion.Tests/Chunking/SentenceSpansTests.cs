@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Utilities;
 using FluentAssertions;
@@ -149,5 +150,41 @@ public class SentenceSpansTests
     public void Trim_RemovesSurroundingWhitespace(string content, int start, int end, int trimmedStart, int trimmedEnd)
     {
         SentenceSpans.Trim(content, (start, end)).Should().Be((trimmedStart, trimmedEnd));
+    }
+
+    private static readonly string DottedCalls = string.Concat(Enumerable.Repeat("foo.Bar(); ", 300));
+
+    [Fact]
+    public async Task SplitOversize_RepeatedDottedCalls_SplitsIntoTilingSpansUnderTheLimit()
+    {
+        // Codex review: every split here falls inside "foo.Bar()", so Locate returns one span for the whole run.
+        TiktokenTokenCounter counter = new();
+        IReadOnlyList<(int Start, int End)> located =
+            SentenceSpans.Locate(DottedCalls, new PragmaticSentenceSegmenter().Split(DottedCalls));
+        located.Should().HaveCount(1);
+
+        IReadOnlyList<(int Start, int End)> spans = await SentenceSpans.SplitOversize(
+            DottedCalls, located, new ChunkingSettings { MaxChunkSize = 50, Overlap = 10, MinChunkSize = 30 }, counter, default);
+
+        spans.Should().HaveCountGreaterThan(1);
+        spans.Select(s => counter.CountTokens(DottedCalls[s.Start..s.End])).Should().OnlyContain(tokens => tokens <= 50);
+        spans[0].Start.Should().Be(0);
+        spans[^1].End.Should().Be(DottedCalls.Length);
+        for (int i = 1; i < spans.Count; i++)
+            spans[i].Start.Should().Be(spans[i - 1].End);
+    }
+
+    [Fact]
+    public async Task SplitOversize_SpanAtTheLimit_IsKeptWhole()
+    {
+        TiktokenTokenCounter counter = new();
+        string content = "Intro sentence. " + DottedCalls;
+        int limit = counter.CountTokens("Intro sentence. ");
+
+        IReadOnlyList<(int Start, int End)> spans = await SentenceSpans.SplitOversize(
+            content, [(0, 16), (16, content.Length)], new ChunkingSettings { MaxChunkSize = limit }, counter, default);
+
+        spans[0].Should().Be((0, 16));
+        spans.Should().HaveCountGreaterThan(2);
     }
 }

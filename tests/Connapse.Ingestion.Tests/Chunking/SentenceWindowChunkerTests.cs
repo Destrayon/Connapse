@@ -184,4 +184,17 @@ public class SentenceWindowChunkerTests
             result.Should().Contain(c => c.Content.Contains(line), $"the line '{line}' must be stored as written");
         result[1].Metadata["window"].Should().Be(CodeSample[result[0].StartOffset..result[2].EndOffset]);
     }
+
+    [Fact]
+    public async Task ChunkAsync_RepeatedDottedCalls_NoSentenceOverTheLimit()
+    {
+        string content = string.Concat(Enumerable.Repeat("foo.Bar(); ", 300));
+        var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 50, MinChunkSize = 1, SentenceWindowSize = 1 };
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(doc, settings);
+
+        result.Should().HaveCountGreaterThan(1);
+        result.Should().OnlyContain(c => c.TokenCount <= 50);
+    }
 }

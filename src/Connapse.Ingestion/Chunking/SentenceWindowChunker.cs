@@ -16,7 +16,7 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
 {
     public string Name => "SentenceWindow";
 
-    public Task<IReadOnlyList<ChunkInfo>> ChunkAsync(
+    public async Task<IReadOnlyList<ChunkInfo>> ChunkAsync(
         ParsedDocument parsedDocument,
         ChunkingSettings settings,
         CancellationToken cancellationToken = default)
@@ -25,12 +25,15 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
         string content = parsedDocument.Content;
 
         if (string.IsNullOrWhiteSpace(content))
-            return Task.FromResult<IReadOnlyList<ChunkInfo>>(chunks);
+            return chunks;
 
         // The segmenter's sentences are not verbatim (it strips <...> and splits inside a.b), so
         // sentences and windows are sliced from the source, never the segmenter's strings (CON-143).
-        // A segmenter that returns nothing yields one span, so the content is never dropped.
-        List<(int Start, int End)> spans = SentenceSpans.Locate(content, sentenceSegmenter.Split(content))
+        // A segmenter that returns nothing yields one span, so the content is never dropped, and spans
+        // over MaxChunkSize are split so none is embedded whole.
+        IReadOnlyList<(int Start, int End)> located = await SentenceSpans.SplitOversize(
+            content, SentenceSpans.Locate(content, sentenceSegmenter.Split(content)), settings, tokenCounter, cancellationToken);
+        List<(int Start, int End)> spans = located
             .Select(span => SentenceSpans.Trim(content, span))
             .ToList();
 
@@ -67,6 +70,6 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
                 Metadata: metadata));
         }
 
-        return Task.FromResult<IReadOnlyList<ChunkInfo>>(chunks);
+        return chunks;
     }
 }
