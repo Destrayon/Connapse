@@ -67,6 +67,10 @@ public class SemanticChunkerOversizedInputTests
         public int Rejections { get; private set; }
         public int LongestAccepted { get; private set; }
 
+        /// <summary>
+        /// Refuses the whole request with Ollama's 400 if any input is over the token limit, and
+        /// otherwise returns one unit vector per input and records the longest input accepted.
+        /// </summary>
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));

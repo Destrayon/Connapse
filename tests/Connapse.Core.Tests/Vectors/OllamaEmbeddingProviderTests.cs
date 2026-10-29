@@ -282,6 +282,11 @@ public class OllamaEmbeddingProviderTests
 
         public static float[] VectorFor(string text) => [text.Length, 1f];
 
+        /// <summary>
+        /// Truncates each input to the limit unless the request says <c>"truncate": false</c>, then
+        /// refuses the request if anything is still over a limit, and otherwise records the inputs
+        /// as accepted and returns <see cref="VectorFor"/> of each.
+        /// </summary>
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
