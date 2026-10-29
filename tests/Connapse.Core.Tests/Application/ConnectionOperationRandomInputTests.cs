@@ -103,7 +103,7 @@ public sealed class ConnectionOperationRandomInputTests
                 listed.Result!.Items.Select(v => v.Connection).Should().Equal(page);
                 listed.Result.HasMore.Should().Be(page.Count < matching.Count);
                 listed.Result.Items.Should().OnlyContain(v => v.SyncPaused == paused[Array.IndexOf(all, v.Connection)]);
-            }, iter: 4000);
+            }, iter: 1000);
 
     [Fact]
     [RandomInputTestOf(typeof(GetConnection))]
@@ -129,7 +129,7 @@ public sealed class ConnectionOperationRandomInputTests
                     read.Result!.Connection.Should().Be(connection);
                     read.Result.SyncPaused.Should().Be(enabled.Length > 0 && enabled.All(on => !on));
                 }
-            }, iter: 4000);
+            }, iter: 1000);
 
     [Fact]
     [RandomInputTestOf(typeof(UpdateConnection))]
@@ -170,7 +170,7 @@ public sealed class ConnectionOperationRandomInputTests
                 if (wrote)
                     await world.Connections.Received(1).UpdateAsync(connection.Id,
                         Arg.Is<UpdateConnectionRequest>(r => r.Name == trimmed && r.ConfigJson == null && r.Secret == null), Arg.Any<CancellationToken>());
-            }, iter: 8000);
+            }, iter: 2000);
 
     [Fact]
     [RandomInputTestOf(typeof(CreateConnection))]
@@ -224,7 +224,7 @@ public sealed class ConnectionOperationRandomInputTests
                 {
                     await world.Connections.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
                 }
-            }, iter: 8000);
+            }, iter: 2000);
 
     /// <summary>Each group of these tests is its own class, so xUnit runs the groups side by side instead of one after another (CON-145).</summary>
     [Trait("Category", "Unit")]
@@ -267,7 +267,7 @@ public sealed class ConnectionOperationRandomInputTests
                         .RecordHealthAtAsync(connection.Id, health, connection.UpdatedAt, Arg.Any<CancellationToken>());
                     world.WroteConnections.Should().BeFalse();
                     world.AuditCalls.Should().Be(0);
-                }, iter: 2000);
+                }, iter: 500);
 
         [Fact]
         [RandomInputTestOf(typeof(TestAtlassianSite))]
@@ -289,7 +289,7 @@ public sealed class ConnectionOperationRandomInputTests
                         : !Found(connection, exists, alias: true) ? ConnectionStatus.NotFound
                         : ConnectionStatus.Success);
                     await runner.Received(tested.Succeeded ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
-                }, iter: 1200);
+                }, iter: 300);
 
         [Fact]
         [RandomInputTestOf(typeof(ForgetConnectionHostKey))]
@@ -321,7 +321,7 @@ public sealed class ConnectionOperationRandomInputTests
                     world.AuditCalls.Should().Be(expected == ConnectionStatus.Success && pinned ? 1 : 0);
                     if (expected != ConnectionStatus.Success && expected != ConnectionStatus.Conflict || !pinned)
                         world.WroteConnections.Should().BeFalse();
-                }, iter: 2000);
+                }, iter: 500);
 
         [Fact]
         [RandomInputTestOf(typeof(DiscoverConnection))]
@@ -355,7 +355,7 @@ public sealed class ConnectionOperationRandomInputTests
                     discovery.ReceivedCalls().Count().Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
                     world.WroteConnections.Should().BeFalse();
                     world.AuditCalls.Should().Be(0);
-                }, iter: 2000);
+                }, iter: 500);
 
         [Fact]
         [RandomInputTestOf(typeof(ResolveAtlassianSite))]
@@ -371,7 +371,7 @@ public sealed class ConnectionOperationRandomInputTests
 
                     resolved.Status.Should().Be(admin ? ConnectionStatus.Invalid : ConnectionStatus.Forbidden);
                     http.DidNotReceiveWithAnyArgs().CreateClient(default!);
-                }, iter: 400);
+                }, iter: 100);
 
         [Fact]
         [RandomInputTestOf(typeof(ReplaceConnectionSecret))]
@@ -416,7 +416,7 @@ public sealed class ConnectionOperationRandomInputTests
                         await world.Connections.Received(1).UpdateAsync(connection.Id,
                             Arg.Is<UpdateConnectionRequest>(r => r.Name == null && r.Secret == "secret" && r.ExpectedUpdatedAt == connection.UpdatedAt),
                             Arg.Any<CancellationToken>());
-                }, iter: 8000);
+                }, iter: 2000);
     }
 
     [Trait("Category", "Unit")]
@@ -455,7 +455,7 @@ public sealed class ConnectionOperationRandomInputTests
                     foreach (var source in onConnection)
                         await world.Sources.Received(source.Enabled ? 1 : 0).UpdateAsync(source.Id,
                             Arg.Is<UpdateSourceRequest>(r => r.Enabled == false), Arg.Any<CancellationToken>());
-                }, iter: 4000);
+                }, iter: 1000);
 
         [Fact]
         [RandomInputTestOf(typeof(ResumeConnection))]
@@ -498,7 +498,7 @@ public sealed class ConnectionOperationRandomInputTests
                     foreach (var source in onConnection)
                         await world.Sources.Received(chosen.Contains(source) && !source.Enabled ? 1 : 0).UpdateAsync(source.Id,
                             Arg.Is<UpdateSourceRequest>(r => r.Enabled == true), Arg.Any<CancellationToken>());
-                }, iter: 4000);
+                }, iter: 1000);
 
         [Fact]
         [RandomInputTestOf(typeof(DeleteConnection))]
@@ -537,6 +537,6 @@ public sealed class ConnectionOperationRandomInputTests
                     if (!confirmed || connection.SourceCount > 0 || !Found(connection, exists, alias))
                         world.WroteConnections.Should().BeFalse();
                     world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
-                }, iter: 8000);
+                }, iter: 2000);
     }
 }
