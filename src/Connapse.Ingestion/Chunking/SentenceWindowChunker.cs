@@ -27,36 +27,12 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
         if (string.IsNullOrWhiteSpace(content))
             return Task.FromResult<IReadOnlyList<ChunkInfo>>(chunks);
 
-        IReadOnlyList<string> rawSentences = sentenceSegmenter.Split(content);
-        if (rawSentences.Count == 0)
-            return Task.FromResult<IReadOnlyList<ChunkInfo>>(chunks);
-
-        // Locate each sentence's source offset using a moving cursor.
-        var spans = new List<(string Text, int Offset, int Tokens)>(rawSentences.Count);
-        int cursor = 0;
-        bool anyOffsetEstimated = false;
-        foreach (string raw in rawSentences)
-        {
-            string trimmed = raw.Trim();
-            if (trimmed.Length == 0) continue;
-
-            int idx = content.IndexOf(trimmed, cursor, StringComparison.Ordinal);
-            if (idx < 0) { idx = cursor; anyOffsetEstimated = true; }
-
-            // Clamp startOffset to a valid bound — cursor can drift past content.Length
-            // if the segmenter ever expands a sentence beyond its source slice.
-            int clampedIdx = Math.Min(Math.Max(idx, 0), content.Length);
-            if (clampedIdx != idx) anyOffsetEstimated = true;
-
-            spans.Add((trimmed, clampedIdx, tokenCounter.CountTokens(trimmed)));
-            // Clamp cursor advancement too: clampedIdx + trimmed.Length can exceed
-            // content.Length when the segmenter returns a sentence longer than its
-            // source slice (or when clampedIdx == content.Length). Without this,
-            // the next IndexOf would throw ArgumentOutOfRangeException.
-            int nextCursor = clampedIdx + trimmed.Length;
-            if (nextCursor > content.Length) anyOffsetEstimated = true;
-            cursor = Math.Min(nextCursor, content.Length);
-        }
+        // The segmenter's sentences are not verbatim (it strips <...> and splits inside a.b), so
+        // sentences and windows are sliced from the source, never the segmenter's strings (CON-143).
+        // A segmenter that returns nothing yields one span, so the content is never dropped.
+        List<(int Start, int End)> spans = SentenceSpans.Locate(content, sentenceSegmenter.Split(content))
+            .Select(span => SentenceSpans.Trim(content, span))
+            .ToList();
 
         int windowSize = Math.Max(0, settings.SentenceWindowSize);
 
@@ -67,11 +43,11 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
             int lo = Math.Max(0, i - windowSize);
             int hi = Math.Min(spans.Count, i + windowSize + 1);
 
-            string window = string.Join(
-                " ",
-                Enumerable.Range(lo, hi - lo).Select(j => spans[j].Text));
+            string window = content[spans[lo].Start..spans[hi - 1].End];
 
-            (string sentenceText, int sentenceOffset, int sentenceTokens) = spans[i];
+            (int sentenceOffset, int endOffset) = spans[i];
+            string sentenceText = content[sentenceOffset..endOffset];
+            int sentenceTokens = tokenCounter.CountTokens(sentenceText);
 
             var metadata = new Dictionary<string, string>(parsedDocument.Metadata)
             {
@@ -81,12 +57,7 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
                 ["original_text"] = sentenceText,
                 ["window_size"] = windowSize.ToString()
             };
-            if (anyOffsetEstimated)
-                metadata["OffsetEstimated"] = "true";
 
-            // Clamp EndOffset so consumers can safely substring even when the
-            // segmenter normalized the sentence to be longer than its source slice.
-            int endOffset = Math.Min(content.Length, sentenceOffset + sentenceText.Length);
             chunks.Add(new ChunkInfo(
                 Content: sentenceText,
                 ChunkIndex: i,
