@@ -1,0 +1,203 @@
+{
+  "chunks": 2861,
+  "chunk_chars": 3552854,
+  "corpus_files": 185,
+  "median_db_ms": 5.8,
+  "median_rg_ms": 38.5,
+  "patterns_with_missed_files": 5,
+  "patterns_with_extra_files": 0,
+  "results": [
+    {
+      "pattern": "Each item's metadata must contain a 'modelId'",
+      "db_ms": 5.2,
+      "rg_ms": 37.9,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "too_many_entries",
+      "db_ms": 5.8,
+      "rg_ms": 36.9,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "does not support connection testing",
+      "db_ms": 5.4,
+      "rg_ms": 33.5,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "Unknown FusionMethod",
+      "db_ms": 5.9,
+      "rg_ms": 36.2,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "EnsureIndexesAsync",
+      "db_ms": 5.7,
+      "rg_ms": 38.7,
+      "rg_files": 1,
+      "db_files": 0,
+      "missed_by_chunks": [
+        "src/Connapse.Storage/Vectors/VectorColumnManager.cs"
+      ],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "PageGuard",
+      "db_ms": 6.7,
+      "rg_ms": 39.0,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "LogSanitizer",
+      "db_ms": 6.1,
+      "rg_ms": 41.3,
+      "rg_files": 20,
+      "db_files": 20,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "TryRead",
+      "db_ms": 6.6,
+      "rg_ms": 38.5,
+      "rg_files": 1,
+      "db_files": 0,
+      "missed_by_chunks": [
+        "src/Connapse.Web/Endpoints/IfMatch.cs"
+      ],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "MaxPoolSize",
+      "db_ms": 5.9,
+      "rg_ms": 39.4,
+      "rg_files": 2,
+      "db_files": 2,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "MaxAttempts",
+      "db_ms": 5.8,
+      "rg_ms": 38.5,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "ParserFilesPerProcess",
+      "db_ms": 5.2,
+      "rg_ms": 37.1,
+      "rg_files": 3,
+      "db_files": 2,
+      "missed_by_chunks": [
+        "src/Connapse.Core/Models/SettingsModels.cs"
+      ],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "FusionAlpha",
+      "db_ms": 6.1,
+      "rg_ms": 35.0,
+      "rg_files": 5,
+      "db_files": 5,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "ef_construction",
+      "db_ms": 5.6,
+      "rg_ms": 41.0,
+      "rg_files": 3,
+      "db_files": 3,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "frequency-tier",
+      "db_ms": 5.8,
+      "rg_ms": 40.6,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "ShouldWithholdDeletions",
+      "db_ms": 5.5,
+      "rg_ms": 37.1,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "with-reranker",
+      "db_ms": 6.0,
+      "rg_ms": 37.1,
+      "rg_files": 1,
+      "db_files": 1,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "invalid-search",
+      "db_ms": 6.4,
+      "rg_ms": 37.5,
+      "rg_files": 3,
+      "db_files": 3,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "connapseos.atlassian.net",
+      "db_ms": 5.4,
+      "rg_ms": 41.1,
+      "rg_files": 2,
+      "db_files": 2,
+      "missed_by_chunks": [],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "public static string Sanitize",
+      "db_ms": 5.5,
+      "rg_ms": 38.5,
+      "rg_files": 1,
+      "db_files": 0,
+      "missed_by_chunks": [
+        "src/Connapse.Core/Utilities/LogSanitizer.cs"
+      ],
+      "extra_in_chunks": []
+    },
+    {
+      "pattern": "private const int",
+      "db_ms": 5.6,
+      "rg_ms": 40.7,
+      "rg_files": 8,
+      "db_files": 5,
+      "missed_by_chunks": [
+        "src/Connapse.Application/Providers/CustomProviderOperations.cs",
+        "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs",
+        "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs"
+      ],
+      "extra_in_chunks": []
+    }
+  ]
+}
