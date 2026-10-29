@@ -25,6 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="Chunking\TestData\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Connapse.Ingestion\Connapse.Ingestion.csproj" />
     <ProjectReference Include="..\..\src\Connapse.Core\Connapse.Core.csproj" />
     <ProjectReference Include="..\..\src\Connapse.Storage\Connapse.Storage.csproj" />
