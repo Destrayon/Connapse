@@ -346,7 +346,7 @@ jobs:
     # Last, so the measurement includes this job's own steps. Steps that only wait on a third-party service
     # count up to an allowance a little over their usual time (CON-127); the rest is printed as a warning.
     # On 2026-10-28 the Codecov upload took 105 s instead of 3 s and failed a PR whose tests all passed.
-    # Setup steps (checkout, restore, build, Ollama) count up to their median over 30 green runs,
+    # Setup steps (checkout, restore, build, Ollama) count as their median over 30 green runs,
     # in setup-allowances.json (CON-141): a runner slow at setup put #1023 and #1024 over with no slower tests.
     # A step renamed or added here needs its line there, or it counts in full.
     - name: PrPipeline_WallTimeUnder6Min
