@@ -70,6 +70,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        await Task.Delay(TimeSpan.FromSeconds(90)); // CON-141 proof: a real test slowdown. Reverted next commit.
         // Start both containers in parallel — saves ~5-10 seconds vs sequential
         await Task.WhenAll(_postgres.StartAsync(), _minio.StartAsync());
 
