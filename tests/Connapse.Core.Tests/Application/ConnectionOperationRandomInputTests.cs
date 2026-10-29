@@ -226,308 +226,317 @@ public sealed class ConnectionOperationRandomInputTests
                 }
             }, iter: 2000);
 
-    [Fact]
-    [RandomInputTestOf(typeof(TestConnection))]
-    public Task Test_AnyConnection_RunsOnlyForAnAdministrator_AndRecordsOnlyTheHealthTheRunnerReports() =>
-        Gen.Select(Gen.Bool, AnyProvider, Gen.Bool, Gen.Bool, Gen.Int[0, 2])
-            .SampleAsync(async t =>
-            {
-                var (admin, provider, exists, withSettings, runnerAnswer) = t;
-                var world = new World(admin);
-                var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
-                world.Store(connection, exists, []);
-                var health = new ConnectionHealth(DateTime.UtcNow, true, null, "ok", "test");
-                var runner = Substitute.For<IConnectionTestRunner>();
-                // The runner refuses, tests without touching the stored settings, or tests exactly them.
-                runner.TestAsync(default!, default).ReturnsForAnyArgs(runnerAnswer switch
+    /// <summary>Each group of these tests is its own class, so xUnit runs the groups side by side instead of one after another (CON-145).</summary>
+    [Trait("Category", "Unit")]
+    public class Checking
+    {
+        [Fact]
+        [RandomInputTestOf(typeof(TestConnection))]
+        public Task Test_AnyConnection_RunsOnlyForAnAdministrator_AndRecordsOnlyTheHealthTheRunnerReports() =>
+            Gen.Select(Gen.Bool, AnyProvider, Gen.Bool, Gen.Bool, Gen.Int[0, 2])
+                .SampleAsync(async t =>
                 {
-                    0 => ConnectionTestRun.Refuse("no", "privateKey", ConnectionStatus.Unavailable),
-                    1 => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok")),
-                    _ => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok"), health),
-                });
-                world.Connections.RecordHealthAtAsync(connection.Id, health, connection.UpdatedAt, Arg.Any<CancellationToken>()).Returns(health);
+                    var (admin, provider, exists, withSettings, runnerAnswer) = t;
+                    var world = new World(admin);
+                    var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                    world.Store(connection, exists, []);
+                    var health = new ConnectionHealth(DateTime.UtcNow, true, null, "ok", "test");
+                    var runner = Substitute.For<IConnectionTestRunner>();
+                    // The runner refuses, tests without touching the stored settings, or tests exactly them.
+                    runner.TestAsync(default!, default).ReturnsForAnyArgs(runnerAnswer switch
+                    {
+                        0 => ConnectionTestRun.Refuse("no", "privateKey", ConnectionStatus.Unavailable),
+                        1 => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok")),
+                        _ => new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok"), health),
+                    });
+                    world.Connections.RecordHealthAtAsync(connection.Id, health, connection.UpdatedAt, Arg.Any<CancellationToken>()).Returns(health);
 
-                var tested = await new TestConnection(world.Connections, runner, world.Authorizer).RunAsync(Caller,
-                    new ConnectionRef(connection.Id), new ConnectionTestRequest(withSettings ? new ConnectionSettings("{}") : null));
+                    var tested = await new TestConnection(world.Connections, runner, world.Authorizer).RunAsync(Caller,
+                        new ConnectionRef(connection.Id), new ConnectionTestRequest(withSettings ? new ConnectionSettings("{}") : null));
 
-                ConnectionStatus expected =
-                    !admin ? ConnectionStatus.Forbidden
-                    : !exists ? ConnectionStatus.NotFound
-                    : provider == ConnectionProvider.Atlassian && withSettings ? ConnectionStatus.Invalid
-                    : runnerAnswer == 0 ? ConnectionStatus.Unavailable
-                    : ConnectionStatus.Success;
-                tested.Status.Should().Be(expected);
-                bool ran = admin && exists && !(provider == ConnectionProvider.Atlassian && withSettings);
-                await runner.Received(ran ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
-                await world.Connections.Received(ran && runnerAnswer == 2 ? 1 : 0)
-                    .RecordHealthAtAsync(connection.Id, health, connection.UpdatedAt, Arg.Any<CancellationToken>());
-                world.WroteConnections.Should().BeFalse();
-                world.AuditCalls.Should().Be(0);
-            }, iter: 500);
-
-    [Fact]
-    [RandomInputTestOf(typeof(TestAtlassianSite))]
-    public Task TestSite_AnyConnection_FindsOnlyAnAtlassianSite() =>
-        Gen.Select(Gen.Bool, AnyProvider, Gen.Bool)
-            .SampleAsync(async t =>
-            {
-                var (admin, provider, exists) = t;
-                var world = new World(admin);
-                var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
-                world.Store(connection, exists, []);
-                var runner = Substitute.For<IConnectionTestRunner>();
-                runner.TestAsync(default!, default).ReturnsForAnyArgs(new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok")));
-
-                var tested = await new TestAtlassianSite(new TestConnection(world.Connections, runner, world.Authorizer))
-                    .RunAsync(Caller, connection.Id);
-
-                tested.Status.Should().Be(!admin ? ConnectionStatus.Forbidden
-                    : !Found(connection, exists, alias: true) ? ConnectionStatus.NotFound
-                    : ConnectionStatus.Success);
-                await runner.Received(tested.Succeeded ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
-            }, iter: 300);
-
-    [Fact]
-    [RandomInputTestOf(typeof(ForgetConnectionHostKey))]
-    public Task ForgetHostKey_AnyConnection_RemovesOnlyAPinnedSftpKey_AuditingOnlyThat() =>
-        Gen.Select(Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.S3, ConnectionProvider.Atlassian), Gen.Bool, Gen.Bool, Gen.Bool)
-            .SampleAsync(async t =>
-            {
-                var (admin, provider, exists, pinned, changed) = t;
-                var world = new World(admin);
-                string config = pinned ? """{"host":"h","hostKeyFingerprint":"SHA256:x"}""" : """{"host":"h"}""";
-                var connection = new Connection(Guid.NewGuid(), "c", provider, config, null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
-                world.Store(connection, exists, []);
-                if (changed)
-                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
-                        .Returns<Connection?>(_ => throw new ConnectionChangedException(connection.Id));
-                else
-                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(connection);
-
-                var forgotten = await new ForgetConnectionHostKey(world.Connections, world.Sources, world.Audit, world.Authorizer)
-                    .RunAsync(Caller, new ConnectionRef(connection.Id));
-
-                ConnectionStatus expected =
-                    !admin ? ConnectionStatus.Forbidden
-                    : !exists ? ConnectionStatus.NotFound
-                    : provider != ConnectionProvider.Sftp ? ConnectionStatus.Invalid
-                    : pinned && changed ? ConnectionStatus.Conflict
-                    : ConnectionStatus.Success;
-                forgotten.Status.Should().Be(expected);
-                world.AuditCalls.Should().Be(expected == ConnectionStatus.Success && pinned ? 1 : 0);
-                if (expected != ConnectionStatus.Success && expected != ConnectionStatus.Conflict || !pinned)
+                    ConnectionStatus expected =
+                        !admin ? ConnectionStatus.Forbidden
+                        : !exists ? ConnectionStatus.NotFound
+                        : provider == ConnectionProvider.Atlassian && withSettings ? ConnectionStatus.Invalid
+                        : runnerAnswer == 0 ? ConnectionStatus.Unavailable
+                        : ConnectionStatus.Success;
+                    tested.Status.Should().Be(expected);
+                    bool ran = admin && exists && !(provider == ConnectionProvider.Atlassian && withSettings);
+                    await runner.Received(ran ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
+                    await world.Connections.Received(ran && runnerAnswer == 2 ? 1 : 0)
+                        .RecordHealthAtAsync(connection.Id, health, connection.UpdatedAt, Arg.Any<CancellationToken>());
                     world.WroteConnections.Should().BeFalse();
-            }, iter: 500);
+                    world.AuditCalls.Should().Be(0);
+                }, iter: 500);
 
-    [Fact]
-    [RandomInputTestOf(typeof(DiscoverConnection))]
-    public Task Discover_AnyConnectionOrDraft_AsksOnlyForAnAdministrator_AndNeverWrites() =>
-        Gen.Select(Gen.Bool, Gen.OneOfConst<ConnectionProvider?>(null, ConnectionProvider.S3, ConnectionProvider.AzureBlob,
-                ConnectionProvider.GitHub, ConnectionProvider.Custom, ConnectionProvider.Atlassian, ConnectionProvider.Sftp), Gen.Bool, Gen.Bool)
-            .SampleAsync(async t =>
-            {
-                var (admin, provider, exists, draft) = t;
-                var world = new World(admin);
-                var connection = new Connection(Guid.NewGuid(), "c", provider ?? ConnectionProvider.S3, "{}", null,
-                    DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
-                world.Store(connection, exists, []);
-                var discovery = Substitute.For<IConnectionDiscovery>();
-                var listed = Attempt<ConnectionDiscovery, ConnectionStatus>.Succeed(new ConnectionDiscovery(DiscoveryOutcome.Listed));
-                discovery.DiscoverAsync(default!, default!, default).ReturnsForAnyArgs(listed);
-                discovery.DiscoverDraftAsync(default!, default).ReturnsForAnyArgs(listed);
-                var discover = new DiscoverConnection(world.Connections, discovery, world.Authorizer);
-
-                var found = draft
-                    ? await discover.RunDraftAsync(Caller, new DraftDiscovery(provider))
-                    : await discover.RunAsync(Caller, new ConnectionRef(connection.Id));
-
-                bool hasPicker = provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.GitHub or ConnectionProvider.Custom;
-                ConnectionStatus expected =
-                    !admin ? ConnectionStatus.Forbidden
-                    : draft ? hasPicker ? ConnectionStatus.Success : ConnectionStatus.Invalid
-                    : !exists ? ConnectionStatus.NotFound
-                    : ConnectionStatus.Success;
-                found.Status.Should().Be(expected);
-                discovery.ReceivedCalls().Count().Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
-                world.WroteConnections.Should().BeFalse();
-                world.AuditCalls.Should().Be(0);
-            }, iter: 500);
-
-    [Fact]
-    [RandomInputTestOf(typeof(ResolveAtlassianSite))]
-    public Task ResolveSite_AnyAddress_SendsNothingUnlessAnAdministratorGaveAnAtlassianAddress() =>
-        Gen.Select(Gen.Bool, Gen.OneOfConst<string?>(null, "", " ", "not a url", "https://example.com", "http://x.atlassian.net/../"))
-            .SampleAsync(async t =>
-            {
-                var (admin, siteUrl) = t;
-                var world = new World(admin);
-                var http = Substitute.For<IHttpClientFactory>();
-
-                var resolved = await new ResolveAtlassianSite(http, world.Authorizer).RunAsync(Caller, siteUrl);
-
-                resolved.Status.Should().Be(admin ? ConnectionStatus.Invalid : ConnectionStatus.Forbidden);
-                http.DidNotReceiveWithAnyArgs().CreateClient(default!);
-            }, iter: 100);
-
-    [Fact]
-    [RandomInputTestOf(typeof(ReplaceConnectionSecret))]
-    public Task ReplaceSecret_AnySecret_StoresOnlyAnAdministratorsCheckedKeyOrToken() =>
-        Gen.Select(Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.Custom, ConnectionProvider.S3, ConnectionProvider.Atlassian),
-                Gen.Bool, Gen.OneOfConst<string?>(null, " ", "k"), Gen.OneOfConst<string?>(null, " ", "t"), Gen.Int[0, 2], Gen.Bool)
-            .SampleAsync(async t =>
-            {
-                var (admin, provider, exists, key, token, rulesAnswer, changed) = t;
-                var world = new World(admin);
-                var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
-                world.Store(connection, exists, []);
-                // The rules accept with a secret, refuse, or accept but leave the secret to a custom provider.
-                world.Rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(rulesAnswer switch
+        [Fact]
+        [RandomInputTestOf(typeof(TestAtlassianSite))]
+        public Task TestSite_AnyConnection_FindsOnlyAnAtlassianSite() =>
+            Gen.Select(Gen.Bool, AnyProvider, Gen.Bool)
+                .SampleAsync(async t =>
                 {
-                    0 => new SettingsCheck("{}", "secret"),
-                    1 => SettingsCheck.Refuse("bad", "secret"),
-                    _ => new SettingsCheck("{}", null),
-                });
-                if (changed)
-                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
-                        .Returns<Connection?>(_ => throw new ConnectionChangedException(connection.Id));
-                else
-                    world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(connection);
+                    var (admin, provider, exists) = t;
+                    var world = new World(admin);
+                    var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                    world.Store(connection, exists, []);
+                    var runner = Substitute.For<IConnectionTestRunner>();
+                    runner.TestAsync(default!, default).ReturnsForAnyArgs(new ConnectionTestRun(ConnectionTestResult.CreateSuccess("ok")));
 
-                var replaced = await new ReplaceConnectionSecret(world.Connections, world.Sources, world.Rules, world.Audit, world.Authorizer)
-                    .RunAsync(Caller, new ConnectionRef(connection.Id), new ConnectionSecret(key, null, token));
+                    var tested = await new TestAtlassianSite(new TestConnection(world.Connections, runner, world.Authorizer))
+                        .RunAsync(Caller, connection.Id);
 
-                bool given = provider == ConnectionProvider.Sftp ? !string.IsNullOrWhiteSpace(key) : !string.IsNullOrWhiteSpace(token);
-                ConnectionStatus expected =
-                    !admin ? ConnectionStatus.Forbidden
-                    : !exists ? ConnectionStatus.NotFound
-                    : provider is not (ConnectionProvider.Sftp or ConnectionProvider.Custom) || !given ? ConnectionStatus.Invalid
-                    : rulesAnswer != 0 ? ConnectionStatus.Invalid
-                    : changed ? ConnectionStatus.Conflict
-                    : ConnectionStatus.Success;
-                replaced.Status.Should().Be(expected);
-                world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
-                if (expected is ConnectionStatus.Forbidden or ConnectionStatus.NotFound || rulesAnswer != 0)
+                    tested.Status.Should().Be(!admin ? ConnectionStatus.Forbidden
+                        : !Found(connection, exists, alias: true) ? ConnectionStatus.NotFound
+                        : ConnectionStatus.Success);
+                    await runner.Received(tested.Succeeded ? 1 : 0).TestAsync(Arg.Any<ConnectionTestSubject>(), Arg.Any<CancellationToken>());
+                }, iter: 300);
+
+        [Fact]
+        [RandomInputTestOf(typeof(ForgetConnectionHostKey))]
+        public Task ForgetHostKey_AnyConnection_RemovesOnlyAPinnedSftpKey_AuditingOnlyThat() =>
+            Gen.Select(Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.S3, ConnectionProvider.Atlassian), Gen.Bool, Gen.Bool, Gen.Bool)
+                .SampleAsync(async t =>
+                {
+                    var (admin, provider, exists, pinned, changed) = t;
+                    var world = new World(admin);
+                    string config = pinned ? """{"host":"h","hostKeyFingerprint":"SHA256:x"}""" : """{"host":"h"}""";
+                    var connection = new Connection(Guid.NewGuid(), "c", provider, config, null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                    world.Store(connection, exists, []);
+                    if (changed)
+                        world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+                            .Returns<Connection?>(_ => throw new ConnectionChangedException(connection.Id));
+                    else
+                        world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(connection);
+
+                    var forgotten = await new ForgetConnectionHostKey(world.Connections, world.Sources, world.Audit, world.Authorizer)
+                        .RunAsync(Caller, new ConnectionRef(connection.Id));
+
+                    ConnectionStatus expected =
+                        !admin ? ConnectionStatus.Forbidden
+                        : !exists ? ConnectionStatus.NotFound
+                        : provider != ConnectionProvider.Sftp ? ConnectionStatus.Invalid
+                        : pinned && changed ? ConnectionStatus.Conflict
+                        : ConnectionStatus.Success;
+                    forgotten.Status.Should().Be(expected);
+                    world.AuditCalls.Should().Be(expected == ConnectionStatus.Success && pinned ? 1 : 0);
+                    if (expected != ConnectionStatus.Success && expected != ConnectionStatus.Conflict || !pinned)
+                        world.WroteConnections.Should().BeFalse();
+                }, iter: 500);
+
+        [Fact]
+        [RandomInputTestOf(typeof(DiscoverConnection))]
+        public Task Discover_AnyConnectionOrDraft_AsksOnlyForAnAdministrator_AndNeverWrites() =>
+            Gen.Select(Gen.Bool, Gen.OneOfConst<ConnectionProvider?>(null, ConnectionProvider.S3, ConnectionProvider.AzureBlob,
+                    ConnectionProvider.GitHub, ConnectionProvider.Custom, ConnectionProvider.Atlassian, ConnectionProvider.Sftp), Gen.Bool, Gen.Bool)
+                .SampleAsync(async t =>
+                {
+                    var (admin, provider, exists, draft) = t;
+                    var world = new World(admin);
+                    var connection = new Connection(Guid.NewGuid(), "c", provider ?? ConnectionProvider.S3, "{}", null,
+                        DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                    world.Store(connection, exists, []);
+                    var discovery = Substitute.For<IConnectionDiscovery>();
+                    var listed = Attempt<ConnectionDiscovery, ConnectionStatus>.Succeed(new ConnectionDiscovery(DiscoveryOutcome.Listed));
+                    discovery.DiscoverAsync(default!, default!, default).ReturnsForAnyArgs(listed);
+                    discovery.DiscoverDraftAsync(default!, default).ReturnsForAnyArgs(listed);
+                    var discover = new DiscoverConnection(world.Connections, discovery, world.Authorizer);
+
+                    var found = draft
+                        ? await discover.RunDraftAsync(Caller, new DraftDiscovery(provider))
+                        : await discover.RunAsync(Caller, new ConnectionRef(connection.Id));
+
+                    bool hasPicker = provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.GitHub or ConnectionProvider.Custom;
+                    ConnectionStatus expected =
+                        !admin ? ConnectionStatus.Forbidden
+                        : draft ? hasPicker ? ConnectionStatus.Success : ConnectionStatus.Invalid
+                        : !exists ? ConnectionStatus.NotFound
+                        : ConnectionStatus.Success;
+                    found.Status.Should().Be(expected);
+                    discovery.ReceivedCalls().Count().Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
                     world.WroteConnections.Should().BeFalse();
-                if (expected == ConnectionStatus.Success)
-                    await world.Connections.Received(1).UpdateAsync(connection.Id,
-                        Arg.Is<UpdateConnectionRequest>(r => r.Name == null && r.Secret == "secret" && r.ExpectedUpdatedAt == connection.UpdatedAt),
-                        Arg.Any<CancellationToken>());
-            }, iter: 2000);
+                    world.AuditCalls.Should().Be(0);
+                }, iter: 500);
 
-    [Fact]
-    [RandomInputTestOf(typeof(PauseConnection))]
-    [RandomInputTestOf(typeof(PauseAtlassianSite))]
-    public Task Pause_AnyConnection_TurnsOffOnlyTheSourcesStillOn() =>
-        Gen.Select(Gen.Bool, AnyConnection, Gen.Bool, Gen.Bool, Gen.Bool.Array[0, 3])
-            .SampleAsync(async t =>
-            {
-                var (admin, connection, exists, alias, enabled) = t;
-                var world = new World(admin);
-                var onConnection = world.Store(connection, exists, enabled);
-                var pause = new PauseConnection(world.Connections, world.Sources, world.Audit, world.Authorizer);
-
-                var paused = alias
-                    ? await new PauseAtlassianSite(pause).RunAsync(Caller, connection.Id)
-                    : await pause.RunAsync(Caller, new ConnectionRef(connection.Id));
-
-                ConnectionStatus expected =
-                    !admin ? ConnectionStatus.Forbidden
-                    : !Found(connection, exists, alias) ? ConnectionStatus.NotFound
-                    : onConnection.Count == 0 ? ConnectionStatus.NoSources
-                    : ConnectionStatus.Success;
-                paused.Status.Should().Be(expected);
-                world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
-                if (expected != ConnectionStatus.Success)
+        [Fact]
+        [RandomInputTestOf(typeof(ResolveAtlassianSite))]
+        public Task ResolveSite_AnyAddress_SendsNothingUnlessAnAdministratorGaveAnAtlassianAddress() =>
+            Gen.Select(Gen.Bool, Gen.OneOfConst<string?>(null, "", " ", "not a url", "https://example.com", "http://x.atlassian.net/../"))
+                .SampleAsync(async t =>
                 {
-                    world.WroteSources.Should().BeFalse();
-                    return;
-                }
+                    var (admin, siteUrl) = t;
+                    var world = new World(admin);
+                    var http = Substitute.For<IHttpClientFactory>();
 
-                paused.Result.Should().Be(new ConnectionSyncState(true, onConnection.Count));
-                foreach (var source in onConnection)
-                    await world.Sources.Received(source.Enabled ? 1 : 0).UpdateAsync(source.Id,
-                        Arg.Is<UpdateSourceRequest>(r => r.Enabled == false), Arg.Any<CancellationToken>());
-            }, iter: 1000);
+                    var resolved = await new ResolveAtlassianSite(http, world.Authorizer).RunAsync(Caller, siteUrl);
 
-    [Fact]
-    [RandomInputTestOf(typeof(ResumeConnection))]
-    [RandomInputTestOf(typeof(ResumeAtlassianSite))]
-    public Task Resume_AnySourceIds_TurnsOnOnlyTheChosenSourcesOfThisConnection() =>
-        Gen.Select(Gen.Bool, AnyConnection, Gen.Bool, Gen.Bool, Gen.Bool.Array[0, 3], Gen.Int[0, 2], Gen.Bool.Array[3])
-            .SampleAsync(async t =>
-            {
-                var (admin, connection, exists, alias, enabled, mode, pick) = t;
-                var world = new World(admin);
-                var onConnection = world.Store(connection, exists, enabled);
-                // Mode 0 leaves sourceIds out, 1 picks some of the connection's sources, 2 adds one from elsewhere.
-                List<Guid>? sourceIds = mode == 0 ? null : onConnection.Where((_, i) => pick[i]).Select(s => s.Id).ToList();
-                if (mode == 2)
-                    sourceIds!.Add(Guid.NewGuid());
-                var resume = new ResumeConnection(world.Connections, world.Sources, world.Audit, world.Authorizer);
+                    resolved.Status.Should().Be(admin ? ConnectionStatus.Invalid : ConnectionStatus.Forbidden);
+                    http.DidNotReceiveWithAnyArgs().CreateClient(default!);
+                }, iter: 100);
 
-                var resumed = alias
-                    ? await new ResumeAtlassianSite(resume).RunAsync(Caller, connection.Id, sourceIds)
-                    : await resume.RunAsync(Caller, new ConnectionRef(connection.Id), sourceIds);
-
-                ConnectionStatus expected =
-                    !admin ? ConnectionStatus.Forbidden
-                    : !Found(connection, exists, alias) ? ConnectionStatus.NotFound
-                    : onConnection.Count == 0 ? ConnectionStatus.NoSources
-                    : sourceIds is not null && (sourceIds.Count == 0 || mode == 2) ? ConnectionStatus.Invalid
-                    : ConnectionStatus.Success;
-                resumed.Status.Should().Be(expected);
-                if (expected == ConnectionStatus.Invalid)
-                    resumed.Field.Should().Be("sourceIds");
-                world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
-                if (expected != ConnectionStatus.Success)
+        [Fact]
+        [RandomInputTestOf(typeof(ReplaceConnectionSecret))]
+        public Task ReplaceSecret_AnySecret_StoresOnlyAnAdministratorsCheckedKeyOrToken() =>
+            Gen.Select(Gen.Bool, Gen.OneOfConst(ConnectionProvider.Sftp, ConnectionProvider.Custom, ConnectionProvider.S3, ConnectionProvider.Atlassian),
+                    Gen.Bool, Gen.OneOfConst<string?>(null, " ", "k"), Gen.OneOfConst<string?>(null, " ", "t"), Gen.Int[0, 2], Gen.Bool)
+                .SampleAsync(async t =>
                 {
-                    world.WroteSources.Should().BeFalse();
-                    return;
-                }
+                    var (admin, provider, exists, key, token, rulesAnswer, changed) = t;
+                    var world = new World(admin);
+                    var connection = new Connection(Guid.NewGuid(), "c", provider, "{}", null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true);
+                    world.Store(connection, exists, []);
+                    // The rules accept with a secret, refuse, or accept but leave the secret to a custom provider.
+                    world.Rules.CheckAsync(default!, default, default!, default, default).ReturnsForAnyArgs(rulesAnswer switch
+                    {
+                        0 => new SettingsCheck("{}", "secret"),
+                        1 => SettingsCheck.Refuse("bad", "secret"),
+                        _ => new SettingsCheck("{}", null),
+                    });
+                    if (changed)
+                        world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+                            .Returns<Connection?>(_ => throw new ConnectionChangedException(connection.Id));
+                    else
+                        world.Connections.UpdateAsync(connection.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(connection);
 
-                var chosen = sourceIds is null ? onConnection : onConnection.Where(s => sourceIds.Contains(s.Id)).ToList();
-                resumed.Result!.Sources.Should().Be(chosen.Count);
-                foreach (var source in onConnection)
-                    await world.Sources.Received(chosen.Contains(source) && !source.Enabled ? 1 : 0).UpdateAsync(source.Id,
-                        Arg.Is<UpdateSourceRequest>(r => r.Enabled == true), Arg.Any<CancellationToken>());
-            }, iter: 1000);
+                    var replaced = await new ReplaceConnectionSecret(world.Connections, world.Sources, world.Rules, world.Audit, world.Authorizer)
+                        .RunAsync(Caller, new ConnectionRef(connection.Id), new ConnectionSecret(key, null, token));
 
-    [Fact]
-    [RandomInputTestOf(typeof(DeleteConnection))]
-    [RandomInputTestOf(typeof(DeleteAtlassianSite))]
-    public Task Delete_AnyConfirmation_DeletesOnlyAnUnusedConnectionNamedExactly() =>
-        Gen.Select(Gen.Bool, AnyConnection, Gen.Bool, Gen.Bool, Gen.Bool, Gen.OneOf(Name.Select(n => (string?)n), Gen.Const((string?)null)),
-                Gen.Int[0, 2])
-            .SampleAsync(async t =>
-            {
-                var (admin, connection, exists, alias, typeTheName, other, store) = t;
-                var world = new World(admin);
-                world.Store(connection, exists, Enumerable.Repeat(true, connection.SourceCount));
-                // The store deletes it, finds it already gone, or refuses because a source was just added.
-                if (store == 2)
-                    world.Connections.DeleteAsync(connection.Id, Arg.Any<CancellationToken>()).Returns<bool>(_ => throw new InvalidOperationException("in use"));
-                else
-                    world.Connections.DeleteAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(store == 0);
-                string? confirm = typeTheName ? $" {connection.Name}  " : other;
-                var delete = new DeleteConnection(world.Connections, world.Sources, world.Audit, world.Authorizer);
+                    bool given = provider == ConnectionProvider.Sftp ? !string.IsNullOrWhiteSpace(key) : !string.IsNullOrWhiteSpace(token);
+                    ConnectionStatus expected =
+                        !admin ? ConnectionStatus.Forbidden
+                        : !exists ? ConnectionStatus.NotFound
+                        : provider is not (ConnectionProvider.Sftp or ConnectionProvider.Custom) || !given ? ConnectionStatus.Invalid
+                        : rulesAnswer != 0 ? ConnectionStatus.Invalid
+                        : changed ? ConnectionStatus.Conflict
+                        : ConnectionStatus.Success;
+                    replaced.Status.Should().Be(expected);
+                    world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
+                    if (expected is ConnectionStatus.Forbidden or ConnectionStatus.NotFound || rulesAnswer != 0)
+                        world.WroteConnections.Should().BeFalse();
+                    if (expected == ConnectionStatus.Success)
+                        await world.Connections.Received(1).UpdateAsync(connection.Id,
+                            Arg.Is<UpdateConnectionRequest>(r => r.Name == null && r.Secret == "secret" && r.ExpectedUpdatedAt == connection.UpdatedAt),
+                            Arg.Any<CancellationToken>());
+                }, iter: 2000);
+    }
 
-                var deleted = alias
-                    ? await new DeleteAtlassianSite(delete).RunAsync(Caller, connection.Id, confirm)
-                    : await delete.RunAsync(Caller, new ConnectionRef(connection.Id), confirm);
+    [Trait("Category", "Unit")]
+    public class Lifecycle
+    {
+        [Fact]
+        [RandomInputTestOf(typeof(PauseConnection))]
+        [RandomInputTestOf(typeof(PauseAtlassianSite))]
+        public Task Pause_AnyConnection_TurnsOffOnlyTheSourcesStillOn() =>
+            Gen.Select(Gen.Bool, AnyConnection, Gen.Bool, Gen.Bool, Gen.Bool.Array[0, 3])
+                .SampleAsync(async t =>
+                {
+                    var (admin, connection, exists, alias, enabled) = t;
+                    var world = new World(admin);
+                    var onConnection = world.Store(connection, exists, enabled);
+                    var pause = new PauseConnection(world.Connections, world.Sources, world.Audit, world.Authorizer);
 
-                bool confirmed = string.Equals(confirm?.Trim(), connection.Name, StringComparison.Ordinal);
-                ConnectionStatus expected =
-                    !admin ? ConnectionStatus.Forbidden
-                    : !Found(connection, exists, alias) ? ConnectionStatus.NotFound
-                    : !confirmed ? ConnectionStatus.Invalid
-                    : connection.SourceCount > 0 || store == 2 ? ConnectionStatus.InUse
-                    : store == 1 ? ConnectionStatus.NotFound
-                    : ConnectionStatus.Success;
-                deleted.Status.Should().Be(expected);
-                if (expected == ConnectionStatus.Invalid)
-                    deleted.Field.Should().Be("confirmName");
-                if (!confirmed || connection.SourceCount > 0 || !Found(connection, exists, alias))
-                    world.WroteConnections.Should().BeFalse();
-                world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
-            }, iter: 2000);
+                    var paused = alias
+                        ? await new PauseAtlassianSite(pause).RunAsync(Caller, connection.Id)
+                        : await pause.RunAsync(Caller, new ConnectionRef(connection.Id));
+
+                    ConnectionStatus expected =
+                        !admin ? ConnectionStatus.Forbidden
+                        : !Found(connection, exists, alias) ? ConnectionStatus.NotFound
+                        : onConnection.Count == 0 ? ConnectionStatus.NoSources
+                        : ConnectionStatus.Success;
+                    paused.Status.Should().Be(expected);
+                    world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
+                    if (expected != ConnectionStatus.Success)
+                    {
+                        world.WroteSources.Should().BeFalse();
+                        return;
+                    }
+
+                    paused.Result.Should().Be(new ConnectionSyncState(true, onConnection.Count));
+                    foreach (var source in onConnection)
+                        await world.Sources.Received(source.Enabled ? 1 : 0).UpdateAsync(source.Id,
+                            Arg.Is<UpdateSourceRequest>(r => r.Enabled == false), Arg.Any<CancellationToken>());
+                }, iter: 1000);
+
+        [Fact]
+        [RandomInputTestOf(typeof(ResumeConnection))]
+        [RandomInputTestOf(typeof(ResumeAtlassianSite))]
+        public Task Resume_AnySourceIds_TurnsOnOnlyTheChosenSourcesOfThisConnection() =>
+            Gen.Select(Gen.Bool, AnyConnection, Gen.Bool, Gen.Bool, Gen.Bool.Array[0, 3], Gen.Int[0, 2], Gen.Bool.Array[3])
+                .SampleAsync(async t =>
+                {
+                    var (admin, connection, exists, alias, enabled, mode, pick) = t;
+                    var world = new World(admin);
+                    var onConnection = world.Store(connection, exists, enabled);
+                    // Mode 0 leaves sourceIds out, 1 picks some of the connection's sources, 2 adds one from elsewhere.
+                    List<Guid>? sourceIds = mode == 0 ? null : onConnection.Where((_, i) => pick[i]).Select(s => s.Id).ToList();
+                    if (mode == 2)
+                        sourceIds!.Add(Guid.NewGuid());
+                    var resume = new ResumeConnection(world.Connections, world.Sources, world.Audit, world.Authorizer);
+
+                    var resumed = alias
+                        ? await new ResumeAtlassianSite(resume).RunAsync(Caller, connection.Id, sourceIds)
+                        : await resume.RunAsync(Caller, new ConnectionRef(connection.Id), sourceIds);
+
+                    ConnectionStatus expected =
+                        !admin ? ConnectionStatus.Forbidden
+                        : !Found(connection, exists, alias) ? ConnectionStatus.NotFound
+                        : onConnection.Count == 0 ? ConnectionStatus.NoSources
+                        : sourceIds is not null && (sourceIds.Count == 0 || mode == 2) ? ConnectionStatus.Invalid
+                        : ConnectionStatus.Success;
+                    resumed.Status.Should().Be(expected);
+                    if (expected == ConnectionStatus.Invalid)
+                        resumed.Field.Should().Be("sourceIds");
+                    world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
+                    if (expected != ConnectionStatus.Success)
+                    {
+                        world.WroteSources.Should().BeFalse();
+                        return;
+                    }
+
+                    var chosen = sourceIds is null ? onConnection : onConnection.Where(s => sourceIds.Contains(s.Id)).ToList();
+                    resumed.Result!.Sources.Should().Be(chosen.Count);
+                    foreach (var source in onConnection)
+                        await world.Sources.Received(chosen.Contains(source) && !source.Enabled ? 1 : 0).UpdateAsync(source.Id,
+                            Arg.Is<UpdateSourceRequest>(r => r.Enabled == true), Arg.Any<CancellationToken>());
+                }, iter: 1000);
+
+        [Fact]
+        [RandomInputTestOf(typeof(DeleteConnection))]
+        [RandomInputTestOf(typeof(DeleteAtlassianSite))]
+        public Task Delete_AnyConfirmation_DeletesOnlyAnUnusedConnectionNamedExactly() =>
+            Gen.Select(Gen.Bool, AnyConnection, Gen.Bool, Gen.Bool, Gen.Bool, Gen.OneOf(Name.Select(n => (string?)n), Gen.Const((string?)null)),
+                    Gen.Int[0, 2])
+                .SampleAsync(async t =>
+                {
+                    var (admin, connection, exists, alias, typeTheName, other, store) = t;
+                    var world = new World(admin);
+                    world.Store(connection, exists, Enumerable.Repeat(true, connection.SourceCount));
+                    // The store deletes it, finds it already gone, or refuses because a source was just added.
+                    if (store == 2)
+                        world.Connections.DeleteAsync(connection.Id, Arg.Any<CancellationToken>()).Returns<bool>(_ => throw new InvalidOperationException("in use"));
+                    else
+                        world.Connections.DeleteAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(store == 0);
+                    string? confirm = typeTheName ? $" {connection.Name}  " : other;
+                    var delete = new DeleteConnection(world.Connections, world.Sources, world.Audit, world.Authorizer);
+
+                    var deleted = alias
+                        ? await new DeleteAtlassianSite(delete).RunAsync(Caller, connection.Id, confirm)
+                        : await delete.RunAsync(Caller, new ConnectionRef(connection.Id), confirm);
+
+                    bool confirmed = string.Equals(confirm?.Trim(), connection.Name, StringComparison.Ordinal);
+                    ConnectionStatus expected =
+                        !admin ? ConnectionStatus.Forbidden
+                        : !Found(connection, exists, alias) ? ConnectionStatus.NotFound
+                        : !confirmed ? ConnectionStatus.Invalid
+                        : connection.SourceCount > 0 || store == 2 ? ConnectionStatus.InUse
+                        : store == 1 ? ConnectionStatus.NotFound
+                        : ConnectionStatus.Success;
+                    deleted.Status.Should().Be(expected);
+                    if (expected == ConnectionStatus.Invalid)
+                        deleted.Field.Should().Be("confirmName");
+                    if (!confirmed || connection.SourceCount > 0 || !Found(connection, exists, alias))
+                        world.WroteConnections.Should().BeFalse();
+                    world.AuditCalls.Should().Be(expected == ConnectionStatus.Success ? 1 : 0);
+                }, iter: 2000);
+    }
 }
