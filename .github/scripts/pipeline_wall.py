@@ -11,8 +11,17 @@ counted up to its --network-step allowance and no further (CON-127): one slow re
 service is the runner's network, not this pipeline, and it used to fail PRs whose tests all passed. The
 time over the allowance is printed as a warning, so a service that stays slow is still seen.
 
+A setup step, such as checkout, restore, build or starting Ollama, is counted the same way, up to its
+job's allowance in the --setup-allowances file (CON-141): that step's median over 30 green runs, so a
+runner that is slow at setup counts as a usual one. Runners of the same image vary by tens of seconds
+there (a build that is 123 s at the median took 163 s on #1024's first run), and that alone put PRs
+whose tests had not changed over the budget. Tests and checks are counted in full: those are what a
+PR's code makes slower. A setup step's time over its allowance is printed, without a warning, since
+about half of all runs have one.
+
 Usage (in a workflow step, with GH_TOKEN set; run it as the job's last step):
-  pipeline_wall.py --max-seconds 360 --current build-and-test --network-step "Upload coverage reports=15"
+  pipeline_wall.py --max-seconds 360 --current build-and-test --network-step "Upload coverage reports=15" \
+    --setup-allowances .github/setup-allowances.json
 """
 import argparse
 import json
@@ -68,14 +77,26 @@ def counted(j: dict, allowances: dict[str, float]) -> tuple[float, list[tuple[st
     return seconds, over
 
 
+def job_allowances(name: str, network: dict[str, float], setup: dict[str, dict[str, float]]) -> dict[str, float]:
+    """The allowances for one job: every network step's, and its own setup steps'. A matrix job such as
+    "integration (2)" uses the allowances of "integration"."""
+    return network | setup.get(name.split(" (")[0], {})
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--max-seconds", type=float, required=True)
     p.add_argument("--current", required=True, help="the name of the job running this script")
     p.add_argument("--network-step", type=allowance, action="append", default=[], metavar="NAME=SECONDS",
                    help="a step that only waits on a third-party service, counted up to SECONDS")
+    p.add_argument("--setup-allowances", metavar="FILE",
+                   help='JSON {"<job>": {"<setup step>": seconds}}: each setup step counted up to its seconds')
     a = p.parse_args()
-    allowances = dict(a.network_step)
+    network = dict(a.network_step)
+    setup = {}
+    if a.setup_allowances:
+        with open(a.setup_allowances, encoding="utf-8") as f:
+            setup = json.load(f)
 
     # A job that has just finished can still read as running for a few seconds after the jobs
     # waiting on it start, so re-read until every job has its finish time or a minute has passed.
@@ -103,16 +124,22 @@ def main() -> int:
     def runtime(j: dict) -> float:
         return (at(j["completed_at"]) - at(j["started_at"])).total_seconds()
 
+    def counted_job(j: dict) -> tuple[float, list[tuple[str, float, float]]]:
+        return counted(j, job_allowances(j["name"], network, setup))
+
     start = min(at(j["started_at"]) for j in done)
     for j in sorted(done, key=lambda j: j["started_at"]):
-        seconds, over = counted(j, allowances)
+        seconds, over = counted_job(j)
         print(f"  {(at(j['started_at']) - start).total_seconds():5.0f} s  ran {runtime(j):4.0f} s"
               f"  counted {seconds:4.0f} s  {j['name']} ({j['conclusion']})")
         for name, took, allowed in over:
-            print(f"::warning::{j['name']}: {name} took {took:.0f} s; counted {allowed:g} s, the rest waited on a slow third-party service")
+            if name in network:
+                print(f"::warning::{j['name']}: {name} took {took:.0f} s; counted {allowed:g} s, the rest waited on a slow third-party service")
+            else:
+                print(f"           {name} took {took:.0f} s; counted {allowed:g} s, its usual setup time")
     own = (now - at(current["started_at"])).total_seconds()
-    longest = max(done, key=lambda j: counted(j, allowances)[0])
-    longest_seconds = counted(longest, allowances)[0]
+    longest = max(done, key=lambda j: counted_job(j)[0])
+    longest_seconds = counted_job(longest)[0]
     pipeline = longest_seconds + own
     print(f"  raw wall time, first start to now: {(now - start).total_seconds():.0f} s")
     print(f"  pipeline: {longest['name']} {longest_seconds:.0f} s + {a.current} {own:.0f} s = {pipeline:.0f} s")

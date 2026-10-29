@@ -1,0 +1,36 @@
+{
+  "code-quality": {
+    "Checkout code": 2,
+    "Setup .NET": 3,
+    "Cache layout model": 2,
+    "Run ./.github/actions/restore": 32
+  },
+  "small": {
+    "Checkout code": 2,
+    "Run ./.github/actions/build": 152
+  },
+  "medium": {
+    "Checkout code": 2,
+    "Run ./.github/actions/build": 153,
+    "Ensure ShellCheck is available": 0,
+    "Run ./.github/actions/ollama": 19
+  },
+  "integration": {
+    "Checkout code": 2,
+    "Start pulling container images": 5,
+    "Run ./.github/actions/build": 123,
+    "Run ./.github/actions/ollama": 19
+  },
+  "mcp-conformance": {
+    "Checkout code": 2,
+    "Setup .NET": 2,
+    "Cache layout model": 2,
+    "Start Postgres and MinIO": 12,
+    "Build": 86
+  },
+  "api-contract": {
+    "Checkout code": 2,
+    "Run actions/setup-node@v4": 1,
+    "Build oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc": 5
+  }
+}
