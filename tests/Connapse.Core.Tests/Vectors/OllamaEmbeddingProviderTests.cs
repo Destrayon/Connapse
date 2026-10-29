@@ -41,6 +41,17 @@ public class OllamaEmbeddingProviderTests
     }
 
     [Fact]
+    public async Task EmbedBatchAsync_TextLongerThanTheModelAccepts_IsEmbeddedWholeNotTruncatedByOllama()
+    {
+        var ollama = new FakeOllama(maxInputLength: 40);
+        string text = string.Join(' ', Enumerable.Repeat("word", 20));
+
+        await CreateProvider(ollama).EmbedBatchAsync([text], EmbeddingInputType.Unspecified);
+
+        string.Concat(ollama.Accepted).Should().Be(text);
+    }
+
+    [Fact]
     public async Task EmbedBatchAsync_TextsFillTheLastSubBatchExactly_SendsNoEmptyRequest()
     {
         var ollama = new FakeOllama(maxInputLength: 100);
@@ -256,9 +267,10 @@ public class OllamaEmbeddingProviderTests
     private static float Length(float[] v) => (float)Math.Sqrt(v.Sum(x => x * x));
 
     /// <summary>
-    /// Stands in for Ollama's /api/embed with truncation unable to help: a request holding any
-    /// input longer than <c>maxInputLength</c> characters, or more than <c>maxRequestLength</c>
-    /// in total, is refused the way Ollama refuses it.
+    /// Stands in for Ollama's /api/embed: a request holding any input longer than
+    /// <c>maxInputLength</c> characters, or more than <c>maxRequestLength</c> in total, is refused
+    /// the way Ollama refuses it when sent <c>"truncate": false</c>. Without that, Ollama's default
+    /// is to cut each input to fit and embed only its start, and the fake does the same.
     /// </summary>
     private sealed class FakeOllama(
         int maxInputLength,
@@ -275,6 +287,10 @@ public class OllamaEmbeddingProviderTests
             Requests++;
             using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             List<string> inputs = body.RootElement.GetProperty("input").EnumerateArray().Select(e => e.GetString()!).ToList();
+
+            bool truncate = !body.RootElement.TryGetProperty("truncate", out JsonElement t) || t.ValueKind != JsonValueKind.False;
+            if (truncate)
+                inputs = inputs.Select(i => i.Length > maxInputLength ? i[..maxInputLength] : i).ToList();
 
             if (inputs.Any(i => i.Length > maxInputLength) || inputs.Sum(i => i.Length) > maxRequestLength)
                 return new HttpResponseMessage(tooLongStatus) { Content = new StringContent(TooLong, Encoding.UTF8, "application/json") };

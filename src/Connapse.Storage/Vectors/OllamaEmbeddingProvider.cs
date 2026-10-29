@@ -49,6 +49,11 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
         return results[0];
     }
 
+    /// <summary>
+    /// Embeds <paramref name="texts"/> in sub-batches of <see cref="EmbeddingSettings.BatchSize"/>,
+    /// one vector per text in the order given. A text longer than the model accepts is split and
+    /// its pieces' vectors pooled into one.
+    /// </summary>
     public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(
         IEnumerable<string> texts,
         EmbeddingInputType inputType,
@@ -97,6 +102,10 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
         return allEmbeddings;
     }
 
+    /// <summary>
+    /// Embeds each text in its own request, splitting any the model rejects, and returns one
+    /// pooled vector per text.
+    /// </summary>
     private async Task<IReadOnlyList<float[]>> EmbedEachAsync(
         List<string> rawTexts, EmbeddingInputType inputType, CancellationToken ct)
     {
@@ -142,6 +151,11 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
         }
     }
 
+    /// <summary>
+    /// Sends one POST /api/embed. Throws <see cref="EmbeddingInputTooLongException"/> when Ollama
+    /// rejects an input as over the context length, and otherwise reports Ollama's own reason;
+    /// only a request that never reached Ollama is reported as a connection failure.
+    /// </summary>
     private async Task<IReadOnlyList<float[]>> EmbedBatchRequestAsync(
         List<string> texts,
         CancellationToken ct)
@@ -220,6 +234,11 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
 
         [JsonPropertyName("input")]
         public List<string> Input { get; init; } = [];
+
+        // Ollama's default is true: it cuts a too-long input to fit and embeds only its start,
+        // without saying so. False makes it refuse instead, so the text is split and embedded whole.
+        [JsonPropertyName("truncate")]
+        public bool Truncate { get; init; }
     }
 
     private record OllamaEmbedResponse
