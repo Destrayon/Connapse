@@ -157,7 +157,7 @@ public class OperationRandomInputTests
                 listed.Result!.HasMore.Should().Be(hasMore);
                 listed.Result.Items.Should().Equal(page.Where(visible.Contains));
                 listed.Result.Diagnostics.Should().Be(admin);
-            }, iter: 2000);
+            }, iter: 8000);
 
     // ── sources.get ─────────────────────────────────────────────────────────────────────────────
 
@@ -191,7 +191,7 @@ public class OperationRandomInputTests
                     read.Status.Should().Be(SourceReadStatus.Success);
                     read.Result.Should().Be(new SourceView(source, admin));
                 }
-            }, iter: 2000);
+            }, iter: 8000);
 
     // ── sources.stats ───────────────────────────────────────────────────────────────────────────
 
@@ -233,7 +233,7 @@ public class OperationRandomInputTests
                     read.Status.Should().Be(SourceReadStatus.Success);
                     read.Result.Should().Be(new SourceStatsView(source, counts));
                 }
-            }, iter: 2000);
+            }, iter: 8000);
 
     /// <summary>Each group of these tests is its own class, so xUnit runs the groups side by side instead of one after another (CON-145).</summary>
     [Trait("Category", "Unit")]
@@ -303,7 +303,7 @@ public class OperationRandomInputTests
                         created.Result!.Source.Name.Should().Be(expected.Saved!.Name);
                         created.Result.Warning.Should().Be(request.ConnectionId is null ? null : check.Warning);
                     }
-                }, iter: 2000);
+                }, iter: 8000);
 
         /// <summary>
         /// What creating <paramref name="r"/> should do, worked out from the request and the fakes' answers
@@ -504,7 +504,7 @@ public class OperationRandomInputTests
                         await world.Audit.Received(1).LogAsync("source.updated", "source", source.Id.ToString(),
                             Arg.Is<object>(d => d.ToString() == details.ToString()), Arg.Any<CancellationToken>());
                     }
-                }, iter: 2000);
+                }, iter: 8000);
 
         // ── sources.delete ──────────────────────────────────────────────────────────────────────────
 
@@ -543,7 +543,7 @@ public class OperationRandomInputTests
                     world.AuditCalls.Should().Be(deleted.Succeeded ? 1 : 0);
                     if (deleted.Succeeded)
                         deleted.Result.Should().Be(source);
-                }, iter: 2000);
+                }, iter: 8000);
     }
 
     [Trait("Category", "Unit")]
@@ -590,7 +590,7 @@ public class OperationRandomInputTests
                             source.Id.ToString(), Arg.Any<object>(), Arg.Any<CancellationToken>());
                         synced.Result.Should().Be(new SourceSynced(source, result));
                     }
-                }, iter: 2000);
+                }, iter: 8000);
 
         // ── sources.retryFailed ─────────────────────────────────────────────────────────────────────
 
@@ -612,7 +612,7 @@ public class OperationRandomInputTests
                     world.AuditCalls.Should().Be(retried.Succeeded ? 1 : 0);
                     if (retried.Succeeded)
                         retried.Result.Should().Be(enqueued);
-                }, iter: 2000);
+                }, iter: 8000);
     }
 
     // ── approvals.list and approvals.decide ─────────────────────────────────────────────────────
@@ -685,7 +685,7 @@ public class OperationRandomInputTests
                 listed.Status.Should().Be(McpApprovalOutcome.Success);
                 await world.Approvals.Received(1).ListPendingAsync(userId, isAdmin, Arg.Any<CancellationToken>());
                 listed.Result.Should().Equal(pending.Select(a => new McpApprovalItem(a.Id, a.ToolName, a.ArgumentsSummary, a.TokenKey, a.CreatedAt, a.ExpiresAt)));
-            }, iter: 2000);
+            }, iter: 8000);
 
     [Fact]
     [RandomInputTestOf(typeof(DecideMcpApproval))]
@@ -715,7 +715,7 @@ public class OperationRandomInputTests
                 });
                 if (decided.Succeeded)
                     decided.Result.Should().Be(approve);
-            }, iter: 2000);
+            }, iter: 8000);
 
     [Trait("Category", "Unit")]
     public class AccountLinks
@@ -827,7 +827,7 @@ public class OperationRandomInputTests
                     else
                         foreach (var provider in providers)
                             await custom.Received(1).StatusAsync(provider.Id, userId, Arg.Any<CancellationToken>());
-                }, iter: 500);
+                }, iter: 2000);
 
         /// <summary>Provider text: each name in any case, numbers, flag lists, "custom", and junk.</summary>
         private static readonly Gen<string> AnyLinkProvider = Gen.OneOf(
