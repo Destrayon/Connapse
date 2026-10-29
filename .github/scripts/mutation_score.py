@@ -112,6 +112,15 @@ def merge(report: dict, baseline: dict, changed: set[str], repo_root: str) -> tu
     return counts, unmatched, suspect
 
 
+def full_counts(report: dict) -> dict[str, int]:
+    """Status counts of a report that tested every mutant."""
+    counts: dict[str, int] = {}
+    for source in report["files"].values():
+        for m in source["mutants"]:
+            counts[m["status"]] = counts.get(m["status"], 0) + 1
+    return counts
+
+
 def score(counts: dict[str, int]) -> float | None:
     """Stryker's formula: detected over detected plus undetected, as a percentage; None with nothing valid."""
     detected = sum(counts.get(s, 0) for s in DETECTED)
@@ -122,18 +131,26 @@ def score(counts: dict[str, int]) -> float | None:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--report", help="omitted, only checks for changes that need a full run, before Stryker runs")
-    p.add_argument("--baseline", required=True)
+    p.add_argument("--baseline")
     p.add_argument("--config", required=True)
-    p.add_argument("--changed", required=True, help="file listing the paths changed since the baseline's commit")
-    p.add_argument("--repo-root", required=True)
+    p.add_argument("--changed", help="file listing the paths changed since the baseline's commit")
+    p.add_argument("--repo-root")
     p.add_argument("--project-dir", default="src/Connapse.Application")
     p.add_argument("--test-dir", default="tests/Connapse.Core.Tests")
+    p.add_argument("--full", action="store_true",
+                   help="score --report alone, a full run merged from its shards (CON-138); no baseline or changes")
     a = p.parse_args()
 
-    with open(a.baseline, encoding="utf-8-sig") as f:
-        baseline = json.load(f)
     with open(a.config, encoding="utf-8-sig") as f:
         threshold = json.load(f)["stryker-config"]["thresholds"]["break"]
+    if a.full:
+        with open(a.report, encoding="utf-8-sig") as f:
+            report = json.load(f)
+        counts = full_counts(report)
+        print("Every mutant tested: " + ", ".join(f"{n} {s}" for s, n in sorted(counts.items())))
+        return verdict(counts, 0, threshold)
+    with open(a.baseline, encoding="utf-8-sig") as f:
+        baseline = json.load(f)
     with open(a.changed, encoding="utf-8") as f:
         rows = [line.rstrip("\r\n").split("\t", 1) for line in f if line.strip()]
     changed = {normalize(path): status[0] for status, path in rows}

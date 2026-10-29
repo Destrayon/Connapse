@@ -26,11 +26,19 @@ permissions:
 concurrency:
   group: mutation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
+# One Stryker job re-testing a PR's mutants one after another went from about 4 to 7 minutes as PRs moved
+# endpoints into Connapse.Application, and a full run from 11 to 17 (CON-138). So `plan` splits the project's
+# files into up to four shards of about the same number of mutants to test (mutation_shards.py), each shard runs
+# Stryker on its own files in parallel (mutation-shard.yml), and the merged report is scored as one run's would be.
 jobs:
-  mutation:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      since: ${{ steps.plan.outputs.since }}
+      partial: ${{ steps.plan.outputs.partial }}
+      full: ${{ steps.plan.outputs.full }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -38,13 +46,6 @@ jobs:
         # A PR checks out its merge commit; depth 2 brings in the merge commit's first parent, the base the
         # PR is diffed against below.
         fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
-
-    - uses: ./.github/actions/build
-      with:
-        project: tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj
-
-    - name: Restore tools
-      run: dotnet tool restore
 
     - name: Find the PR's base commit
       id: base
@@ -54,81 +55,198 @@ jobs:
     # Every full run saves its report and commit as the baseline for PRs into its branch; a PR restores the
     # one saved at its base commit, or else the newest on its base branch (a PR can read its base branch's
     # caches), and diffs against the commit that baseline was made at, whichever it is.
+    # A push run restores its branch's newest baseline too, only to weigh the shards by last run's mutants.
     - name: Restore mutation baseline
-      if: github.event_name == 'pull_request'
       uses: actions/cache/restore@v4
       with:
         path: mutation-baseline
-        key: mutation-baseline-${{ github.base_ref }}-${{ steps.base.outputs.sha }}
-        restore-keys: mutation-baseline-${{ github.base_ref }}-
+        key: mutation-baseline-${{ github.base_ref || github.ref_name }}-${{ steps.base.outputs.sha || github.sha }}
+        restore-keys: mutation-baseline-${{ github.base_ref || github.ref_name }}-
 
-    # A full run tests all of Connapse.Application's mutants, which doubled to about 11 minutes as epic #783
-    # moved endpoints in (CON-91). A PR with a baseline re-tests only the mutants in the files changed since
-    # the baseline's commit and those its changed test files cover (--since), and mutation_score.py takes
-    # every other mutant's result from the baseline, so the PR is still held to the whole project's score;
-    # Stryker's own break is off for that run because Stryker would score the re-tested mutants alone. When
-    # the baseline can't settle it (exit 3), or there is none, Stryker runs in full. All the runner's CPUs
-    # run mutants (Stryker defaults to half), and Release reuses the build above.
-    - name: Mutation test Connapse.Application
-      id: stryker
-      working-directory: tests/Connapse.Core.Tests
-      shell: bash  # -o pipefail, so the score's exit code survives the tee
+    # A PR with a baseline re-tests only the mutants in the files changed since the baseline's commit and those
+    # its changed test files cover (--since), and mutation_score.py takes every other mutant's result from the
+    # baseline, so the PR is still held to the whole project's score. Changes whose effect can't be bounded
+    # (exit 3), or no baseline, make it a full run. Both plans are written: a partial run the baseline can't
+    # settle falls back to the full one.
+    - name: Plan the shards
+      id: plan
       run: |
-        stryker=(dotnet tool run dotnet-stryker --concurrency "$(nproc)" --configuration Release)
-        baseline=../../mutation-baseline
-        score() {
-          python3 ../../.github/scripts/mutation_score.py "$@" --baseline "$baseline/mutation-report.json" \
-            --config stryker-config.json --changed "$RUNNER_TEMP/changed-files.txt" --repo-root "$GITHUB_WORKSPACE" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
-        }
-        if [ -f "$baseline/commit" ] && commit=$(cat "$baseline/commit") \
+        baseline=mutation-baseline
+        mkdir -p plan
+        : > plan/changed-files.txt
+        mode=full
+        if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$baseline/commit" ] && commit=$(cat "$baseline/commit") \
             && git fetch --no-tags --depth=1 origin "$commit"; then
-          git diff --name-status --no-renames "$commit" > "$RUNNER_TEMP/changed-files.txt"
+          git diff --name-status --no-renames "$commit" > plan/changed-files.txt
           status=0
-          # Changes whose effect can't be bounded go straight to a full run, before the partial one.
-          score || status=$?
+          python3 .github/scripts/mutation_score.py --baseline "$baseline/mutation-report.json" \
+            --config tests/Connapse.Core.Tests/stryker-config.json --changed plan/changed-files.txt \
+            --repo-root "$GITHUB_WORKSPACE" | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
           if [ "$status" -eq 0 ]; then
-            "${stryker[@]}" "--since:$commit" --break-at 0
-            reports=$(ls -d StrykerOutput/*/reports | tail -1)
-            score --report "$reports/mutation-report.json" || status=$?
-          fi
-          if [ "$status" -ne 3 ]; then
+            mode=partial
+            echo "since=$commit" >> "$GITHUB_OUTPUT"
+            cp -r "$baseline" plan/
+          elif [ "$status" -ne 3 ]; then
             exit "$status"
           fi
+        fi
+        plan() {
+          python3 .github/scripts/mutation_shards.py plan --project-dir src/Connapse.Application \
+            --repo-root "$GITHUB_WORKSPACE" --baseline "$baseline/mutation-report.json" \
+            --changed plan/changed-files.txt --mode "$1" > "plan/$1.json"
+          echo "$1=$(cat "plan/$1.json")" >> "$GITHUB_OUTPUT"
+          echo "$1 run: $(jq -r '[.shards[].estimate] | "\(length) shard(s) of about \(join(", ")) mutants"' "plan/$1.json")" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+        }
+        if [ "$mode" = partial ]; then
+          plan partial
+        else
+          echo 'partial={"shards":[]}' >> "$GITHUB_OUTPUT"
           echo "Running every mutant" | tee -a "$GITHUB_STEP_SUMMARY"
         fi
-        "${stryker[@]}"
+        plan full
+        echo "mode=$mode" >> "$GITHUB_OUTPUT"
+      shell: bash  # -o pipefail, so the score's exit code survives the tee
 
-    # Stryker writes its reports under StrykerOutput/<date-time>/reports. A run that got as far as
-    # scoring always writes them, so a missing report fails this step rather than hiding the score.
-    - name: Mutation report summary
-      if: steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure'
+    - uses: actions/upload-artifact@v4
+      with:
+        name: mutation-plan
+        path: plan/
+        if-no-files-found: error
+        retention-days: 7
+
+  partial-shards:
+    needs: plan
+    if: needs.plan.outputs.mode == 'partial'
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.partial).shards }}
+    uses: ./.github/workflows/mutation-shard.yml
+    with:
+      stage: partial
+      shard: ${{ toJSON(matrix.shard) }}
+      since: ${{ needs.plan.outputs.since }}
+
+  # The re-tested mutants' results with every other mutant's from the baseline. When the baseline can't settle
+  # the score (exit 3), the full shards run.
+  partial-score:
+    needs: [plan, partial-shards]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      status: ${{ steps.score.outputs.status }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          .github/scripts
+          tests/Connapse.Core.Tests/stryker-config.json
+        sparse-checkout-cone-mode: false
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: mutation-plan
+        path: artifacts/mutation-plan
+
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: mutation-partial-shard-*
+        path: artifacts
+
+    - name: Score the merged shards
+      id: score
+      shell: bash
       run: |
-        reports=$(ls -d tests/Connapse.Core.Tests/StrykerOutput/*/reports 2>/dev/null | tail -1)
-        if [ -z "$reports" ] || [ ! -f "$reports/mutation-report.md" ]; then
-          echo "::error::Stryker wrote no mutation report"
-          exit 1
+        python3 .github/scripts/mutation_shards.py merge --plan artifacts/mutation-plan/partial.json \
+          --reports artifacts --shard-prefix mutation-partial-shard- --out mutation-report.json
+        status=0
+        python3 .github/scripts/mutation_score.py --report mutation-report.json \
+          --baseline artifacts/mutation-plan/mutation-baseline/mutation-report.json \
+          --config tests/Connapse.Core.Tests/stryker-config.json --changed artifacts/mutation-plan/changed-files.txt \
+          --repo-root "$GITHUB_WORKSPACE" | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+        if [ "$status" -eq 3 ]; then
+          echo "Running every mutant" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
         fi
-        cat "$reports/mutation-report.md" >> "$GITHUB_STEP_SUMMARY"
-        mkdir -p mutation-report && cp "$reports"/mutation-report.* mutation-report/
+        exit "$status"
+
+    # A failing score still uploads its report; status is set only once the shards merged.
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() && steps.score.outputs.status != '' }}
+      with:
+        name: mutation-report
+        path: mutation-report.json
+        if-no-files-found: error
+
+  full-shards:
+    needs: [plan, partial-score]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.plan.outputs.mode == 'full' || needs.partial-score.outputs.status == '3') }}
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.full).shards }}
+    uses: ./.github/workflows/mutation-shard.yml
+    with:
+      stage: full
+      shard: ${{ toJSON(matrix.shard) }}
+
+  # Every mutant's result, held to the same break threshold Stryker would apply, and saved as the baseline for
+  # PRs into this branch even when the score fails: it is still every mutant's true result.
+  full-score:
+    needs: [plan, full-shards]
+    if: ${{ !cancelled() && needs.full-shards.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          .github/scripts
+          tests/Connapse.Core.Tests/stryker-config.json
+        sparse-checkout-cone-mode: false
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: mutation-plan
+        path: artifacts/mutation-plan
+
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: mutation-full-shard-*
+        path: artifacts
+
+    - name: Merge the shards
+      run: |
+        python3 .github/scripts/mutation_shards.py merge --plan artifacts/mutation-plan/full.json \
+          --reports artifacts --shard-prefix mutation-full-shard- --out mutation-report.json
+
+    - name: Score every mutant
+      id: score
+      shell: bash
+      run: |
+        python3 .github/scripts/mutation_score.py --full --report mutation-report.json \
+          --config tests/Connapse.Core.Tests/stryker-config.json | tee -a "$GITHUB_STEP_SUMMARY"
 
     - name: Save mutation baseline
-      if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
+      if: ${{ !cancelled() && github.event_name != 'pull_request' && (steps.score.outcome == 'success' || steps.score.outcome == 'failure') }}
       run: |
         mkdir -p mutation-baseline
-        cp mutation-report/mutation-report.json mutation-baseline/
+        cp mutation-report.json mutation-baseline/
         echo "${{ github.sha }}" > mutation-baseline/commit
 
     - uses: actions/cache/save@v4
-      if: github.event_name != 'pull_request' && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
+      if: ${{ !cancelled() && github.event_name != 'pull_request' && (steps.score.outcome == 'success' || steps.score.outcome == 'failure') }}
       with:
         path: mutation-baseline
         key: mutation-baseline-${{ github.ref_name }}-${{ github.sha }}
 
-    - name: Upload mutation report
-      uses: actions/upload-artifact@v4
-      if: steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure'
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() && (steps.score.outcome == 'success' || steps.score.outcome == 'failure') }}
       with:
-        name: mutation-report
-        path: mutation-report/
+        name: mutation-report-full
+        path: mutation-report.json
         if-no-files-found: error
