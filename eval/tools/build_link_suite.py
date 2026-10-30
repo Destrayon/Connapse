@@ -36,10 +36,20 @@ links-flink-atlassian rebuilds without the network from a saved snapshot, kept o
     python eval/tools/build_link_suite.py links-flink-atlassian --snapshot=<path>/records.jsonl.xz
 With --repin it fetches again and replaces that file. Without --snapshot it fetches and checks the pins.
 
+  links-company          Suite links-company (CON-130): a company-sized set. links-flink-atlassian's records, every
+                         other FLINK issue created before COMPANY_CUTOFF, and links-connapse-github-2's records in one
+                         dataset. Its questions are links-v3's and links-v2's, with their answers widened to the
+                         linked records the bigger corpus now holds. It rebuilds from saved snapshots only:
+    python eval/tools/build_link_suite.py links-company --snapshots=<dir> [--fetch]
+<dir> holds links-flink-atlassian/records.jsonl.xz, links-connapse-github-2/records.jsonl.xz and links.jsonl (each
+must match its own pins) and links-company/fill.jsonl.xz (must match COMPANY_FILL_SHA). --fetch fetches the fill
+again and saves it there; set COMPANY_FILL_SHA to what it prints.
+
 Outputs: eval/.cache/datasets/<name>/<version>/records.jsonl and links.jsonl with build.json;
 eval/.cache/link-packets/<name>.jsonl; eval/datasets/<name>/questions.jsonl (committed).
 """
 import hashlib
+import heapq
 import html
 import json
 import lzma
@@ -67,8 +77,14 @@ SEED3 = 20261028
 SEED4 = 20261029
 PER_ANSWER = 2
 RESTATES = 0.5
-VERSIONS = {GITHUB[0]: "2026-10-01", JIRA[0]: "2022", GITHUB2[0]: "2026-10-27", ATLASSIAN[0]: "2023"}
-SUITES = {GITHUB[0]: "links-v1", JIRA[0]: "links-v1", GITHUB2[0]: "links-v2", ATLASSIAN[0]: "links-v3"}
+COMPANY = "links-company"
+COMPANY_CUTOFF = "2026-10-01"
+# sha256 of the uncompressed fill snapshot: FLINK issues created before COMPANY_CUTOFF outside links-v3's 2023.
+COMPANY_FILL_SHA = None
+VERSIONS = {GITHUB[0]: "2026-10-01", JIRA[0]: "2022", GITHUB2[0]: "2026-10-27", ATLASSIAN[0]: "2023",
+            COMPANY: COMPANY_CUTOFF}
+SUITES = {GITHUB[0]: "links-v1", JIRA[0]: "links-v1", GITHUB2[0]: "links-v2", ATLASSIAN[0]: "links-v3",
+          COMPANY: "links-company"}
 BODY_CHARS = 1500
 MAX_ANSWERS = 10
 
@@ -253,8 +269,8 @@ JIRA_FIELDS = ("summary,description,issuetype,status,priority,assignee,reporter,
                "parent,issuelinks,subtasks,created,updated,comment")
 
 
-def jira_search(jql, start):
-    q = urllib.parse.urlencode({"jql": jql, "startAt": start, "maxResults": 100, "fields": JIRA_FIELDS})
+def jira_search(jql, start, fields=None):
+    q = urllib.parse.urlencode({"jql": jql, "startAt": start, "maxResults": 100, "fields": fields or JIRA_FIELDS})
     for attempt in range(5):
         try:
             with urllib.request.urlopen(f"https://issues.apache.org/jira/rest/api/2/search?{q}", timeout=120) as r:
@@ -388,29 +404,9 @@ def build_atlassian(snapshot=None, refetch=False):
 
     links = []
     for i in issues:
-        f = i["fields"]
-        for l in f.get("issuelinks") or []:
-            outward = l.get("outwardIssue")
-            if not outward or outward["key"] not in keys:
-                continue  # each link is recorded once, from its outward side
-            kind = JIRA_LINK_KINDS.get(l["type"]["name"])
-            if kind:
-                links.append({"from": i["key"], "to": outward["key"], "type": kind})
-        if f.get("parent") and f["parent"]["key"] in keys:
-            links.append({"from": i["key"], "to": f["parent"]["key"], "type": "parent"})
-        if f.get(EPIC_LINK) in keys:
-            links.append({"from": i["key"], "to": f[EPIC_LINK], "type": "epic"})
-        for target in wiki_targets(f.get("description") or "", space, by_title) & page_ids:
-            links.append({"from": i["key"], "to": "pages/" + target, "type": "page"})
+        links += issue_links(i, keys, page_ids, by_title, space)
     for p in pages:
-        body = p["body"]["storage"]["value"]
-        if p.get("ancestors") and p["ancestors"][-1]["id"] in page_ids:
-            links.append({"from": "pages/" + p["id"], "to": "pages/" + p["ancestors"][-1]["id"], "type": "parent"})
-        for target in wiki_targets(body, space, by_title) & page_ids - {p["id"]}:
-            links.append({"from": "pages/" + p["id"], "to": "pages/" + target, "type": "links-to"})
-        for key in set(JIRA_MACRO.findall(body)) | set(BROWSE.findall(body)):
-            if key.upper() in keys:
-                links.append({"from": "pages/" + p["id"], "to": key.upper(), "type": "issue"})
+        links += page_links(p, keys, page_ids, by_title, space)
 
     rows = [{"id": i["key"], "issue": {"id": i["id"], "key": i["key"], "fields": i["fields"]}}
             for i in sorted(issues, key=lambda i: int(i["key"].split("-")[1]))]
@@ -418,17 +414,199 @@ def build_atlassian(snapshot=None, refetch=False):
     finish(name, rows, links)
 
 
+def issue_links(i, keys, page_ids, by_title, space):
+    """A Jira issue's links to the snapshot's issues (keys) and pages, as the API states them."""
+    links = []
+    f = i["fields"]
+    for l in f.get("issuelinks") or []:
+        outward = l.get("outwardIssue")
+        if not outward or outward["key"] not in keys:
+            continue  # each link is recorded once, from its outward side
+        kind = JIRA_LINK_KINDS.get(l["type"]["name"])
+        if kind:
+            links.append({"from": i["key"], "to": outward["key"], "type": kind})
+    if f.get("parent") and f["parent"]["key"] in keys:
+        links.append({"from": i["key"], "to": f["parent"]["key"], "type": "parent"})
+    if f.get(EPIC_LINK) in keys:
+        links.append({"from": i["key"], "to": f[EPIC_LINK], "type": "epic"})
+    for target in wiki_targets(f.get("description") or "", space, by_title) & page_ids:
+        links.append({"from": i["key"], "to": "pages/" + target, "type": "page"})
+    return links
+
+
+def page_links(p, keys, page_ids, by_title, space):
+    """A Confluence page's links: its parent, the pages it links and the snapshot issues it names."""
+    links = []
+    body = p["body"]["storage"]["value"]
+    if p.get("ancestors") and p["ancestors"][-1]["id"] in page_ids:
+        links.append({"from": "pages/" + p["id"], "to": "pages/" + p["ancestors"][-1]["id"], "type": "parent"})
+    for target in wiki_targets(body, space, by_title) & page_ids - {p["id"]}:
+        links.append({"from": "pages/" + p["id"], "to": "pages/" + target, "type": "links-to"})
+    for key in set(JIRA_MACRO.findall(body)) | set(BROWSE.findall(body)):
+        if key.upper() in keys:
+            links.append({"from": "pages/" + p["id"], "to": key.upper(), "type": "issue"})
+    return links
+
+
+# ---------------------------------------------------------------- company-sized (links-company, CON-130)
+
+def company_snapshots(directory):
+    return (os.path.join(directory, ATLASSIAN[0], "records.jsonl.xz"),
+            os.path.join(directory, COMPANY, "fill.jsonl.xz"),
+            os.path.join(directory, GITHUB2[0], "records.jsonl.xz"),
+            os.path.join(directory, GITHUB2[0], "links.jsonl"))
+
+
+def snapshot_lines(path, expected, what):
+    """A saved snapshot's lines, streamed so a company-sized one never sits in memory whole. The pin is checked
+    once the last line is read, so a caller writes to a .part file and keeps it only after reading to the end."""
+    h = hashlib.sha256()
+    with lzma.open(path, "rb") as f:
+        for line in f:
+            h.update(line)
+            yield line.decode("utf-8")
+    if h.hexdigest() != expected:
+        raise SystemExit(f"{what}: {path} does not hold the pinned records (sha256 {expected}, read {h.hexdigest()})")
+
+
+def fetch_company_fill(directory):
+    """Fetches every FLINK issue created before COMPANY_CUTOFF that links-flink-atlassian's 2023 window leaves out,
+    in links-flink-atlassian's row shape, and saves it sorted by issue number. Issues are spooled to disk as they
+    arrive and only their offsets are kept, so the fetch holds one page of results at a time."""
+    _, path, _, _ = company_snapshots(directory)
+    project, start_date, end_date = ATLASSIAN[1], ATLASSIAN[2], ATLASSIAN[3]
+    jql = (f'project={project} AND created < "{COMPANY_CUTOFF}" AND (created < "{start_date}" OR created >= "{end_date}")'
+           ' ORDER BY key ASC')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    spool, offsets, start, total = path + ".spool", {}, 0, None
+    with open(spool, "wb") as out:
+        while total is None or start < total:
+            page = jira_search(jql, start, JIRA_FIELDS + "," + EPIC_LINK)
+            total = page["total"]
+            if not page["issues"]:
+                break
+            for i in page["issues"]:
+                row = {"id": i["key"], "issue": {"id": i["id"], "key": i["key"], "fields": i["fields"]}}
+                data = (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+                number = int(i["key"].split("-")[1])
+                if number in offsets:
+                    raise SystemExit(f"{COMPANY}: {i['key']} came back twice; fetch again")
+                offsets[number] = (out.tell(), len(data))
+                out.write(data)
+            start += len(page["issues"])
+            print(f"{COMPANY}: fetched {start} of {total}", flush=True)
+            time.sleep(1)  # the ASF publishes no rate limit; stay gentle
+    h = hashlib.sha256()
+    with open(spool, "rb") as f, lzma.open(path + ".part", "wb", preset=9) as xz:
+        for number in sorted(offsets):
+            f.seek(offsets[number][0])
+            data = f.read(offsets[number][1])
+            h.update(data)
+            xz.write(data)
+    os.replace(path + ".part", path)
+    os.remove(spool)
+    print(f"{COMPANY}: {len(offsets)} issues saved to {path}; pin COMPANY_FILL_SHA = \"{h.hexdigest()}\"")
+
+
+def build_company(directory):
+    """Merges the three snapshots into one dataset, streamed: pass 1 checks every snapshot against its pin and
+    collects what links need (issue keys, page titles); pass 2 writes records.jsonl, Jira issues by number, then
+    pages, then GitHub records, each line exactly as its snapshot holds it, and collects the links."""
+    if COMPANY_FILL_SHA is None:
+        raise SystemExit(f"{COMPANY}: no fill is pinned; run with --fetch and set COMPANY_FILL_SHA")
+    v3, fill, gh_records, gh_links = company_snapshots(directory)
+    if sha256(gh_links) != pinned_sha(GITHUB2[0], "links.jsonl"):
+        raise SystemExit(f"{GITHUB2[0]}: {gh_links} does not hold the pinned links.jsonl")
+    space = ATLASSIAN[4]
+    sources = {"v3": (v3, pinned_sha(ATLASSIAN[0], "records.jsonl"), ATLASSIAN[0]),
+               "fill": (fill, COMPANY_FILL_SHA, COMPANY + " fill"),
+               "github": (gh_records, pinned_sha(GITHUB2[0], "records.jsonl"), GITHUB2[0])}
+
+    keys, pages = set(), []
+    for source in ("v3", "fill"):
+        for line in snapshot_lines(*sources[source]):
+            row = json.loads(line)
+            if "page" in row:
+                pages.append((row["page"]["id"], row["page"]["title"].strip()))
+            elif row["id"] in keys:
+                raise SystemExit(f"{COMPANY}: {row['id']} is in more than one snapshot")
+            else:
+                keys.add(row["id"])
+    for _ in snapshot_lines(*sources["github"]):
+        pass
+    page_ids = {p for p, _ in pages}
+    by_title = {(space, title): p for p, title in pages}
+
+    def issues(source, held):
+        for line in snapshot_lines(*sources[source]):
+            row = json.loads(line)
+            if "page" in row:
+                held.append(line)  # pages come after every issue; 815 of them fit in memory
+                continue
+            yield int(row["id"].split("-")[1]), line, row
+
+    directory_out = dataset_dir(COMPANY)
+    os.makedirs(directory_out, exist_ok=True)
+    records, links, written, held = os.path.join(directory_out, "records.jsonl"), [], 0, []
+    with open(records + ".part", "w", encoding="utf-8", newline="\n") as out:
+        for _, line, row in heapq.merge(issues("v3", held), issues("fill", []), key=lambda x: x[0]):
+            links += issue_links(row["issue"], keys, page_ids, by_title, space)
+            out.write(line)
+            written += 1
+        for line in held:
+            links += page_links(json.loads(line)["page"], keys, page_ids, by_title, space)
+            out.write(line)
+            written += 1
+        for line in snapshot_lines(*sources["github"]):
+            out.write(line)
+            written += 1
+    os.replace(records + ".part", records)
+    links += read_jsonl(gh_links)
+    print(f"{COMPANY}: {len(keys)} issues, {len(pages)} pages, {written - len(keys) - len(pages)} GitHub records")
+    finish(COMPANY, None, links, written)
+    company_questions(read_jsonl(os.path.join(directory_out, "links.jsonl")))
+
+
+def company_questions(links):
+    """links-v3's and links-v2's questions, each answered by every record its start links to the same way in
+    the bigger corpus. An answer the smaller snapshot gave always stays; a linked record that was outside it
+    joins, since a retriever that finds it has found a right answer."""
+    github = [l for l in links if l["from"].startswith(("issues/", "pulls/"))]
+    atlassian = [l for l in links if not l["from"].startswith(("issues/", "pulls/"))]
+    found = {"atlassian": candidates("atlassian", None, atlassian), "github": candidates("github", None, github)}
+    out, widened = [], 0
+    for name, source in ((ATLASSIAN[0], "atlassian"), (GITHUB2[0], "github")):
+        for q in read_jsonl(os.path.join(ROOT, "eval", "datasets", name, "questions.jsonl")):
+            answers = sorted(found[source][q["kind"]].get(q["start"], set()))
+            if not set(q["answers"]) <= set(answers):
+                raise SystemExit(f"{COMPANY}: {q['id']} lost answers {sorted(set(q['answers']) - set(answers))}")
+            widened += len(answers) > len(q["answers"])
+            out.append({**q, "answers": answers})
+    if len({q["id"] for q in out}) != len(out):
+        raise SystemExit(f"{COMPANY}: two source suites share a question id")
+    seen = {"dev": set(), "test": set()}
+    for q in out:
+        seen[q["split"]].update([q["start"], *q["answers"]])
+    write_jsonl(os.path.join(ROOT, "eval", "datasets", COMPANY, "questions.jsonl"), out)
+    print(f"{COMPANY}: {len(out)} questions ({sum(q['split'] == 'test' for q in out)} held out), {widened} with "
+          f"answers the bigger corpus added, most answers {max(len(q['answers']) for q in out)}, "
+          f"{len(seen['dev'] & seen['test'])} records now in both halves")
+
+
 # ---------------------------------------------------------------- pinning
 
-def finish(name, rows, links):
+def finish(name, rows, links, written=None):
+    """rows is None when the caller has already streamed records.jsonl, written rows of it."""
     directory = dataset_dir(name)
     links = sorted({json.dumps(l, sort_keys=True) for l in links})
-    write_jsonl(os.path.join(directory, "records.jsonl"), rows)
+    if rows is not None:
+        write_jsonl(os.path.join(directory, "records.jsonl"), rows)
+        written = len(rows)
     write_jsonl(os.path.join(directory, "links.jsonl"), [json.loads(l) for l in links])
     files = {f: sha256(os.path.join(directory, f)) for f in ("records.jsonl", "links.jsonl")}
     with open(os.path.join(directory, "build.json"), "w", encoding="utf-8", newline="\n") as f:
-        json.dump({"files": files, "records": len(rows), "links": len(links)}, f, indent=2)
-    print(f"{name}: {len(rows)} records, {len(links)} links", flush=True)
+        json.dump({"files": files, "records": written, "links": len(links)}, f, indent=2)
+    print(f"{name}: {written} records, {len(links)} links", flush=True)
 
 
 def save_snapshot(name, path):
@@ -468,6 +646,7 @@ def register(name, repin):
         "adapter": "link-questions",
         "version": VERSIONS[name],
         "tags": ["shape:record"] + (["source:jira", "source:confluence"] if name == ATLASSIAN[0]
+                                    else ["source:jira", "source:confluence", "source:github"] if name == COMPANY
                                     else ["source:" + ("github" if "github" in name else "jira")]),
         "files": [{"name": f,
                    "url": f"repo:{name}/questions.jsonl" if f == "questions.jsonl" else "build:eval/tools/build_link_suite.py",
@@ -755,6 +934,15 @@ if __name__ == "__main__":
         register(ATLASSIAN[0], "--repin" in sys.argv)
         if snapshot:
             save_snapshot(ATLASSIAN[0], snapshot)
+    elif args[0] == COMPANY:
+        snapshots = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--snapshots=")), None)
+        if not snapshots:
+            raise SystemExit(__doc__)
+        if "--fetch" in sys.argv:
+            fetch_company_fill(snapshots)
+        else:
+            build_company(snapshots)
+            register(COMPANY, "--repin" in sys.argv)
     elif args[0] == "packets":
         packets(args[1] if len(args) > 1 else None, second="--second" in sys.argv)
     elif args[0] == "questions":
