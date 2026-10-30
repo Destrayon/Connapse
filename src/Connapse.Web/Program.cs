@@ -183,6 +183,7 @@ builder.Services.AddOpenApi(options => options
     .AddOperationTransformer<Connapse.Web.Problems.ResendConfirmationValidationTransformer>()
     .AddOperationTransformer<Connapse.Web.Problems.RateLimitResponseTransformer>()
     .AddOperationTransformer<Connapse.Web.Endpoints.MultipartFormTransformer>()
+    .AddOperationTransformer<Connapse.Web.Endpoints.OperationExtensionTransformer>()
     .AddDocumentTransformer<Connapse.Web.Endpoints.DiscriminatedSubtypesTransformer>());
 
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory

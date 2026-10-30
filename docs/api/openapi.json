@@ -431,6 +431,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "links.list",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -485,6 +491,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "pats.list",
+          "scope": "pats:manage",
+          "risk": "Read",
+          "mcp": "Off"
         }
       },
       "post": {
@@ -554,6 +566,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "pats.create",
+          "scope": "pats:manage",
+          "risk": "Credential",
+          "mcp": "Off"
         }
       }
     },
@@ -619,6 +637,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "pats.revoke",
+          "scope": "pats:manage",
+          "risk": "Destructive",
+          "mcp": "Off"
         }
       }
     },
@@ -706,6 +730,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "users.list",
+          "scope": "admin:users",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -791,6 +821,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "users.setRoles",
+          "scope": "admin:users",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -866,6 +902,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "users.delete",
+          "scope": "admin:users",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -953,6 +995,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "invites.list",
+          "scope": "admin:users",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "post": {
@@ -1032,6 +1080,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "invites.create",
+          "scope": "admin:users",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -1097,6 +1151,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "invites.revoke",
+          "scope": "admin:users",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -1615,6 +1675,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "links.unlink",
+          "scope": "knowledge:write",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -1791,6 +1857,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "links.unlink",
+          "scope": "knowledge:write",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -1872,6 +1944,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.create",
+          "scope": "admin:users",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "get": {
@@ -1924,6 +2002,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.list",
+          "scope": "admin:users",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -1996,6 +2080,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.get",
+          "scope": "admin:users",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -2059,6 +2149,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.delete",
+          "scope": "admin:users",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -2144,6 +2240,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.setActive",
+          "scope": "admin:users",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -2219,6 +2321,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.keys.list",
+          "scope": "admin:users",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "post": {
@@ -2309,6 +2417,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.keys.create",
+          "scope": "admin:users",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       }
     },
@@ -2383,6 +2497,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "agents.keys.revoke",
+          "scope": "admin:users",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -2464,6 +2584,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.create",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Off"
         }
       },
       "get": {
@@ -2549,6 +2675,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.list",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -2621,6 +2753,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.get",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       },
       "patch": {
@@ -2721,6 +2859,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.rename",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -2794,6 +2938,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.delete",
+          "scope": "knowledge:write",
+          "risk": "Destructive",
+          "mcp": "Off"
         }
       }
     },
@@ -2865,6 +3015,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.get",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -2937,6 +3093,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.stats",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -3009,6 +3171,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.settings.get",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "put": {
@@ -3099,6 +3267,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.settings.update",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -3162,6 +3336,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.settings.reset",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -3260,6 +3440,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.reindex",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -3332,6 +3518,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.retryFailed",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -3404,6 +3596,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.reconcile",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -3476,6 +3674,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.summaries.regenerate",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -3539,6 +3743,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "containers.summaries.clear",
+          "scope": "knowledge:write",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -3626,6 +3836,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.list",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       },
       "post": {
@@ -3715,6 +3931,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.create",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -3787,6 +4009,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.get",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "patch": {
@@ -3887,6 +4115,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.update",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -3967,6 +4201,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.delete",
+          "scope": "admin:sources",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -4039,6 +4279,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.stats",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -4139,6 +4385,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.sync",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -4211,6 +4463,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.retryFailed",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -4282,6 +4540,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "sources.scopeSchema",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -4376,6 +4640,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.list",
+          "scope": "admin:sources",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "post": {
@@ -4465,6 +4735,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.create",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -4537,6 +4813,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.get",
+          "scope": "admin:sources",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "patch": {
@@ -4647,6 +4929,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.update",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -4737,6 +5025,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.delete",
+          "scope": "admin:sources",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -4819,6 +5113,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.pause",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -4927,6 +5227,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.resume",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -5045,6 +5351,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.test",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -5134,6 +5446,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.discover",
+          "scope": "admin:sources",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -5226,6 +5544,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.forgetHostKey",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -5338,6 +5662,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "connections.replaceSecret",
+          "scope": "admin:sources",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       }
     },
@@ -5430,6 +5760,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "search.source",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -5557,6 +5893,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "audit.list",
+          "scope": "admin:audit",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -5611,6 +5953,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "oauthClients.list",
+          "scope": "admin:oauth-clients",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -5682,6 +6030,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "oauthClients.revoke",
+          "scope": "admin:oauth-clients",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -5899,6 +6253,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "files.list",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -5979,6 +6339,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "files.get",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -6050,6 +6416,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "files.delete",
+          "scope": "knowledge:write",
+          "risk": "Destructive",
+          "mcp": "Off"
         }
       }
     },
@@ -6142,6 +6514,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "files.bulkDelete",
+          "scope": "knowledge:write",
+          "risk": "Destructive",
+          "mcp": "Off"
         }
       }
     },
@@ -6237,6 +6615,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "files.content",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -6317,6 +6701,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "files.reindexCheck",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -6397,6 +6787,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "files.retry",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -6499,6 +6895,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "folders.create",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -6588,6 +6990,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "folders.delete",
+          "scope": "knowledge:write",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -6715,6 +7123,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "search.container",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       },
       "post": {
@@ -6805,6 +7219,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "search.container",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
         }
       }
     },
@@ -6948,6 +7368,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "batches.status",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -7039,6 +7465,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.get",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "put": {
@@ -7178,6 +7610,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.update",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       }
     },
@@ -7259,6 +7697,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.testConnection",
+          "scope": "admin:settings",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -7310,6 +7754,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.embeddingModels",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -7387,6 +7837,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.reindex",
+          "scope": "admin:settings",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -7438,6 +7894,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.reindexStatus",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -7512,6 +7974,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.reset",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -7563,6 +8031,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "settings.summaries.clear",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -7617,6 +8091,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.status",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -7668,6 +8148,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.aws.access.get",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "put": {
@@ -7747,6 +8233,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.aws.access",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -7806,6 +8298,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.aws.access.reset",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -7877,6 +8375,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.aws.identityCenter",
+          "scope": "admin:settings",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -7926,6 +8430,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.aws.identityCenter.reset",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -8007,6 +8517,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.aws.permissions",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -8056,6 +8572,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.aws.permissions.reset",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -8127,6 +8649,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.azure.access",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -8176,6 +8704,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.azure.access.reset",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -8257,6 +8791,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.azure.permissions",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -8306,6 +8846,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.azure.permissions.reset",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -8360,6 +8906,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.custom.list",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "post": {
@@ -8439,6 +8991,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.custom.create",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       }
     },
@@ -8541,6 +9099,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.custom.update",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -8614,6 +9178,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.custom.delete",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -8702,6 +9272,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.custom.check",
+          "scope": "admin:settings",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -8774,6 +9350,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.custom.linkSecret",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       }
     },
@@ -8825,6 +9407,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.github.app.get",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "put": {
@@ -8914,6 +9502,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.github.app",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -8963,6 +9557,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.github.app.remove",
+          "scope": "admin:settings",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -9060,6 +9660,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.github.createApp",
+          "scope": "admin:settings",
+          "risk": "Write",
+          "mcp": "Off"
         }
       }
     },
@@ -9119,6 +9725,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.github.createApp.callback",
+          "scope": "admin:settings",
+          "risk": "Credential",
+          "mcp": "Off"
         }
       }
     },
@@ -9183,6 +9795,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "providers.github.installed",
+          "scope": "admin:settings",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -9262,6 +9880,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.resolve",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -9401,6 +10025,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.list",
+          "scope": "admin:sources",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       }
     },
@@ -9471,6 +10101,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.get",
+          "scope": "admin:sources",
+          "risk": "Read",
+          "mcp": "Generic"
         }
       },
       "patch": {
@@ -9569,6 +10205,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.update",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       },
       "delete": {
@@ -9657,6 +10299,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.delete",
+          "scope": "admin:sources",
+          "risk": "Destructive",
+          "mcp": "Generic"
         }
       }
     },
@@ -9737,6 +10385,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.pause",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -9843,6 +10497,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.resume",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
@@ -9923,6 +10583,12 @@
               }
             }
           }
+        },
+        "x-connapse-operation": {
+          "id": "atlassian.sites.test",
+          "scope": "admin:sources",
+          "risk": "Write",
+          "mcp": "Generic"
         }
       }
     },
