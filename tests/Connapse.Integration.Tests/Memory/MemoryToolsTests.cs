@@ -175,6 +175,76 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         (await McpTools.MemoryCorrect(Sp, C, first, "x", kind: "wrong", sources: [_upload])).Should().StartWith("Error:");
     }
 
+    /// <summary>The one value recall gives for Halcyon's database on <paramref name="asOf"/>; fails on none or several.</summary>
+    private async Task<string?> OnlyValueAsync(string asOf) =>
+        Values(await McpTools.MemoryRecall(Sp, C, subject: "Halcyon", attribute: "database", asOf: asOf)).Should().ContainSingle().Subject;
+
+    [Fact]
+    public async Task Correct_WrongWithOnlyAStartAfterTheOldEnd_IsRefusedAndRecallKeepsOneVersion()
+    {
+        As(_writer);
+        string first = Id(await Remember("MariaDB 10", "2026-01-05"));
+        await McpTools.MemoryCorrect(Sp, C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+
+        // Inheriting the old end (03-01) would give the replacement [04-01, 03-01), true at no moment.
+        (await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+
+        (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 10");
+        (await OnlyValueAsync("2026-04-01")).Should().Be("PostgreSQL 15");
+    }
+
+    [Fact]
+    public async Task Correct_WrongWithOnlyAStartAfterItsOwnEnd_IsRefused()
+    {
+        As(_writer);
+        string first = Id(await McpTools.MemoryRemember(Sp, C, "Halcyon", "database", "MariaDB 10", "2026-01-05", "2026-03-01", [_upload]));
+
+        (await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+        (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 10");
+    }
+
+    [Fact]
+    public async Task Correct_WrongWithOnlyAStartInsideTheOldWindow_KeepsTheEndAndOneVersionEitherSide()
+    {
+        As(_writer);
+        string first = Id(await Remember("MariaDB 10", "2026-01-05"));
+        await McpTools.MemoryCorrect(Sp, C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+
+        string corrected = await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-01-10", sources: [_upload]);
+
+        JsonElement remembered = JsonDocument.Parse(corrected).RootElement.GetProperty("remembered");
+        remembered.GetProperty("validTo").GetDateTimeOffset().Should().Be(new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero));
+        (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 11");
+        (await OnlyValueAsync("2026-02-28T23:59:59Z")).Should().Be("MariaDB 11");
+        (await OnlyValueAsync("2026-03-01")).Should().Be("PostgreSQL 15");
+    }
+
+    [Fact]
+    public async Task Correct_WrongThatMovesADateAnotherVersionMeetsAt_IsRefused()
+    {
+        As(_writer);
+        string first = Id(await Remember("MariaDB 10", "2026-01-05"));
+        string second = Id(await McpTools.MemoryCorrect(Sp, C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]));
+
+        // Moving the second version's start would leave [03-01, 04-01) with no version; moving it earlier, two.
+        (await McpTools.MemoryCorrect(Sp, C, second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+        (await McpTools.MemoryCorrect(Sp, C, second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-02-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+        (await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validTo: "2026-02-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+
+        (await OnlyValueAsync("2026-02-15")).Should().Be("MariaDB 10");
+        (await OnlyValueAsync("2026-03-15")).Should().Be("PostgreSQL 15");
+
+        // Keeping the shared date is fine.
+        (await McpTools.MemoryCorrect(Sp, C, second, "PostgreSQL 16", kind: "wrong", sources: [_upload])).Should().NotStartWith("Error:");
+        (await OnlyValueAsync("2026-02-15")).Should().Be("MariaDB 10");
+        (await OnlyValueAsync("2026-03-15")).Should().Be("PostgreSQL 16");
+    }
+
     [Fact]
     public async Task Forget_DeletesEveryVersion_AndTheAuditKeepsNoContent()
     {
