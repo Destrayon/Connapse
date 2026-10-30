@@ -17,13 +17,15 @@ export Hangfire__SummaryWorkerCount=1
 export CONNAPSE_EVAL_CONTAINER_CPUS=2
 export CONNAPSE_EVAL_CONTAINER_MEMORY_MB=2048
 
+gpu=()
+[ "${EVAL_GPU:-0}" = 1 ] && gpu=(--gpus all)
 stop_ollama() { docker rm -f eval-ollama-11435 >/dev/null 2>&1; }
 trap stop_ollama EXIT
 
 for suite in "$@"; do
   echo "=== $suite start $(date -u +%FT%TZ)"
   stop_ollama
-  if ! docker run -d --rm --name eval-ollama-11435 ${EVAL_GPU:+--gpus all} -p 11435:11434 --cpus 2 --memory 4g --memory-swap 4g \
+  if ! docker run -d --rm --name eval-ollama-11435 "${gpu[@]}" -p 11435:11434 --cpus 2 --memory 4g --memory-swap 4g \
     -e OLLAMA_NUM_PARALLEL=1 -e OLLAMA_MAX_LOADED_MODELS=1 -v eval-ollama:/root/.ollama ollama/ollama >/dev/null; then
     echo "=== $suite skipped: Ollama container did not start"; failed=1; continue
   fi
