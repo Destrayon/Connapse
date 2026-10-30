@@ -80,7 +80,7 @@ RESTATES = 0.5
 COMPANY = "links-company"
 COMPANY_CUTOFF = "2026-10-01"
 # sha256 of the uncompressed fill snapshot: FLINK issues created before COMPANY_CUTOFF outside links-v3's 2023.
-COMPANY_FILL_SHA = None
+COMPANY_FILL_SHA = "b232810681bea703070450889e5c17ebaafca181142b045afbf7df8ff52ee7b6"  # fetched 2026-10-29
 VERSIONS = {GITHUB[0]: "2026-10-01", JIRA[0]: "2022", GITHUB2[0]: "2026-10-27", ATLASSIAN[0]: "2023",
             COMPANY: COMPANY_CUTOFF}
 SUITES = {GITHUB[0]: "links-v1", JIRA[0]: "links-v1", GITHUB2[0]: "links-v2", ATLASSIAN[0]: "links-v3",

@@ -61,6 +61,9 @@
     ],
     "enterprise-10k": [
       "erb-10k"
+    ],
+    "links-company": [
+      "links-company"
     ]
   },
   "datasets": {
@@ -1162,6 +1165,33 @@
           "name": "questions.parquet",
           "url": "build:eval/tools/build_enterprise_suite.py",
           "sha256": "06845198ab5e8adde84fcedd688dd1066ede324c68b4a87dbe7c53390eaf7c50"
+        }
+      ]
+    },
+    "links-company": {
+      "adapter": "link-questions",
+      "version": "2026-10-01",
+      "tags": [
+        "shape:record",
+        "source:jira",
+        "source:confluence",
+        "source:github"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "c68e8dd7bdf44a753a97e87cf95d3aa8a5a9012e1a522d357327579bb42420eb"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "de92d157135c968f59ca4fbd52f15c333592cceb080e42f0e5357faae7ba8844"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-company/questions.jsonl",
+          "sha256": "3113363611929e53b6c486f48dce3da711595ba4533fed3a6b11be4fa48c2670"
         }
       ]
     }
