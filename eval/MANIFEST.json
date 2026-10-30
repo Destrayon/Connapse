@@ -58,6 +58,9 @@
     ],
     "code-v1": [
       "code-questions"
+    ],
+    "enterprise-10k": [
+      "erb-10k"
     ]
   },
   "datasets": {
@@ -1139,6 +1142,26 @@
           "name": "grep-baseline.json",
           "url": "repo:code-questions/grep-baseline.json",
           "sha256": "e92b76d0abffb4fc8f2233564b81df3cd627f8591713b23477aed9f39676c9f4"
+        }
+      ]
+    },
+    "erb-10k": {
+      "adapter": "enterprise-rag-bench",
+      "version": "69916e31c68a",
+      "tags": [
+        "domain:enterprise",
+        "source:enterprise-rag-bench"
+      ],
+      "files": [
+        {
+          "name": "documents.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "8d5b407fe67f082bdbdc980ef23a559260e728fdf2c65328b22f0dbf75e6bc83"
+        },
+        {
+          "name": "questions.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "06845198ab5e8adde84fcedd688dd1066ede324c68b4a87dbe7c53390eaf7c50"
         }
       ]
     }

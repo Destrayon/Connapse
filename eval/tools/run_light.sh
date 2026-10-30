@@ -4,6 +4,8 @@
 # 1 embedding request in flight, one suite at a time, nothing left running between suites. Start it at
 # BelowNormal priority (the dotnet processes inherit it) after `dotnet build -c Release tests/Connapse.Eval`:
 #   eval/tools/run_light.sh v1 enterprise-v1
+# EVAL_CONFIGS picks the configs (default hybrid); the routine link-search no-harm check (CON-151) is
+#   EVAL_CONFIGS=hybrid,hybrid-links eval/tools/run_light.sh enterprise-10k
 # Latency from these runs compares only with runs made under the same limits.
 cd "$(dirname "$0")/../.." || exit 1
 export Knowledge__Embedding__BaseUrl=http://localhost:11435
@@ -35,7 +37,7 @@ for suite in "$@"; do
     # Scored by its own command (CON-111): agent memory against the same notes stored as documents.
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory --config hybrid --split "${MEMORY_SPLIT:-heldout}"       --out "${EVAL_LOG_DIR:-eval/runs}/memory-${MEMORY_SPLIT:-heldout}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
   else
-    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config hybrid > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
+    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config "${EVAL_CONFIGS:-hybrid}" ${EVAL_RUN_ARGS} > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
   fi
   code=$?
   echo "=== $suite exit $code $(date -u +%FT%TZ)"
