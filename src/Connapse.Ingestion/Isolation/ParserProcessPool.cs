@@ -348,7 +348,11 @@ public sealed partial class ParserProcessPool : IDisposable
 
                     _logger.LogError(ex, "ParserHostCrashed {Parser} on {FileName}, {Exit}: {Stderr}",
                         parser.Name, LogSanitizer.Sanitize(name), exit, stderr);
-                    throw new PermanentIngestionException($"Could not parse {name}: the parser process crashed ({exit}) [parse_crashed]", ex);
+
+                    // The host's last words go in the inner exception, not the message stored on the
+                    // document: they are what a failing test or a stack trace in the log needs (CON-159).
+                    var cause = new IOException($"{ex.Message} ({exit}). Its last stderr lines:\n{stderr}", ex);
+                    throw new PermanentIngestionException($"Could not parse {name}: the parser process crashed ({exit}) [parse_crashed]", cause);
                 }
             }
 
