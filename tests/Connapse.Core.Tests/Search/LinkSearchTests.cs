@@ -2,7 +2,11 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Search.Hybrid;
 using Connapse.Search.Links;
+using Connapse.Storage.Data;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using NSubstitute;
 using Xunit;
 
 namespace Connapse.Core.Tests.Search;
@@ -161,7 +165,7 @@ public class LinkSearchTests
     {
         using JsonDocument json = JsonDocument.Parse("""{"search":{"useKeywordSearch":false,"linkWeight":0.4}}""");
 
-        SearchSettings? own = SourceSearchChoices.Parse(json);
+        SourceSearchChoices.OwnerChoices? own = SourceSearchChoices.Parse(json);
 
         own!.UseKeywordSearch.Should().BeFalse();
         own.LinkWeight.Should().Be(0.4f);
@@ -173,6 +177,63 @@ public class LinkSearchTests
         using JsonDocument json = JsonDocument.Parse("""{"search":{"fusionAlpha":0.1,"mode":"Keyword"}}""");
 
         SourceSearchChoices.Parse(json).Should().BeNull();
+    }
+
+    // The owner's parsed choices are put where ResolveAsync caches them, so no database is read (the in-memory
+    // provider cannot map the knowledge model).
+    private static async Task<SearchSettings> ResolveWith(string overridesJson, SearchSettings global)
+    {
+        Guid id = Guid.NewGuid();
+        using JsonDocument json = JsonDocument.Parse(overridesJson);
+        using MemoryCache cache = new(new MemoryCacheOptions());
+        cache.Set($"link-layer:choices:{id}", SourceSearchChoices.Parse(json));
+        IDbContextFactory<KnowledgeDbContext> contexts = Substitute.For<IDbContextFactory<KnowledgeDbContext>>();
+
+        return await SourceSearchChoices.ResolveAsync(contexts, cache, id.ToString(), global, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideNamesOnlyLinkWeight_KeepsTheGlobalSearchChoices()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, UseKeywordSearch = true, FusionAlpha = 0.3f };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"linkWeight":0.4}}""", global);
+
+        effective.UseVectorSearch.Should().BeFalse();
+        effective.UseKeywordSearch.Should().BeTrue();
+        effective.FusionAlpha.Should().Be(0.3f);
+        effective.LinkWeight.Should().Be(0.4f);
+        effective.Should().Be(global with { LinkWeight = 0.4f });
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideNamesTwoSettings_ChangesExactlyThoseTwo()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, FusionAlpha = 0.3f, LinkMaxHops = 2 };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"useKeywordSearch":false,"linkSeeds":7}}""", global);
+
+        effective.Should().Be(global with { UseKeywordSearch = false, LinkSeeds = 7 });
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideSetsASettingToNull_KeepsTheGlobalValue()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"useVectorSearch":null,"linkWeight":0.4}}""", global);
+
+        effective.Should().Be(global with { LinkWeight = 0.4f });
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideSavedBeforeTheLinkLayer_LeavesTheGlobalSettings()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, FusionAlpha = 0.3f };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"fusionAlpha":0.1,"mode":"Keyword"}}""", global);
+
+        effective.Should().Be(global);
     }
 
     [Fact]
