@@ -69,29 +69,46 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     public async Task<int?> ForgetAsync(
         Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default)
     {
-        await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        Guid? chain = await context.MemoryFacts
-            .Where(f => f.Id == factId && f.ContainerId == containerId)
-            .Select(f => (Guid?)f.ChainId)
-            .SingleOrDefaultAsync(ct);
-        if (chain is null)
-            return null;
+        for (int attempt = 1; ; attempt++)
+        {
+            await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
+            await using var transaction = await context.Database.BeginTransactionAsync(ct);
+            Guid? chain = await context.MemoryFacts
+                .Where(f => f.Id == factId && f.ContainerId == containerId)
+                .Select(f => (Guid?)f.ChainId)
+                .SingleOrDefaultAsync(ct);
+            if (chain is null)
+                return null;
 
-        // Locked, so a correction cannot add a version between the check and the delete.
-        List<MemoryFactEntity> rows = await context.MemoryFacts
-            .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chain.Value} AND container_id = {containerId} FOR UPDATE")
-            .AsNoTracking()
-            .Include(f => f.Sources)
-            .ToListAsync(ct);
-        if (!await allow([.. rows.Select(ToFact)]))
-            return null;
+            // Locked, so a correction cannot add a version between the check and the delete.
+            List<MemoryFactEntity> rows = await context.MemoryFacts
+                .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chain.Value} AND container_id = {containerId} FOR UPDATE")
+                .AsNoTracking()
+                .Include(f => f.Sources)
+                .ToListAsync(ct);
+            if (!await allow([.. rows.Select(ToFact)]))
+                return null;
 
-        // Sources go with their facts (cascade).
-        int deleted = await context.MemoryFacts.Where(f => f.ChainId == chain && f.ContainerId == containerId).ExecuteDeleteAsync(ct);
-        await transaction.CommitAsync(ct);
-        return deleted;
+            // Only the versions allow saw. Under read committed the lock above finds the rows committed when it began,
+            // so a version a correction committed while it waited for that correction's lock is not among them, though
+            // a delete by chain would find it. Sources go with their facts (cascade).
+            Guid[] checkedIds = [.. rows.Select(r => r.Id)];
+            int deleted = await context.MemoryFacts.Where(f => checkedIds.Contains(f.Id)).ExecuteDeleteAsync(ct);
+
+            // A version left over was never checked: undo and start again, so it is. Past the last attempt, refuse.
+            if (!await context.MemoryFacts.AnyAsync(f => f.ChainId == chain && f.ContainerId == containerId, ct))
+            {
+                await transaction.CommitAsync(ct);
+                return deleted;
+            }
+            await transaction.RollbackAsync(ct);
+            if (attempt == MaxForgetAttempts)
+                return null;
+        }
     }
+
+    /// <summary>How many times a forget starts again when the chain grew under it, before it refuses.</summary>
+    private const int MaxForgetAttempts = 3;
 
     public async Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default)
     {
