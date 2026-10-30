@@ -24,7 +24,8 @@ public class IndexCacheKeyTests : IDisposable
         Write("tests/Connapse.Eval/Systems/ConnapseSearchSystem.cs", "upload");
         Write("tests/Connapse.Eval/Runs/Scoring.cs", "score");
         Write("Directory.Packages.props", "<Project/>");
-        Write(".gitignore", "bin/\nobj/\nappdata/\nlogs/\n");
+        Write(".gitignore", "bin/\nobj/\nappdata/\nlogs/\nappsettings.Development.json\n");
+        Write("src/Connapse.Web/appsettings.Development.json", "{}");
     }
 
     public void Dispose() => Directory.Delete(_repo, recursive: true);
@@ -61,6 +62,7 @@ public class IndexCacheKeyTests : IDisposable
     [InlineData("tests/Connapse.Eval/Datasets/RagBenchAdapter.cs")]
     [InlineData("tests/Connapse.Eval/Model/EvalDocument.cs")]
     [InlineData("src/Connapse.Ingestion/Parsers/NewParser.cs")]
+    [InlineData("src/Connapse.Web/appsettings.Development.json")]
     [InlineData("Directory.Packages.props")]
     public void SourceHash_IndexShapingSourceChanges_ChangesTheKey(string file)
     {

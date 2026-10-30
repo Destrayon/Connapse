@@ -83,7 +83,13 @@ public static class IndexCacheKey
             .Where(Directory.Exists));
 
         List<string> files = GitListedFiles(repoRoot, roots) ?? roots.SelectMany(SourceFiles).ToList();
+        // .gitignore leaves out appsettings.Development.json, but the eval host loads it, so it can still
+        // change how documents are chunked and embedded.
+        files.AddRange(roots.SelectMany(SourceFiles)
+            .Where(f => Path.GetFileName(f).StartsWith("appsettings", StringComparison.OrdinalIgnoreCase)
+                        && Path.GetExtension(f).Equals(".json", StringComparison.OrdinalIgnoreCase)));
         files.AddRange(RootBuildFiles.Select(f => Path.Combine(repoRoot, f)).Where(File.Exists));
+        files = files.Select(Path.GetFullPath).Distinct(StringComparer.Ordinal).ToList();
 
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (string file in files
