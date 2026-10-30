@@ -1,4 +1,5 @@
 ﻿using Connapse.Background.Jobs;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -198,14 +199,28 @@ public static class ContainersEndpoints
         // PUT /api/containers/{containerId}/settings - Save container settings overrides
         group.MapPut("/{containerId:guid}/settings", async (
             Guid containerId,
-            [FromBody] ContainerSettingsOverrides overrides,
+            [FromBody] JsonElement body,
             [FromServices] IContainerStore containerStore,
+            [FromServices] IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
             CancellationToken ct) =>
         {
+            // Read as JSON first so the store can tell a search setting the caller named from one it left out.
+            ContainerSettingsOverrides? overrides;
+            try
+            {
+                overrides = body.Deserialize<ContainerSettingsOverrides>(jsonOptions.Value.SerializerOptions);
+            }
+            catch (JsonException)
+            {
+                overrides = null;
+            }
+            if (overrides is null)
+                return Results.BadRequest(new { error = "Request body must be a settings overrides object" });
+
             if (!await containerStore.ExistsAsync(containerId, ct))
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            await containerStore.SaveSettingsOverridesAsync(containerId, overrides, ct);
+            await containerStore.SaveSettingsOverridesAsync(containerId, overrides, body, ct);
             return Results.Ok(overrides);
         })
         .WithName("SaveContainerSettings")

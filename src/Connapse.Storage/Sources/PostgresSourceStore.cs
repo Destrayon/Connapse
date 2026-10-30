@@ -4,6 +4,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Settings;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -384,7 +385,7 @@ public class PostgresSourceStore(
         var entity = await context.Sources.FirstOrDefaultAsync(s => s.Id == id, ct);
         if (entity is null) return;
 
-        entity.SettingsOverridesJson = JsonDocument.Parse(JsonSerializer.Serialize(overrides, SerializerOptions));
+        entity.SettingsOverridesJson = SettingsOverridesJson.Serialize(overrides, SerializerOptions);
         entity.UpdatedAt = DateTime.UtcNow;
 
         await context.SaveChangesAsync(ct);

@@ -10,6 +10,13 @@ public interface IContainerStore
     Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
     Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default);
     Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default);
+
+    /// <summary>
+    /// Saves <paramref name="overrides"/> as sent in <paramref name="request"/>: a search setting the request left out
+    /// is not stored, so it stays the deployment's rather than becoming the default the typed object carries.
+    /// </summary>
+    Task SaveSettingsOverridesAsync(
+        Guid id, ContainerSettingsOverrides overrides, System.Text.Json.JsonElement request, CancellationToken ct = default);
     Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default);
 
     /// <summary>
