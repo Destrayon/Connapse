@@ -98,6 +98,97 @@ public class LinkSearchTests
             .Should().BeEmpty();
     }
 
+    // Ids that sort the opposite way to their paths, as fresh random GUIDs can on any index (CON-152).
+    private static readonly Dictionary<string, string> Paths = new()
+    {
+        ["ffff"] = "/jira/FLINK-1.md",
+        ["cccc"] = "/jira/FLINK-2.md",
+        ["aaaa"] = "/jira/FLINK-3.md",
+    };
+
+    [Fact]
+    public void TopReached_TiedScores_KeepsTheFirstPathsNotTheFirstIds()
+    {
+        Dictionary<string, float> scores = new() { ["aaaa"] = 0.5f, ["cccc"] = 0.5f, ["ffff"] = 0.5f };
+
+        LinkSearch.TopReached(scores, Paths, max: 2).Keys.Should().BeEquivalentTo(["ffff", "cccc"]);
+    }
+
+    [Fact]
+    public void TopReached_InputOrder_DoesNotChangeTheCut()
+    {
+        KeyValuePair<string, float>[] scores = [new("aaaa", 0.5f), new("cccc", 0.5f), new("ffff", 0.5f)];
+
+        LinkSearch.TopReached(scores.Reverse(), Paths, max: 2).Keys
+            .Should().BeEquivalentTo(LinkSearch.TopReached(scores, Paths, max: 2).Keys);
+    }
+
+    [Fact]
+    public void TopReached_HigherScore_BeatsAnEarlierPath()
+    {
+        Dictionary<string, float> scores = new() { ["aaaa"] = 0.9f, ["cccc"] = 0.5f, ["ffff"] = 0.5f };
+
+        Dictionary<string, float> reached = LinkSearch.TopReached(scores, Paths, max: 2);
+
+        reached.Keys.Should().BeEquivalentTo(["aaaa", "ffff"]);
+        reached["aaaa"].Should().Be(0.9f);
+    }
+
+    [Fact]
+    public void TopReached_SamePath_FallsBackToTheId()
+    {
+        // Two containers can each hold a document at one path; the id still settles it within an index.
+        Dictionary<string, float> scores = new() { ["bbbb"] = 0.5f, ["aaaa"] = 0.5f };
+        Dictionary<string, string> paths = new() { ["aaaa"] = "/same.md", ["bbbb"] = "/same.md" };
+
+        LinkSearch.TopReached(scores, paths, max: 1).Keys.Should().Equal("aaaa");
+    }
+
+    private static LinkSearch.ChunkRow Row(string doc, int index, string path) => new()
+    {
+        ChunkId = Guid.Parse($"00000000-0000-0000-{index:0000}-{doc}"),
+        DocumentId = Guid.Parse($"00000000-0000-0000-0000-{doc}"),
+        ChunkIndex = index,
+        Path = path,
+    };
+
+    [Fact]
+    public void BestChunks_RowsInAnyOrder_ComeOutInPathOrder()
+    {
+        // The documents' ids sort the opposite way to their paths; SQL returns rows in no set order.
+        List<LinkSearch.ChunkRow> rows =
+        [
+            Row("000000000003", 0, "/a.md"), Row("000000000002", 0, "/b.md"), Row("000000000001", 0, "/c.md"),
+        ];
+        Dictionary<string, float> none = [];
+
+        List<string> forward = LinkSearch.BestChunks(rows, none).Select(h => h.DocumentId).ToList();
+        List<string> backward = LinkSearch.BestChunks(Enumerable.Reverse(rows), none).Select(h => h.DocumentId).ToList();
+
+        forward.Should().Equal(
+            "00000000-0000-0000-0000-000000000003",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000001");
+        backward.Should().Equal(forward);
+    }
+
+    [Fact]
+    public void BestChunks_PerDocument_HighestScoreThenFirstChunk()
+    {
+        List<LinkSearch.ChunkRow> rows =
+        [
+            Row("000000000001", 2, "/a.md"), Row("000000000001", 1, "/a.md"), Row("000000000002", 3, "/b.md"),
+            Row("000000000002", 4, "/b.md"),
+        ];
+        Dictionary<string, float> scores = new() { [rows[3].ChunkId.ToString()] = 0.7f };
+
+        List<SearchHit> best = LinkSearch.BestChunks(rows, scores);
+
+        best.Select(h => h.ChunkId).Should().Equal(rows[1].ChunkId.ToString(), rows[3].ChunkId.ToString());
+        best[1].Score.Should().Be(0.7f);
+        best[0].Metadata["path"].Should().Be("/a.md");
+    }
+
     [Fact]
     public void Blend_LinkedDocumentAddedAndTagged_OthersKeepTheirOrder()
     {
