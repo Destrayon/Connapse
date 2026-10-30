@@ -186,13 +186,63 @@ public class ContainerSettingsIntegrationTests(SharedWebAppFixture fixture)
         IContainerStore store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
 
         await store.SaveSettingsOverridesAsync(Guid.Parse(container!.Id),
-            new ContainerSettingsOverrides { Search = new SearchSettings { TopK = 25 } });
+            new ContainerSettingsOverrides { Search = new SearchSettings { TopK = 25 } },
+            [nameof(SearchSettings.Mode), nameof(SearchSettings.TopK), nameof(SearchSettings.MinimumScore)]);
 
         SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, FusionAlpha = 0.3f };
         (await ResolveSavedChoicesAsync(container.Id, global)).Should().Be(global);
         (await store.GetSettingsOverridesAsync(Guid.Parse(container.Id)))!.Search!.TopK.Should().Be(25);
 
         await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+    }
+
+    [Fact]
+    public async Task SaveContainerSettings_ResponseSentBackUnchanged_KeepsTheSameSearchChoices()
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = "settings-round-trip" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        string url = $"/api/containers/{container!.Id}/settings";
+        using StringContent body = new("""{"search":{"linkWeight":0.4}}""", System.Text.Encoding.UTF8, "application/json");
+
+        var putResponse = await fixture.AdminClient.PutAsync(url, body);
+        string putEcho = await putResponse.Content.ReadAsStringAsync();
+        string got = await fixture.AdminClient.GetStringAsync(url);
+        using StringContent resend = new(got, System.Text.Encoding.UTF8, "application/json");
+        (await fixture.AdminClient.PutAsync(url, resend)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        SearchNames(putEcho).Should().Equal("linkWeight");
+        SearchNames(got).Should().Equal("linkWeight");
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, FusionAlpha = 0.3f };
+        (await ResolveSavedChoicesAsync(container.Id, global)).Should().Be(global with { LinkWeight = 0.4f });
+
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+    }
+
+    [Fact]
+    public async Task SaveSettingsOverrides_TypedSearchOverrideChoosesADefaultValue_KeepsThatChoice()
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = "settings-typed-default-choice" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+        IContainerStore store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+
+        await store.SaveSettingsOverridesAsync(Guid.Parse(container!.Id),
+            new ContainerSettingsOverrides { Search = new SearchSettings { UseVectorSearch = true, LinkWeight = 0.4f } });
+
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, FusionAlpha = 0.3f };
+        SearchSettings effective = await ResolveSavedChoicesAsync(container.Id, global);
+        effective.UseVectorSearch.Should().BeTrue("the caller chose vector search, even though true is its default");
+        effective.LinkWeight.Should().Be(0.4f);
+
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+    }
+
+    private static List<string> SearchNames(string overridesJson)
+    {
+        using JsonDocument doc = JsonDocument.Parse(overridesJson);
+        return doc.RootElement.GetProperty("search").EnumerateObject().Select(p => p.Name).ToList();
     }
 
     // DTOs

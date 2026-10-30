@@ -143,8 +143,22 @@ public class PostgresContainerStore(
         SaveSettingsOverridesAsync(id, SettingsOverridesJson.Serialize(overrides, JsonOptions), ct);
 
     public Task SaveSettingsOverridesAsync(
-        Guid id, ContainerSettingsOverrides overrides, JsonElement request, CancellationToken ct = default) =>
-        SaveSettingsOverridesAsync(id, SettingsOverridesJson.Serialize(overrides, JsonOptions, request), ct);
+        Guid id, ContainerSettingsOverrides overrides, IEnumerable<string> searchSettingsNamed,
+        CancellationToken ct = default) =>
+        SaveSettingsOverridesAsync(id, SettingsOverridesJson.Serialize(overrides, JsonOptions, searchSettingsNamed), ct);
+
+    public async Task<JsonElement?> GetSettingsOverridesJsonAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var doc = await context.Containers
+            .AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => c.SettingsOverridesJson)
+            .FirstOrDefaultAsync(ct);
+
+        return doc?.RootElement.Clone();
+    }
 
     private async Task SaveSettingsOverridesAsync(Guid id, JsonDocument json, CancellationToken ct)
     {

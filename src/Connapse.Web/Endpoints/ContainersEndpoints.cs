@@ -189,8 +189,10 @@ public static class ContainersEndpoints
             if (!await containerStore.ExistsAsync(containerId, ct))
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            var overrides = await containerStore.GetSettingsOverridesAsync(containerId, ct);
-            return Results.Ok(overrides ?? new ContainerSettingsOverrides());
+            // The stored JSON, not the typed object: a search setting never chosen must stay absent, or a client
+            // sending this back would choose its default.
+            JsonElement? stored = await containerStore.GetSettingsOverridesJsonAsync(containerId, ct);
+            return stored is { } json ? Results.Ok(json) : Results.Ok(new ContainerSettingsOverrides());
         })
         .WithName("GetContainerSettings")
         .WithDescription("Get per-container settings overrides")
@@ -220,8 +222,8 @@ public static class ContainersEndpoints
             if (!await containerStore.ExistsAsync(containerId, ct))
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            await containerStore.SaveSettingsOverridesAsync(containerId, overrides, body, ct);
-            return Results.Ok(overrides);
+            await containerStore.SaveSettingsOverridesAsync(containerId, overrides, NamedSearchSettings(body), ct);
+            return Results.Ok(await containerStore.GetSettingsOverridesJsonAsync(containerId, ct));
         })
         .WithName("SaveContainerSettings")
         .WithDescription("Save per-container settings overrides")
@@ -435,6 +437,21 @@ public static class ContainersEndpoints
             ".epub" => "application/epub+zip",
             _ => null
         };
+
+    // The search settings a settings overrides body names, in whatever case it sent them.
+    private static List<string> NamedSearchSettings(JsonElement body)
+    {
+        List<string> named = [];
+        foreach (JsonProperty section in body.EnumerateObject())
+        {
+            if (string.Equals(section.Name, nameof(ContainerSettingsOverrides.Search), StringComparison.OrdinalIgnoreCase)
+                && section.Value.ValueKind == JsonValueKind.Object)
+            {
+                named.AddRange(section.Value.EnumerateObject().Select(setting => setting.Name));
+            }
+        }
+        return named;
+    }
 
 }
 
