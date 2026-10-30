@@ -66,6 +66,6 @@ APIs now return different bytes for some of them, so they cannot be rebuilt. The
 of 2026-10-28 (sha256 `164bb398…`), which CON-107's runs used. It has the same 3,423 issues and 815 pages, and its
 `links.jsonl`, and so every answer key, is byte for byte the one pinned before. Only record text changed.
 
-A rebuild from the snapshot reproduces CON-107's `hybrid` scores exactly; `hybrid-links` scores move by up to 0.003
-between runs until link search breaks score ties by a stable key (CON-149, CON-152;
+A rebuild from the snapshot reproduces CON-107's `hybrid` scores exactly; `hybrid-links` scores move between runs (nDCG@10 by up
+to 0.003, MRR@10 by 0.004, single groups more) until link search breaks score ties by a stable key (CON-149, CON-152;
 [2026-10-29-links-v3-rebuild.md](../../baselines/2026-10-29-links-v3-rebuild.md)).

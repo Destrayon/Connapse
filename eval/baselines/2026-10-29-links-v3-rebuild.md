@@ -24,7 +24,8 @@ the build read 3,423 issues and 815 pages and wrote 4,238 records and 2,923 link
 
 **Links off passes.** All 17 lines of `hybrid` match the recorded ones exactly, in both runs.
 
-**Links on fails the exact bar.** The scores move by up to 0.003 between runs on identical data and code:
+**Links on fails the exact bar.** On identical data and code, the dataset's nDCG@10 moves by up to 0.003 between
+runs and its MRR@10 by up to 0.004; single groups move more:
 
 | `hybrid-links` (160 test queries) | nDCG@10 | MRR@10 | Recall@10, hops:1 |
 |---|---|---|---|
@@ -44,14 +45,22 @@ conclusions hold.
 Link search keeps at most 20 linked documents per query (`MaxReachedDocuments`) and, among equal link scores,
 keeps them in document-id order (`src/Connapse.Search/Links/LinkSearch.cs:98`). Document ids are new random GUIDs
 each time the set is indexed, and the neighbours of one start document all get the same link score, so which tied
-documents make the cut changes from run to run. A document that misses it loses its link boost.
+documents make the cut changes from run to run. A document that misses it loses its link boost. It also moves
+other scores: the blend min-max normalises ordinary scores over the hits and the linked documents together
+(`LinkSearch.cs:179`), so a different set of linked documents can shift the normalised score of every result.
 
-`jira-siblings-0024` shows it: page 125308817 scores 0.861 in run 1 and 0.761 in run 2, a difference of exactly
-the link term, so it was among the 20 in one run and not in the other. None of the 31 changed queries is only
-tied documents trading places; in each a document gains or loses its link score.
+`jira-siblings-0024` shows the first effect: page 125308817 scores 0.861 in run 1 and 0.761 in run 2, a
+difference of exactly the link term, so it was among the 20 in one run and not in the other. None of the 31
+changed queries is only tied documents trading places: in each, some document's final score differs. The results
+don't record the link score separately, so which of the two effects moved each query isn't measured.
 
 The fix is to break ties by a key that survives re-indexing, such as the document's path. That is a search change,
 so it is CON-152 and not part of this ticket. Until then, a links-on rerun can't be expected to match to the third
 decimal.
 
 With links off, one query (`jira-page-0048`) swapped documents at ranks 8 to 10 between the runs. No score changed.
+
+The two runs' index-cache keys differ (`2604fd8e…`, `ce5598cd…`) although nothing was committed or edited between
+them. The key hashes every file under `src/` outside `bin/` and `obj/`, and run 1's host wrote an ASP.NET Data
+Protection key to `src/Connapse.Web/appdata/` as it started (18:56 local, 23:56 UTC), so run 2 hashed one more
+file. Both runs indexed from scratch, so this changes no score; the key should skip that folder.
