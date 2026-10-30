@@ -5,7 +5,9 @@
 # BelowNormal priority (the dotnet processes inherit it) after `dotnet build -c Release tests/Connapse.Eval`:
 #   eval/tools/run_light.sh v1 enterprise-v1
 # EVAL_CONFIGS picks the configs (default hybrid); the routine link-search no-harm check (CON-151) is
-#   EVAL_CONFIGS=hybrid,hybrid-links eval/tools/run_light.sh enterprise-10k
+#   EVAL_GPU=1 EVAL_CONFIGS=hybrid,hybrid-links eval/tools/run_light.sh enterprise-10k
+# EVAL_GPU=1 gives Ollama the GPU, still 1 request in flight; on 2 CPUs alone embedding runs at a few
+# documents a minute, too slow for the enterprise suites.
 # Latency from these runs compares only with runs made under the same limits.
 cd "$(dirname "$0")/../.." || exit 1
 export Knowledge__Embedding__BaseUrl=http://localhost:11435
@@ -21,7 +23,7 @@ trap stop_ollama EXIT
 for suite in "$@"; do
   echo "=== $suite start $(date -u +%FT%TZ)"
   stop_ollama
-  if ! docker run -d --rm --name eval-ollama-11435 -p 11435:11434 --cpus 2 --memory 4g --memory-swap 4g \
+  if ! docker run -d --rm --name eval-ollama-11435 ${EVAL_GPU:+--gpus all} -p 11435:11434 --cpus 2 --memory 4g --memory-swap 4g \
     -e OLLAMA_NUM_PARALLEL=1 -e OLLAMA_MAX_LOADED_MODELS=1 -v eval-ollama:/root/.ollama ollama/ollama >/dev/null; then
     echo "=== $suite skipped: Ollama container did not start"; failed=1; continue
   fi
