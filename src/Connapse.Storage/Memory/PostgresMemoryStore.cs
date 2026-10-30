@@ -29,14 +29,21 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-        // The whole chain is locked: a wrong correction is checked against the other versions, which must not move meanwhile.
+        // Every correction of a chain first locks its first fact (whose id is the chain's), so they run one at a time. A
+        // wrong correction is checked against the other versions, so they are read only once that lock is held, in a
+        // statement of their own: under read committed, a locking read that waited sees the rows it locked as updated
+        // but not versions the other correction inserted.
+        List<Guid> locked = await context.Database.SqlQuery<Guid>($"""
+            SELECT id AS "Value" FROM memory_facts
+            WHERE container_id = {containerId}
+              AND id = (SELECT chain_id FROM memory_facts WHERE id = {factId} AND container_id = {containerId})
+            FOR UPDATE
+            """).ToListAsync(ct);
+        if (locked.Count == 0)
+            return MemoryWriteResult.Failed($"Fact '{factId}' not found.");
+        Guid chainId = locked[0];
         List<MemoryFactEntity> chain = await context.MemoryFacts
-            .FromSql($"""
-                SELECT * FROM memory_facts
-                WHERE container_id = {containerId}
-                  AND chain_id = (SELECT chain_id FROM memory_facts WHERE id = {factId} AND container_id = {containerId})
-                FOR UPDATE
-                """)
+            .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chainId} AND container_id = {containerId} FOR UPDATE")
             .Include(f => f.Sources)
             .ToListAsync(ct);
         MemoryFactEntity? old = chain.SingleOrDefault(f => f.Id == factId);
