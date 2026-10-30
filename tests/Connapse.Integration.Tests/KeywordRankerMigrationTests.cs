@@ -25,6 +25,7 @@ public class KeywordRankerMigrationTests : IAsyncLifetime
         .WithDatabase("connapse_ranker_migration")
         .WithUsername("migration_test")
         .WithPassword("migration_test")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     public async Task InitializeAsync() => await _postgres.StartAsync();
