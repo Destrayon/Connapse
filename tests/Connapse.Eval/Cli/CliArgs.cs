@@ -12,16 +12,27 @@ public sealed class CliArgs
 
     public IReadOnlyList<string> Positionals => _positionals;
 
+    /// <summary>
+    /// True when any argument asks for help (--help, -h, -?, or the command "help"). Checked before anything runs:
+    /// a help token is neither an option a command knows nor a positional it reads, so left to the command it would run.
+    /// </summary>
+    public bool WantsHelp { get; private set; }
+
     public static CliArgs Parse(string[] args)
     {
         CliArgs parsed = new();
         for (int i = 0; i < args.Length; i++)
         {
             string arg = args[i];
+            if (IsHelp(arg) || (arg == "help" && parsed.Command.Length == 0))
+            {
+                parsed.WantsHelp = true;
+                continue;
+            }
             if (arg.StartsWith("--", StringComparison.Ordinal))
             {
                 string name = arg[2..];
-                bool hasValue = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal);
+                bool hasValue = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal) && !IsHelp(args[i + 1]);
                 parsed._options[name] = hasValue ? args[++i] : null;
             }
             else if (parsed.Command.Length == 0)
@@ -35,6 +46,8 @@ public sealed class CliArgs
         }
         return parsed;
     }
+
+    private static bool IsHelp(string arg) => arg is "--help" or "-h" or "-?";
 
     public string? Option(string name) => _options.GetValueOrDefault(name);
 
@@ -50,6 +63,7 @@ public sealed class CliArgs
             ["report"] = [],
             ["pool"] = ["out"],
             ["memory"] = ["config", "split", "out"],
+            ["code"] = ["config", "split", "out"],
             ["datasets"] = ["suite", "datasets"],
             ["vector-index"] = ["suite", "datasets", "limit-queries", "scale", "strategy", "insert-bench"],
         };
