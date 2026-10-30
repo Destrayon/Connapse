@@ -81,6 +81,9 @@ COMPANY = "links-company"
 COMPANY_CUTOFF = "2026-10-01"
 # sha256 of the uncompressed fill snapshot: FLINK issues created before COMPANY_CUTOFF outside links-v3's 2023.
 COMPANY_FILL_SHA = "b232810681bea703070450889e5c17ebaafca181142b045afbf7df8ff52ee7b6"  # fetched 2026-10-29
+# A cf-issues question asks which tickets track a page's proposal, but the link is any ticket the page names, and
+# the tickets a page cites as background were mostly outside 2023. Their answers keep links-v3's judgement.
+NOT_WIDENED = {"cf-issues"}
 VERSIONS = {GITHUB[0]: "2026-10-01", JIRA[0]: "2022", GITHUB2[0]: "2026-10-27", ATLASSIAN[0]: "2023",
             COMPANY: COMPANY_CUTOFF}
 SUITES = {GITHUB[0]: "links-v1", JIRA[0]: "links-v1", GITHUB2[0]: "links-v2", ATLASSIAN[0]: "links-v3",
@@ -576,10 +579,15 @@ def company_questions(links):
     found = {"atlassian": candidates("atlassian", None, atlassian), "github": candidates("github", None, github)}
     out, widened = [], 0
     for name, source in ((ATLASSIAN[0], "atlassian"), (GITHUB2[0], "github")):
-        for q in read_jsonl(os.path.join(ROOT, "eval", "datasets", name, "questions.jsonl")):
+        path = os.path.join(ROOT, "eval", "datasets", name, "questions.jsonl")
+        if sha256(path) != pinned_sha(name, "questions.jsonl"):
+            raise SystemExit(f"{COMPANY}: {name}'s questions.jsonl differs from its pin")
+        for q in read_jsonl(path):
             answers = sorted(found[source][q["kind"]].get(q["start"], set()))
             if not set(q["answers"]) <= set(answers):
                 raise SystemExit(f"{COMPANY}: {q['id']} lost answers {sorted(set(q['answers']) - set(answers))}")
+            if q["kind"] in NOT_WIDENED:
+                answers = q["answers"]
             widened += len(answers) > len(q["answers"])
             out.append({**q, "answers": answers})
     if len({q["id"] for q in out}) != len(out):
@@ -639,7 +647,7 @@ def register(name, repin):
     if pinned and pinned["version"] == VERSIONS[name] and not repin:
         expected = {f["name"]: f["sha256"] for f in pinned["files"]}
         changed = sorted(k for k in files if expected.get(k) != files[k])
-        if changed and set(changed) != {"questions.jsonl"}:
+        if changed and (name == COMPANY or set(changed) != {"questions.jsonl"}):
             raise SystemExit(f"{name}: {', '.join(changed)} differ from the pins (the source changed since it was "
                              "pinned); pass --repin to replace them, which makes this a new snapshot")
     manifest["datasets"][name] = {

@@ -20,9 +20,11 @@ questions over the bigger corpus.
   other, since neither side names the other.
 - **Questions (390, 197 held out):** links-v3's 307 and links-v2's 83, with their ids, kinds and split. Each
   question's answers are widened to every record its start links to the same way in the bigger corpus, because a
-  linked record judged absent from the smaller corpus is a right answer once it is indexed (pooling bias). 36
-  questions were widened, the largest answer set has 21 records, and no record is in both halves. Old answers are
-  always kept.
+  linked record judged absent from the smaller corpus is a right answer once it is indexed (pooling bias). Old
+  answers are always kept. `cf-issues` questions are not widened: they ask which tickets track a page's proposal,
+  but the link is any ticket the page names, and the tickets outside 2023 are mostly ones it cites as background
+  (Codex review). 16 questions were widened, the largest answer set has 14 records, and no record is in both
+  halves.
 
 ## Rebuilding
 
