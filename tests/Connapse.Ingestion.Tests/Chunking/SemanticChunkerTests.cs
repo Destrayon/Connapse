@@ -790,4 +790,145 @@ public class SemanticChunkerTests
             "MinChunkSize must not silently drop document content; " +
             "small segments must be merged into a neighbour, not discarded");
     }
+
+    private const string CodeSample = """
+        namespace Connapse.Search;
+
+        /// <summary>Reads the current search settings.</summary>
+        public sealed class SearchReader(IOptionsMonitor<SearchSettings> searchSettings)
+        {
+            private readonly List<Group> groups = new();
+
+            public int TopK => searchSettings.CurrentValue.TopK;
+
+            public IReadOnlyList<Group> Groups() => groups.Where(g => g.Enabled).ToList();
+
+            public string Describe() => $"{searchSettings.CurrentValue.Mode}: {groups.Count} groups.";
+        }
+        """;
+
+    /// <summary>
+    /// Every sixth sentence pair is orthogonal and the rest identical, so with the 50th-percentile
+    /// breakpoint the chunker splits at a few places inside the text rather than nowhere or everywhere.
+    /// </summary>
+    private void SetupPeriodicBreaks()
+    {
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => Task.FromResult<IReadOnlyList<float[]>>(callInfo.Arg<IEnumerable<string>>()
+                .Select((_, i) => i % 6 == 5 ? new float[] { 0f, 1f, 0f } : new float[] { 1f, 0f, 0f })
+                .ToList()));
+    }
+
+    private static ChunkingSettings PeriodicBreakSettings(int maxChunkSize = 500, int minChunkSize = 1) => new()
+    {
+        MaxChunkSize = maxChunkSize,
+        Overlap = 0,
+        MinChunkSize = minChunkSize,
+        SemanticBreakpointMethod = "Percentile",
+        SemanticBreakpointAmount = 50,
+    };
+
+    [Fact]
+    public async Task ChunkAsync_Code_KeepsEveryLineWordForWord()
+    {
+        // CON-143: the segmenter strips <...>, and splits after '.' in a.b; chunks used to be its
+        // sentences re-joined with spaces ("List groups", "searchSettings. CurrentValue").
+        SetupPeriodicBreaks();
+        var parsedDoc = new ParsedDocument(CodeSample, new Dictionary<string, string>(), new List<string>());
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(parsedDoc, PeriodicBreakSettings());
+
+        result.Should().HaveCountGreaterThan(1);
+        foreach (string line in CodeSample.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0))
+            result.Should().Contain(c => c.Content.Contains(line), $"the line '{line}' must be stored as written");
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    public async Task ChunkAsync_Code_ChunksTileTheSourceWithNoGaps(int minChunkSize)
+    {
+        SetupPeriodicBreaks();
+        var parsedDoc = new ParsedDocument(CodeSample, new Dictionary<string, string>(), new List<string>());
+
+        IReadOnlyList<ChunkInfo> result =
+            await _chunker.ChunkAsync(parsedDoc, PeriodicBreakSettings(minChunkSize: minChunkSize));
+
+        result.Should().HaveCountGreaterThan(1);
+        result[0].StartOffset.Should().Be(0);
+        result[^1].EndOffset.Should().Be(CodeSample.Length);
+        for (int i = 1; i < result.Count; i++)
+            result[i].StartOffset.Should().Be(result[i - 1].EndOffset, "no text may fall between two chunks");
+        foreach (ChunkInfo c in result)
+            CodeSample[c.StartOffset..c.EndOffset].Trim().Should().Be(c.Content);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_FirstChunkExactlyMinChunkSize_IsNotMerged()
+    {
+        const string content = "Alpha here. Beta here. Gamma here. "
+            + "Delta topic runs a good deal longer. Epsilon topic runs a good deal longer. Zeta topic runs a good deal longer.";
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.99f, 0.14f, 0.0f },
+            new float[] { 0.98f, 0.20f, 0.0f },
+            new float[] { 0.0f, 0.0f, 1.0f },
+            new float[] { 0.0f, 0.14f, 0.99f },
+            new float[] { 0.0f, 0.20f, 0.98f }
+        });
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        IReadOnlyList<ChunkInfo> unmerged =
+            await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings { MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1 });
+        unmerged.Should().HaveCount(2);
+        int firstTokens = unmerged[0].TokenCount;
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(
+            parsedDoc, new ChunkingSettings { MaxChunkSize = 500, Overlap = 0, MinChunkSize = firstTokens });
+
+        result.Select(c => c.Content).Should().Equal(unmerged.Select(c => c.Content));
+    }
+    [Fact]
+    public async Task ChunkAsync_OversizeCodeGroup_SubChunksAreSourceSlices()
+    {
+        SetupEmbeddings(0, highSimilarity: true);
+        var parsedDoc = new ParsedDocument(CodeSample, new Dictionary<string, string>(), new List<string>());
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(parsedDoc, PeriodicBreakSettings(maxChunkSize: 30));
+
+        result.Should().HaveCountGreaterThan(1);
+        foreach (ChunkInfo c in result)
+            CodeSample[c.StartOffset..c.EndOffset].Trim().Should().Be(c.Content);
+        foreach (string line in CodeSample.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0))
+            result.Should().Contain(c => c.Content.Contains(line));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Intro sentence. ")]
+    public async Task ChunkAsync_RepeatedDottedCalls_NoChunkOrEmbeddingInputOverTheLimit(string prefix)
+    {
+        // Codex review: the splits inside "foo.Bar()" join into one span, which must be split before
+        // it is embedded or returned as a chunk.
+        string content = prefix + string.Concat(Enumerable.Repeat("foo.Bar(); ", 300));
+        var embedded = new List<string>();
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                List<string> texts = callInfo.Arg<IEnumerable<string>>().ToList();
+                embedded.AddRange(texts);
+                return Task.FromResult<IReadOnlyList<float[]>>(texts.Select(_ => new float[] { 1f, 0f, 0f }).ToList());
+            });
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 50, Overlap = 0, MinChunkSize = 1 };
+        TiktokenTokenCounter counter = new();
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().HaveCountGreaterThan(1);
+        result.Should().OnlyContain(c => c.TokenCount <= 50);
+        // Each embedding input is a sentence plus one neighbour either side (SemanticBufferSize 1).
+        embedded.Should().NotBeEmpty();
+        embedded.Should().OnlyContain(text => counter.CountTokens(text) <= 3 * 50 + 2);
+    }
 }

@@ -34,10 +34,12 @@ public class SemanticChunker(
         if (string.IsNullOrWhiteSpace(content))
             return chunks;
 
-        List<string> sentences = SplitIntoSentences(content);
-
-        if (sentences.Count == 0)
-            return chunks;
+        // Sentences are spans of the source that tile it end to end, so every chunk below is a
+        // slice of the content: nothing between chunks is dropped and code keeps its exact text.
+        // Spans over MaxChunkSize are split first so none reaches the embedder whole.
+        IReadOnlyList<(int Start, int End)> spans = await SentenceSpans.SplitOversize(
+            content, SentenceSpans.Locate(content, sentenceSegmenter.Split(content)), settings, tokenCounter, cancellationToken);
+        List<string> sentences = spans.Select(s => content[s.Start..s.End].Trim()).ToList();
 
         if (sentences.Count == 1)
         {
@@ -45,11 +47,11 @@ public class SemanticChunker(
             // Leave PrecomputedEmbedding null — pipeline will embed it normally.
             int tokenCount = tokenCounter.CountTokens(sentences[0]);
             chunks.Add(new ChunkInfo(
-                Content: sentences[0].Trim(),
+                Content: sentences[0],
                 ChunkIndex: 0,
                 TokenCount: tokenCount,
                 StartOffset: 0,
-                EndOffset: sentences[0].Length,
+                EndOffset: content.Length,
                 Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
                 {
                     ["ChunkingStrategy"] = Name,
@@ -141,15 +143,10 @@ public class SemanticChunker(
         }
         splitIndices.Add(sentences.Count);
 
-        // Build raw chunks. Use a search hint when locating each chunk text in the source
-        // (LangChain pattern): back the search up by a token-budget-worth of characters
-        // before the previous end so we can still find chunks whose text differs slightly
-        // from a verbatim source slice (e.g., trailing whitespace stripped by Trim()).
-        // No in-loop MinChunkSize filter — small chunks are merged forward in a post-pass
-        // so document content is never silently dropped.
+        // Build raw chunks as source slices from the first sentence's start to the last
+        // sentence's end. No in-loop MinChunkSize filter — small chunks are merged forward in
+        // a post-pass so document content is never silently dropped.
         var rawChunks = new List<RawChunk>();
-        int prevStart = 0;
-        int prevLen = 0;
 
         for (int i = 0; i < splitIndices.Count - 1; i++)
         {
@@ -158,20 +155,9 @@ public class SemanticChunker(
             int start = splitIndices[i];
             int end = splitIndices[i + 1];
 
-            List<string> chunkSentences = sentences.GetRange(start, end - start);
-            string chunkText = string.Join(" ", chunkSentences);
+            int startOffset = spans[start].Start;
+            string chunkText = content[startOffset..spans[end - 1].End];
             int tokenCount = tokenCounter.CountTokens(chunkText);
-
-            int searchBackup = Math.Min(prevLen, 256);
-            int hint = Math.Max(0, prevStart + prevLen - searchBackup);
-            int startOffset = content.IndexOf(chunkText, hint, StringComparison.Ordinal);
-            bool offsetExact = startOffset >= 0;
-            if (!offsetExact)
-            {
-                // Clamp so Offset + chunkText.Length never exceeds content.Length;
-                // EndOffset still round-trips into a valid range even on fallback.
-                startOffset = Math.Min(hint, Math.Max(0, content.Length - chunkText.Length));
-            }
 
             if (tokenCount > settings.MaxChunkSize)
             {
@@ -191,20 +177,13 @@ public class SemanticChunker(
 
                 foreach (ChunkInfo s in sub)
                 {
-                    // Guard the source slice: when the IndexOf hint fallback fires
-                    // (line ~163) startOffset can land near content.Length, and
-                    // startOffset + s.StartOffset + subLen may exceed the buffer.
-                    int subLen = s.EndOffset - s.StartOffset;
+                    // RecursiveChunker's offsets are exact slices of chunkText.
                     int absStart = startOffset + s.StartOffset;
-                    if (absStart < 0 || absStart >= content.Length) continue;
-                    subLen = Math.Min(subLen, content.Length - absStart);
-                    if (subLen <= 0) continue;
                     rawChunks.Add(new RawChunk(
-                        Text: content.Substring(absStart, subLen),
+                        Text: content[absStart..(startOffset + s.EndOffset)],
                         Offset: absStart,
                         Tokens: s.TokenCount,
-                        Embedding: null,
-                        OffsetEstimated: !offsetExact));
+                        Embedding: null));
                 }
             }
             else
@@ -216,12 +195,8 @@ public class SemanticChunker(
                     Text: chunkText,
                     Offset: startOffset,
                     Tokens: tokenCount,
-                    Embedding: precomputed,
-                    OffsetEstimated: !offsetExact));
+                    Embedding: precomputed));
             }
-
-            prevStart = startOffset;
-            prevLen = chunkText.Length;
         }
 
         // Post-pass: merge any chunk below MinChunkSize into the preceding chunk
@@ -267,8 +242,6 @@ public class SemanticChunker(
                 ["ChunkingStrategy"] = Name,
                 ["ChunkIndex"] = chunkIndex.ToString()
             };
-            if (c.OffsetEstimated)
-                metadata["OffsetEstimated"] = "true";
 
             chunks.Add(new ChunkInfo(
                 Content: trimmed,
@@ -307,19 +280,6 @@ public class SemanticChunker(
             result[d] /= count;
 
         return result;
-    }
-
-    private List<string> SplitIntoSentences(string text)
-    {
-        IReadOnlyList<string> raw = sentenceSegmenter.Split(text);
-        var sentences = new List<string>(raw.Count);
-        foreach (string s in raw)
-        {
-            string trimmed = s.Trim();
-            if (!string.IsNullOrWhiteSpace(trimmed))
-                sentences.Add(trimmed);
-        }
-        return sentences;
     }
 
     private static float CosineSimilarity(float[] a, float[] b)
@@ -453,43 +413,22 @@ public class SemanticChunker(
             else
             {
                 RawChunk prev = output[^1];
-                int smallEnd = c.Offset + c.Text.Length;
-                int sliceLen = smallEnd - prev.Offset;
-                bool sliceValid = prev.Offset >= 0
-                    && sliceLen > 0
-                    && prev.Offset + sliceLen <= content.Length;
-                string mergedText = sliceValid
-                    ? content.Substring(prev.Offset, sliceLen)
-                    : prev.Text + " " + c.Text;
-                int mergedTokens = counter.CountTokens(mergedText);
-                bool mergedEstimated = prev.OffsetEstimated || c.OffsetEstimated || !sliceValid;
-                output[^1] = new RawChunk(mergedText, prev.Offset, mergedTokens, null, mergedEstimated);
+                string mergedText = content[prev.Offset..(c.Offset + c.Text.Length)];
+                output[^1] = new RawChunk(mergedText, prev.Offset, counter.CountTokens(mergedText), null);
             }
         }
 
-        if (output.Count >= 2)
+        if (output.Count >= 2 && output[0].Tokens < minTokens)
         {
-            if (output[0].Tokens < minTokens)
-            {
-                RawChunk first = output[0];
-                RawChunk next = output[1];
-                int nextEnd = next.Offset + next.Text.Length;
-                int sliceLen = nextEnd - first.Offset;
-                bool sliceValid = first.Offset >= 0
-                    && sliceLen > 0
-                    && first.Offset + sliceLen <= content.Length;
-                string mergedText = sliceValid
-                    ? content.Substring(first.Offset, sliceLen)
-                    : first.Text + " " + next.Text;
-                int mergedTokens = counter.CountTokens(mergedText);
-                bool mergedEstimated = first.OffsetEstimated || next.OffsetEstimated || !sliceValid;
-                output[1] = new RawChunk(mergedText, first.Offset, mergedTokens, null, mergedEstimated);
-                output.RemoveAt(0);
-            }
+            RawChunk first = output[0];
+            RawChunk next = output[1];
+            string mergedText = content[first.Offset..(next.Offset + next.Text.Length)];
+            output[1] = new RawChunk(mergedText, first.Offset, counter.CountTokens(mergedText), null);
+            output.RemoveAt(0);
         }
 
         return output;
     }
 
-    private record RawChunk(string Text, int Offset, int Tokens, float[]? Embedding, bool OffsetEstimated = false);
+    private record RawChunk(string Text, int Offset, int Tokens, float[]? Embedding);
 }
