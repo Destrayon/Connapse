@@ -213,6 +213,41 @@ public class LinkSearchTests
             .Select(h => h.ChunkId).Should().Equal("c1", "c2");
     }
 
+    private static SearchHit PathHit(string chunk, string doc, float score, string path, int chunkIndex = 0) =>
+        new(chunk, doc, "", score, new Dictionary<string, string> { ["path"] = path, ["chunkIndex"] = chunkIndex.ToString() });
+
+    [Fact]
+    public void Blend_TiedHitsInAnyOrder_ComeOutInPathOrder()
+    {
+        List<SearchHit> hits = [PathHit("c1", "zz", 0.9f, "/z.md"), PathHit("c2", "aa", 0.9f, "/a.md"), PathHit("c3", "mm", 0.1f, "/m.md")];
+
+        List<SearchHit> forward = LinkSearch.Blend(hits, [], new Dictionary<string, float>(), weight: 0.5f);
+        List<SearchHit> reversed = LinkSearch.Blend([.. hits.AsEnumerable().Reverse()], [], new Dictionary<string, float>(), weight: 0.5f);
+
+        forward.Select(h => h.ChunkId).Should().Equal("c2", "c1", "c3");
+        reversed.Select(h => h.ChunkId).Should().Equal("c2", "c1", "c3");
+    }
+
+    [Fact]
+    public void Blend_HitTiedWithAddedDocument_EarlierPathFirst()
+    {
+        // The added a.md normalises to 0, so 0.5 × 0 + 0.5 × 1 ties z.md's 0.5 × 1.
+        List<SearchHit> hits = [PathHit("c1", "zz", 0.9f, "/z.md"), PathHit("c2", "bb", 0.1f, "/b.md")];
+        List<SearchHit> extras = [PathHit("c9", "aa", 0.1f, "/a.md")];
+
+        LinkSearch.Blend(hits, extras, new Dictionary<string, float> { ["aa"] = 1f }, weight: 0.5f)
+            .Select(h => h.ChunkId).Should().Equal("c9", "c1", "c2");
+    }
+
+    [Fact]
+    public void Blend_TiedChunksOfOneDocument_LowerChunkIndexFirst()
+    {
+        List<SearchHit> hits = [PathHit("c1", "aa", 0.9f, "/a.md", chunkIndex: 10), PathHit("c2", "aa", 0.9f, "/a.md", chunkIndex: 2)];
+
+        LinkSearch.Blend(hits, [], new Dictionary<string, float> { ["aa"] = 1f }, weight: 0.5f)
+            .Select(h => h.ChunkId).Should().Equal("c2", "c1");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

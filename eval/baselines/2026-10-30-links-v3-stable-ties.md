@@ -32,12 +32,19 @@ links-off runs score 0.220, 0.185 and 0.366.
 still changes between runs (`jira-subtasks-0182` with the HNSW index, `jira-parent-0149` with exact search), and
 `jira-blocked-by-0085` keeps its order while every score in it moves by up to 0.004.
 
-What is left is not in link search. The corpus has 20,134 vectors, just over the 20,000 at which Connapse builds an
-approximate HNSW index, but exact search leaves the same amount of drift, so the index is not the cause. With links
-off, the top 10 of every query repeats exactly, yet link search sees the whole candidate pool (about 100 chunks per
-side), not the top 10. Both keyword queries cut that pool with `ORDER BY score DESC LIMIT k` and no tie-breaker
-(`KeywordSearchService.cs`, the BM25 query and the `ts_rank` fallback), so chunks tied at the cut come back in heap
+What these runs establish about the rest: the corpus has 20,134 vectors, just over the 20,000 at which Connapse builds
+an approximate HNSW index, and exact search still drifts, so the index is not needed for the drift (whether it adds
+some cannot be told, since a different query changes in each pair). With links off, the top 10 of every query repeats
+exactly.
+
+The likeliest cause, not yet shown: link search reads the whole candidate pool (about 100 chunks per side), not the
+top 10, and both keyword queries cut that pool with `ORDER BY score DESC LIMIT k` and no tie-breaker
+(`KeywordSearchService.cs`, the BM25 query and the `ts_rank` fallback). Chunks tied at the cut then come back in heap
 order, which follows ingest order and varies with two parallel workers. A different chunk at the bottom of the pool
-moves its minimum, and link search min-max normalises seeds and blended scores over that pool, so every score in the
-query shifts a little and close neighbours can swap. Breaking those ties by document path and chunk index is the
-follow-up.
+would move its minimum, and link search min-max normalises seeds and blended scores over that pool, so every score in
+the query would shift a little, as `jira-blocked-by-0085`'s do. The run results keep only final rankings, so
+confirming it means recording the pools, seeds and normalisation bounds for these queries in two runs; that and the
+keyword tie-break are the follow-up.
+
+These runs measured `a8d460a`. A later commit also orders exactly tied blended results by path, chunk index and chunk
+id; the drift above is in scores that differ, so that change cannot remove it.

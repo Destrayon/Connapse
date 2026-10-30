@@ -181,7 +181,8 @@ internal sealed class LinkSearch(
 
     /// <summary>
     /// Every score becomes (1 − w) × its ordinary score, min-max normalised over hits and extras, plus w × its
-    /// document's link score. Extras are tagged as found by links.
+    /// document's link score. Extras are tagged as found by links. Equal scores go to the earlier path, then the
+    /// earlier chunk, then the chunk id, so the order does not hang on the order the searches returned (CON-152).
     /// </summary>
     internal static List<SearchHit> Blend(
         List<SearchHit> hits, List<SearchHit> extras, IReadOnlyDictionary<string, float> linkScores, float weight)
@@ -206,6 +207,9 @@ internal sealed class LinkSearch(
                 return h with { Score = (1 - w) * baseScore + w * link, Metadata = metadata };
             })
             .OrderByDescending(h => h.Score)
+            .ThenBy(h => h.Metadata.GetValueOrDefault("path", ""), StringComparer.Ordinal)
+            .ThenBy(h => int.TryParse(h.Metadata.GetValueOrDefault("chunkIndex"), out int index) ? index : int.MaxValue)
+            .ThenBy(h => h.ChunkId, StringComparer.Ordinal)
             .ToList();
     }
 
