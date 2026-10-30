@@ -57,7 +57,7 @@ public partial class McpTools
     }
 
     [McpServerTool(Name = "memory_correct"),
-     Description("Replace a fact and keep the old one in history. kind=\"changed\": the world changed, so the old fact ends on `validFrom` and the new value starts there (validFrom required). kind=\"wrong\": the old fact was never right, so it is marked superseded and the new value takes its dates. Subject and attribute default to the old fact's.")]
+     Description("Replace a fact and keep the old one in history. kind=\"changed\": the world changed, so the old fact ends on `validFrom` and the new value starts there (validFrom required). kind=\"wrong\": the old fact was never right, so it is marked superseded and the new value takes its dates; a date you pass replaces the old one, except one where another version of the fact starts or ends. Subject and attribute default to the old fact's.")]
     public static async Task<string> MemoryCorrect(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,

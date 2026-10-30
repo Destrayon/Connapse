@@ -29,10 +29,24 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-        MemoryFactEntity? old = await context.MemoryFacts
-            .FromSql($"SELECT * FROM memory_facts WHERE id = {factId} AND container_id = {containerId} FOR UPDATE")
+        // Every correction of a chain first locks its first fact (whose id is the chain's), so they run one at a time. A
+        // wrong correction is checked against the other versions, so they are read only once that lock is held, in a
+        // statement of their own: under read committed, a locking read that waited sees the rows it locked as updated
+        // but not versions the other correction inserted.
+        List<Guid> locked = await context.Database.SqlQuery<Guid>($"""
+            SELECT id AS "Value" FROM memory_facts
+            WHERE container_id = {containerId}
+              AND id = (SELECT chain_id FROM memory_facts WHERE id = {factId} AND container_id = {containerId})
+            FOR UPDATE
+            """).ToListAsync(ct);
+        if (locked.Count == 0)
+            return MemoryWriteResult.Failed($"Fact '{factId}' not found.");
+        Guid chainId = locked[0];
+        List<MemoryFactEntity> chain = await context.MemoryFacts
+            .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chainId} AND container_id = {containerId} FOR UPDATE")
             .Include(f => f.Sources)
-            .SingleOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        MemoryFactEntity? old = chain.SingleOrDefault(f => f.Id == factId);
         if (old is null)
             return MemoryWriteResult.Failed($"Fact '{factId}' not found.");
         if (old.SupersededAt is not null)
@@ -51,12 +65,14 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         }
         else
         {
-            old.SupersededAt = clock.GetUtcNow();
             next = replacement with
             {
                 ValidFrom = replacement.ValidFrom ?? old.ValidFrom,
                 ValidTo = replacement.ValidTo ?? old.ValidTo,
             };
+            if (WrongWindowError(old, next, chain) is { } error)
+                return MemoryWriteResult.Failed(error);
+            old.SupersededAt = clock.GetUtcNow();
         }
 
         MemoryFactEntity row = NewRow(containerId, next, author, old.ChainId, old.Id);
@@ -64,6 +80,26 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return new MemoryWriteResult(ToFact(row), ToFact(old), null);
+    }
+
+    /// <summary>
+    /// Why <paramref name="next"/> cannot replace <paramref name="old"/> as a wrong correction, or null when it can. The
+    /// versions of a chain memory still holds never overlap and meet where one ends and the next starts, so recall on any
+    /// date they cover finds exactly one. The replacement's window must hold a moment, and a date where another version
+    /// meets the old one stays put: moving it would leave dates with no version or with two.
+    /// </summary>
+    private static string? WrongWindowError(MemoryFactEntity old, NewMemoryFact next, IEnumerable<MemoryFactEntity> chain)
+    {
+        // Only reachable with one date inherited from the old fact; the service already refused two given dates out of order.
+        if (next.ValidFrom is { } from && next.ValidTo is { } to && to <= from)
+            return $"The new window would run from {from:u} to {to:u}, the old fact's other date; pass both 'validFrom' and 'validTo'.";
+
+        List<MemoryFactEntity> held = [.. chain.Where(f => f.Id != old.Id && f.SupersededAt is null)];
+        if (old.ValidFrom is { } oldFrom && next.ValidFrom != oldFrom && held.Any(f => f.ValidTo == oldFrom))
+            return $"The version before this one ends on {oldFrom:u}, where this one starts, so a wrong correction must keep that 'validFrom'.";
+        if (old.ValidTo is { } oldTo && next.ValidTo != oldTo && held.Any(f => f.ValidFrom == oldTo))
+            return $"The version after this one starts on {oldTo:u}, where this one ends, so a wrong correction must keep that 'validTo'.";
+        return null;
     }
 
     public async Task<int?> ForgetAsync(

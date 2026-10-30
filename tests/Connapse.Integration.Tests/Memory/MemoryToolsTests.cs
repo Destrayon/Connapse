@@ -9,6 +9,7 @@ using Connapse.Storage.CloudScope;
 using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Memory;
 using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
@@ -173,6 +174,129 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             .Select(f => f.GetProperty("status").GetString()).Should().BeEquivalentTo(["corrected", "current"],
                 "a window's history includes what was corrected");
         (await McpTools.MemoryCorrect(Sp, C, first, "x", kind: "wrong", sources: [_upload])).Should().StartWith("Error:");
+    }
+
+    /// <summary>The one value recall gives for Halcyon's database on <paramref name="asOf"/>; fails on none or several.</summary>
+    private async Task<string?> OnlyValueAsync(string asOf) =>
+        Values(await McpTools.MemoryRecall(Sp, C, subject: "Halcyon", attribute: "database", asOf: asOf)).Should().ContainSingle().Subject;
+
+    [Fact]
+    public async Task Correct_WrongWithOnlyAStartAfterTheOldEnd_IsRefusedAndRecallKeepsOneVersion()
+    {
+        As(_writer);
+        string first = Id(await Remember("MariaDB 10", "2026-01-05"));
+        await McpTools.MemoryCorrect(Sp, C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+
+        // Inheriting the old end (03-01) would give the replacement [04-01, 03-01), true at no moment.
+        (await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+
+        (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 10");
+        (await OnlyValueAsync("2026-04-01")).Should().Be("PostgreSQL 15");
+    }
+
+    [Fact]
+    public async Task Correct_WrongWithOnlyAStartAfterItsOwnEnd_IsRefused()
+    {
+        As(_writer);
+        string first = Id(await McpTools.MemoryRemember(Sp, C, "Halcyon", "database", "MariaDB 10", "2026-01-05", "2026-03-01", [_upload]));
+
+        (await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+        (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 10");
+    }
+
+    [Fact]
+    public async Task Correct_WrongWithOnlyAStartInsideTheOldWindow_KeepsTheEndAndOneVersionEitherSide()
+    {
+        As(_writer);
+        string first = Id(await Remember("MariaDB 10", "2026-01-05"));
+        await McpTools.MemoryCorrect(Sp, C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+
+        string corrected = await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-01-10", sources: [_upload]);
+
+        JsonElement remembered = JsonDocument.Parse(corrected).RootElement.GetProperty("remembered");
+        remembered.GetProperty("validTo").GetDateTimeOffset().Should().Be(new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero));
+        (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 11");
+        (await OnlyValueAsync("2026-02-28T23:59:59Z")).Should().Be("MariaDB 11");
+        (await OnlyValueAsync("2026-03-01")).Should().Be("PostgreSQL 15");
+    }
+
+    [Fact]
+    public async Task Correct_WrongThatMovesADateAnotherVersionMeetsAt_IsRefused()
+    {
+        As(_writer);
+        string first = Id(await Remember("MariaDB 10", "2026-01-05"));
+        string second = Id(await McpTools.MemoryCorrect(Sp, C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]));
+
+        // Moving the second version's start would leave [03-01, 04-01) with no version; moving it earlier, two.
+        (await McpTools.MemoryCorrect(Sp, C, second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+        (await McpTools.MemoryCorrect(Sp, C, second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-02-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+        (await McpTools.MemoryCorrect(Sp, C, first, "MariaDB 11", kind: "wrong", validTo: "2026-02-01", sources: [_upload]))
+            .Should().StartWith("Error:");
+
+        (await OnlyValueAsync("2026-02-15")).Should().Be("MariaDB 10");
+        (await OnlyValueAsync("2026-03-15")).Should().Be("PostgreSQL 15");
+
+        // Keeping the shared date is fine.
+        (await McpTools.MemoryCorrect(Sp, C, second, "PostgreSQL 16", kind: "wrong", sources: [_upload])).Should().NotStartWith("Error:");
+        (await OnlyValueAsync("2026-02-15")).Should().Be("MariaDB 10");
+        (await OnlyValueAsync("2026-03-15")).Should().Be("PostgreSQL 16");
+    }
+
+    [Fact]
+    public async Task Correct_WrongThatWaitedForAChange_SeesTheVersionTheChangeAdded()
+    {
+        var factory = Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var store = new PostgresMemoryStore(factory, TimeProvider.System);
+        var author = new MemoryCaller(_writer, null, null);
+        DateTimeOffset jan = new(2026, 1, 5, 0, 0, 0, TimeSpan.Zero), feb = jan.AddMonths(1), mar = new(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        MemoryFact first = await store.AddAsync(_container, new NewMemoryFact("Halcyon", "database", "MariaDB 10", jan, null, []), author);
+
+        // A change in flight, as CorrectAsync does it: the chain's first fact locked, ended at March, and a successor added.
+        await using KnowledgeDbContext change = await factory.CreateDbContextAsync();
+        await using var transaction = await change.Database.BeginTransactionAsync();
+        MemoryFactEntity locked = await change.MemoryFacts
+            .FromSql($"SELECT * FROM memory_facts WHERE id = {first.Id} FOR UPDATE").SingleAsync();
+        locked.ValidTo = mar;
+        Guid next = Guid.CreateVersion7();
+        change.MemoryFacts.Add(new MemoryFactEntity
+        {
+            Id = next,
+            ChainId = first.ChainId,
+            ContainerId = _container,
+            Subject = "Halcyon",
+            Attribute = "database",
+            Value = "PostgreSQL 15",
+            ValidFrom = mar,
+            RecordedAt = DateTimeOffset.UtcNow,
+            ReplacesId = first.Id,
+            AuthorUserId = _writer,
+        });
+        await change.SaveChangesAsync();
+
+        // Ending the first version in February would leave February with no version.
+        Task<MemoryWriteResult> wrong = store.CorrectAsync(_container, first.Id, MemoryCorrection.Wrong,
+            new NewMemoryFact("Halcyon", "database", "MariaDB 11", null, feb, []), author);
+        await using (KnowledgeDbContext probe = await factory.CreateDbContextAsync())
+        {
+            for (int i = 0; i < 100 && !wrong.IsCompleted; i++)
+            {
+                List<int> waiting = await probe.Database.SqlQuery<int>(
+                    $"SELECT 1 AS \"Value\" FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%memory_facts%'").ToListAsync();
+                if (waiting.Count > 0)
+                    break;
+                await Task.Delay(50);
+            }
+        }
+        wrong.IsCompleted.Should().BeFalse("the wrong correction waits for the change");
+        await transaction.CommitAsync();
+
+        (await wrong).Error.Should().NotBeNull();
+        IReadOnlyList<MemoryFact> held = await store.QueryAsync(new MemoryQuery(_container, Subject: "Halcyon", History: true), 0, 10);
+        held.Where(f => f.SupersededAt is null).Select(f => f.Value).Should().Equal("MariaDB 10", "PostgreSQL 15");
     }
 
     [Fact]

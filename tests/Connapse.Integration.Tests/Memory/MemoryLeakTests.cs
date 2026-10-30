@@ -130,8 +130,11 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
                 && w.ValidTo is null && w.SupersededAt is null && w.ValidFrom < fact.ValidFrom);
             if (previous is not null && random.Next(2) == 0)
             {
-                MemoryWriteResult result = await store.CorrectAsync(container, previous.Id,
-                    random.Next(3) == 0 ? MemoryCorrection.Wrong : MemoryCorrection.Changed, fact, author);
+                // A wrong correction keeps the old dates: its start may be where an earlier version ends.
+                MemoryWriteResult result = random.Next(3) == 0
+                    ? await store.CorrectAsync(container, previous.Id, MemoryCorrection.Wrong, fact with { ValidFrom = null }, author)
+                    : await store.CorrectAsync(container, previous.Id, MemoryCorrection.Changed, fact, author);
+                result.Error.Should().BeNull();
                 written.Remove(previous);
                 written.Add(result.Replaced!);
                 written.Add(result.Fact!);
@@ -140,6 +143,16 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             {
                 written.Add(await store.AddAsync(container, fact, author));
             }
+        }
+
+        // Point-in-time recall finds exactly one version of every chain that had started by then (none here ends).
+        for (DateTimeOffset at = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero); at.Month < 7; at = at.AddDays(3))
+        {
+            IReadOnlyList<MemoryFact> then = await store.QueryAsync(new MemoryQuery(container, AsOf: at), 0, 1000);
+            then.GroupBy(f => f.ChainId).Should().OnlyContain(g => g.Count() == 1, $"one version per chain on {at:d}");
+            Guid[] started = [.. written.Where(f => f.SupersededAt is null).GroupBy(f => f.ChainId)
+                .Where(g => g.Min(f => f.ValidFrom) <= at).Select(g => g.Key)];
+            then.Select(f => f.ChainId).Should().BeEquivalentTo(started, $"every started chain shows on {at:d}");
         }
 
         bool Allowed(MemoryFact f, Guid user) => f.Sources.Count == 0
