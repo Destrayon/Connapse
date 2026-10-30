@@ -3271,7 +3271,7 @@
         "x-connapse-operation": {
           "id": "containers.settings.update",
           "scope": "knowledge:write",
-          "risk": "Write",
+          "risk": "Credential",
           "mcp": "Generic"
         }
       },
@@ -4739,7 +4739,7 @@
         "x-connapse-operation": {
           "id": "connections.create",
           "scope": "admin:sources",
-          "risk": "Write",
+          "risk": "Credential",
           "mcp": "Generic"
         }
       }
@@ -4933,7 +4933,7 @@
         "x-connapse-operation": {
           "id": "connections.update",
           "scope": "admin:sources",
-          "risk": "Write",
+          "risk": "Credential",
           "mcp": "Generic"
         }
       },

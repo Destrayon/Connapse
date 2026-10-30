@@ -21,7 +21,7 @@ public sealed class GetContainerSettings(IContainerStore containers, IOperationA
 }
 
 /// <summary>Replaces a container's settings overrides. Editors and above; a null section means the global setting.</summary>
-[Operation("containers.settings.update", Scope = "knowledge:write", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
+[Operation("containers.settings.update", Scope = "knowledge:write", Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
 public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLogger audit, IOperationAuthorizer authorizer)
 {
     public async Task<Attempt<ContainerSettingsOverrides, ContainerStatus>> RunAsync(
