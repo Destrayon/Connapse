@@ -230,7 +230,7 @@ public sealed class GetConnection(IConnectionStore connections, ISourceStore sou
 /// connection's. Audited as <c>connection.updated</c> with the old and new names and whether the config or
 /// secret changed, never a value.
 /// </summary>
-[Operation("connections.update", Scope = "admin:sources", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
+[Operation("connections.update", Scope = "admin:sources", Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
 public sealed class UpdateConnection(
     IConnectionStore connections, ISourceStore sources, IConnectionSettingsRules rules, IAuditLogger audit, IOperationAuthorizer authorizer)
 {
@@ -454,7 +454,7 @@ public sealed class ReplaceConnectionSecret(
 /// be 1 to 128 characters and no other connection's, and the settings pass the Connections page's checks for
 /// the provider. An Atlassian site is added through its own check instead. Audited as <c>connection.created</c>.
 /// </summary>
-[Operation("connections.create", Scope = "admin:sources", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
+[Operation("connections.create", Scope = "admin:sources", Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
 public sealed class CreateConnection(
     IConnectionStore connections, IConnectionSettingsRules rules, IAuditLogger audit, IOperationAuthorizer authorizer)
 {

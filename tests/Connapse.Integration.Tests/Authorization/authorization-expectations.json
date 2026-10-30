@@ -957,6 +957,21 @@
     }
   },
   "tools": {
+    "connapse_api_search": {
+      "requires": "mcp",
+      "scope": "any operation scope",
+      "risk": "read"
+    },
+    "connapse_api_read": {
+      "requires": "mcp",
+      "scope": "a read operation scope",
+      "risk": "read"
+    },
+    "connapse_api_write": {
+      "requires": "mcp",
+      "scope": "a write operation scope",
+      "risk": "destructive"
+    },
     "container_create": {
       "requires": "mcp",
       "scope": "knowledge:write",

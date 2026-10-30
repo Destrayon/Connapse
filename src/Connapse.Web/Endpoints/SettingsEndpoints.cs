@@ -83,6 +83,7 @@ public static class SettingsEndpoints
         })
         .Produces<SettingsSavedResponse>()
         .AddOpenApiOperationTransformer(DescribeCategoryShapesAsync)
+        .AddOpenApiOperationTransformer(DescribeIfMatch)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
@@ -244,6 +245,24 @@ public static class SettingsEndpoints
             && operation.Responses?.TryGetValue("200", out var ok) == true && ok.Content is { } content
             && content.TryGetValue("application/json", out var response))
             response.Schema = shapes;
+    }
+
+    /// <summary>
+    /// PUT reads If-Match from the request itself, so the spec names it here; the generic MCP tools only send the
+    /// headers the spec declares, and without it an MCP save could not be conditional.
+    /// </summary>
+    private static Task DescribeIfMatch(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken ct)
+    {
+        operation.Parameters ??= [];
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = "If-Match",
+            In = ParameterLocation.Header,
+            Required = false,
+            Description = "The ETag from GET: the save is refused with 412 if the settings changed since. Without it the save replaces them.",
+            Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+        });
+        return Task.CompletedTask;
     }
 }
 
