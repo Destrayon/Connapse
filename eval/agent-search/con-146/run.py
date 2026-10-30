@@ -123,10 +123,15 @@ def summary(args, questions):
         gained = [i for i in hard_ids if correct("files_first", i) and not correct("rag", i)]
         print(f"files_first answered {len(gained)} hard questions rag missed: {gained}")
 
+    all_ids = {q["id"] for q in questions}
+    incomplete = [s for s in ("files_first", *FIXES)
+                  if set(rows[s]) != all_ids or any(r.get("cost_usd") is None for r in rows[s].values())]
+    if incomplete:
+        print(f"\nNo pass-bar verdicts: {incomplete} lack a judged answer with a cost for every question.")
     base = report.get("files_first")
     for fix in FIXES:
-        if fix not in report or not base:
-            continue
+        if incomplete:
+            break
         r = report[fix]
         acc = r["hard"] - base["hard"]
         cost = r["cost"] / base["cost"] - 1
