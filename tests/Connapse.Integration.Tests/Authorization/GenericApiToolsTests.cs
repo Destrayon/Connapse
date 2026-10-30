@@ -133,6 +133,58 @@ public class GenericApiToolsTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task ApiWrite_CredentialOperation_WaitsForApproval()
+    {
+        await using var agent = await AdminTokenAsync(["admin:settings"], requiresApproval: true);
+        var original = (await fixture.AdminClient.GetFromJsonAsync<ChunkingSettings>("/api/settings/chunking"))!;
+        try
+        {
+            Text(await agent.CallToolAsync(McpApiTools.ReadName, Call("settings.get", new() { ["category"] = "chunking" })))
+                .Should().StartWith("200", "a read runs without approval");
+
+            Text(await agent.CallToolAsync(McpApiTools.WriteName,
+                    Call("settings.update", new() { ["category"] = "chunking" }, original with { Overlap = original.Overlap + 5 })))
+                .Should().Contain("pending approval").And.Contain("settings.update", "settings.update saves API keys, so it is a credential change");
+
+            (await fixture.AdminClient.GetFromJsonAsync<ChunkingSettings>("/api/settings/chunking"))!.Overlap
+                .Should().Be(original.Overlap, "nothing ran before a person approved it");
+        }
+        finally
+        {
+            await fixture.AdminClient.PutAsJsonAsync("/api/settings/chunking", original);
+        }
+    }
+
+    [Fact]
+    public async Task ApiWrite_SettingsSaveWithAStaleETag_Returns412AndKeepsTheOtherChange()
+    {
+        await using var mcp = await AdminTokenAsync(["admin:settings"], requiresApproval: false);
+        var original = (await fixture.AdminClient.GetFromJsonAsync<ChunkingSettings>("/api/settings/chunking"))!;
+        try
+        {
+            string read = Text(await mcp.CallToolAsync(McpApiTools.ReadName, Call("settings.get", new() { ["category"] = "chunking" })));
+            read.Should().StartWith("200 OK").And.Contain("\nETag: ", "a save needs the read's ETag to be conditional");
+            string etag = read.Split('\n').Single(l => l.StartsWith("ETag: ", StringComparison.Ordinal))["ETag: ".Length..];
+
+            // Another administrator saves in between.
+            (await fixture.AdminClient.PutAsJsonAsync("/api/settings/chunking", original with { MaxChunkSize = original.MaxChunkSize + 11 }))
+                .EnsureSuccessStatusCode();
+
+            Text(await mcp.CallToolAsync(McpApiTools.WriteName,
+                    Call("settings.update", new() { ["category"] = "chunking", ["If-Match"] = etag }, original with { Overlap = original.Overlap + 3 })))
+                .Should().StartWith("412", "the ETag the read returned goes back as If-Match");
+
+            var after = (await fixture.AdminClient.GetFromJsonAsync<ChunkingSettings>("/api/settings/chunking"))!;
+            after.MaxChunkSize.Should().Be(original.MaxChunkSize + 11);
+            after.Overlap.Should().Be(original.Overlap);
+        }
+        finally
+        {
+            await fixture.AdminClient.PutAsJsonAsync("/api/settings/chunking", original);
+        }
+    }
+
     private static Dictionary<string, object?> Call(string operation, Dictionary<string, object?> parameters, object? body = null)
     {
         var arguments = new Dictionary<string, object?> { ["operation"] = operation, ["parameters"] = parameters };
@@ -147,10 +199,12 @@ public class GenericApiToolsTests(SharedWebAppFixture fixture)
         OperationSurface.Ui);
 
     /// <summary>The administrator's own token, issued requiring approval: the folder routes admit editors, which an agent isn't.</summary>
-    private async Task<McpClient> ApprovalTokenAsync()
+    private Task<McpClient> ApprovalTokenAsync() => AdminTokenAsync(["knowledge:read", "knowledge:write"], requiresApproval: true);
+
+    private async Task<McpClient> AdminTokenAsync(string[] scopes, bool requiresApproval)
     {
         var issued = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
-            new PatCreateRequest($"generic-{Guid.NewGuid():N}", ["knowledge:read", "knowledge:write"], RequiresApproval: true));
+            new PatCreateRequest($"generic-{Guid.NewGuid():N}", scopes, RequiresApproval: requiresApproval));
         var pat = (await issued.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<PatCreateResponse>())!;
         return await ConnectAsync(headers => headers.Add(ApiKeyAuthenticationOptions.HeaderName, pat.Token));
     }

@@ -26,6 +26,7 @@ public sealed class ApiDispatcher(
     IServiceProvider services)
 {
     private const int MaxResponseChars = 30_000;
+    private static readonly string[] ShownHeaders = ["ETag", "Location"];
 
     public ClaimsPrincipal Caller => http.HttpContext?.User ?? new ClaimsPrincipal();
 
@@ -196,6 +197,10 @@ public sealed class ApiDispatcher(
         int status = response.StatusCode;
         var stream = (MemoryStream)response.Body;
         string head = $"{status} {ReasonPhrases.GetReasonPhrase(status)}";
+        // A caller needs these to act on the answer: an ETag to send back as If-Match, a Location to read next.
+        foreach (string name in ShownHeaders)
+            if (response.Headers.TryGetValue(name, out var value) && value.Count > 0)
+                head += $"\n{name}: {value}";
         if (stream.Length == 0)
             return head;
         string? type = response.ContentType;

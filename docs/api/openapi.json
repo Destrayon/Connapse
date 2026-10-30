@@ -7487,6 +7487,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "The ETag from GET: the save is refused with 412 if the settings changed since. Without it the save replaces them.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
