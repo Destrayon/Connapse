@@ -48,7 +48,8 @@ public static class TestContainerLimits
         string[] parts = value.Split(',', StringSplitOptions.TrimEntries);
         if (parts.Length == 2
             && double.TryParse(parts[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double cpus)
-            && cpus > 0
+            // Docker's smallest CPU quota is 0.01; anything below truncates to NanoCPUs = 0, which means uncapped.
+            && cpus >= 0.01 && cpus <= 1_000_000
             && TryParseMemory(parts[1], out long memoryBytes))
             return new Limits(cpus, memoryBytes);
 
