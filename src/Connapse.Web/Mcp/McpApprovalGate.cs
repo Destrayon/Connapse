@@ -3,8 +3,10 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Connapse.Application;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Services;
+using Connapse.Web.Services.GenericApi;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -13,9 +15,10 @@ namespace Connapse.Web.Mcp;
 /// <summary>
 /// Holds a Destructive or Credential MCP tool call until a person approves it (#782). The first call
 /// from a token that requires approval records a pending request and says so; once approved on the
-/// approvals page, the same call with the same arguments from the same token runs, once.
+/// approvals page, the same call with the same arguments from the same token runs, once. A generic
+/// connapse_api_* call takes the risk of the operation it names (CON-20).
 /// </summary>
-public sealed class McpApprovalGate(IMcpApprovalStore store)
+public sealed class McpApprovalGate(IMcpApprovalStore store, ApiCatalog catalog)
 {
     private static readonly FrozenDictionary<string, McpToolRiskAttribute> RiskByTool = typeof(McpTools)
         .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
@@ -28,8 +31,9 @@ public sealed class McpApprovalGate(IMcpApprovalStore store)
     {
         string? tool = context.Params?.Name;
         var user = context.User;
+        string? operation = tool is McpApiTools.ReadName or McpApiTools.WriteName ? GenericOperation(context.Params!.Arguments) : null;
         if (tool is null || user?.Identity?.IsAuthenticated != true
-            || !RiskByTool.TryGetValue(tool, out var risk) || !risk.NeedsApproval || !McpApprovalClaims.Required(user))
+            || Risk(tool, operation) is not (RiskTier.Destructive or RiskTier.Credential) || !McpApprovalClaims.Required(user))
             return await proceed();
 
         if (McpApprovalClaims.OwnerUserId(user) is not { } owner)
@@ -53,13 +57,23 @@ public sealed class McpApprovalGate(IMcpApprovalStore store)
             [
                 new TextContentBlock
                 {
-                    Text = $"'{tool}' is pending approval: it changes or removes data, so a person must approve it first. "
+                    Text = $"'{tool}'{(operation is null ? "" : $" ({operation})")} is pending approval: it changes or removes data, so a person must approve it first. "
                         + $"Approve request {request.Id} at /approvals, then repeat this exact call with the same arguments. "
                         + $"The request expires at {request.ExpiresAt:u}.",
                 },
             ],
         };
     }
+
+    private RiskTier? Risk(string tool, string? operation) =>
+        operation is not null
+            ? catalog.RoutesFor(operation) is [var entry, ..] ? entry.Operation.Risk : null
+            : RiskByTool.TryGetValue(tool, out var risk) ? risk.Risk : null;
+
+    private static string? GenericOperation(IDictionary<string, JsonElement>? arguments) =>
+        arguments is not null && arguments.TryGetValue("operation", out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     /// <summary>The arguments with object keys sorted and whitespace dropped, so an identical call hashes the same.</summary>
     public static string CanonicalArguments(IDictionary<string, JsonElement>? arguments)

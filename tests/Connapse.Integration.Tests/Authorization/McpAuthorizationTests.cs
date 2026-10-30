@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using Connapse.Identity.Authentication;
 using Connapse.Web.Mcp;
+using Connapse.Web.Services.GenericApi;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;
 using ModelContextProtocol.Client;
@@ -78,6 +79,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             ["delete_file"] = new() { ["containerId"] = missing, ["fileId"] = Guid.NewGuid().ToString() },
             ["bulk_delete"] = new() { ["containerId"] = missing, ["fileIds"] = $"[\"{Guid.NewGuid()}\"]" },
             ["bulk_upload"] = new() { ["containerId"] = missing, ["files"] = "[{\"filename\":\"probe.txt\",\"content\":\"probe\"}]" },
+            [McpApiTools.WriteName] = new() { ["operation"] = missing },
         };
 
         var hidden = Tools.Keys.Where(t => !Visible(AuthzPrincipal.AgentRead, t)).Order().ToList();
@@ -131,6 +133,8 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{first}")).IsSuccessStatusCode),
                 ("bulk_delete", new() { ["containerId"] = full, ["fileIds"] = $"[\"{second}\"]" },
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{second}")).IsSuccessStatusCode),
+                (McpApiTools.WriteName, new() { ["operation"] = "containers.summaries.clear", ["parameters"] = new Dictionary<string, object?> { ["containerId"] = empty } },
+                    async () => (await http.GetAsync($"/api/containers/{empty}")).IsSuccessStatusCode),
             ];
             Tools.Where(t => t.Value.Risk == "destructive").Select(t => t.Key)
                 .Should().BeEquivalentTo(cases.Select(c => c.Tool), "each destructive tool needs a case here");
@@ -167,22 +171,32 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
     }
 
     /// <summary>Whether a tool should be listed for a scoped key: it holds the tool's scope.</summary>
-    private static bool Visible(AuthzPrincipal principal, string tool) =>
-        Tools[tool].Scope is { } scope && principal.Scopes!.Contains(scope);
+    private static bool Visible(AuthzPrincipal principal, string tool) => tool switch
+    {
+        // The generic tools are listed for a key that may call at least one operation through them (CON-20).
+        McpApiTools.SearchName => ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: true) || ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: false),
+        McpApiTools.ReadName => ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: true),
+        McpApiTools.WriteName => ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: false),
+        _ => Tools[tool].Scope is { } scope && principal.Scopes!.Contains(scope),
+    };
 
     /// <summary>The scope a tool's [Authorize] policy demands, in the table's words; null when none.</summary>
     private static string? DeclaredScope(string tool)
     {
-        var method = typeof(McpTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
+        var method = new[] { typeof(McpTools), typeof(McpApiTools) }
+            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static))
             .Single(m => m.GetCustomAttribute<McpServerToolAttribute>()?.Name == tool);
         var policies = method.GetCustomAttributes<AuthorizeAttribute>()
-            .Concat(typeof(McpTools).GetCustomAttributes<AuthorizeAttribute>())
+            .Concat(method.DeclaringType!.GetCustomAttributes<AuthorizeAttribute>())
             .Select(a => a.Policy).OfType<string>().ToList();
         return policies.Count == 0 ? null : string.Join("+", policies.Select(p => p switch
         {
             "Scope:KnowledgeRead" => "knowledge:read",
             "Scope:KnowledgeWrite" => "knowledge:write",
             "Scope:AgentIngest" => "agent:ingest",
+            GenericApiPolicies.Search => "any operation scope",
+            GenericApiPolicies.Read => "a read operation scope",
+            GenericApiPolicies.Write => "a write operation scope",
             _ => p,
         }));
     }

@@ -145,6 +145,9 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
 .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
     context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)));
 builder.Services.AddScoped<Connapse.Web.Mcp.McpApprovalGate>();
+// The generic connapse_api_* tools, built from the committed spec (CON-20).
+builder.Services.AddSingleton<Connapse.Web.Services.GenericApi.ApiCatalog>();
+builder.Services.AddScoped<Connapse.Web.Services.GenericApi.ApiDispatcher>();
 
 if (allowAnonDiscovery)
 {
@@ -261,6 +264,7 @@ builder.Services.AddValidation();
 builder.Services.AddConnapseIdentity(builder.Configuration);
 builder.Services.AddConnapseAuthentication(builder.Configuration);
 builder.Services.AddConnapseAuthorization();
+Connapse.Web.Services.GenericApi.GenericApiPolicies.AddGenericApiPolicies(builder.Services.AddAuthorizationBuilder());
 
 // Provide auth state to Blazor components via cascading parameter
 builder.Services.AddCascadingAuthenticationState();

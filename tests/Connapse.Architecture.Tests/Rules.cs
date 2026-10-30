@@ -106,6 +106,10 @@ internal static class Rules
             || t.IsPrimitive || t.IsEnum
             || t == typeof(string) || t == typeof(decimal) || t == typeof(Guid)
             || t == typeof(CancellationToken)
-            || t.FullName == "Microsoft.AspNetCore.Http.IHttpContextAccessor";
+            || t.FullName == "Microsoft.AspNetCore.Http.IHttpContextAccessor"
+            // A JSON argument, and the dispatcher the generic connapse_api_* tools call: it runs the
+            // API's own route, so those tools share every rule the API applies (CON-20).
+            || t == typeof(System.Text.Json.JsonElement)
+            || t.FullName == "Connapse.Web.Services.GenericApi.ApiDispatcher";
     }
 }

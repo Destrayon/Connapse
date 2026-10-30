@@ -60,6 +60,11 @@
     <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/obj/openapi</OpenApiDocumentsDirectory>
   </PropertyGroup>
 
+  <!-- The generic connapse_api_* MCP tools are built from the committed spec (CON-20). -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../docs/api/openapi.json" LogicalName="Connapse.Web.openapi.json" Link="openapi.json" />
+  </ItemGroup>
+
   <!--
     GenerateOpenApiDocuments reruns only when Connapse.Web.dll changes. Endpoints' shapes also come from
     referenced assemblies, so drop its cache when any of them is newer, and always when updating.
