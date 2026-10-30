@@ -15,6 +15,8 @@ internal static class EvalEntryPoint
         // First, before anything touches Regex; the hosted Connapse instance runs in this process.
         Connapse.Core.Utilities.RegexTimeout.ApplyProcessDefault();
         CliArgs cli = CliArgs.Parse(args);
+        if (cli.WantsHelp)
+            return Commands.Help();
         using CancellationTokenSource cts = new();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
@@ -230,9 +232,20 @@ internal static class Commands
         return 0;
     }
 
+    /// <summary>Asked-for help goes to stdout and succeeds; <see cref="Usage"/> is the error for a bad command.</summary>
+    public static int Help()
+    {
+        Console.WriteLine(UsageText);
+        return 0;
+    }
+
     public static int Usage()
     {
-        Console.Error.WriteLine("""
+        Console.Error.WriteLine(UsageText);
+        return 2;
+    }
+
+    private const string UsageText = """
             usage: dotnet run --project tests/Connapse.Eval -- <command>
               run      --suite <name> --config <name>[,<name>...] [--system connapse] [--datasets a,b] [--resume <runDir>] [--limit-queries N] [--index-cache on|off]
                        several configs index once per group with the same index-time settings
@@ -245,9 +258,7 @@ internal static class Commands
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
-            """);
-        return 2;
-    }
+            """;
 }
 
 internal static class ReportWriter
