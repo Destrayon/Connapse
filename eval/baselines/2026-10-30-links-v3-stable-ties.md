@@ -1,8 +1,8 @@
 # links-v3 with link-search ties broken by path, 2026-10-30 (CON-152)
 
 Does link search rank links-v3 (`links-flink-atlassian`) the same way on every run once tied linked documents are
-ordered by path instead of by document id? CON-149 ([2026-10-29-links-v3-rebuild.md](2026-10-29-links-v3-rebuild.md)
-on its branch) found that two links-on runs ranked 31 of 307 queries' top 10 differently, because the 20-document cut
+ordered by path instead of by document id? CON-149 ([2026-10-29-links-v3-rebuild.md](2026-10-29-links-v3-rebuild.md))
+found that two links-on runs ranked 31 of 307 queries' top 10 differently, because the 20-document cut
 broke ties by document id, a fresh random GUID on every index.
 
 **Pass bar, set before measuring.**
