@@ -64,6 +64,7 @@ public static class AuthEndpoints
         .Produces<TokenResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .AddEndpointFilter<MalformedSignInInputFilter>()
         .WithName("GetToken")
         .WithDescription("Exchange email/password for a JWT access token and refresh token")
         .AllowAnonymous()
