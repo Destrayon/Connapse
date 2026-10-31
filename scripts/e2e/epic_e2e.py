@@ -349,7 +349,14 @@ def up(env: dict, base: str, build: bool):
         compose(env, "build", "web", "custom-source", "custom-perms")
     compose(env, "up", "-d", "--wait", "postgres", "minio", "ollama", "sftp", "custom-source", "custom-perms")
     print("Pulling the embedding model into the stack's Ollama (CPU only)...", flush=True)
-    compose(env, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL)
+    for attempt in range(3):  # the registry sometimes times out the TLS handshake
+        try:
+            compose(env, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL)
+            break
+        except subprocess.CalledProcessError:
+            if attempt == 2:
+                raise
+            time.sleep(10)
     compose(env, "up", "-d", "web")
     wait_for("/health", lambda: http("GET", base + "/health", timeout=5).status == 200, 300)
 
@@ -425,7 +432,8 @@ def report(spec: Spec, out: Path, header: str) -> int:
             lines += [f"### {r['area']} / {r['item']}", "", "```", r["detail"].strip()[:3000], "```", ""]
     text = "\n".join(lines) + "\n"
     out.write_text(text, encoding="utf-8")
-    print(text)
+    # Bootstrap icon glyphs in captured page text don't fit a cp1252 console.
+    print(text.encode(sys.stdout.encoding or "utf-8", "replace").decode(sys.stdout.encoding or "utf-8"))
     return 1 if failed or uncovered else 0
 
 

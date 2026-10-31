@@ -182,9 +182,20 @@ class Files:
     def row(self, name: str):
         return self.page.locator("tr.file-row", has=self.page.locator(".entry-name", has_text=name))
 
-    def upload(self, path: Path):
-        self.page.locator("#fileUploadInput").set_input_files(str(path))
-        self.row(path.name).first.wait_for(state="visible", timeout=60_000)
+    def upload(self, path: Path, tries=4):
+        """The input's change listener is bound by fileDrop.js once the circuit is up, so a file set
+        before that is dropped silently; set it again until the row appears."""
+        for attempt in range(tries):
+            self.page.locator("#fileUploadInput").set_input_files(str(path))
+            try:
+                self.row(path.name).first.wait_for(state="visible", timeout=15_000)
+                return
+            except Exception:
+                self.page.reload(wait_until="networkidle")  # it may have uploaded without the list refreshing
+                if self.row(path.name).count():
+                    return
+                if attempt == tries - 1:
+                    raise
 
     def wait_ready(self, name: str, timeout=INGEST_TIMEOUT):
         deadline = time.monotonic() + timeout
@@ -200,8 +211,9 @@ class Files:
 
     def delete(self, name: str):
         p = self.page
-        modal_delete = p.locator(".modal-custom, .modal-content, .modal-dialog").get_by_role("button", name="Delete", exact=True)
-        click_until(p, self.row(name).locator('button[title="Delete"]'), modal_delete)
+        # The row's Delete is an icon-only button, so the one with text is the dialog's confirm.
+        modal_delete = p.locator("button:visible", has_text=re.compile(r"^\s*Delete\s*$"))
+        click_until(p, self.row(name).locator('button[title="Delete"]'), p.get_by_text("Are you sure you want to delete"))
         modal_delete.last.click()
         expect_gone(self.row(name))
 
@@ -338,7 +350,7 @@ class Sources:
         self.page = page
 
     def row(self, name: str):
-        return self.page.locator("tr", has=self.page.locator("td", has_text=re.compile(f"^{re.escape(name)}$")))
+        return self.page.locator("tr", has_text=name)
 
     def create(self, connection: str, name: str, sub_path: str):
         p = self.page
@@ -351,12 +363,13 @@ class Sources:
         p.locator("#source-name").fill(name)
         p.locator("#source-description").fill("Created by the UI end-to-end journey")
         dialog.get_by_placeholder("team-a").fill(sub_path)
-        dialog.get_by_role("button", name="Create", exact=True).click()
+        dialog.get_by_role("button", name="Create source", exact=True).click()
         expect_gone(dialog, timeout=60_000)
         self.row(name).first.wait_for(state="visible")
 
     def sync(self, name: str):
-        self.row(name).get_by_role("button", name="Sync").click()
+        # "Pause syncing" also contains "Sync", so match the button's whole text.
+        self.row(name).locator("button", has_text=re.compile(r"^\s*Sync\s*$")).click()
 
     def delete(self, name: str):
         p = self.page
@@ -527,7 +540,7 @@ def walk(u: Ui):
         goto(admin, "/settings")
         click_until(admin, admin.get_by_role("button", name=name, exact=True),
                     admin.locator("button.nav-link.active", has_text=re.compile(f"^\\s*{name}\\s*$")))
-        admin.get_by_role("button", name=re.compile("^Save")).first.wait_for()
+        admin.locator("button:visible", has_text="Save").first.wait_for()
     for name in SETTINGS_TABS:
         u.item(admin, "UI settings", f"{name} tab", lambda name=name: tab(name))
     u.item(admin, "UI settings", "save the Chunking tab",
@@ -538,7 +551,7 @@ def walk(u: Ui):
                     click_until(admin, admin.get_by_role("button", name="Test Connection"),
                                 admin.locator(".alert-success, .alert-danger"), tries=2, wait_ms=60_000),
                     t.expect(admin.locator(".alert-success").count() > 0,
-                             f"connection test failed: {admin.locator('.alert-danger').first.inner_text()[:200]}")))
+                             "connection test failed: " + " ".join(admin.locator(".alert-danger").all_inner_texts())[:200])))
 
     # Pages every journey above passes through, plus the ones that only need to render.
     for path, heading in [("/sources", "Sources"), ("/connections", "Connections"), ("/admin/providers", None),
