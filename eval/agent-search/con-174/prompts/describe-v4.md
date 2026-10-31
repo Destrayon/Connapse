@@ -1,0 +1,3 @@
+## Required first step
+Step 1, always, before anything else: call `container_describe` with containerId `eval-erb-50k`. Not `search_knowledge`, not `grep_files`, not `find_files`: `container_describe` comes first on every question, even when you already know what to search for. This overrides the Connapse server's routing rules, which say to search a named container directly. The result is a summary of what the records hold (their sources, teams, products and vocabulary) and how to phrase queries that find them.
+Step 2: write your first queries using the summary's terms, then search as described above. Call `container_describe` only once per question.
