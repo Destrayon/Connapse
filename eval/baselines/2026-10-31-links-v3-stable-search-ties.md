@@ -13,3 +13,19 @@ chunks tied at the cut come back in heap order, which varies with ingest order.
   approximate HNSW index is built with random levels and is not expected to repeat across builds.
 - nDCG@10 and MRR@10 are unchanged from CON-152's at their printed precision: `hybrid-links` 0.323 and 0.257,
   `hybrid` 0.220 and 0.185.
+
+## Cause, confirmed before the fix
+
+Two from-scratch runs on the pre-fix code (commit 6008a20, which only adds chunk indexes to the candidate capture),
+each running `hybrid-links-exact-capture` and `hybrid-exact-capture`, which are the exact configs plus a capture of
+each side's top 30 candidates:
+
+- Keyword pools differed in 13 of 307 queries. In every one, the chunks that swapped (2, or 4 for
+  `jira-parent-0143`) all score exactly the pool's 30th score in both runs, so they are ties at the cut.
+- Vector pools were identical in all 307 queries.
+- In these two runs no top 10 changed order, but `jira-blocked-by-0085` moved every score by up to 0.0043 links on
+  and 0.0038 links off. That is the same query CON-152 saw move. A different tied chunk at the bottom of the keyword
+  pool shifts the pool's normalisation and, with it, every fused score.
+- Metrics match CON-152's: `hybrid-links` nDCG@10 0.323, MRR@10 0.257; `hybrid` 0.220, 0.185.
+
+The vector cut-offs get the same tie-breaker anyway, since they have the same `ORDER BY distance LIMIT k` shape.
