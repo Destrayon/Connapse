@@ -10,7 +10,8 @@ namespace Connapse.Web.Problems;
 public static class ProblemDetailsExtensions
 {
     public static IServiceCollection AddConnapseProblemDetails(this IServiceCollection services) =>
-        services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+        services.AddExceptionHandler<UnstorableTextExceptionHandler>()
+            .AddProblemDetails(options => options.CustomizeProblemDetails = context =>
         {
             var problem = context.ProblemDetails;
             // A validation problem's own text is generic, so scripts reading .error get the first

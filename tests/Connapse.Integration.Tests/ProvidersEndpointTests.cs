@@ -159,4 +159,33 @@ public sealed class ProvidersEndpointTests(SharedWebAppFixture fixture)
         problem.GetProperty("field").GetString().Should().Be(field);
         problem.GetProperty("type").GetString().Should().EndWith("invalid-azure-setup");
     }
+
+    // What the fuzz run sent (CON-179): members the request doesn't have, and text full of control characters
+    // with a NUL among them, which PostgreSQL refuses to store.
+    private const string ControlText = "\u0000\u0001\u001f\u007f\u0085 C:\\certs\\\u0000app.pfx";
+
+    [Theory]
+    [InlineData("PUT", "/api/v1/providers/azure/permissions")]
+    [InlineData("PUT", "/api/v1/providers/azure/access")]
+    [InlineData("PUT", "/api/v1/providers/aws/access")]
+    [InlineData("PUT", "/api/v1/providers/aws/identity-center")]
+    [InlineData("PUT", "/api/v1/providers/aws/permissions")]
+    [InlineData("POST", "/api/v1/providers/custom")]
+    public async Task Save_TextWithNulAndUnknownMembers_BadRequest(string method, string path)
+    {
+        string[] members =
+        [
+            "tenantId", "clientId", "clientCertificatePath", "clientCertificatePassword", "subscriptionId", "managedIdentityClientId",
+            "certificatePem", "privateKeyPem", "trustAnchorArn", "profileArn", "roleArn", "region", "instanceArn", "identityStoreId",
+            "entityId", "idpEntityId", "idpSigningCertificate", "name", "token",
+        ];
+        var body = members.ToDictionary(member => member, object? (_) => ControlText);
+        body["\u0000junk"] = new[] { ControlText };
+        body["extra"] = new Dictionary<string, object> { ["nested"] = ControlText };
+
+        var response = await fixture.AdminClient.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = JsonContent.Create(body) });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString().Should().NotBeNullOrEmpty();
+    }
 }
