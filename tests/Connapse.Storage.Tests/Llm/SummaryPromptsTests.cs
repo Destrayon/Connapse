@@ -79,4 +79,29 @@ public class SummaryPromptsTests
         rendered.Should().Contain("cluster medoids");
         rendered.Should().Contain("represents 47 similar docs");
     }
+
+    [Fact]
+    public void RenderContainerRollupUserMessage_FewerSummariesThanTotal_SaysSampleNotAll()
+    {
+        string rendered = SummaryPrompts.RenderContainerRollupUserMessage(
+            containerName: "Big folder",
+            totalDocs: 50_000,
+            isClustered: false,
+            summaries: new[] { "doc1", "doc2" });
+        rendered.Should().Contain("50000 documents total");
+        rendered.Should().Contain("representative SAMPLE of 2 documents drawn from across the whole container");
+        rendered.Should().NotContain("all documents are shown");
+    }
+
+    [Fact]
+    public void RenderContainerRollupUserMessage_SummariesEqualTotal_SaysAllShown()
+    {
+        string rendered = SummaryPrompts.RenderContainerRollupUserMessage(
+            containerName: "Small folder",
+            totalDocs: 2,
+            isClustered: false,
+            summaries: new[] { "doc1", "doc2" });
+        rendered.Should().Contain("2 documents total; all documents are shown below");
+        rendered.Should().NotContain("SAMPLE");
+    }
 }

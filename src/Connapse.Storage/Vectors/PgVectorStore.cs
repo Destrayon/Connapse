@@ -537,8 +537,11 @@ public class PgVectorStore : IVectorStore
     /// <inheritdoc />
     public async Task<IReadOnlyList<(Guid DocumentId, float[] Embedding)>> GetPooledDocumentEmbeddingsAsync(
         Guid containerId,
+        int maxDocuments,
         CancellationToken ct = default)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDocuments);
+
         // Step 1: pick the dominant (model_id, dimensions) group in the container. The same model id
         // can hold vectors of two sizes after its dimensions were reconfigured, and those can
         // neither be averaged together nor compared, so the size is part of the group.
@@ -586,6 +589,9 @@ public class PgVectorStore : IVectorStore
         }
 
         // Step 2: pool per-document. AVG(embedding) returns a vector at the same dimensionality.
+        // Only a sample of documents is pooled so memory stays bounded on huge containers. Ordering
+        // by md5 of the id spreads the sample evenly across the whole container (unlike the newest
+        // or first N) and keeps it the same from one rollup to the next (CON-176).
         var conn = _context.Database.GetDbConnection();
         bool openedHere = false;
         if (conn.State != System.Data.ConnectionState.Open)
@@ -597,18 +603,32 @@ public class PgVectorStore : IVectorStore
         {
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
-                SELECT document_id, AVG(embedding)::vector AS pooled
-                FROM chunk_vectors
-                WHERE owner_id = @cid
-                  AND model_id = @model_id
-                  AND vector_dims(embedding) = @dims
-                GROUP BY document_id
+                WITH sample AS (
+                    SELECT document_id
+                    FROM (
+                        SELECT DISTINCT document_id
+                        FROM chunk_vectors
+                        WHERE owner_id = @cid
+                          AND model_id = @model_id
+                          AND vector_dims(embedding) = @dims
+                    ) docs
+                    ORDER BY md5(document_id::text)
+                    LIMIT @max_docs
+                )
+                SELECT cv.document_id, AVG(cv.embedding)::vector AS pooled
+                FROM chunk_vectors cv
+                JOIN sample s ON s.document_id = cv.document_id
+                WHERE cv.owner_id = @cid
+                  AND cv.model_id = @model_id
+                  AND vector_dims(cv.embedding) = @dims
+                GROUP BY cv.document_id
                 """;
 
             var p = cmd.Parameters;
             p.Add(new NpgsqlParameter("cid", containerId));
             p.Add(new NpgsqlParameter("model_id", dominantModelId));
             p.Add(new NpgsqlParameter("dims", dominantDimensions));
+            p.Add(new NpgsqlParameter("max_docs", maxDocuments));
 
             var results = new List<(Guid DocumentId, float[] Embedding)>();
             await using var reader = await cmd.ExecuteReaderAsync(ct);

@@ -80,11 +80,17 @@ public static class SummaryPrompts
         bool isClustered,
         IEnumerable<string> summaries)
     {
+        List<string> shown = summaries.ToList();
+
+        // Fewer summaries than documents means the caller picked a sample; saying "all documents"
+        // then would have the model describe a part of the container as the whole (CON-176).
         string clusterNote = isClustered
             ? "; you are shown a representative SAMPLE — cluster medoids, with cluster sizes in brackets — NOT every document"
-            : "; all documents are shown below";
+            : totalDocs > shown.Count
+                ? $"; you are shown a representative SAMPLE of {shown.Count} documents drawn from across the whole container — NOT every document"
+                : "; all documents are shown below";
 
-        string body = string.Join("\n", summaries.Select((s, i) => $"{i + 1}. {s}"));
+        string body = string.Join("\n", shown.Select((s, i) => $"{i + 1}. {s}"));
 
         return $"""
             Container: "{containerName}"

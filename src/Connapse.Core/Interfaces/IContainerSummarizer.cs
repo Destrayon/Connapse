@@ -15,9 +15,14 @@ public sealed record ContainerSummarizationResult(
 
 public interface IContainerSummarizer
 {
+    /// <param name="totalDocuments">
+    /// How many documents the container really holds, when <paramref name="docs"/> is a sample of them.
+    /// Null means <paramref name="docs"/> is every document.
+    /// </param>
     Task<ContainerSummarizationResult> GenerateAsync(
         string containerName,
         IReadOnlyList<DocumentWithSummary> docs,
         SummarySettings settings,
+        int? totalDocuments = null,
         CancellationToken ct = default);
 }

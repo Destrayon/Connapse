@@ -20,9 +20,11 @@ public interface IVectorStore
     Task DeleteByDocumentIdAsync(string documentId, CancellationToken ct = default);
 
     /// <summary>
-    /// Returns one mean-pooled embedding per document in the container, computed across
-    /// that document's chunk vectors. Used by the <c>document-clustering</c> container
-    /// summary path to cluster docs without re-embedding them.
+    /// Returns one mean-pooled embedding per document, computed across that document's chunk
+    /// vectors, for at most <paramref name="maxDocuments"/> documents sampled from across the
+    /// whole container — not the first or newest ones. The sample is deterministic, so an
+    /// unchanged container yields the same documents each time. Used by the
+    /// <c>document-clustering</c> container summary path to cluster docs without re-embedding them.
     /// </summary>
     /// <remarks>
     /// Implementations should:
@@ -34,5 +36,6 @@ public interface IVectorStore
     /// </remarks>
     Task<IReadOnlyList<(Guid DocumentId, float[] Embedding)>> GetPooledDocumentEmbeddingsAsync(
         Guid containerId,
+        int maxDocuments,
         CancellationToken ct = default);
 }

@@ -379,6 +379,24 @@ public class PostgresDocumentStore : IDocumentStore
             stats.LastIndexedAt);
     }
 
+    public async Task<DocumentSetFingerprint> GetDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        using var hasher = new Connapse.Core.Utilities.DocumentSetHasher();
+        var rows = context.Documents
+            .AsNoTracking()
+            .Where(d => d.OwnerId == containerId)
+            .OrderBy(d => d.Id)
+            .Select(d => new { d.Id, d.ContentHash })
+            .AsAsyncEnumerable();
+
+        await foreach (var row in rows.WithCancellation(ct))
+            hasher.Add(row.Id.ToString(), row.ContentHash);
+
+        return hasher.Finish();
+    }
+
     public async Task<IReadOnlyDictionary<string, string?>> GetResourceUrisAsync(
         IReadOnlyCollection<string> documentIds, CancellationToken ct = default)
     {

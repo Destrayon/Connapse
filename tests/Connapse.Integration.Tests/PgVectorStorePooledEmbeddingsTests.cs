@@ -38,7 +38,7 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
             // Act
             await using var scope = fixture.Factory.Services.CreateAsyncScope();
             var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
-            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, CancellationToken.None);
+            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, maxDocuments: 100, CancellationToken.None);
 
             // Assert
             result.Should().HaveCount(2);
@@ -77,7 +77,7 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
         {
             await using var scope = fixture.Factory.Services.CreateAsyncScope();
             var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
-            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, CancellationToken.None);
+            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, maxDocuments: 100, CancellationToken.None);
 
             result.Should().HaveCount(2);
             result.Select(r => r.DocumentId).Should().BeEquivalentTo(new[] { docA1, docA2 });
@@ -107,7 +107,7 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
         {
             await using var scope = fixture.Factory.Services.CreateAsyncScope();
             var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
-            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, CancellationToken.None);
+            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, maxDocuments: 100, CancellationToken.None);
 
             result.Select(r => r.DocumentId).Should().BeEquivalentTo(new[] { docA1, docA2, docB });
             result.Should().OnlyContain(r => r.Embedding.Length == 3);
@@ -126,7 +126,7 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
         {
             await using var scope = fixture.Factory.Services.CreateAsyncScope();
             var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
-            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, CancellationToken.None);
+            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, maxDocuments: 100, CancellationToken.None);
 
             result.Should().BeEmpty();
         }
@@ -136,7 +136,106 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task GetPooledDocumentEmbeddingsAsync_MoreDocsThanMax_ReturnsTheSameBoundedSampleEachTime()
+    {
+        Guid containerId = await CreateContainerAsync("pool-sample");
+        var docs = new List<Guid>();
+        for (int i = 0; i < 12; i++)
+        {
+            Guid doc = await SeedDocumentAsync(containerId, $"/s{i}.txt");
+            await SeedChunkVectorAsync(doc, containerId, "model-A", new float[] { 1f, i });
+            docs.Add(doc);
+        }
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
+            var first = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, maxDocuments: 5, CancellationToken.None);
+            var second = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, maxDocuments: 5, CancellationToken.None);
+
+            first.Should().HaveCount(5);
+            first.Select(r => r.DocumentId).Should().OnlyContain(id => docs.Contains(id));
+            second.Select(r => r.DocumentId).Should().BeEquivalentTo(first.Select(r => r.DocumentId));
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
+    public async Task GetDocumentSetFingerprintAsync_FolderOverTenThousandDocs_CountsAndHashesEveryDocument()
+    {
+        // CON-176: the rollup once read only the newest 10,000 documents. The fingerprint must see them all.
+        const int documentCount = 10_050;
+        Guid containerId = await CreateContainerAsync("fp-large");
+        var ids = new List<Guid>(documentCount);
+        await using (var seedScope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            var factoryDb = seedScope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+            await using var ctx = await factoryDb.CreateDbContextAsync();
+            for (int i = 0; i < documentCount; i++)
+            {
+                Guid id = Guid.NewGuid();
+                ids.Add(id);
+                ctx.Documents.Add(NewDocument(id, containerId, $"/bulk-{i}.txt", contentHash: $"h{i}"));
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var docStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            DocumentSetFingerprint fingerprint = await docStore.GetDocumentSetFingerprintAsync(containerId, CancellationToken.None);
+
+            fingerprint.DocumentCount.Should().Be(documentCount);
+
+            // The hash covers the oldest documents too: change one and the hash changes.
+            await using (var editScope = fixture.Factory.Services.CreateAsyncScope())
+            {
+                var factoryDb = editScope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+                await using var ctx = await factoryDb.CreateDbContextAsync();
+                await ctx.Documents.Where(d => d.Id == ids[0])
+                    .ExecuteUpdateAsync(s => s.SetProperty(d => d.ContentHash, "changed"));
+            }
+            DocumentSetFingerprint after = await docStore.GetDocumentSetFingerprintAsync(containerId, CancellationToken.None);
+            after.DocumentCount.Should().Be(documentCount);
+            after.Hash.Should().NotBe(fingerprint.Hash);
+        }
+        finally
+        {
+            // Container delete refuses a container that still has documents, and ten thousand
+            // leftover rows would weigh on every later test sharing this database.
+            await using (var cleanupScope = fixture.Factory.Services.CreateAsyncScope())
+            {
+                var factoryDb = cleanupScope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+                await using var ctx = await factoryDb.CreateDbContextAsync();
+                await ctx.Documents.Where(d => d.ContainerId == containerId).ExecuteDeleteAsync();
+            }
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private static DocumentEntity NewDocument(Guid docId, Guid containerId, string path, string contentHash) => new()
+    {
+        Id = docId,
+        ContainerId = containerId,
+        FileName = path.TrimStart('/'),
+        ContentType = "text/plain",
+        Path = path,
+        ContentHash = contentHash,
+        SizeBytes = 1,
+        ChunkCount = 0,
+        Generation = 1,
+        IngestionStatus = DocumentStatus.Queued,
+        CreatedAt = DateTime.UtcNow,
+        Metadata = new Dictionary<string, string>(),
+    };
 
     private async Task<Guid> CreateContainerAsync(string nameSuffix)
     {

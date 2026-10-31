@@ -28,6 +28,12 @@ public interface IDocumentStore
     Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The number of documents in the container and a hash over all of them, read as a stream so a
+    /// container of any size costs constant memory (CON-176).
+    /// </summary>
+    Task<DocumentSetFingerprint> GetDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default);
     Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default);
 
     /// <summary>
