@@ -26,6 +26,7 @@ internal static class SourceSearchChoices
     /// <see cref="SearchSettings.UseKeywordSearch"/>, <see cref="SearchSettings.FusionAlpha"/> and the link
     /// settings. Everything else, and whether the link layer is on at all, stays the deployment's. The owner's
     /// choices are cached for <see cref="CacheFor"/>, so a changed choice reaches search within that time.
+    /// Only the settings the owner names are laid over; one it leaves out, or sets to null, stays the deployment's.
     /// </summary>
     public static async Task<SearchSettings> ResolveAsync(
         IDbContextFactory<KnowledgeDbContext> contexts, IMemoryCache cache, string? ownerId, SearchSettings global,
@@ -35,7 +36,7 @@ internal static class SourceSearchChoices
             return global;
 
         string key = $"link-layer:choices:{id}";
-        if (!cache.TryGetValue(key, out SearchSettings? own))
+        if (!cache.TryGetValue(key, out OwnerChoices? own))
         {
             await using KnowledgeDbContext context = await contexts.CreateDbContextAsync(ct);
             JsonDocument? json = await context.Containers.AsNoTracking()
@@ -50,21 +51,29 @@ internal static class SourceSearchChoices
             ? global
             : global with
             {
-                UseVectorSearch = own.UseVectorSearch,
-                UseKeywordSearch = own.UseKeywordSearch,
-                FusionAlpha = own.FusionAlpha,
-                LinkWeight = own.LinkWeight,
-                LinkMaxHops = own.LinkMaxHops,
-                LinkSeeds = own.LinkSeeds,
+                UseVectorSearch = own.UseVectorSearch ?? global.UseVectorSearch,
+                UseKeywordSearch = own.UseKeywordSearch ?? global.UseKeywordSearch,
+                FusionAlpha = own.FusionAlpha ?? global.FusionAlpha,
+                LinkWeight = own.LinkWeight ?? global.LinkWeight,
+                LinkMaxHops = own.LinkMaxHops ?? global.LinkMaxHops,
+                LinkSeeds = own.LinkSeeds ?? global.LinkSeeds,
             };
     }
 
     /// <summary>
-    /// The owner's search settings, but only when they name one of the link layer's choices. Search overrides
+    /// The search settings an owner named, each null when the owner left it out: a missing setting deserialised
+    /// into <see cref="SearchSettings"/> would read as its default and replace the deployment's choice.
+    /// </summary>
+    internal sealed record OwnerChoices(
+        bool? UseVectorSearch, bool? UseKeywordSearch, float? FusionAlpha, float? LinkWeight, int? LinkMaxHops,
+        int? LinkSeeds);
+
+    /// <summary>
+    /// The owner's search choices, but only when they name one of the link layer's choices. Search overrides
     /// saved before the link layer were never applied at search time; honouring them now (a stale fusion weight)
     /// would change searches the moment the layer is turned on, links or not.
     /// </summary>
-    internal static SearchSettings? Parse(JsonDocument? json)
+    internal static OwnerChoices? Parse(JsonDocument? json)
     {
         if (json is null
             || json.RootElement.ValueKind != JsonValueKind.Object
@@ -74,7 +83,7 @@ internal static class SourceSearchChoices
             return null;
         try
         {
-            return JsonSerializer.Deserialize<ContainerSettingsOverrides>(json.RootElement.GetRawText(), JsonOptions)?.Search;
+            return search.Deserialize<OwnerChoices>(JsonOptions);
         }
         catch (JsonException)
         {

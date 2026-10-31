@@ -1452,7 +1452,8 @@
                 Summary = HasSummaryOverride(summaryToSave) ? summaryToSave : null
             };
 
-            await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides);
+            await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides,
+                [nameof(SearchSettings.Mode), nameof(SearchSettings.TopK), nameof(SearchSettings.MinimumScore)]);
 
             settingsSaved = true;
         }

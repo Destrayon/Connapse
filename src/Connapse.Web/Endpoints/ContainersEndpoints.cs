@@ -1,4 +1,5 @@
 ﻿using Connapse.Background.Jobs;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -188,8 +189,10 @@ public static class ContainersEndpoints
             if (!await containerStore.ExistsAsync(containerId, ct))
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            var overrides = await containerStore.GetSettingsOverridesAsync(containerId, ct);
-            return Results.Ok(overrides ?? new ContainerSettingsOverrides());
+            // The stored JSON, not the typed object: a search setting never chosen must stay absent, or a client
+            // sending this back would choose its default.
+            JsonElement? stored = await containerStore.GetSettingsOverridesJsonAsync(containerId, ct);
+            return stored is { } json ? Results.Ok(json) : Results.Ok(new ContainerSettingsOverrides());
         })
         .WithName("GetContainerSettings")
         .WithDescription("Get per-container settings overrides")
@@ -198,15 +201,29 @@ public static class ContainersEndpoints
         // PUT /api/containers/{containerId}/settings - Save container settings overrides
         group.MapPut("/{containerId:guid}/settings", async (
             Guid containerId,
-            [FromBody] ContainerSettingsOverrides overrides,
+            [FromBody] JsonElement body,
             [FromServices] IContainerStore containerStore,
+            [FromServices] IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
             CancellationToken ct) =>
         {
+            // Read as JSON first so the store can tell a search setting the caller named from one it left out.
+            ContainerSettingsOverrides? overrides;
+            try
+            {
+                overrides = body.Deserialize<ContainerSettingsOverrides>(jsonOptions.Value.SerializerOptions);
+            }
+            catch (JsonException)
+            {
+                overrides = null;
+            }
+            if (overrides is null)
+                return Results.BadRequest(new { error = "Request body must be a settings overrides object" });
+
             if (!await containerStore.ExistsAsync(containerId, ct))
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            await containerStore.SaveSettingsOverridesAsync(containerId, overrides, ct);
-            return Results.Ok(overrides);
+            await containerStore.SaveSettingsOverridesAsync(containerId, overrides, NamedSearchSettings(body), ct);
+            return Results.Ok(await containerStore.GetSettingsOverridesJsonAsync(containerId, ct));
         })
         .WithName("SaveContainerSettings")
         .WithDescription("Save per-container settings overrides")
@@ -420,6 +437,21 @@ public static class ContainersEndpoints
             ".epub" => "application/epub+zip",
             _ => null
         };
+
+    // The search settings a settings overrides body names, in whatever case it sent them.
+    private static List<string> NamedSearchSettings(JsonElement body)
+    {
+        List<string> named = [];
+        foreach (JsonProperty section in body.EnumerateObject())
+        {
+            if (string.Equals(section.Name, nameof(ContainerSettingsOverrides.Search), StringComparison.OrdinalIgnoreCase)
+                && section.Value.ValueKind == JsonValueKind.Object)
+            {
+                named.AddRange(section.Value.EnumerateObject().Select(setting => setting.Name));
+            }
+        }
+        return named;
+    }
 
 }
 
