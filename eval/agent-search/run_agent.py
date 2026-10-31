@@ -29,8 +29,11 @@ SETUPS = {"rag": RAG_TOOLS, "files": FILE_TOOLS, "both": RAG_TOOLS + FILE_TOOLS}
 def mcp_config(setup, args, out):
     servers = {}
     if setup in ("rag", "both"):
+        if not os.environ.get("CON142_PAT"):
+            sys.exit("set CON142_PAT to the Connapse PAT")
+        # Claude Code expands ${VAR} in MCP headers, so the PAT itself never lands in the written config.
         servers["connapse"] = {"type": "http", "url": args.connapse,
-                               "headers": {"X-Api-Key": os.environ["CON142_PAT"]}}
+                               "headers": {"X-Api-Key": "${CON142_PAT}"}}
     if setup in ("files", "both"):
         servers["files"] = {"type": "stdio", "command": args.tool_server,
                             "args": ["--root", args.corpus, "--rg", args.rg]}
@@ -123,13 +126,16 @@ def main():
         while args.pause_file and Path(args.pause_file).exists():
             time.sleep(30)
         rec = run_one(q, args.setup, args, out, mcp_path, system_prompt)
+        if rec["unexpected_tools"]:
+            sys.exit(f"agent saw tools outside its setup: {rec['unexpected_tools']}; stopping")
+        # No result event means claude itself failed (rate limit, network); leave the question for a rerun.
+        # A result with is_error (e.g. error_max_turns) is the agent's own outcome and is kept.
+        if rec["subtype"] is None:
+            sys.exit(f"{q['id']}: claude exited {rec['exit_code']} without a result; not recorded, rerun to retry it")
         with summary.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
         print(f"[{args.setup} {i}/{len(questions)}] {q['id']} calls={rec['tool_calls']} "
-              f"cost={rec['cost_usd']} turns={rec['num_turns']} {rec['wall_s']}s"
-              + (f" UNEXPECTED={rec['unexpected_tools']}" if rec["unexpected_tools"] else ""), flush=True)
-        if rec["unexpected_tools"]:
-            sys.exit("agent saw tools outside its setup; stopping")
+              f"cost={rec['cost_usd']} turns={rec['num_turns']} {rec['wall_s']}s", flush=True)
 
 
 if __name__ == "__main__":

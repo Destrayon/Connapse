@@ -18,6 +18,7 @@ Does an agent answer better with Connapse RAG, with plain file search, or with b
 | `chunks_vs_files.py` | Literal search over stored chunks in Postgres against ripgrep over the original files |
 | `chunk_coverage.py` | Share of source lines that survive word for word in the stored chunks |
 | `bench_*.tsv` | grep / ripgrep / Zoekt / ast-grep timings |
+| `scripts/` | The benchmark scripts that produced `bench_*.tsv`: grep, ripgrep, ast-grep and Zoekt |
 | `results/` | Judged answers per setup and the measurement outputs |
 
 The file-search tools live in `tools/Connapse.AgentSearch.Prototype` (an MCP server over ripgrep).
@@ -25,11 +26,12 @@ The file-search tools live in `tools/Connapse.AgentSearch.Prototype` (an MCP ser
 ## Reproduce
 
 Needs a running Connapse (the run used `http://localhost:5142`) with Ollama `nomic-embed-text`, Claude Code, and
-ripgrep. The PAT goes in the `X-Api-Key` header, which `run_agent.py` sets from `CON142_PAT`.
+ripgrep. The PAT goes in the `X-Api-Key` header, which `run_agent.py` sets from `CON142_PAT`. Keep the PAT file outside the
+checkout so it cannot be committed.
 
 ```bash
-python ingest.py --base http://localhost:5142 --email ... --password ... --corpus <corpus> --pat-out pat.txt
-CON142_PAT=$(cat pat.txt) python run_agent.py --setup both --out runs --corpus <corpus> \
+python ingest.py --base http://localhost:5142 --email ... --password ... --corpus <corpus> --pat-out ~/con142-pat.txt
+CON142_PAT=$(cat ~/con142-pat.txt) python run_agent.py --setup both --out runs --corpus <corpus> \
     --tool-server <Connapse.AgentSearch.Prototype.exe> --rg <rg.exe> --cwd <empty dir>
 python judge.py --out runs judge && python judge.py --out runs summary
 ```

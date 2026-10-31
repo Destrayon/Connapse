@@ -5,7 +5,7 @@
 | rag_first | 19 (53%) | 11 | $0.1952 | 7.5 | 8.5 | 48/48 | 48/48 |
 | rag_always | 22 (61%) | 12 | $0.1808 | 6.8 | 7.4 | 48/48 | 48/48 |
 
-Miss rate: files_first got 2 of the 15 hard questions rag answered wrong (13%): ['qst_0239', 'qst_0243']
+Miss rate: files_first got wrong 2 of the 15 hard questions rag answered correctly (13%): ['qst_0239', 'qst_0243']
 files_first answered 6 hard questions rag missed: ['qst_0235', 'qst_0251', 'qst_0282', 'qst_0255', 'qst_0244', 'qst_0289']
 
 rag_first vs files_first: hard +0 (+0.0 points; bar >= +4) FAIL; cost -4.2% (bar <= +20%) PASS; control -1 (bar >= -1) PASS; hard discordant 4 won / 4 lost, exact McNemar p=1.000

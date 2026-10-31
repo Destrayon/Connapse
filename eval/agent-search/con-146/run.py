@@ -59,12 +59,14 @@ def run(args, questions):
     for i, q in enumerate(todo, 1):
         rec = run_agent.run_one(q, tools, args, out, mcp_path, prompt)
         rec["setup"] = args.setup
+        if rec["unexpected_tools"]:
+            sys.exit(f"agent saw tools outside its setup: {rec['unexpected_tools']}")
+        if rec["subtype"] is None:
+            sys.exit(f"{q['id']}: claude exited {rec['exit_code']} without a result; not recorded, rerun to retry it")
         with summary.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
         print(f"[{args.setup} {i}/{len(todo)}] {q['id']} calls={rec['tool_calls']} cost={rec['cost_usd']} "
               f"turns={rec['num_turns']} {rec['wall_s']}s", flush=True)
-        if rec["unexpected_tools"]:
-            sys.exit(f"agent saw tools outside its setup: {rec['unexpected_tools']}")
 
 
 def judge(args, questions):
@@ -115,10 +117,10 @@ def summary(args, questions):
         return rows[s].get(qid, {}).get("judge", {}).get("correct", False)
 
     hard_ids = [q["id"] for q in questions if q["kind"] == "hard"]
-    if rows["rag"] and rows["files_first"]:
+    if all(i in rows["rag"] and i in rows["files_first"] for i in hard_ids):
         found = [i for i in hard_ids if correct("rag", i)]
         missed = [i for i in found if not correct("files_first", i)]
-        print(f"\nMiss rate: files_first got {len(missed)} of the {len(found)} hard questions rag answered wrong "
+        print(f"\nMiss rate: files_first got wrong {len(missed)} of the {len(found)} hard questions rag answered correctly "
               f"({100 * len(missed) / max(len(found), 1):.0f}%): {missed}")
         gained = [i for i in hard_ids if correct("files_first", i) and not correct("rag", i)]
         print(f"files_first answered {len(gained)} hard questions rag missed: {gained}")
