@@ -53,13 +53,13 @@ public class TokenFormScopeTests(SharedWebAppFixture fixture)
         // The panel opens once the agent's keys have loaded.
         page.WaitForAssertion(() => page.Find($"#new-key-approval-{agent.Id}"));
         await page.InvokeAsync(() => page.Find($"#new-key-approval-{agent.Id}").Change(false));
-        await page.InvokeAsync(() => page.Find($"#new-key-scope-{agent.Id}-agent\\:ingest").Change(true));
+        await page.InvokeAsync(() => page.Find($"#new-key-scope-{agent.Id}-knowledge\\:write").Change(true));
         await page.InvokeAsync(() => page.FindAll("input[placeholder='e.g. production']").Single().Change("form-key"));
         await page.InvokeAsync(() => page.FindAll("button").Single(b => b.TextContent.Contains("Add Key")).Click());
 
         page.WaitForAssertion(() => page.Find("#new-agent-key-token"));
         var keys = await agents.ListKeysAsync(agent.Id);
-        keys.Should().ContainSingle().Which.Scopes.Should().BeEquivalentTo([TokenScopeChoices.Default, "agent:ingest"]);
+        keys.Should().ContainSingle().Which.Scopes.Should().BeEquivalentTo([TokenScopeChoices.Default, "knowledge:write"]);
     }
 
     private async Task<string[]> CreatePersonalTokenAsync(Func<IRenderedComponent<PersonalTokens>, Task> tick)

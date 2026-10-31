@@ -286,8 +286,8 @@ The agent can't be made as asked: the name isn't 2 to 64 letters, digits, hyphen
 ## invalid-agent-key
 
 The key can't be made as asked: the name isn't 2 to 64 characters (`field` is `name`), or a scope
-isn't one an agent key can hold. The scopes are `knowledge:read`, `knowledge:write` and
-`agent:ingest` (`field` is `scopes`).
+isn't one an agent key can hold. The scopes are `knowledge:read` and `knowledge:write`
+(`field` is `scopes`).
 
 ## agent-exists
 
@@ -303,7 +303,7 @@ someone else's: each person sees and revokes only their own.
 The token can't be made as asked: the name is blank or longer than 256 characters (`field` is
 `name`), a scope isn't one a personal access token can hold (`field` is `scopes`), or the expiry
 isn't in the future (`field` is `expiresAt`). The scopes are `knowledge:read`, `knowledge:write`,
-`agent:ingest`, `admin:users`, `admin:audit`, `admin:oauth-clients`, `admin:settings` and `admin:sources`.
+`admin:users`, `admin:audit`, `admin:oauth-clients`, `admin:settings` and `admin:sources`.
 An expiry that names no time zone is read as UTC.
 
 ## connection-not-found

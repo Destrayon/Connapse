@@ -128,7 +128,7 @@ public static class AgentEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("agents.keys.create")
-        .WithDescription("Create an API key for an agent, with scopes from knowledge:read, knowledge:write and agent:ingest. Token is shown only once. (Admin only)");
+        .WithDescription("Create an API key for an agent, with scopes from knowledge:read and knowledge:write. Token is shown only once. (Admin only)");
 
         // DELETE /api/v1/agents/{id}/keys/{keyId} — revoke an API key
         group.MapDelete("/{id:guid}/keys/{keyId:guid}", async (

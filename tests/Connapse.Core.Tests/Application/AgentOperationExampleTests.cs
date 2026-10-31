@@ -223,7 +223,20 @@ public class AgentOperationExampleTests
             .RunAsync(Caller(), new(_agentId, new("key", ["knowledge:read", "admin:users"])));
 
         created.Status.Should().Be(AgentStatus.InvalidKey);
-        created.Detail.Should().Be("'admin:users' is an invalid agent key scope. Scopes: knowledge:read, knowledge:write, agent:ingest.");
+        created.Detail.Should().Be("'admin:users' is an invalid agent key scope. Scopes: knowledge:read, knowledge:write.");
+        created.Field.Should().Be("scopes");
+        _agents.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CreateKey_TheRetiredAgentIngestScope_IsInvalidKey()
+    {
+        // No check ever required agent:ingest; knowledge:write is what uploads and deletes (CON-171).
+        var created = await new CreateAgentKey(_agents, _authorizer, _audit)
+            .RunAsync(Caller(), new(_agentId, new("key", ["knowledge:read", "agent:ingest"])));
+
+        created.Status.Should().Be(AgentStatus.InvalidKey);
+        created.Detail.Should().Be("'agent:ingest' is an invalid agent key scope. Scopes: knowledge:read, knowledge:write.");
         created.Field.Should().Be("scopes");
         _agents.ReceivedCalls().Should().BeEmpty();
     }
@@ -235,7 +248,7 @@ public class AgentOperationExampleTests
             .RunAsync(Caller(), new(_agentId, new("key", [null!, "admin:users"])));
 
         created.Status.Should().Be(AgentStatus.InvalidKey);
-        created.Detail.Should().Be("'' is an invalid agent key scope. Scopes: knowledge:read, knowledge:write, agent:ingest.");
+        created.Detail.Should().Be("'' is an invalid agent key scope. Scopes: knowledge:read, knowledge:write.");
         _agents.ReceivedCalls().Should().BeEmpty();
     }
 
