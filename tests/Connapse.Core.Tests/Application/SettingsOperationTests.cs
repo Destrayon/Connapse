@@ -479,10 +479,10 @@ public partial class SettingsOperationTests
     public async Task Update_NothingStored_ComparesAgainstTheConfiguredValue()
     {
         var world = new World();
-        world.Configured.Values[typeof(UploadSettings)] = new UploadSettings { ParallelWorkers = 7 };
+        world.Configured.Values[typeof(UploadSettings)] = new UploadSettings { ParseTimeoutSeconds = 7 };
         string read = (await world.Get().RunAsync(Caller, "upload")).Result!.Version;
 
-        var updated = await world.Update().RunAsync(Caller, "upload", Body(new { parallelWorkers = 8 }), expectedVersions: [read]);
+        var updated = await world.Update().RunAsync(Caller, "upload", Body(new { parseTimeoutSeconds = 8 }), expectedVersions: [read]);
 
         updated.Status.Should().Be(SettingsStatus.Success);
     }

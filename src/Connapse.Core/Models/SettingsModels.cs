@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace Connapse.Core;
 
@@ -451,9 +452,15 @@ public record LlmSettings
 public record UploadSettings
 {
     /// <summary>
-    /// Number of parallel ingestion workers (default: 4).
+    /// Deprecated, and never read: the ingestion worker count is <c>Hangfire:IngestionWorkerCount</c>, read once at
+    /// startup (CON-170). Still accepted so clients that send it keep working; it is never stored or returned.
     /// </summary>
-    public int ParallelWorkers { get; set; } = 4;
+    [Obsolete(ParallelWorkersDeprecation)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int ParallelWorkers { get => 0; set { } }
+
+    public const string ParallelWorkersDeprecation =
+        "Deprecated and ignored: set the ingestion worker count with Hangfire:IngestionWorkerCount (environment variable Hangfire__IngestionWorkerCount), which takes effect on restart.";
 
     /// <summary>
     /// Longest a single file may spend in its parser before it fails with <c>parse_timeout</c>
