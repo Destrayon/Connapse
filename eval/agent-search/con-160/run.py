@@ -65,6 +65,24 @@ def system_prompt(setup):
     return "\n".join(p.read_text(encoding="utf-8") for p in SETUPS[setup][1])
 
 
+def projected_spend(args, n_questions):
+    """Spent so far (agent, judge, Haiku summaries) plus the rest of the plan at the per-question rates seen so far."""
+    runs = [r for p in Path(args.out).glob("*/runs.jsonl") for r in load_jsonl(p)]
+    judged_recs = [r for p in Path(args.out).glob("*/judged.jsonl") for r in load_jsonl(p)]
+    cache = load_jsonl(Path(args.summary_cache)) if args.summary_cache and Path(args.summary_cache).exists() else []
+    agent = sum(r["cost_usd"] or 0 for r in runs)
+    judge_cost = sum(r["judge"].get("judge_cost_usd") or 0 for r in judged_recs)
+    haiku = sum(r["cost_usd"] or 0 for r in cache)
+    per_agent = agent / len(runs) if runs else CON146_BASE["cost"]
+    summ_done = sum(r["setup"] == "summaries" for r in runs)
+    per_haiku = haiku / summ_done if summ_done else 0.07
+    main_done = sum(r.get("attempt", 1) == 1 for r in runs)
+    left = 2 * n_questions - main_done + 6  # both setups, plus an allowance of 6 tiebreak reruns
+    left_summ = n_questions - sum(r["setup"] == "summaries" and r.get("attempt", 1) == 1 for r in runs) + 6
+    spent = agent + judge_cost + haiku
+    return spent, spent + left * (per_agent + 0.025) + left_summ * per_haiku
+
+
 def run(args, questions):
     tools, _ = SETUPS[args.setup]
     if "CON142_PAT" not in os.environ:
@@ -82,6 +100,10 @@ def run(args, questions):
     done = {r["id"] for r in load_jsonl(summary)}
     todo = [q for q in questions if q["id"] not in done and (not args.only or q["id"] in args.only)]
     for i, q in enumerate(todo, 1):
+        if args.budget:
+            spent, projected = projected_spend(args, len(questions))
+            if projected > args.budget:
+                sys.exit(f"budget stop before {q['id']}: spent ${spent:.2f}, projected ${projected:.2f} > ${args.budget}")
         rec = run_agent.run_one(q, tools, args, out, mcp_path, prompt)
         rec["setup"], rec["attempt"] = args.setup, args.attempt
         if rec["unexpected_tools"]:
@@ -215,6 +237,7 @@ def main():
     p.add_argument("--max-turns", type=int, default=25)
     p.add_argument("--timeout", type=int, default=1800)
     p.add_argument("--only", nargs="*")
+    p.add_argument("--budget", type=float, help="stop before a question if projected total spend passes this (USD)")
     args = p.parse_args()
     questions = json.loads(Path(args.questions).read_text(encoding="utf-8"))
     {"run": run, "judge": judge, "tiebreak": tiebreak, "summary": summary}[args.action](args, questions)
