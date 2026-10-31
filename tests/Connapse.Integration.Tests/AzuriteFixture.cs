@@ -22,6 +22,6 @@ public sealed class AzuriteFixture : IAsyncLifetime
         .WithImage("mcr.microsoft.com/azure-storage/azurite:3.37.0")
         .Build();
     public string ConnectionString => _container.GetConnectionString();
-    public Task InitializeAsync() => _container.StartAsync();
+    public Task InitializeAsync() => ContainerStart.StartAsync(_container);
     public Task DisposeAsync() => _container.DisposeAsync().AsTask();
 }
