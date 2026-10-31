@@ -16,7 +16,7 @@ A small Confluence Cloud site for testing the Atlassian connector (#540) end to 
 3. Invite a second person: another email address you own. In Atlassian Administration, go to **Directory** → **Users** → **Invite users**, give them Confluence access, and accept the invitation from that inbox. This person should see the Engineering space but not Incident reviews or Company Operations.
 
 ## 2. Create the service account
-Follow [step 2 of the Atlassian setup guide](atlassian-setup.md#2-service-account) (the same steps are on Connapse's **Connections** page under **Add connection** → **Confluence site**). Then copy the service account's **account ID**: in Atlassian Administration, go to **Directory** → **Service accounts** and open the account. The ID is the long value at the end of the page's address. The seeding script uses it to give the account access to both spaces and the Incident reviews tree.
+Follow [step 2 of the Atlassian setup guide](../sources/atlassian-setup.md#2-service-account) (the same steps are on Connapse's **Connections** page under **Add connection** → **Confluence site**). Then copy the service account's **account ID**: in Atlassian Administration, go to **Directory** → **Service accounts** and open the account. The ID is the long value at the end of the page's address. The seeding script uses it to give the account access to both spaces and the Incident reviews tree.
 
 ## 3. Seed the content
 1. Create an API token for **your own** account at [id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens) (**Create API token**, not the scoped kind). The script uses it to create pages as you.
@@ -32,9 +32,9 @@ Follow [step 2 of the Atlassian setup guide](atlassian-setup.md#2-service-accoun
    It takes a few minutes. Re-running it is safe: it reuses anything already created. If a step can't be done through the API, it prints what to do by hand at the end.
 
 ## 4. Connect Connapse
-The full field-by-field steps are in the [Atlassian setup guide](atlassian-setup.md).
+The full field-by-field steps are in the [Atlassian setup guide](../sources/atlassian-setup.md).
 
-1. **Admin** → **Providers** → **Atlassian**: create and save the linking app ([step 1 of the guide](atlassian-setup.md#1-linking-app)). Without it, nobody can link an account in step 4.4, so every search shows no Confluence results.
+1. **Admin** → **Providers** → **Atlassian**: create and save the linking app ([step 1 of the guide](../sources/atlassian-setup.md#1-linking-app)). Without it, nobody can link an account in step 4.4, so every search shows no Confluence results.
 2. **Connections** → **Add connection** → **Confluence site**: enter the site, the service account's client ID and secret, and **Check and save**. This site needs attachments (step 3), so create that credential with **Copy with the attachments permission**, which adds `read:attachment:confluence` to the required scopes.
 3. **Sources** → **New source** → choose the site's connection → tick **Engineering** and **Company Operations**, tick **Include attachments** if it isn't already (it starts off when the site's last test didn't confirm the `read:attachment:confluence` scope, and the GPU budget question below is answered only by an attached PDF), and **Create source**.
 4. Link accounts: as yourself, go to **Profile** → **Integrations** → Atlassian and sign in as your Atlassian account. Then, as a second Connapse user, link the second person's Atlassian account.
@@ -56,7 +56,7 @@ Then, to check that permissions are live: in Confluence, restrict one Engineerin
 ## 6. Jira (optional)
 The same site can also test the Jira connector (#708). Add Jira to the site from Atlassian Administration. Use a Standard trial rather than Free: Free can't edit project roles, and two of the restricted comments need roles. Jira on Premium sites says **space** where these steps say **project** (**Space settings**, **Space roles**); both labels are given.
 
-First set up the service account for Jira: steps 1 to 4 of [Add Jira to an existing Confluence setup](atlassian-setup.md#add-jira-to-an-existing-confluence-setup), in Atlassian Administration and in Jira. Create its Jira credential with **Copy with the attachments permission**, because the PDF test below needs `read:attachment:jira`. Then seed the content:
+First set up the service account for Jira: steps 1 to 4 of [Add Jira to an existing Confluence setup](../sources/atlassian-setup.md#add-jira-to-an-existing-confluence-setup), in Atlassian Administration and in Jira. Create its Jira credential with **Copy with the attachments permission**, because the PDF test below needs `read:attachment:jira`. Then seed the content:
 
 1. Create an API token for your own account at [id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens) → **Create API token**. Choose the plain one, not **Create API token with scopes**: a scoped token doesn't work against `https://connapse-test.atlassian.net`. `JIRA_EMAIL` and `JIRA_API_TOKEN` are used first; the `CONFLUENCE_` pair from step 3 works if those are unset.
 2. Find the two account IDs the script needs:

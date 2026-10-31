@@ -410,7 +410,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
             new Dictionary<string, object> { ["step"] = "admin", ["troubleshoot"] = "missing-scope", ["detail"] = "HTTP 403" }));
 
         report.StepLabel.Should().Be("Checking access permissions");
-        report.TroubleshootingUrl.Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+        report.TroubleshootingUrl.Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope");
         report.Detail.Should().Be("HTTP 403");
     }
 }

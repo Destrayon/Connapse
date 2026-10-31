@@ -7,7 +7,7 @@ namespace Connapse.Web.Tests.Components;
 [Trait("Category", "Unit")]
 public class CustomSourceFieldSpecDocsTests
 {
-    private static string Guide() => File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "custom-source-setup.md"));
+    private static string Guide() => File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "sources", "custom-source-setup.md"));
 
     [Fact]
     public void SetupGuide_NamesEveryCustomField()

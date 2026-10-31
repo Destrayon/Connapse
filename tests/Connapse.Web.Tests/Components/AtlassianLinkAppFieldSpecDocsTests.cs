@@ -10,7 +10,7 @@ public class AtlassianLinkAppFieldSpecDocsTests
 {
     private static string? Guide()
     {
-        string path = Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "atlassian-setup.md");
+        string path = Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "sources", "atlassian-setup.md");
         return File.Exists(path) ? File.ReadAllText(path) : null;
     }
 

@@ -1507,7 +1507,7 @@
                                 access identity <code>User.Read.All</code> and <code>GroupMember.Read.All</code> (a
                                 Global Administrator consents an app registration; for a managed identity, the
                                 commands are under
-                                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md#graph-permissions-for-a-managed-identity"
                                    target="_blank" rel="noopener">Graph permissions for a managed identity</a>),
                                 then confirm here.
                             </div>
@@ -1537,7 +1537,7 @@
                                 <text>
                                     The access identity is a user-assigned managed identity entered by hand, so its
                                     Microsoft Graph permissions are granted by hand too: run the two commands under
-                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md#graph-permissions-for-a-managed-identity"
                                        target="_blank" rel="noopener">Graph permissions for a managed identity</a>
                                     as a Global Administrator, then set the sign-in application up under Manual values here.
                                 </text>
@@ -1548,7 +1548,7 @@
                                     Access is set to this host's managed identity, but the page could not tell which
                                     identity that is — the host reported none, or a user-assigned one. Grant the Graph
                                     permissions by hand with the two commands under
-                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md#graph-permissions-for-a-managed-identity"
                                        target="_blank" rel="noopener">Graph permissions for a managed identity</a>,
                                     then set the sign-in application up under Manual values here.
                                 </text>
@@ -1916,8 +1916,8 @@
     /// <summary>The provider's setup guide, linked in the page's title row; null for a provider without one.</summary>
     public static (string Href, string Name)? SetupGuide(string? key) => key switch
     {
-        "aws" => ("https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md", "AWS setup guide"),
-        "azure" => ("https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md", "Azure setup guide"),
+        "aws" => ("https://github.com/Destrayon/Connapse/blob/main/docs/sources/aws-setup.md", "AWS setup guide"),
+        "azure" => ("https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md", "Azure setup guide"),
         "github" => (GitHubMessages.GuideUrl, "GitHub setup guide"),
         "atlassian" => (AtlassianLinkAppFieldSpecs.GuideSection, "Atlassian setup guide"),
         _ => null,

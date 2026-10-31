@@ -11,7 +11,7 @@ public class GitHubFieldSpecDocsTests
     [Fact]
     public void SetupGuide_NamesEveryGitHubField()
     {
-        string guide = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "github-setup.md"));
+        string guide = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "sources", "github-setup.md"));
 
         foreach (var field in GitHubFieldSpecs.All)
             guide.Should().Contain(field.Label, $"the guide must say where the {field.Id} value comes from");
@@ -20,7 +20,7 @@ public class GitHubFieldSpecDocsTests
     [Fact]
     public void EveryGuideLink_PointsAtASectionOfTheGuide()
     {
-        string guide = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "github-setup.md"));
+        string guide = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "sources", "github-setup.md"));
         var anchors = guide.Split('\n')
             .Where(line => line.StartsWith('#'))
             .Select(line => System.Text.RegularExpressions.Regex.Replace(line.TrimStart('#').Trim().ToLowerInvariant(), @"[^a-z0-9 -]", "").Replace(' ', '-'))
