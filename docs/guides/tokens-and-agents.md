@@ -66,11 +66,11 @@ Creating a personal access token needs a signed-in session, so do it in the brow
 
 ```bash
 curl -X POST http://localhost:5001/api/v1/agents \
-  -H "X-Api-Key: $CONNAPSE_TOKEN" -H "Content-Type: application/json" \
+  -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
   -d '{ "name": "nightly-ingest", "description": "Uploads the build reports" }'
 
 curl -X POST http://localhost:5001/api/v1/agents/AGENT_ID/keys \
-  -H "X-Api-Key: $CONNAPSE_TOKEN" -H "Content-Type: application/json" \
+  -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
   -d '{ "name": "ci", "scopes": ["knowledge:read", "knowledge:write"], "requiresApproval": true }'
 ```
 

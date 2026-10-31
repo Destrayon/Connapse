@@ -50,7 +50,7 @@ Invite someone with `POST /api/v1/invites`. `role` is `Viewer`, `Editor` or `Adm
 
 ```bash
 curl -X POST http://localhost:5001/api/v1/invites \
-  -H "X-Api-Key: $CONNAPSE_TOKEN" -H "Content-Type: application/json" \
+  -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
   -d '{ "email": "sam@example.com", "role": "Editor" }'
 ```
 
