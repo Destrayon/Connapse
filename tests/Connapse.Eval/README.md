@@ -39,7 +39,7 @@ A run that indexes every dataset of its suite saves the built index, and a later
   - the index-time settings and chunking strategy;
   - non-search `Knowledge__` environment variables;
   - the contents of the source that ingests documents: `src/**` except Connapse.Search and Connapse.Agents, plus the eval harness's `Datasets`, `Model` and `Systems` folders and the root build files.
-- **When the key changes:** changing search code keeps the key. Changing ingestion, storage, the web project or a dataset makes a new one. Uncommitted edits count.
+- **When the key changes:** changing search code keeps the key. Changing ingestion, storage, the web project or a dataset makes a new one. Uncommitted edits count, and so do new files git doesn't ignore. Files git ignores don't, so the key ring the host writes into `src/Connapse.Web/appdata/` on startup can't change the key.
 - **Recording:** the run manifest's `indexCache` says whether a run `saved` or `restored` its index.
 - **Turning it off:** `--index-cache off` neither reads nor writes the cache.
 - **Freeing space:** delete old snapshots with `docker volume rm connapse-eval-index-<key>` and the matching JSON file.
