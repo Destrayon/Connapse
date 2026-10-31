@@ -379,9 +379,7 @@ public static class IdentityServiceExtensions
             .AddPolicy("Scope:AdminUsers", policy =>
                 policy.Requirements.Add(new ScopeRequirement("admin:users")))
             .AddPolicy("Scope:AdminManageAdmins", policy =>
-                policy.Requirements.Add(new ScopeRequirement("admin:manage-admins")))
-            .AddPolicy("Scope:AgentIngest", policy =>
-                policy.Requirements.Add(new ScopeRequirement("agent:ingest")));
+                policy.Requirements.Add(new ScopeRequirement("admin:manage-admins")));
 
         return services;
     }

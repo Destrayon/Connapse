@@ -32,7 +32,7 @@ Connapse uses a **multi-tier authentication** system:
 | **Admin** | Full access: all endpoints, user management, settings, agents |
 | **Editor** | Upload, delete, search, manage containers and folders |
 | **Viewer** | Search and browse only (no writes) |
-| **Agent** | MCP tool access only (search + ingest via API keys) |
+| **Agent** | MCP tool access only, through API keys; what each key may do is set by its scopes |
 
 **First-time setup**: On a fresh install with no users, visit the login page — it automatically shows an admin account creation form. The first user becomes the system admin.
 
@@ -496,7 +496,11 @@ tool. These scopes govern **MCP tool behavior only** — they do not grant REST 
 | Scope | Grants |
 |-------|--------|
 | `knowledge:read` | Search and read documents across all containers via MCP |
-| `agent:ingest` | Upload and delete files in containers via MCP |
+| `knowledge:write` | Upload and delete files, and create and delete containers, via MCP |
+
+There used to be an `agent:ingest` scope, but nothing checked it: uploads and deletes have always needed
+`knowledge:write`. It was removed, and a migration drops it from existing keys and tokens without changing
+what any of them can do.
 
 Agents have **unrestricted access to all containers** in the system. There is no per-container access control for agent API keys.
 
@@ -506,10 +510,8 @@ Agents interact with Connapse through the MCP endpoint (`POST /mcp`). All 11 MCP
 
 #### What agents can do
 
-- Create, list, and delete containers (via MCP)
-- Upload and delete files in containers (via MCP)
-- Search across any container (via MCP)
-- List files and retrieve document content (via MCP)
+- Search across any container, list files and retrieve document content (via MCP, with `knowledge:read`)
+- Create and delete containers, and upload and delete files in them (via MCP, with `knowledge:write`)
 
 #### What agents cannot do
 

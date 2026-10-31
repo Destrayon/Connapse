@@ -31,10 +31,10 @@ public class AgentOperationRandomInputTests
 
     // Scopes as a caller might send them: none, an agent key's, repeated, or ones only a person's token holds.
     private static readonly Gen<string[]?> RequestedScopes = Gen.OneOfConst<string[]?>(
-        null, [], ["knowledge:read"], ["knowledge:read", "knowledge:write", "agent:ingest"], ["knowledge:read", "knowledge:read"],
+        null, [], ["knowledge:read"], ["knowledge:read", "knowledge:write"], ["knowledge:read", "agent:ingest"], ["knowledge:read", "knowledge:read"],
         ["admin:users"], ["knowledge:read", "admin:settings"], ["Knowledge:Read"], [""], [null!, "admin:users"], ["knowledge:read,admin:users"]);
 
-    private static readonly string[] AgentKeyScopes = ["knowledge:read", "knowledge:write", "agent:ingest"];
+    private static readonly string[] AgentKeyScopes = ["knowledge:read", "knowledge:write"];
 
     /// <summary>One sample's world: who the caller is and what they hold, and the fakes.</summary>
     private sealed class World

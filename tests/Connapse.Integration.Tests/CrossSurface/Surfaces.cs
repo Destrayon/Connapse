@@ -42,7 +42,7 @@ public static partial class Surfaces
     {
         var response = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
             new Connapse.Core.PatCreateRequest($"cross-surface-{Guid.NewGuid():N}",
-                ["knowledge:read", "knowledge:write", "admin:users", "agent:ingest"], RequiresApproval: false));
+                ["knowledge:read", "knowledge:write", "admin:users"], RequiresApproval: false));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<Connapse.Core.PatCreateResponse>())!.Token;
     }
