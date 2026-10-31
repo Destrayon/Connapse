@@ -42,6 +42,7 @@ dotnet run --project tests/Connapse.Eval -- run --suite v1 --config hybrid
 
 - **xUnit** framework, **FluentAssertions** (`.Should()`), **NSubstitute** for mocking
 - Integration tests share a single PostgreSQL+MinIO container pair via `SharedWebAppFixture` (collection-based)
+- Every test container is capped at 2 CPUs and 4 GB by `TestContainerLimits`; set `CONNAPSE_TEST_CONTAINER_LIMITS` to `<cpus>,<memory>` (e.g. `4,8g`) or `off` to change that. New fixtures must add `.WithCreateParameterModifier(TestContainerLimits.Apply)`
 - Tag tests: `[Trait("Category", "Unit")]` or `[Trait("Category", "Integration")]`
 - Test naming: `MethodName_Scenario_ExpectedResult`
 

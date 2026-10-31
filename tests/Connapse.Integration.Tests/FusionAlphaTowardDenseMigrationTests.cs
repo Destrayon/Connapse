@@ -25,6 +25,7 @@ public class FusionAlphaTowardDenseMigrationTests : IAsyncLifetime
         .WithDatabase("connapse_alpha_dense_migration")
         .WithUsername("migration_test")
         .WithPassword("migration_test")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     public async Task InitializeAsync() => await _postgres.StartAsync();
