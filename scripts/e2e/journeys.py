@@ -59,10 +59,14 @@ def tokens(c, t):
     if ro:
         c.ro = A.as_({"X-Api-Key": ro["token"]})
         r("Tokens", "read-only PAT can list containers", lambda: c.ro("GET", "/api/containers"))
-        r("Errors", "read-only PAT creating a container -> 403 forbidden", lambda: c.ro.problem(
-            "POST", "/api/containers", 403, "forbidden", body={"name": f"nope-{c.run}"}))
-        r("Errors", "read-only PAT reading settings -> 403 forbidden",
-          lambda: c.ro.problem("GET", "/api/settings/{category}", 403, "forbidden", category="chunking"))
+        # Routes that check a scope refuse it at the policy (an RFC 9110 problem); routes that check only the
+        # owner's role still admit it, as docs/api.md says.
+        r("Errors", "read-only PAT reading settings -> 403 (needs admin:settings)",
+          lambda: c.ro("GET", "/api/settings/{category}", 403, category="chunking"))
+        r("Errors", "read-only PAT reading the audit log -> 403 (needs admin:audit)",
+          lambda: c.ro("GET", "/api/v1/audit", 403))
+        r("Errors", "read-only PAT listing connections -> 403 (needs admin:sources)",
+          lambda: c.ro("GET", "/api/v1/connections", 403))
     r("Tokens", "list PATs", lambda: t.expect(
         any(p["name"] == f"e2e-admin-{c.run}" for p in A("GET", "/api/v1/auth/pats").json), "new PAT not listed"))
     gone = r("Tokens", "create a PAT to revoke", lambda: A("POST", "/api/v1/auth/pats", 200, body={"name": f"e2e-gone-{c.run}"}).json)
@@ -71,8 +75,12 @@ def tokens(c, t):
         r("Tokens", "a revoked PAT is refused", lambda: A.as_({"X-Api-Key": gone["token"]})("GET", "/api/v1/auth/me", 401))
     r("Errors", "revoke a missing PAT -> 404 pat-not-found",
       lambda: A.problem("DELETE", "/api/v1/auth/pats/{id}", 404, "pat-not-found", id=MISSING))
-    r("Errors", "PAT without a name -> 400 invalid-pat",
-      lambda: A.problem("POST", "/api/v1/auth/pats", 400, "invalid-pat", body={"name": ""}))
+    r("Errors", "PAT without a name -> 400 (request validation)",
+      lambda: A("POST", "/api/v1/auth/pats", 400, body={"name": ""}))
+    r("Errors", "PAT with an unknown scope -> 400 invalid-pat", lambda: A.problem(
+        "POST", "/api/v1/auth/pats", 400, "invalid-pat", body={"name": "x", "scopes": ["admin:everything"]}))
+    r("Errors", "a PAT can't make PATs -> 403 (policy)", lambda: c.pat.problem(
+        "POST", "/api/v1/auth/pats", 403, None, body={"name": "x"}))
 
 
 def users(c, t):
@@ -98,8 +106,8 @@ def users(c, t):
       lambda: A.problem("DELETE", "/api/v1/invites/{id}", 404, "invite-not-found", id=MISSING))
     r("Errors", "roles for a missing user -> 404 user-not-found", lambda: A.problem(
         "PUT", "/api/v1/auth/users/{id}/roles", 404, "user-not-found", body={"roles": ["Viewer"]}, id=MISSING))
-    r("Errors", "unknown role -> 400 invalid-roles", lambda: A.problem(
-        "PUT", "/api/v1/auth/users/{id}/roles", 400, "invalid-roles", body={"roles": ["Wizard"]}, id=me["id"]))
+    r("Errors", "changing your own roles -> 403 forbidden", lambda: A.problem(
+        "PUT", "/api/v1/auth/users/{id}/roles", 403, "forbidden", body={"roles": ["Viewer"]}, id=me["id"]))
     r("Errors", "delete a missing user -> 404 user-not-found",
       lambda: A.problem("DELETE", "/api/v1/auth/users/{id}", 404, "user-not-found", id=MISSING))
 
@@ -111,6 +119,8 @@ def users(c, t):
     if reg and reg.status == 200:
         uid = next((u["id"] for u in A("GET", "/api/v1/auth/users", query={"take": 200}).json["items"] if u["email"] == second), None)
         if uid:
+            r("Errors", "unknown role -> 400 invalid-roles", lambda: A.problem(
+                "PUT", "/api/v1/auth/users/{id}/roles", 400, "invalid-roles", body={"roles": ["Wizard"]}, id=uid))
             r("Users", "set a user's roles", lambda: A("PUT", "/api/v1/auth/users/{id}/roles", 204, body={"roles": ["Viewer"]}, id=uid))
             r("Users", "delete a user", lambda: A("DELETE", "/api/v1/auth/users/{id}", 204, id=uid))
     del page
@@ -244,9 +254,9 @@ def containers(c, t):
     r("Errors", "same folder again -> 409 folder-exists", lambda: A.problem(
         "POST", "/api/containers/{containerId}/folders", 409, "folder-exists", body={"path": "/empty/"}, containerId=cid))
     r("Files", "delete a folder", lambda: A(
-        "DELETE", "/api/containers/{containerId}/folders", 204, query={"path": "/empty/"}, containerId=cid))
+        "DELETE", "/api/containers/{containerId}/folders", 204, query={"path": "/empty/", "cascade": "true"}, containerId=cid))
     r("Errors", "delete a missing folder -> 404 folder-not-found", lambda: A.problem(
-        "DELETE", "/api/containers/{containerId}/folders", 404, "folder-not-found", query={"path": "/nope/"}, containerId=cid))
+        "DELETE", "/api/containers/{containerId}/folders", 404, "folder-not-found", query={"path": "/nope/", "cascade": "true"}, containerId=cid))
 
     # Search
     r("Search", "GET search finds the uploaded text", lambda: t.expect(hits(A(
@@ -267,8 +277,10 @@ def containers(c, t):
         "GET", "/api/containers/{containerId}/stats", containerId=cid).json.get("documentCount", 2)) >= 2, "stats count < 2"))
     r("Containers", "reindex (dry run)", lambda: A(
         "POST", "/api/containers/{containerId}/reindex", 200, body={"dryRun": True}, containerId=cid))
-    r("Errors", "reindex with a bad strategy -> 400 invalid-reindex", lambda: A.problem(
-        "POST", "/api/containers/{containerId}/reindex", 400, "invalid-reindex", body={"strategy": "Nope"}, containerId=cid))
+    r("Errors", "reindex with maxDocuments 0 -> 400 invalid-reindex", lambda: A.problem(
+        "POST", "/api/containers/{containerId}/reindex", 400, "invalid-reindex", body={"maxDocuments": 0}, containerId=cid))
+    r("Errors", "reindex with an unknown strategy -> 400 (request binding)", lambda: A(
+        "POST", "/api/containers/{containerId}/reindex", 400, body={"strategy": "Nope"}, containerId=cid))
     r("Containers", "retry-failed", lambda: A("POST", "/api/containers/{containerId}/retry-failed", 200, containerId=cid))
     r("Containers", "sync (reconcile)", lambda: A("POST", "/api/containers/{containerId}/sync", 200, containerId=cid))
     r("Containers", "summaries regenerate", lambda: A("POST", "/api/containers/{containerId}/summaries", 202, containerId=cid))
@@ -292,7 +304,7 @@ def containers(c, t):
 def settings(c, t):
     """Settings, with ETag concurrency"""
     A, r = c.admin, t.record
-    for cat in ("embedding", "chunking", "search", "llm", "upload", "summary", "crossencoder", "samlsignin", "azure"):
+    for cat in ("embedding", "chunking", "search", "llm", "upload", "summary", "samlsignin", "identitycenter", "azure", "azuread"):
         r("Settings", f"get {cat}", lambda cat=cat: A("GET", "/api/settings/{category}", category=cat))
     r("Errors", "unknown category -> 404 settings-category-not-found", lambda: A.problem(
         "GET", "/api/settings/{category}", 404, "settings-category-not-found", category="nope"))
@@ -337,11 +349,13 @@ def providers(c, t):
     r("Errors", "AWS permissions with bad values -> 400 invalid-aws-setup", lambda: A.problem(
         "PUT", "/api/v1/providers/aws/permissions", 400, "invalid-aws-setup", body={"idpSingleSignOnUrl": "not a url"}))
     r("Providers", "AWS permissions reset", lambda: A("DELETE", "/api/v1/providers/aws/permissions", 200))
-    r("Errors", "Azure access with bad values -> 400 invalid-azure-setup", lambda: A.problem(
-        "PUT", "/api/v1/providers/azure/access", 400, "invalid-azure-setup", body={"tenantId": "not-a-guid"}))
+    r("Errors", "Azure access without a tenant -> 400 invalid-azure-setup", lambda: A.problem(
+        "PUT", "/api/v1/providers/azure/access", 400, "invalid-azure-setup", body={"tenantId": ""}))
+    r("Errors", "Azure access this host can't reach -> 400 azure-credential-refused", lambda: A.problem(
+        "PUT", "/api/v1/providers/azure/access", 400, "azure-credential-refused", body={"tenantId": "not-a-guid"}))
     r("Providers", "Azure access reset", lambda: A("DELETE", "/api/v1/providers/azure/access", 200))
-    r("Errors", "Azure permissions with bad values -> 400 invalid-azure-setup", lambda: A.problem(
-        "PUT", "/api/v1/providers/azure/permissions", 400, "invalid-azure-setup", body={"tenantId": "not-a-guid"}))
+    r("Errors", "Azure permissions with a bad redirect address -> 400 invalid-azure-setup", lambda: A.problem(
+        "PUT", "/api/v1/providers/azure/permissions", 400, "invalid-azure-setup", body={"redirectUri": "not a url"}))
     r("Providers", "Azure permissions reset", lambda: A("DELETE", "/api/v1/providers/azure/permissions", 200))
     r("Errors", "GitHub App with bad values -> 400 invalid-github-app", lambda: A.problem(
         "PUT", "/api/v1/providers/github/app", 400, "invalid-github-app", body={"appId": 0}))
@@ -353,7 +367,7 @@ def providers(c, t):
         "GET", "/api/v1/providers/github/installed", 302, query={"installation_id": "1", "setup_action": "install"}))
 
     # Custom provider: the sample server answers the provider protocol.
-    base = "http://custom-source:8080"
+    base = "http://custom-perms:8080"
     prov = r("Providers", "create a custom provider", lambda: A(
         "POST", "/api/v1/providers/custom", (201,), body={"baseUrl": base, "token": "change-me-example-token", "name": f"e2e-{c.run}"}).json)
     r("Errors", "custom provider with a bad URL -> 400 invalid-custom-provider", lambda: A.problem(
@@ -369,15 +383,17 @@ def providers(c, t):
         r("Links", "custom link connect", lambda: A("GET", "/api/v1/auth/custom/{providerId}/connect", (200, 302), providerId=pid))
         r("Links", "custom link return without a code", lambda: A(
             "GET", "/api/v1/auth/custom/{providerId}/return", 302, providerId=pid))
-        r("Links", "unlink a custom provider that isn't linked -> 404", lambda: A(
-            "DELETE", "/api/v1/auth/custom/{providerId}", 404, providerId=pid))
+        r("Links", "unlink a custom provider that isn't linked -> 204 (idempotent)", lambda: A(
+            "DELETE", "/api/v1/auth/custom/{providerId}", 204, providerId=pid))
+        r("Errors", "unlink an unknown custom provider -> 404 link-not-found", lambda: A.problem(
+            "DELETE", "/api/v1/auth/custom/{providerId}", 404, "link-not-found", providerId=MISSING))
         r("Providers", "delete a custom provider", lambda: A("DELETE", "/api/v1/providers/custom/{providerId}", 204, providerId=pid))
 
     # Atlassian (cloud): reads and validation only.
     r("Atlassian", "sites list", lambda: A("GET", "/api/v1/atlassian/sites"))
     r("Atlassian", "resolve a bad site URL -> 400", lambda: A("POST", "/api/v1/atlassian/sites/resolve", 400, body={"siteUrl": "not a url"}))
-    r("Atlassian", "create a site with a bad URL -> 400", lambda: A(
-        "POST", "/api/v1/atlassian/sites", 400, body={"siteUrl": "not a url", "clientId": "x", "clientSecret": "x"}))
+    r("Atlassian", "create a site with a bad URL -> 422", lambda: A(
+        "POST", "/api/v1/atlassian/sites", 422, body={"siteUrl": "not a url", "clientId": "x", "clientSecret": "x"}))
     for m, tail, st, b in (("GET", "", 404, None), ("PATCH", "", 404, {"name": "x"}), ("POST", "/pause", 404, None),
                            ("POST", "/resume", 404, {}), ("POST", "/test", 404, None),
                            ("PUT", "/credentials", 404, {"clientId": "x", "clientSecret": "x"}),
@@ -452,8 +468,12 @@ def connector(c, t, provider, config, secret, scope, word):
     conn = created["connection"]
     cid = conn["id"]
     r(area, "get the connection", lambda: A("GET", "/api/v1/connections/{connectionId}", connectionId=cid))
-    r(area, "test the connection", lambda: t.expect(A(
-        "POST", "/api/v1/connections/{connectionId}/test", 200, body={}, connectionId=cid).json["success"], "test did not succeed"))
+    if provider == "Filesystem":
+        r(area, "test the connection -> 400 invalid-connection (nothing to test)", lambda: A.problem(
+            "POST", "/api/v1/connections/{connectionId}/test", 400, "invalid-connection", body={}, connectionId=cid))
+    else:
+        r(area, "test the connection", lambda: t.expect(A(
+            "POST", "/api/v1/connections/{connectionId}/test", 200, body={}, connectionId=cid).json["success"], "test did not succeed"))
     r(area, "discover", lambda: A("GET", "/api/v1/connections/{connectionId}/discover", (200, 400), connectionId=cid))
     r(area, "rename the connection", lambda: A(
         "PATCH", "/api/v1/connections/{connectionId}", 200, body={"name": name + "-r", "config": config}, connectionId=cid))
@@ -496,11 +516,14 @@ def audit(c, t):
     """Audit log and OAuth clients"""
     A, r = c.admin, t.record
     r("Audit", "audit log", lambda: t.expect(A("GET", "/api/v1/audit", query={"take": 20}).json is not None, "no body"))
-    r("Errors", "bad audit filter -> 400 invalid-audit-filter", lambda: A.problem(
-        "GET", "/api/v1/audit", 400, "invalid-audit-filter", query={"since": "not-a-date"}))
+    r("Errors", "audit filter since after until -> 400 invalid-audit-filter", lambda: A.problem(
+        "GET", "/api/v1/audit", 400, "invalid-audit-filter",
+        query={"since": "2026-02-01T00:00:00Z", "until": "2026-01-01T00:00:00Z"}))
+    r("Errors", "audit filter that isn't a date -> plain 400 (binding)", lambda: A.problem(
+        "GET", "/api/v1/audit", 400, None, query={"since": "not-a-date"}))
     reg = r("OAuth", "dynamic client registration", lambda: A.as_({})(
         "POST", "/oauth/register", 201,
-        body={"client_name": f"e2e-{c.run}", "redirect_uris": ["http://127.0.0.1:7777/callback"],
+        body={"client_name": f"e2e-{c.run}", "application_type": "native", "redirect_uris": ["http://127.0.0.1:7777/callback"],
               "grant_types": ["authorization_code"], "response_types": ["code"], "token_endpoint_auth_method": "none"}).json)
     r("OAuth", "token endpoint refuses a bad grant -> 400", lambda: A.as_({})(
         "POST", "/oauth/token", 400, body=b"grant_type=authorization_code&code=bad",
@@ -586,8 +609,8 @@ def mcp(c, t):
         names = ro.tools()
         r("MCP", "a read-only key doesn't see write tools", lambda: t.expect("upload_file" not in names, f"listed: {names}"))
         r("MCP", "a read-only key calling a write tool is refused", lambda: t.expect(
-            ro.call("upload_file", {"containerId": c.container_name, "fileName": "x.txt", "textContent": "x"}, ok=False)[0]
-            or True, "not refused"))
+            ro.refused("upload_file", {"containerId": c.container_name, "fileName": "x.txt", "textContent": "x"}),
+            "not refused"))
     r("MCP", "a foreign Origin is refused with 403", lambda: t.expect(
         t.http("POST", c.base + "/mcp", json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}).encode(),
                {"X-Api-Key": c.agent_key, "Origin": "https://evil.example", "Content-Type": "application/json",
@@ -619,7 +642,11 @@ def cli(c, t):
 
     box = f"e2e-cli-{c.run}"
     r("CLI", "version", lambda: run("version"))
-    if not r("CLI", "auth login --with-token", lambda: run("auth", "login", "--server", c.base, "--with-token", stdin=c.pat_token + "\n")):
+    # The CLI sends a pasted token as Bearer, and the server reads a PAT only from X-Api-Key, so a pasted
+    # PAT is refused (filed with the PM). The access token from signing in carries the rest of the journey.
+    r("CLI", "auth login --with-token (a PAT)", lambda: run("auth", "login", "--server", c.base, "--with-token", stdin=c.pat_token + "\n"))
+    if not r("CLI", "auth login --with-token (an access token)",
+             lambda: run("auth", "login", "--server", c.base, "--with-token", stdin=c.access_token + "\n")):
         return
     r("CLI", "auth whoami", lambda: run("auth", "whoami", want=c.admin_email))
     r("CLI", "auth pat list", lambda: run("auth", "pat", "list"))

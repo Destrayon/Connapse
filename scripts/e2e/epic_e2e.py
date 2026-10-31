@@ -128,7 +128,8 @@ class Spec:
         declared = responses.get(str(status)) or responses.get("default")
         expect(declared is not None,
                f"{method} {template} answered {status}, which the spec doesn't declare (declares {sorted(responses)})")
-        if status >= 400:
+        # OAuth endpoints answer RFC 6749 {"error": ...} JSON, and the spec declares that, not a problem.
+        if status >= 400 and "application/problem+json" in (declared.get("content") or {"application/problem+json": 0}):
             expect(ctype.startswith("application/problem+json"),
                    f"{method} {template} answered {status} as '{ctype}', not application/problem+json: {str(body)[:300]}")
             expect(isinstance(body, dict) and body.get("type") and body.get("title") and body.get("status") == status,
@@ -280,6 +281,13 @@ class Mcp:
     def tools(self) -> list[str]:
         return sorted(t["name"] for t in self.request("tools/list")["tools"])
 
+    def refused(self, name: str, args: dict) -> bool:
+        """True when the server refuses the call, as a JSON-RPC error or a tool error."""
+        try:
+            return self.call(name, args, ok=False)[0]
+        except Check as e:
+            return "-> error" in str(e) or "-> HTTP 403" in str(e)
+
     def call(self, name: str, args: dict, ok=True) -> str:
         result = self.request("tools/call", {"name": name, "arguments": args})
         text = "\n".join(c.get("text", "") for c in result.get("content", []))
@@ -300,7 +308,7 @@ def compose(env: dict, *args, check=True, capture=False):
 
 def prepare_work(work: Path):
     """Fixtures the connectors read: a folder, an SFTP account with a fresh key, the custom source's data."""
-    for sub in ("fs", "sftp", "custom", "clihome"):
+    for sub in ("fs", "sftp", "custom", "custom-perms", "clihome"):
         shutil.rmtree(work / sub, ignore_errors=True)
     (work / "fs" / "guides").mkdir(parents=True)
     (work / "fs" / "guides" / "falcon.md").write_text(
@@ -313,6 +321,7 @@ def prepare_work(work: Path):
     key = work / "sftp" / "id_ed25519"
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "connapse-e2e", "-f", str(key)], check=True)
     shutil.copytree(REPO / "samples" / "Connapse.CustomSource.Example" / "sample-data", work / "custom")
+    shutil.copytree(REPO / "samples" / "Connapse.CustomSource.Example" / "sample-data", work / "custom-perms")
     cfg = json.loads((work / "custom" / "example.json").read_text(encoding="utf-8"))
     cfg["permissions_enabled"] = False  # a content-only source: everyone who reads the source sees all of it
     (work / "custom" / "example.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
@@ -336,8 +345,8 @@ def wait_for(what: str, fn, timeout: float):
 def up(env: dict, base: str, build: bool):
     compose(env, "down", "-v", "--remove-orphans", check=False)
     if build:
-        compose(env, "build", "web", "custom-source")
-    compose(env, "up", "-d", "--wait", "postgres", "minio", "ollama", "sftp", "custom-source")
+        compose(env, "build", "web", "custom-source", "custom-perms")
+    compose(env, "up", "-d", "--wait", "postgres", "minio", "ollama", "sftp", "custom-source", "custom-perms")
     print("Pulling the embedding model into the stack's Ollama (CPU only)...", flush=True)
     compose(env, "exec", "-T", "ollama", "ollama", "pull", EMBED_MODEL)
     compose(env, "up", "-d", "web")
@@ -361,7 +370,7 @@ def run_all(base: str, admin_email: str, admin_password: str, cli_dir: Path | No
     c.run = uuid.uuid4().hex[:6]
 
     print("Journey: start and sign in", flush=True)
-    record("Start", "GET /health", lambda: anon("GET", "/health", conform=False))
+    record("Start", "GET /health", lambda: anon("GET", "/health"))
     record("Start", "GET /api/v1/info", lambda: anon("GET", "/api/v1/info"))
     record("Start", "OAuth metadata", lambda: (anon("GET", "/.well-known/oauth-authorization-server"),
                                                anon("GET", "/.well-known/oauth-protected-resource")))
@@ -374,6 +383,7 @@ def run_all(base: str, admin_email: str, admin_password: str, cli_dir: Path | No
     if not tokens:
         return c
     c.admin = anon.as_({"Authorization": f"Bearer {tokens['accessToken']}"})
+    c.access_token = tokens["accessToken"]
     record("Auth", "POST /api/v1/auth/token/refresh",
            lambda: anon("POST", "/api/v1/auth/token/refresh", body={"refreshToken": tokens["refreshToken"]}))
     record("Auth", "GET /api/v1/auth/me", lambda: expect(

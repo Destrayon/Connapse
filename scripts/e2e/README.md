@@ -35,6 +35,11 @@ The CLI is cloned from `https://github.com/Destrayon/connapse-cli` at `origin/ma
 | `--cli-ref REF` / `--cli-src DIR` | Build the CLI from another ref, or from a local checkout. |
 | `--no-cli` | Skip the CLI journey. |
 
+The stack differs from a default install in two ways. The rate limits are raised, because the run makes
+far more than 200 requests a minute. A second copy of the custom source example (`custom-perms`) runs with
+`permissions.check` on, because a custom provider needs it. Before you start a run, check `docker ps`: the
+stack is seven containers, so don't start it beside another heavy workload.
+
 `E2E_PROJECT` sets the Compose project name (default `connapse-e2e`). The exit code is 0 only when
 every item passed and every spec operation was called.
 

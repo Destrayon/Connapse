@@ -27,6 +27,11 @@ services:
       Knowledge__Embedding__BaseUrl: "http://ollama:11434"
       # The custom source example server answers plain HTTP on the Docker network.
       CustomSources__AllowedHttpHosts__0: custom-source
+      CustomSources__AllowedHttpHosts__1: custom-perms
+      # The harness makes a few hundred calls a minute as one user; the defaults (200 a minute) would refuse them.
+      RateLimiting__ApiPermitLimit: "100000"
+      RateLimiting__AuthPermitLimit: "100000"
+      RateLimiting__McpPermitLimit: "100000"
     volumes:
       - ${E2E_WORK}/fs:/data/fs:ro
     deploy: *cap
@@ -45,6 +50,15 @@ services:
     build: samples/Connapse.CustomSource.Example
     volumes:
       - ${E2E_WORK}/custom:/app/sample-data
+    networks:
+      - backend
+    deploy: *cap
+
+  # The same example server with permission checks on, for the custom provider journey.
+  custom-perms:
+    build: samples/Connapse.CustomSource.Example
+    volumes:
+      - ${E2E_WORK}/custom-perms:/app/sample-data
     networks:
       - backend
     deploy: *cap
