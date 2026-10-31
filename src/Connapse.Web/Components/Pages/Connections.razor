@@ -860,7 +860,7 @@
                 <div class="form-text">
                     To index files on the machine you are sitting at, run an SSH server there and use
                     <code>host.docker.internal</code> — see
-                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/connectors.md" target="_blank" rel="noopener">the connector documentation</a>.
+                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/index.md" target="_blank" rel="noopener">the connector documentation</a>.
                 </div>
 
                 @* Shown while they are still typing, rather than only in a failure message
@@ -1438,7 +1438,7 @@
                     @if (!testSuccess && form.Provider == ConnectionProvider.S3)
                     {
                         <a class="alert-link ms-1" target="_blank" rel="noopener"
-                           href="https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md#troubleshooting">Troubleshooting</a>
+                           href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/aws-setup.md#troubleshooting">Troubleshooting</a>
                     }
                     @if (!testSuccess && form.Provider == ConnectionProvider.GitHub)
                     {
@@ -1447,7 +1447,7 @@
                     @if (!testSuccess && form.Provider == ConnectionProvider.AzureBlob)
                     {
                         <a class="alert-link ms-1" target="_blank" rel="noopener"
-                           href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#troubleshooting">Troubleshooting</a>
+                           href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md#troubleshooting">Troubleshooting</a>
                     }
                     @if (!testSuccess && testDetail is { Length: > 0 })
                     {

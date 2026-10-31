@@ -85,21 +85,7 @@ If you are reporting something listed under [Remaining Limitations](#remaining-l
 
 ## Self-Hosting Security Checklist
 
-If you are self-hosting Connapse:
-
-- [ ] Change all default credentials in `docker-compose.yml` (Postgres password, MinIO secret key)
-- [ ] Use strong passwords (20+ characters, randomly generated)
-- [ ] Set `Cors:AllowedOrigins` to your actual domain — do not leave it as wildcard
-- [ ] Place a reverse proxy (nginx, Caddy, Traefik) in front for TLS termination (built-in rate limiting is active by default; tune limits via `RateLimiting` config section)
-- [ ] Keep `.env` and secret files out of version control
-- [ ] Enable OS-level encryption at rest for database and storage volumes
-- [ ] Restrict network access — expose only ports 80/443 to the internet
-- [ ] Regularly update dependencies (`dotnet outdated`)
-- [ ] Review the [CHANGELOG](CHANGELOG.md) for security fixes before upgrading
-- [ ] Monitor audit logs for suspicious authentication activity
-- [ ] Rotate Personal Access Tokens periodically; revoke any tokens that may have been exposed
-- [ ] Set a strong `Identity__Jwt__Secret` (min 32 characters) — see [deployment guide](docs/deployment.md)
-- [ ] For cloud connectors: use IAM roles / managed identities — never store cloud access keys
+If you are self-hosting Connapse, work through the [security checklist](docs/self-host/production.md#security-checklist) in the production guide before you open the server to other people.
 
 ## Secure Development Practices
 

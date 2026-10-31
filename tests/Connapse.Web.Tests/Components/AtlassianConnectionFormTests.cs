@@ -256,7 +256,7 @@ public class AtlassianConnectionFormTests : IDisposable
             .Add(l => l.Href, AtlassianSiteFieldSpecs.SiteConnectionSection)).Find("#atlassian-setup-guide");
 
         link.TagName.Should().Be("A");
-        link.GetAttribute("href").Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#3-site-connection");
+        link.GetAttribute("href").Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#3-site-connection");
         link.GetAttribute("target").Should().Be("_blank");
         link.ClassList.Should().Contain("ms-auto", "it sits at the right of the title row");
         link.TextContent.Should().Contain("Atlassian setup guide").And.Contain("(opens in a new tab)");
@@ -347,7 +347,7 @@ public class AtlassianConnectionFormTests : IDisposable
         result.GetAttribute("role").Should().Be("alert");
         result.TextContent.Should().Contain("Signing in as the service account").And.NotContain("(step:").And.NotContain(Secret);
         result.QuerySelector("a.alert-link")!.GetAttribute("href")
-            .Should().EndWith("docs/atlassian-setup.md#client-id-or-secret-rejected");
+            .Should().EndWith("docs/sources/atlassian-setup.md#client-id-or-secret-rejected");
         cut.Find("#atlassian-save-result-details").TextContent.Should().Contain("Details").And.Contain("HTTP 401");
         store.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
         created.Should().BeFalse();
@@ -556,7 +556,7 @@ public class AtlassianConnectionFormTests : IDisposable
             .And.Contain("delete its OAuth 2.0 credential");
         revoke.QuerySelectorAll("a").Select(a => a.GetAttribute("href")).Should().Equal(
             "https://admin.atlassian.com",
-            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#3-site-connection");
+            "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#3-site-connection");
     }
 
     [Fact]
