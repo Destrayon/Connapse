@@ -32,7 +32,7 @@ curl -X POST http://localhost:5001/api/containers/$CONTAINER_ID/files \
   -H "X-Api-Key: $TOKEN" -F "files=@restart-db.md" -F "path=/db/"
 ```
 
-The upload answers with a `batchId` and one entry per document. Each document is parsed and embedded in the background; `GET /api/containers/$CONTAINER_ID/files?skip=0&take=50` shows its status. Once it is `Ready`, search:
+The upload answers with a `batchId` and one entry per document. Each document is parsed and embedded in the background; `GET /api/containers/$CONTAINER_ID/files?path=/db/&skip=0&take=50` shows its status (a listing shows one folder level). Once it is `Ready`, search:
 
 ```bash
 curl -X POST http://localhost:5001/api/containers/$CONTAINER_ID/search \
@@ -51,15 +51,13 @@ curl -X POST http://localhost:5001/api/v1/connections \
   -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
   -d '{ "name": "knowledge-share", "provider": "Filesystem", "config": { "allowedRoot": "/srv/knowledge" } }'
 
-curl -X POST http://localhost:5001/api/v1/connections/CONNECTION_ID/test -H "X-Api-Key: $TOKEN"
-
 curl -X POST http://localhost:5001/api/sources \
   -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
   -d '{ "name": "handbook", "connectionId": "CONNECTION_ID", "syncIntervalSeconds": 600,
         "scope": { "type": "filesystem", "subPath": "handbook", "includePatterns": ["*.md"] } }'
 ```
 
-Send `scope`, not the deprecated `scopeJson` string. The source syncs on its interval; to start one cycle now and search it:
+The connection call returns `{ "connection": { "id": ... }, "note": ... }`, so `connection.id` is the `CONNECTION_ID` the source call uses; the source call returns the source itself, whose `id` is `SOURCE_ID`. `POST /api/v1/connections/CONNECTION_ID/test` checks that Connapse can sign in to an SFTP, S3, Azure Blob, GitHub or custom connection. A Filesystem connection has nothing to test and answers `400`. Send `scope`, not the deprecated `scopeJson` string. The source syncs on its interval; to start one cycle now and search it:
 
 ```bash
 curl -X POST http://localhost:5001/api/sources/SOURCE_ID/sync -H "X-Api-Key: $TOKEN"

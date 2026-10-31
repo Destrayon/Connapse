@@ -82,6 +82,8 @@ curl -X POST http://localhost:5001/api/sources \
   -d '{"name":"Handbook","connectionId":"CONNECTION_ID","scope":{"type":"filesystem","subPath":"handbook","includePatterns":["*.md"],"excludePatterns":[]}}'
 ```
 
+The connection call returns the new connection under `connection`; put its `connection.id` in place of `CONNECTION_ID`.
+
 An SFTP connection carries the private key in the request body. It's stored encrypted and never returned:
 
 ```json
