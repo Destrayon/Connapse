@@ -60,7 +60,7 @@ public sealed class SftpServerFixture : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(22))
             .Build();
 
-        await _container.StartAsync();
+        await ContainerStart.StartAsync(_container);
     }
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
