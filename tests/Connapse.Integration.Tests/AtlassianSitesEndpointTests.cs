@@ -189,7 +189,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("stepLabel").GetString().Should().Be("Signing in as the service account");
         body.GetProperty("troubleshootingUrl").GetString()
-            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#client-id-or-secret-rejected");
+            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#client-id-or-secret-rejected");
         body.GetProperty("detail").GetString().Should().Contain("HTTP 401");
     }
 

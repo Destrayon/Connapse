@@ -11282,6 +11282,26 @@
           "required": true
         },
         "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "200": {
             "description": "OK"
           },
@@ -11350,6 +11370,16 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized: the email or password is wrong, a two-factor code is missing or wrong, or the account is locked out.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
             "content": {
@@ -11385,6 +11415,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AccessTokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: the refresh token is invalid or expired, or the user's password or security stamp changed since it was issued.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -11436,6 +11476,16 @@
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized: no user has this id, or the confirmation code is wrong.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",

@@ -276,7 +276,7 @@ public class NewSourceConfluenceTests : IDisposable
 
         var guide = cut.Find("#atlassian-setup-guide");
         guide.GetAttribute("href").Should().Be(
-            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
+            "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#4-confluence-sources");
         guide.ParentElement!.ClassList.Should().Contain("modal-header", "the link sits in the dialog's title row");
         guide.PreviousElementSibling!.Id.Should().Be("new-source-title");
     }
@@ -471,7 +471,7 @@ public class NewSourceConfluenceTests : IDisposable
         var note = cut.Find("#confluence-attachments-scope");
         note.TextContent.Should().Contain("read:attachment:confluence");
         note.QuerySelector("a")!.GetAttribute("href").Should().Be(
-            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+            "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope");
         cut.Find("#confluence-attachments").GetAttribute("aria-describedby")
             .Should().Be("confluence-attachments-help confluence-attachments-scope");
 
@@ -501,7 +501,7 @@ public class NewSourceConfluenceTests : IDisposable
             .Should().Be($"/connections?edit={otherConnection.Id}&replace=1");
         cut.Find("#confluence-attachments-scope-route-replace").TextContent.Should().Contain("Replace credentials on globex.atlassian.net");
         cut.Find("#confluence-attachments-scope-route-guide").GetAttribute("href")
-            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope");
         cut.Find("#confluence-attachments").GetAttribute("aria-describedby")
             .Should().Be("confluence-attachments-help confluence-attachments-scope-route");
     }

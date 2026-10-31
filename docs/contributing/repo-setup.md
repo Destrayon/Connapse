@@ -196,7 +196,7 @@ JSON
 
 ### 7. Update Badge URLs in README.md
 
-**After pushing to GitHub**, update the badge URLs in [README.md](../README.md):
+**After pushing to GitHub**, update the badge URLs in [README.md](../../README.md):
 
 The badge URLs in README.md already use the correct repository path (`Destrayon/Connapse`):
 ```markdown
@@ -208,7 +208,7 @@ The badge URLs in README.md already use the correct repository path (`Destrayon/
 ```
 
 Also update URLs in:
-- [.github/ISSUE_TEMPLATE/config.yml](../.github/ISSUE_TEMPLATE/config.yml)
+- [.github/ISSUE_TEMPLATE/config.yml](../../.github/ISSUE_TEMPLATE/config.yml)
 - Any CI/CD workflows that reference the repository
 
 ---

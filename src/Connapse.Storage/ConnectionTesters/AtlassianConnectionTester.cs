@@ -133,11 +133,11 @@ public static class AtlassianSiteScopes
 
 /// <summary>
 /// The troubleshooting entries of the Atlassian setup guide that test failures link to. Each value
-/// is the anchor of a heading under "Troubleshooting" in <c>docs/atlassian-setup.md</c>.
+/// is the anchor of a heading under "Troubleshooting" in <c>docs/sources/atlassian-setup.md</c>.
 /// </summary>
 public static class AtlassianSiteTroubleshooting
 {
-    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md";
+    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md";
 
     public const string SiteNotFound = "site-not-found";
     public const string CredentialsRejected = "client-id-or-secret-rejected";
