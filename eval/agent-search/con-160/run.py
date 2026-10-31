@@ -73,7 +73,8 @@ def projected_spend(args, n_questions):
     agent = sum(r["cost_usd"] or 0 for r in runs)
     judge_cost = sum(r["judge"].get("judge_cost_usd") or 0 for r in judged_recs)
     haiku = sum(r["cost_usd"] or 0 for r in cache)
-    per_agent = agent / len(runs) if runs else CON146_BASE["cost"]
+    # Start from CON-146's rate, weighted as 12 questions, so one expensive early question can't stop the run alone.
+    per_agent = (agent + 12 * CON146_BASE["cost"]) / (len(runs) + 12)
     summ_done = sum(r["setup"] == "summaries" for r in runs)
     per_haiku = haiku / summ_done if summ_done else 0.07
     main_done = sum(r.get("attempt", 1) == 1 for r in runs)

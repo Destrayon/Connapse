@@ -17,7 +17,9 @@ and CON-142's runner, all unchanged.
 ## Reproducing
 1. Restore CON-107's erb-50k snapshot (pg_dump generation `584b7e6093414329893c6dfd8c529c42`) into pgvector, start a
    CPU-only Ollama with `nomic-embed-text`, and fill MinIO bucket `aikp-files` under `<containerId>/` from CON-146's
-   `export_corpus.py` output, so `get_document` can read the records.
+   `export_corpus.py` output, so `get_document` can read the records. Set `Knowledge__Storage__MinIO__BucketName=aikp-files`:
+   `appsettings.json` names `connapse-files`, and with the wrong bucket every read still fails as "could not be read
+   from storage".
 2. Start `ollama_shim.py`, then Connapse.Web with `Knowledge__Summary__Enabled=true`, `Knowledge__LLM__Provider=Ollama`
    and `Knowledge__LLM__BaseUrl` pointing at the shim. The 5-minute summary sweep writes the container summary.
 3. Create a `knowledge:read` PAT, then `run.py run` for `baseline` and `summaries`, `run.py judge`, `run.py tiebreak`
