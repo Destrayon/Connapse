@@ -150,22 +150,24 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
                     return row is null ? "ok not-found" : "ok found";
                 if (row is null)
                     return "error:not_found";
-                var button = row.QuerySelectorAll("button").FirstOrDefault(b => b.TextContent.Contains(action switch
+                AngleSharp.Dom.IElement? Button() => Row()?.QuerySelectorAll("button").FirstOrDefault(b => b.TextContent.Contains(action switch
                 {
                     "sync" => "Sync",
                     "pause" => "Pause syncing",
                     "retry" => "Retry failed",
                     _ => "Delete",
                 }, StringComparison.Ordinal));
-                if (button is null)
+                if (Button() is null)
                     return "error:forbidden";
-                await button.ClickAsync(new());
+                // Each element is found and acted on in one step on the renderer's thread: the page keeps
+                // rendering after the row appears, and a render between finding and clicking drops the handler.
+                await page.InvokeAsync(() => Button()!.ClickAsync(new()));
                 if (action == "delete")
                 {
-                    page.Find("#delete-source-confirm").Input(@case == Case.Invalid ? "not-the-name" : name);
+                    await page.InvokeAsync(() => page.Find("#delete-source-confirm").Input(@case == Case.Invalid ? "not-the-name" : name));
                     if (page.Find("#delete-source-submit").HasAttribute("disabled"))
                         return "error:validation";
-                    await page.Find("#delete-source-submit").ClickAsync(new());
+                    await page.InvokeAsync(() => page.Find("#delete-source-submit").ClickAsync(new()));
                 }
                 // Done when nothing is left syncing or awaiting confirmation; an alert is the action's failure.
                 page.WaitForAssertion(() => page.FindAll(".spinner-border-sm").Should().BeEmpty(), TimeSpan.FromSeconds(15));
