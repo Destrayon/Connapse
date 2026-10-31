@@ -1,5 +1,7 @@
 # CON-174 result: a folder summary shown up front does not help (no)
 
+**Decision:** because of this result, the user decided to remove folder summaries from the product; the removal is its own ticket and PR.
+
 The agent called `container_describe` first on 48 of 48 questions and read the summary, and it got fewer hard
 questions right. The verdict, under the bar in [pass-bar.md](pass-bar.md) written before any run, is **no**.
 
