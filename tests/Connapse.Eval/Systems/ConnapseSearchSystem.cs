@@ -430,7 +430,8 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
             hit.ChunkId,
             docMap.GetValueOrDefault(hit.DocumentId, ""),
             vectorScores.TryGetValue(hit.ChunkId, out float v) ? v : null,
-            keywordScores.TryGetValue(hit.ChunkId, out float k) ? k : null);
+            keywordScores.TryGetValue(hit.ChunkId, out float k) ? k : null,
+            int.TryParse(hit.Metadata.GetValueOrDefault("chunkIndex"), out int index) ? index : null);
 
         return new CandidateCapture(vectorHits.Select(Describe).ToList(), keywordHits.Select(Describe).ToList());
     }
