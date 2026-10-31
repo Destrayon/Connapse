@@ -29,7 +29,7 @@ public static class FoldersEndpoints
                 return OperationProblems.Result(created);
 
             var folder = created.Result!;
-            return Results.Created($"/api/containers/{containerId}/folders?path={folder.Path}", folder);
+            return Results.Created($"/api/containers/{containerId}/folders?path={Uri.EscapeDataString(folder.Path)}", folder);
         })
         .Produces<Folder>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
