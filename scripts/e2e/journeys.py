@@ -710,7 +710,7 @@ def cli(c, t):
     r("CLI", "a missing container -> exit 1", lambda: run("container", "stats", "e2e-no-such-container", code=1))
     r("CLI", "auth logout", lambda: run("auth", "logout"))
     # After logout the CLI calls a hard-coded https://localhost:5001 instead of saying it is signed out (exits 99).
-    r("CLI", "signed out -> exit 2 [known: CLI signed-out ticket]", lambda: run("container", "list", code=2))
+    r("CLI", "signed out -> exit 2 [known: CON-168]", lambda: run("container", "list", code=2))
 
 
 # ── Cleanup through the API (the stack is torn down anyway; this exercises the delete paths) ─────
