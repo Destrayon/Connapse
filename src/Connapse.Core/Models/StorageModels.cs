@@ -113,6 +113,12 @@ public record ContainerStats(
     long TotalSizeBytes,
     DateTime? LastIndexedAt);
 
+/// <summary>
+/// How many documents a container holds and a hash over every one of them (id and content hash), however
+/// many there are. The container summary is rebuilt only when the hash changes.
+/// </summary>
+public record DocumentSetFingerprint(int DocumentCount, string Hash);
+
 public record VectorSearchResult(
     string Id,
     float Score,

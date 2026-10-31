@@ -22,29 +22,13 @@ public class SummaryJobsHerculesTests
         // Arrange — 35 docs (above stuff threshold) in document-clustering mode.
         Guid containerId = Guid.NewGuid();
 
-        var docs = Enumerable.Range(0, 35).Select(i => new Document(
-            Id: Guid.NewGuid().ToString(),
-            ContainerId: containerId.ToString(),
-            FileName: $"f{i}.txt",
-            ContentType: "text/plain",
-            Path: $"/f{i}.txt",
-            SizeBytes: 1,
-            CreatedAt: DateTime.UtcNow,
-            Metadata: new Dictionary<string, string> { ["ContentHash"] = $"hash-{i}" },
-            Summary: null,
-            SummaryGeneratedAt: null,
-            SummaryContentHash: null,
-            Status: DocumentStatus.Ready, SummaryStatus: SummaryStatus.Done)).ToList();
-
         var (jobs, mocks) = BuildJobs(out var collected);
         collected.SetupContainer(containerId, summaryDocSetHash: null);
         collected.SetupSettings(containerId, SummaryStrategy.DocumentClustering);
-        collected.DocStore.ListAsync(containerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Document>>(docs));
+        collected.SetupFingerprint(containerId, 35, "fresh-hash");
         // Return empty pooled embeddings so the rollup exits early after the call — we only
         // need to prove WHICH collaborator was invoked.
-        collected.VectorStore.GetPooledDocumentEmbeddingsAsync(containerId, Arg.Any<CancellationToken>())
+        collected.VectorStore.GetPooledDocumentEmbeddingsAsync(containerId, Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Guid DocumentId, float[] Embedding)>>(
                 Array.Empty<(Guid, float[])>()));
 
@@ -54,7 +38,7 @@ public class SummaryJobsHerculesTests
         // Assert: document-clustering path called the pooled-embeddings query, NOT the summary
         // embedding provider. The PerDocSummarizer wasn't called either (no medoids selected).
         await collected.VectorStore.Received(1).GetPooledDocumentEmbeddingsAsync(
-            containerId, Arg.Any<CancellationToken>());
+            containerId, Arg.Any<int>(), Arg.Any<CancellationToken>());
         await collected.EmbeddingProvider.DidNotReceiveWithAnyArgs().GetSummaryEmbeddingsAsync(
             default!, default);
         await collected.PerDocSummarizer.DidNotReceiveWithAnyArgs().GenerateAsync(
@@ -71,16 +55,15 @@ public class SummaryJobsHerculesTests
         var (jobs, mocks) = BuildJobs(out var collected);
         collected.SetupContainer(containerId, summaryDocSetHash: null);
         collected.SetupSettings(containerId, SummaryStrategy.SummaryClustering);
-        collected.DocStore.ListAsync(containerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Document>>(Array.Empty<Document>()));
+        collected.DocStore.GetSummarizedDocumentSetFingerprintAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DocumentSetFingerprint(0, "empty-hash")));
 
         // Act
         await jobs.RollupContainerAsync(containerId, CancellationToken.None);
 
         // Assert: summary-clustering path did NOT touch the pooled-embeddings query.
         await collected.VectorStore.DidNotReceiveWithAnyArgs().GetPooledDocumentEmbeddingsAsync(
-            default, default);
+            default, default, default);
     }
 
     [Fact]
@@ -109,6 +92,7 @@ public class SummaryJobsHerculesTests
         var (jobs, mocks) = BuildJobs(out var collected);
         collected.SetupContainer(containerId, summaryDocSetHash: null);
         collected.SetupSettings(containerId, SummaryStrategy.DocumentClustering);
+        collected.SetupFingerprint(containerId, 1, "fresh-hash");
         collected.DocStore.ListAsync(containerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Document>>(new[] { doc }));
@@ -181,6 +165,12 @@ public class SummaryJobsHerculesTests
                     Summary: null,
                     SummaryGeneratedAt: null,
                     SummaryDocSetHash: summaryDocSetHash)));
+        }
+
+        public void SetupFingerprint(Guid containerId, int documentCount, string hash)
+        {
+            DocStore.GetDocumentSetFingerprintAsync(containerId, Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult(new DocumentSetFingerprint(documentCount, hash)));
         }
 
         public void SetupSettings(Guid containerId, string method)

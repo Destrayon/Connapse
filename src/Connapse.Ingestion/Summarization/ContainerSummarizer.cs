@@ -15,6 +15,7 @@ public sealed class ContainerSummarizer(
         string containerName,
         IReadOnlyList<DocumentWithSummary> docs,
         SummarySettings settings,
+        int? totalDocuments = null,
         CancellationToken ct = default)
     {
         if (!settings.Enabled)
@@ -49,9 +50,11 @@ public sealed class ContainerSummarizer(
             });
         }
 
+        int total = Math.Max(totalDocuments ?? docs.Count, docs.Count);
+
         string userMsg = SummaryPrompts.RenderContainerRollupUserMessage(
             containerName: containerName,
-            totalDocs: docs.Count,
+            totalDocs: total,
             isClustered: isClustered,
             summaries: renderedSummaries);
 
@@ -75,7 +78,7 @@ public sealed class ContainerSummarizer(
             Skipped: false,
             Summary: responseText,
             Regime: isClustered ? "cluster" : "stuff",
-            NumDocs: docs.Count,
+            NumDocs: total,
             KClusters: k,
             InputTokens: inputTokens,
             OutputTokens: outputTokens,

@@ -105,6 +105,9 @@ public partial class SettingsOperationTests
         public Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<string?> GetDocumentTextAsync(string documentId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<DocumentSetFingerprint> GetDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<DocumentSetFingerprint> GetSummarizedDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Document>> ListSummarizedSampleAsync(Guid containerId, int maxDocuments, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, string?>> GetResourceUrisAsync(IReadOnlyCollection<string> documentIds, CancellationToken ct = default) => throw new NotSupportedException();
     }
 

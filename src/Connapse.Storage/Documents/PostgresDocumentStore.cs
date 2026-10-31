@@ -379,6 +379,59 @@ public class PostgresDocumentStore : IDocumentStore
             stats.LastIndexedAt);
     }
 
+    public async Task<DocumentSetFingerprint> GetDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        return await FingerprintAsync(context.Documents.Where(d => d.OwnerId == containerId), ct);
+    }
+
+    public async Task<DocumentSetFingerprint> GetSummarizedDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        return await FingerprintAsync(
+            context.Documents.Where(d => d.OwnerId == containerId && d.Summary != null && d.Summary != ""), ct);
+    }
+
+    public async Task<IReadOnlyList<Document>> ListSummarizedSampleAsync(Guid containerId, int maxDocuments, CancellationToken ct = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDocuments);
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        // Ordering by md5 of the id spreads the sample across the whole container and keeps it
+        // stable between runs, so a folder of any size costs at most maxDocuments rows.
+        List<Guid> ids = await context.Database
+            .SqlQuery<Guid>($"""
+                SELECT id AS "Value" FROM documents
+                WHERE owner_id = {containerId} AND summary IS NOT NULL AND summary <> ''
+                ORDER BY md5(id::text)
+                LIMIT {maxDocuments}
+                """)
+            .ToListAsync(ct);
+
+        var entities = await context.Documents
+            .AsNoTracking()
+            .Where(d => ids.Contains(d.Id))
+            .ToListAsync(ct);
+
+        return entities.Select(MapToModel).ToList();
+    }
+
+    private static async Task<DocumentSetFingerprint> FingerprintAsync(
+        IQueryable<DocumentEntity> documents, CancellationToken ct)
+    {
+        using var hasher = new Connapse.Core.Utilities.DocumentSetHasher();
+        var rows = documents
+            .AsNoTracking()
+            .OrderBy(d => d.Id)
+            .Select(d => new { d.Id, d.ContentHash })
+            .AsAsyncEnumerable();
+
+        await foreach (var row in rows.WithCancellation(ct))
+            hasher.Add(row.Id.ToString(), row.ContentHash);
+
+        return hasher.Finish();
+    }
+
     public async Task<IReadOnlyDictionary<string, string?>> GetResourceUrisAsync(
         IReadOnlyCollection<string> documentIds, CancellationToken ct = default)
     {

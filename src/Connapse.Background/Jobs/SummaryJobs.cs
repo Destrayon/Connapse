@@ -18,6 +18,18 @@ public sealed class SummaryJobs : ISummaryJobs
     private const int LazyStuffThreshold = 30; // mirrors ContainerSummarizer.StuffThreshold
     private const int LazyMaxClusters = 20;    // mirrors ContainerSummarizer.MaxClusters
 
+    /// <summary>
+    /// Most documents whose pooled embeddings are loaded to pick medoids from. Big enough that
+    /// 20 medoids cover the container's topics, small enough to keep memory flat on any container.
+    /// </summary>
+    internal const int PooledSampleSize = 2_000;
+
+    /// <summary>
+    /// Most summarized documents whose summaries are embedded for summary clustering. Bounds the
+    /// embedding call and memory on any container while still covering its topics.
+    /// </summary>
+    internal const int SummarySampleSize = 2_000;
+
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _docStore;
     private readonly IContainerSettingsResolver _settingsResolver;
@@ -95,11 +107,12 @@ public sealed class SummaryJobs : ISummaryJobs
     private async Task RollupSummaryClusteringAsync(
         Guid containerId, Container container, SummarySettings settings, CancellationToken ct)
     {
-        IReadOnlyList<Document> docs = await _docStore.ListAsync(
-            containerId, pathPrefix: null, skip: 0, take: 10_000, ct);
-        List<Document> withSummaries = docs.Where(d => !string.IsNullOrEmpty(d.Summary)).ToList();
+        // Count and hash every summarized document, however many, then embed only a bounded
+        // sample drawn from across the whole folder (CON-176).
+        DocumentSetFingerprint fingerprint =
+            await _docStore.GetSummarizedDocumentSetFingerprintAsync(containerId, ct);
 
-        if (withSummaries.Count == 0)
+        if (fingerprint.DocumentCount == 0)
         {
             // No summarized docs — clear any existing container summary so we don't keep
             // a stale one around after all docs are deleted.
@@ -107,7 +120,7 @@ public sealed class SummaryJobs : ISummaryJobs
             return;
         }
 
-        string docSetHash = ComputeDocSetHash(withSummaries);
+        string docSetHash = fingerprint.Hash;
         if (docSetHash == container.SummaryDocSetHash)
         {
             // doc_set_hash_match: set of summarized docs + their content hashes hasn't changed
@@ -118,13 +131,18 @@ public sealed class SummaryJobs : ISummaryJobs
             return;
         }
 
+        IReadOnlyList<Document> sample =
+            await _docStore.ListSummarizedSampleAsync(containerId, SummarySampleSize, ct);
+        ContainerStats stats = await _docStore.GetContainerStatsAsync(containerId, ct);
+        int totalDocuments = Math.Max(stats.DocumentCount, fingerprint.DocumentCount);
+
         ILlmProvider? llm = _llmResolver.Resolve(settings);
         IReadOnlyList<DocumentWithSummary> docsWithEmbeddings =
-            await _embeddingProvider.GetSummaryEmbeddingsAsync(withSummaries, ct);
+            await _embeddingProvider.GetSummaryEmbeddingsAsync(sample, ct);
 
         IContainerSummarizer summarizer = new ContainerSummarizer(llm, _tokenCounter);
         ContainerSummarizationResult result = await summarizer.GenerateAsync(
-            container.Name, docsWithEmbeddings, settings, ct);
+            container.Name, docsWithEmbeddings, settings, totalDocuments: totalDocuments, ct: ct);
 
         if (result.Skipped)
         {
@@ -151,17 +169,19 @@ public sealed class SummaryJobs : ISummaryJobs
     private async Task RollupDocumentClusteringAsync(
         Guid containerId, Container container, SummarySettings settings, CancellationToken ct)
     {
-        IReadOnlyList<Document> allDocs = await _docStore.ListAsync(
-            containerId, pathPrefix: null, skip: 0, take: 10_000, ct);
+        // Count and hash every document in the container, however many. Reading only the first
+        // 10,000 once had a 50,000-document container summarized from a fifth of it, with the
+        // model told that fifth was everything (CON-176).
+        DocumentSetFingerprint fingerprint = await _docStore.GetDocumentSetFingerprintAsync(containerId, ct);
 
-        if (allDocs.Count == 0)
+        if (fingerprint.DocumentCount == 0)
         {
             await _containerStore.UpdateSummaryAsync(containerId, null, null, null, ct);
             return;
         }
 
         // Hash gate: skip rollup if the (docId, content_hash) set is unchanged since last rollup.
-        string docSetHash = ComputeDocSetHash(allDocs);
+        string docSetHash = fingerprint.Hash;
         if (docSetHash == container.SummaryDocSetHash)
         {
             _logger.LogInformation(
@@ -176,15 +196,18 @@ public sealed class SummaryJobs : ISummaryJobs
         string regime;
         int? kClusters = null;
 
-        if (allDocs.Count <= LazyStuffThreshold)
+        if (fingerprint.DocumentCount <= LazyStuffThreshold)
         {
-            docsToSummarize = allDocs;
+            docsToSummarize = await _docStore.ListAsync(
+                containerId, pathPrefix: null, skip: 0, take: LazyStuffThreshold, ct);
             regime = "stuff";
         }
         else
         {
+            // A bounded sample drawn from across the whole container keeps memory flat on huge
+            // containers; the medoids are picked from it.
             IReadOnlyList<(Guid DocumentId, float[] Embedding)> pooled =
-                await _vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, ct);
+                await _vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, PooledSampleSize, ct);
             if (pooled.Count == 0)
             {
                 _logger.LogInformation(
@@ -202,17 +225,15 @@ public sealed class SummaryJobs : ISummaryJobs
             var medoidInput = pooled.Select(p => (Id: p.DocumentId, Embedding: p.Embedding)).ToList();
             IReadOnlyList<(Guid Id, float[] Embedding)> medoids =
                 MedoidSelector.SelectFarthestFirst(medoidInput, k);
-            var medoidIds = medoids.Select(m => m.Id).ToHashSet();
-
-            // Map medoid Guids back to Document instances. Skip any whose docs no longer exist
-            // (deleted between pooling query and now) — defensive.
-            Dictionary<Guid, Document> docsById = allDocs
-                .Where(d => Guid.TryParse(d.Id, out _))
-                .ToDictionary(d => Guid.Parse(d.Id));
-            docsToSummarize = medoidIds
-                .Where(id => docsById.ContainsKey(id))
-                .Select(id => docsById[id])
-                .ToList();
+            // Load the medoid documents by id. Skip any that no longer exist (deleted between
+            // the pooling query and now) — defensive.
+            var medoidDocs = new List<Document>(medoids.Count);
+            foreach (Guid medoidId in medoids.Select(m => m.Id).Distinct())
+            {
+                Document? medoidDoc = await _docStore.GetAsync(medoidId.ToString(), ct);
+                if (medoidDoc is not null) medoidDocs.Add(medoidDoc);
+            }
+            docsToSummarize = medoidDocs;
             regime = "cluster";
         }
 
@@ -262,7 +283,7 @@ public sealed class SummaryJobs : ISummaryJobs
         ILlmProvider? llm = _llmResolver.Resolve(settings);
         IContainerSummarizer summarizer = new ContainerSummarizer(llm, _tokenCounter);
         ContainerSummarizationResult result = await summarizer.GenerateAsync(
-            container.Name, summarizedDocs, settings, ct);
+            container.Name, summarizedDocs, settings, totalDocuments: fingerprint.DocumentCount, ct: ct);
 
         if (result.Skipped)
         {
@@ -280,7 +301,7 @@ public sealed class SummaryJobs : ISummaryJobs
             "ContainerRollupCompleted {ContainerId} method=document-clustering regime={Regime} N={N} k={K} inTok={InTok} outTok={OutTok}",
             LogSanitizer.Sanitize(containerId.ToString()),
             regime,
-            allDocs.Count,
+            fingerprint.DocumentCount,
             kClusters,
             result.InputTokens,
             result.OutputTokens);
@@ -447,29 +468,5 @@ public sealed class SummaryJobs : ISummaryJobs
             _logger.LogWarning(ex, "GetContainersWithInFlightPerDocJobs failed; assuming none");
         }
         return result;
-    }
-
-    /// <summary>
-    /// Deterministic hash of the (sorted) set of {docId, content_hash} pairs for the docs
-    /// in this container. Works for both <c>summary-clustering</c> (docs filtered to those
-    /// with summaries — content_hash still identifies stale-vs-fresh state) and
-    /// <c>document-clustering</c> (most docs have null summaries; content_hash is the only
-    /// durable identifier).
-    /// </summary>
-    /// <remarks>
-    /// Migration impact: hashes differ from the prior (docId, summary-sha256) formula across
-    /// the deploy boundary, causing exactly one extra rollup per container on first run
-    /// post-deploy. Accepted one-shot cost.
-    /// </remarks>
-    internal static string ComputeDocSetHash(IEnumerable<Document> docs)
-    {
-        IEnumerable<string> parts = docs
-            .OrderBy(d => d.Id)
-            .Select(d =>
-            {
-                string contentHash = d.Metadata?.GetValueOrDefault("ContentHash") ?? string.Empty;
-                return $"{d.Id}|{contentHash}";
-            });
-        return HexHash.Sha256(string.Join("\n", parts));
     }
 }
