@@ -91,6 +91,27 @@ public class IdentityApiSignInTests(SharedWebAppFixture fixture) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task JwtAndLoginToken_BothAuthenticateTheSameRequest()
+    {
+        using var client = fixture.Factory.CreateClient();
+        var login = await LoginAsync(client);
+        var jwtResponse = await client.PostAsJsonAsync("/api/v1/auth/token", new { email = Email, password = Password });
+        jwtResponse.StatusCode.Should().Be(HttpStatusCode.OK, await jwtResponse.Content.ReadAsStringAsync());
+        using var jwtBody = JsonDocument.Parse(await jwtResponse.Content.ReadAsStringAsync());
+        string jwt = jwtBody.RootElement.GetProperty("accessToken").GetString()!;
+        jwt.Should().Contain(".", "a JWT has dots between its parts");
+        login.AccessToken.Should().NotContain(".", "the login token is a data-protected ticket");
+
+        foreach (string token in new[] { jwt, login.AccessToken })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/identity/manage/info");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var response = await client.SendAsync(request);
+            response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        }
+    }
+
+    [Fact]
     public async Task Login_WrongPassword_Returns401Problem()
     {
         using var client = fixture.Factory.CreateClient();
