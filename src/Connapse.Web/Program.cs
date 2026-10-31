@@ -184,6 +184,7 @@ builder.Services.AddOpenApi(options => options
     .AddSchemaTransformer<Connapse.Web.Endpoints.AuditDetailsSchemaTransformer>()
     .AddSchemaTransformer<Connapse.Web.Endpoints.ConnectionConfigSchemaTransformer>()
     .AddOperationTransformer<Connapse.Web.Problems.ResendConfirmationValidationTransformer>()
+    .AddOperationTransformer<Connapse.Web.Problems.IdentitySignInUnauthorizedTransformer>()
     .AddOperationTransformer<Connapse.Web.Problems.RateLimitResponseTransformer>()
     .AddOperationTransformer<Connapse.Web.Endpoints.MultipartFormTransformer>()
     .AddOperationTransformer<Connapse.Web.Endpoints.OperationExtensionTransformer>()
