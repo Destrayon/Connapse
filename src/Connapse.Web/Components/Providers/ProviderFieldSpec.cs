@@ -42,7 +42,7 @@ public sealed record ProviderFieldSpec(
 /// <summary>The GitHub provider's fields, in the order an administrator gathers them.</summary>
 public static class GitHubFieldSpecs
 {
-    private const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/github-setup.md";
+    private const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/github-setup.md";
     private const string ManualValues = "Manual values";
     private const string NewSource = "New source";
 
@@ -65,13 +65,13 @@ public static class GitHubFieldSpecs
 
     public static readonly ProviderFieldSpec Repository = new(
         "github-repo", "Repository", ProviderFieldKind.Text, Required: true,
-        "owner/repo or its github.com address.", NewSource, Guide + "#source", "Adding a repository",
+        "owner/repo or its github.com address.", NewSource, Guide + "#3-source", "Adding a repository",
         Placeholder: "owner/repo");
 
     public static readonly ProviderFieldSpec DocPatterns = new(
         "github-patterns", "File patterns", ProviderFieldKind.Multiline, Required: false,
         "File names to index, one per line, with * as a wildcard (for example *.md or CHANGELOG*). Leave blank for *.md and *.markdown.",
-        NewSource, Guide + "#source", "How patterns work",
+        NewSource, Guide + "#3-source", "How patterns work",
         Placeholder: "README.md", Rows: 2);
 
     /// <summary>The manual App values, in the order they are rendered.</summary>
@@ -84,7 +84,7 @@ public static class GitHubFieldSpecs
 /// <summary>The Atlassian linking app's fields, in the order an administrator copies them from the developer console.</summary>
 public static class AtlassianLinkAppFieldSpecs
 {
-    public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md";
+    public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md";
     public const string GuideSection = Guide + "#1-linking-app";
     public const string TroubleshootingRejected = Guide + "#linking-app-rejected";
     // The same heading GitHub's hand-entered values sit under.
@@ -111,7 +111,7 @@ public static class AtlassianLinkAppFieldSpecs
 /// </summary>
 public static class CustomSourceFieldSpecs
 {
-    public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/custom-source-setup.md";
+    public const string Guide = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/custom-source-setup.md";
     public const string Prerequisites = Guide + "#before-you-start";
     public const string Troubleshooting = Guide + "#troubleshooting";
     private const string MiddleMan = "Source server";

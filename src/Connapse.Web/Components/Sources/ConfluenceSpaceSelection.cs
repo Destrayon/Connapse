@@ -11,7 +11,7 @@ namespace Connapse.Web.Components.Sources;
 public sealed class ConfluenceSpaceSelection : AtlassianSourceSelection<ConfluenceSpaceInfo, ConfluenceSpaceSelection>
 {
     /// <summary>Where the setup guide explains every field of this form.</summary>
-    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources";
+    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#4-confluence-sources";
 
     public const string SpacesLabel = "Spaces";
     public const string IncludePersonalLabel = "Include personal spaces";

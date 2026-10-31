@@ -15,7 +15,7 @@ namespace Connapse.Web.Tests.Components;
 [Trait("Category", "Unit")]
 public class AtlassianSiteFieldSpecDocsTests
 {
-    private static string GuidePath => Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "atlassian-setup.md");
+    private static string GuidePath => Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "sources", "atlassian-setup.md");
 
     [Fact]
     public void TheGuideMustName_TheseLabels()

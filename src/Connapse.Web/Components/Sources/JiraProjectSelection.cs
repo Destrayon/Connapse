@@ -13,7 +13,7 @@ public sealed class JiraProjectSelection : AtlassianSourceSelection<JiraProjectI
     public const string Kind = "jira-project";
 
     /// <summary>Where the setup guide explains every field of this form.</summary>
-    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#5-jira-sources";
+    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#5-jira-sources";
 
     public const string ProjectsLabel = "Projects";
 
