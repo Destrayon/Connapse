@@ -29,6 +29,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - uses: ./.github/actions/free-disk
+
     - uses: ./.github/actions/build
 
     - name: Run Small tests
@@ -40,6 +42,9 @@ jobs:
         status=$?
         echo $(( $(date +%s) - start )) > walls/small.txt
         exit $status
+
+    - uses: ./.github/actions/disk-report
+      if: always()
 
     # The CI scripts' own tests: the shard planner decides which tests every PR runs where.
     - name: Test the CI scripts
@@ -63,6 +68,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - uses: ./.github/actions/free-disk
+
     - uses: ./.github/actions/build
 
     # The unit tests lint every generated CloudShell script with bash -n and ShellCheck. The runner
@@ -83,6 +90,9 @@ jobs:
         status=$?
         echo $(( $(date +%s) - start )) > walls/medium.txt
         exit $status
+
+    - uses: ./.github/actions/disk-report
+      if: always()
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -114,6 +124,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - uses: ./.github/actions/free-disk
 
     # The test fixtures' container images, pulled while the build runs. Testcontainers otherwise pulls them
     # inside the test step, where a slow registry looked like slow tests (CON-127: one MinIO pull took 78 s
@@ -155,6 +167,9 @@ jobs:
         echo $wall > walls/integration-${{ matrix.shard }}.txt
         echo "Ran in ${wall} s, host start-up included." >> "$GITHUB_STEP_SUMMARY"
         exit $status
+
+    - uses: ./.github/actions/disk-report
+      if: always()
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -365,6 +380,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - uses: ./.github/actions/free-disk
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -389,6 +406,9 @@ jobs:
       if: success() || failure()
       run: dotnet build --no-restore --configuration Release -p:EnforceCodeStyleInBuild=true -p:TreatWarningsAsErrors=true -p:SquiggleCop_AutoBaseline=false
 
+    - uses: ./.github/actions/disk-report
+      if: always()
+
   # The official MCP conformance suite in server mode (#793), against the app run with
   # `dotnet run` on throwaway Postgres and MinIO. The runner can't send credentials, so the
   # server allows anonymous MCP discovery; tool calls still need a key. Known failures are in
@@ -399,6 +419,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - uses: ./.github/actions/free-disk
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -445,3 +467,6 @@ jobs:
     - name: Server log on failure
       if: failure()
       run: tail -100 web.log
+
+    - uses: ./.github/actions/disk-report
+      if: always()

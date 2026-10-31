@@ -26,4 +26,6 @@ runs:
 
   - name: Build
     shell: bash
-    run: dotnet build ${{ inputs.project }} --no-restore --configuration Release
+    run: |
+      dotnet build ${{ inputs.project }} --no-restore --configuration Release
+      df -h /
