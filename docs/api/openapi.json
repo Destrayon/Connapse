@@ -18435,6 +18435,16 @@
       "UploadSettings": {
         "type": "object",
         "properties": {
+          "parallelWorkers": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Deprecated and ignored: set the ingestion worker count with Hangfire:IngestionWorkerCount (environment variable Hangfire__IngestionWorkerCount), which takes effect on restart.",
+            "format": "int32",
+            "deprecated": true
+          },
           "parseTimeoutSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [

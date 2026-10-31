@@ -39,6 +39,7 @@ public class SettingsCoverageTests
         // which take precedence.
         ["EmbeddingSettings.ApiKey"] = "legacy shared key, superseded by per-provider keys",
         ["LlmSettings.ApiKey"] = "legacy shared key, superseded by per-provider keys",
+        ["UploadSettings.ParallelWorkers"] = "deprecated and ignored; the worker count is Hangfire:IngestionWorkerCount, read at startup",
     };
 
     private static string TabSource(string file)

@@ -633,7 +633,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Search__VectorIndexMinVectors` | A container gets its own approximate (HNSW) vector index once it holds this many vectors for one model; smaller containers are searched exactly | `20000` |
 | `Knowledge__Search__VectorIndexEfSearch` | Candidates an HNSW search keeps; higher is more accurate and slower (800 measured recall@30 ≥ 0.99 at < 75 ms p95 on 100k–1M containers) | `800` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
-| `Hangfire__IngestionWorkerCount` | Files ingested at once; read at startup, so a change needs a restart | `4` |
+| `Hangfire__IngestionWorkerCount` | Files ingested at once; read at startup, so a change needs a restart. The upload settings' `parallelWorkers` never set this: it is deprecated, accepted and ignored | `4` |
 | `Hangfire__SummaryWorkerCount` | Summaries generated at once; read at startup, so a change needs a restart | `1` |
 
 > **Vector indexes**: per-container indexes are built in the background (checked every 10 minutes) and never block ingestion or search — a container is searched exactly until its index is ready. Builds run on one worker, because parallel builds need more shared memory than Docker gives a container by default; a 1M-vector container takes over an hour on modest hardware.
