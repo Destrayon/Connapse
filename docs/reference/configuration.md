@@ -67,7 +67,7 @@ Each limit allows `PermitLimit` requests per `WindowSeconds`. The API limit coun
 
 ## Knowledge settings
 
-Each group below is a tab on the **Settings** page and a category of `GET` and `PUT /api/v1/settings/{category}`. They take effect without a restart unless the table says otherwise. `Upload:ParallelWorkers` is shown on the page but nothing reads it: the number of files ingested at once is `Hangfire__IngestionWorkerCount`.
+Each group below is a tab on the **Settings** page and a category of `GET` and `PUT /api/v1/settings/{category}`. They take effect without a restart unless the table says otherwise. The number of files ingested at once is not one of them: it is `Hangfire__IngestionWorkerCount`, under [Server](#server).
 
 ### `Knowledge:Embedding`
 
@@ -159,7 +159,7 @@ Each group below is a tab on the **Settings** page and a category of `GET` and `
 
 | Setting | UI path | Env var | Type | Default | Restart? | Secret? |
 |---------|---------|---------|------|---------|----------|---------|
-| `ParallelWorkers`: Number of parallel ingestion workers (default: 4). | **Settings** → **Upload** | `Knowledge__Upload__ParallelWorkers` | int | `4` | No | No |
+| `ParallelWorkers`: Deprecated and ignored. `PUT` still accepts it, but it is never stored or returned and changes nothing; set `Hangfire__IngestionWorkerCount` instead. | — | — | int | — | — | No |
 | `ParseTimeoutSeconds`: Longest a single file may spend in its parser before it fails with `parse_timeout` (default: 300 seconds). | **Settings** → **Upload** | `Knowledge__Upload__ParseTimeoutSeconds` | int | `300` | No | No |
 | `IsolateParsers`: Run the built-in parsers in Connapse.ParserHost processes that can be killed at the deadline and are capped in memory (default: true). | **Settings** → **Upload** | `Knowledge__Upload__IsolateParsers` | bool | `true` | No | No |
 | `ParserMemoryLimitMb`: Memory each parser process may use, native libraries included, before its parse fails as `parse_out_of_memory` (default: 2,048 MiB). | **Settings** → **Upload** | `Knowledge__Upload__ParserMemoryLimitMb` | int | `2048` | No | No |

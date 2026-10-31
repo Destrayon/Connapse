@@ -115,7 +115,7 @@ You might see: `docker compose ps` shows `web` restarting or exited with code 13
 
 **Fix:**
 1. Raise the `web` memory limit in the override file, under `deploy.resources.limits.memory`, for example to `4G`.
-2. Optional: lower **Parallel workers** under **Admin** → **Settings** → **Upload**, so fewer files are parsed at once.
+2. Optional: lower `Hangfire__IngestionWorkerCount` in the override file (default `4`), so fewer files are parsed at once.
 3. Restart with `docker compose up -d web`.
 
 ## Turn on debug logging
