@@ -129,7 +129,7 @@ def users(c, t):
 def identity(c, t):
     """Identity endpoints (ASP.NET Identity API under /api/v1/identity)"""
     A, anon, r = c.admin, c.admin.as_({}), t.record
-    login = r("Identity", "login (bearer)", lambda: anon(
+    login = r("Identity", "login (bearer) [known: CON-166]", lambda: anon(
         "POST", "/api/v1/identity/login", 200, body={"email": c.admin_email, "password": c.admin_password}).json)
     if login:
         r("Identity", "refresh", lambda: anon("POST", "/api/v1/identity/refresh", 200, body={"refreshToken": login["refreshToken"]}))
@@ -141,7 +141,7 @@ def identity(c, t):
         "POST", "/api/v1/identity/resendConfirmationEmail", 200, body={"email": c.admin_email}))
     r("Identity", "resetPassword with a bad code -> 400", lambda: anon(
         "POST", "/api/v1/identity/resetPassword", 400, body={"email": c.admin_email, "resetCode": "bad", "newPassword": "Xx1!xxxxxx"}))
-    r("Identity", "confirmEmail with a bad code", lambda: anon(
+    r("Identity", "confirmEmail with a bad code [known: CON-166]", lambda: anon(
         "GET", "/api/v1/identity/confirmEmail", (200, 401), query={"userId": MISSING, "code": "bad"}))
 
 
@@ -643,8 +643,8 @@ def cli(c, t):
     box = f"e2e-cli-{c.run}"
     r("CLI", "version", lambda: run("version"))
     # The CLI sends a pasted token as Bearer, and the server reads a PAT only from X-Api-Key, so a pasted
-    # PAT is refused (filed with the PM). The access token from signing in carries the rest of the journey.
-    r("CLI", "auth login --with-token (a PAT)", lambda: run("auth", "login", "--server", c.base, "--with-token", stdin=c.pat_token + "\n"))
+    # PAT is refused (CON-167). The access token from signing in carries the rest of the journey.
+    r("CLI", "auth login --with-token (a PAT) [known: CON-167]", lambda: run("auth", "login", "--server", c.base, "--with-token", stdin=c.pat_token + "\n"))
     if not r("CLI", "auth login --with-token (an access token)",
              lambda: run("auth", "login", "--server", c.base, "--with-token", stdin=c.access_token + "\n")):
         return
