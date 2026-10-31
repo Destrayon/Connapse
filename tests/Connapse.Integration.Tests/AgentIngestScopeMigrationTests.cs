@@ -59,12 +59,22 @@ public class AgentIngestScopeMigrationTests : IAsyncLifetime
             {
                 context.AgentApiKeys.Add(new AgentApiKeyEntity
                 {
-                    Id = keyIds[i], AgentId = agent.Id, Name = $"key-{i}", TokenHash = $"k{i}", TokenPrefix = "k", Scopes = stored[i],
+                    Id = keyIds[i],
+                    AgentId = agent.Id,
+                    Name = $"key-{i}",
+                    TokenHash = $"k{i}",
+                    TokenPrefix = "k",
+                    Scopes = stored[i],
                     CreatedAt = DateTime.UtcNow,
                 });
                 context.PersonalAccessTokens.Add(new PersonalAccessTokenEntity
                 {
-                    Id = patIds[i], UserId = user.Id, Name = $"pat-{i}", TokenHash = $"p{i}", TokenPrefix = "p", Scopes = stored[i],
+                    Id = patIds[i],
+                    UserId = user.Id,
+                    Name = $"pat-{i}",
+                    TokenHash = $"p{i}",
+                    TokenPrefix = "p",
+                    Scopes = stored[i],
                     CreatedAt = DateTime.UtcNow,
                 });
             }

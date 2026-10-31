@@ -135,7 +135,6 @@ public class PersonalTokenOperationExampleTests
 
     [Theory]
     [InlineData("admin:manage-admins")]
-    [InlineData("agent:ingest")]
     [InlineData("Knowledge:Read")]
     [InlineData("")]
     public async Task Create_AScopeAPersonalTokenCantHold_IsInvalid(string scope)
@@ -212,6 +211,20 @@ public class PersonalTokenOperationExampleTests
 
         created.Succeeded.Should().BeTrue();
         await _pats.Received(1).CreateAsync(_callerId, Arg.Is<PatCreateRequest>(r => r.Scopes!.Length == 0), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Create_TheDeprecatedAgentIngestScope_IsDroppedNotRefused()
+    {
+        // No check ever required agent:ingest (CON-171); a client that still asks for it gets its token, without it.
+        Minting();
+
+        var created = await Create().RunAsync(Caller(), new("script", ["agent:ingest", "knowledge:write"]));
+
+        created.Succeeded.Should().BeTrue();
+        created.Result!.Scopes.Should().Equal("knowledge:write");
+        await _pats.Received(1).CreateAsync(_callerId,
+            Arg.Is<PatCreateRequest>(r => r.Scopes!.SequenceEqual(new[] { "knowledge:write" })), Arg.Any<CancellationToken>());
     }
 
     // ── revoke ──────────────────────────────────────────────────────────────────────────────────

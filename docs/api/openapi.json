@@ -503,7 +503,7 @@
         "tags": [
           "Auth"
         ],
-        "description": "Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, admin:users, admin:audit, admin:oauth-clients, admin:settings and admin:sources, and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.",
+        "description": "Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, admin:users, admin:audit, admin:oauth-clients, admin:settings and admin:sources (the deprecated agent:ingest is accepted and dropped), and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.",
         "operationId": "pats.create",
         "requestBody": {
           "content": {
@@ -2333,7 +2333,7 @@
         "tags": [
           "Agents"
         ],
-        "description": "Create an API key for an agent, with scopes from knowledge:read and knowledge:write. Token is shown only once. (Admin only)",
+        "description": "Create an API key for an agent, with scopes from knowledge:read and knowledge:write (the deprecated agent:ingest is accepted and dropped). Token is shown only once. (Admin only)",
         "operationId": "agents.keys.create",
         "parameters": [
           {

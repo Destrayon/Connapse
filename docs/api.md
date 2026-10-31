@@ -498,9 +498,10 @@ tool. These scopes govern **MCP tool behavior only** — they do not grant REST 
 | `knowledge:read` | Search and read documents across all containers via MCP |
 | `knowledge:write` | Upload and delete files, and create and delete containers, via MCP |
 
-There used to be an `agent:ingest` scope, but nothing checked it: uploads and deletes have always needed
-`knowledge:write`. It was removed, and a migration drops it from existing keys and tokens without changing
-what any of them can do.
+`agent:ingest` is **deprecated**. Nothing ever checked it: uploads and deletes have always needed
+`knowledge:write`. A key or token request that still asks for it succeeds, but the scope is silently
+dropped, so it is never stored or issued. A migration also drops it from existing keys and tokens, which
+changes nothing any of them can do.
 
 Agents have **unrestricted access to all containers** in the system. There is no per-container access control for agent API keys.
 

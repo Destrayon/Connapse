@@ -213,7 +213,7 @@ public class AgentOperationRandomInputTests
 
                 string trimmed = name?.Trim() ?? "";
                 bool validName = trimmed.Length is >= 2 and <= 64;
-                string[] distinct = (scopes ?? []).Distinct().ToArray();
+                string[] distinct = (scopes ?? []).Where(s => s != "agent:ingest").Distinct().ToArray();
                 bool validScopes = distinct.All(AgentKeyScopes.Contains);
                 AgentStatus expected =
                     !admin || !scope ? AgentStatus.Forbidden
