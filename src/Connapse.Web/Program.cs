@@ -541,8 +541,21 @@ app.MapOAuthEndpoints();
 // The auth policy (10/min per IP) is the binding constraint for anonymous callers.
 api.MapGroup("/api/v1/identity")
     .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
+    .AddEndpointFilter<RouteGroupBuilder, MalformedSignInInputFilter>()
     .MapIdentityApi<ConnapseUser>()
-    .Add(RequireAdminToRegister);
+    .Add(endpoint =>
+    {
+        RequireAdminToRegister(endpoint);
+        DeclareMalformedTextRefusal(endpoint);
+    });
+
+// MalformedSignInInputFilter answers 400 for a NUL in the request's text. Login and refresh declare no 400 of
+// their own, so the spec gets theirs here (CON-165).
+static void DeclareMalformedTextRefusal(EndpointBuilder endpoint)
+{
+    if (endpoint is RouteEndpointBuilder { RoutePattern.RawText: "/api/v1/identity/login" or "/api/v1/identity/refresh" })
+        endpoint.Metadata.Add(new ProducesResponseTypeMetadata(StatusCodes.Status400BadRequest, typeof(Microsoft.AspNetCore.Mvc.ProblemDetails), ["application/problem+json"]));
+}
 
 // Connapse has no self sign-up: an account comes from an invite or from first-run owner setup, both in
 // the UI. MapIdentityApi maps an anonymous /register and offers no way to leave it out (dotnet/aspnetcore

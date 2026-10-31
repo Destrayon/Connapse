@@ -7,3 +7,10 @@ warnings = { fail-on = ["missing_auth", "rate_limited"] }
 [[operations]]
 include-name = "POST /api/v1/identity/login"
 warnings = { fail-on = ["rate_limited"] }
+
+# Schemathesis reuses the client ids GET /api/v1/oauth-clients lists. A metadata-URL client id holds a "/", which
+# it won't put in a path segment, so it filters out every one and fails its filter_too_much health check before
+# sending a request (CON-165). A fixed id that names no client gets the operation tested; it answers 404.
+[[operations]]
+include-name = "DELETE /api/v1/oauth-clients/{clientId}"
+parameters = { clientId = "schemathesis-no-such-client" }
