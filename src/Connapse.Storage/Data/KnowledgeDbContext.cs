@@ -20,6 +20,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<CustomProviderEntity> CustomProviders => Set<CustomProviderEntity>();
     public DbSet<CustomLinkRemovalEntity> CustomLinkRemovals => Set<CustomLinkRemovalEntity>();
     public DbSet<StoredFileRemovalEntity> StoredFileRemovals => Set<StoredFileRemovalEntity>();
+    public DbSet<LinkNodeFactEntity> LinkNodeFacts => Set<LinkNodeFactEntity>();
+    public DbSet<LinkNodeDocumentEntity> LinkNodeDocuments => Set<LinkNodeDocumentEntity>();
+    public DbSet<LinkEdgeEntity> LinkEdges => Set<LinkEdgeEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +43,51 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureCustomProviders(modelBuilder);
         ConfigureCustomLinkRemovals(modelBuilder);
         ConfigureStoredFileRemovals(modelBuilder);
+        ConfigureLinks(modelBuilder);
+    }
+
+    private static void ConfigureLinks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<LinkNodeFactEntity>(entity =>
+        {
+            entity.ToTable("link_node_facts");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.NodeId).HasColumnName("node_id").IsRequired();
+            entity.Property(e => e.Field).HasColumnName("field");
+            entity.Property(e => e.Text).HasColumnName("text").IsRequired();
+            entity.Property(e => e.DocumentId).HasColumnName("document_id").IsRequired();
+            entity.Property(e => e.Ordinal).HasColumnName("ordinal");
+            entity.HasIndex(e => e.NodeId).HasDatabaseName("idx_link_node_facts_node");
+            entity.HasIndex(e => e.DocumentId).HasDatabaseName("idx_link_node_facts_document");
+        });
+
+        modelBuilder.Entity<LinkNodeDocumentEntity>(entity =>
+        {
+            entity.ToTable("link_node_documents");
+            entity.HasKey(e => new { e.NodeId, e.DocumentId });
+            entity.Property(e => e.NodeId).HasColumnName("node_id");
+            entity.Property(e => e.DocumentId).HasColumnName("document_id");
+            entity.HasIndex(e => e.DocumentId).HasDatabaseName("idx_link_node_documents_document");
+        });
+
+        modelBuilder.Entity<LinkEdgeEntity>(entity =>
+        {
+            entity.ToTable("link_edges");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.EdgeId).HasColumnName("edge_id").IsRequired();
+            entity.Property(e => e.FromNode).HasColumnName("from_node").IsRequired();
+            entity.Property(e => e.ToNode).HasColumnName("to_node").IsRequired();
+            entity.Property(e => e.Type).HasColumnName("type").IsRequired();
+            entity.Property(e => e.DocumentId).HasColumnName("document_id").IsRequired();
+            entity.Property(e => e.Evidence).HasColumnName("evidence").IsRequired();
+            entity.Property(e => e.Ordinal).HasColumnName("ordinal");
+            // One index per walk direction, node first, so each hop is one probe per frontier list.
+            entity.HasIndex(e => new { e.FromNode, e.Type }).HasDatabaseName("idx_link_edges_from");
+            entity.HasIndex(e => new { e.ToNode, e.Type }).HasDatabaseName("idx_link_edges_to");
+            entity.HasIndex(e => e.DocumentId).HasDatabaseName("idx_link_edges_document");
+        });
     }
 
     private static void ConfigureContainers(ModelBuilder modelBuilder)

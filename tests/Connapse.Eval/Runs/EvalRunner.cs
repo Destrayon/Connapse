@@ -156,7 +156,11 @@ public sealed class EvalRunner(
             return restored;
         }
         log.WriteLine($"[{name}] indexing {dataset.Corpus.Count} documents");
-        return await system.IndexAsync(dataset, ct);
+        // Index time is a pass bar (eval/pass-bars.md), so every fresh index says how long it took.
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        IndexReport report = await system.IndexAsync(dataset, ct);
+        log.WriteLine($"[{name}] indexed in {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds:F0} s");
+        return report;
     }
 
     private string? CacheKey(SystemConfig config, IReadOnlyList<string> names, EvalManifest manifest,

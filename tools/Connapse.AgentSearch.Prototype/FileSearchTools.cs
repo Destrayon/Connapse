@@ -14,6 +14,8 @@ namespace Connapse.AgentSearch.Prototype;
 public sealed class FileSearchTools(FileRoot root)
 {
     private const int MaxOutputChars = 20_000;
+    private const int MaxLineChars = 2_000;
+    private const int HintReserve = 100;
 
     [McpServerTool(Name = "grep_files"), Description(
         "Exact-text or regex search over the original files, like ripgrep. Returns matching lines as " +
@@ -79,15 +81,22 @@ public sealed class FileSearchTools(FileRoot root)
         if (!File.Exists(full)) return "Error: no such file.";
 
         string[] lines = await File.ReadAllLinesAsync(full, ct);
-        int start = Math.Max(1, offset);
-        int count = Math.Clamp(limit, 1, 1000);
+        long start = Math.Max(1, offset);
+        long end = Math.Min(lines.Length, start + Math.Clamp(limit, 1, 1000) - 1);
         var sb = new StringBuilder();
         sb.AppendLine($"{root.Display(full)} ({lines.Length} lines)");
-        for (int i = start; i <= Math.Min(lines.Length, start + count - 1); i++)
-            sb.Append(i).Append('\t').AppendLine(lines[i - 1]);
-        if (start + count - 1 < lines.Length)
-            sb.AppendLine($"... more lines; continue with offset={start + count}");
-        return Truncate(sb.ToString());
+        // Stop before the budget runs out so the continuation hint always fits and points at the first unshown line.
+        long next = start;
+        for (; next <= end; next++)
+        {
+            string line = lines[next - 1];
+            if (line.Length > MaxLineChars) line = line[..MaxLineChars] + " ... (line cut)";
+            if (sb.Length + line.Length + 16 > MaxOutputChars - HintReserve) break;
+            sb.Append(next).Append('\t').AppendLine(line);
+        }
+        if (next <= lines.Length)
+            sb.AppendLine($"... more lines; continue with offset={next}");
+        return sb.ToString();
     }
 
     private string RelativeTarget(string full) =>
@@ -122,9 +131,33 @@ public sealed class FileSearchTools(FileRoot root)
         };
         foreach (string a in args) psi.ArgumentList.Add(a);
         using var process = Process.Start(psi)!;
-        Task<string> stdout = process.StandardOutput.ReadToEndAsync(ct);
-        Task<string> stderr = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-        return (process.ExitCode, await stdout, await stderr);
+        try
+        {
+            // Keep a little more than the output budget so Truncate still sees that there was more.
+            Task<string> stdout = ReadBounded(process.StandardOutput, MaxOutputChars + 1, ct);
+            Task<string> stderr = ReadBounded(process.StandardError, 4_000, ct);
+            await process.WaitForExitAsync(ct);
+            return (process.ExitCode, await stdout, await stderr);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { } // already exited
+            throw;
+        }
+    }
+
+    // Keeps the first `cap` characters and discards the rest, but reads to the end so rg never blocks on a full pipe.
+    private static async Task<string> ReadBounded(StreamReader reader, int cap, CancellationToken ct)
+    {
+        var kept = new StringBuilder();
+        char[] buffer = new char[8192];
+        int read;
+        while ((read = await reader.ReadAsync(buffer, ct)) > 0)
+        {
+            if (kept.Length < cap)
+                kept.Append(buffer, 0, Math.Min(read, cap - kept.Length));
+        }
+        return kept.ToString();
     }
 }

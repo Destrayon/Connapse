@@ -61,7 +61,8 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
             "KeywordRanker", "Bm25K1", "Bm25B", "MinimumScore", "AutoCut", "CrossEncoderProvider",
             "CrossEncoderModel", "CrossEncoderBaseUrl", "CrossEncoderApiKey", "CrossEncoderTopN",
             "RerankCandidates", "CrossEncoderTimeoutSeconds", "EnableCrossModelSearch",
-            "SentenceWindowSubstituteOnSearch",
+            "SentenceWindowSubstituteOnSearch", "EnableLinkSearch", "LinkWeight", "LinkMaxHops", "LinkSeeds",
+            "UseVectorSearch", "UseKeywordSearch",
         }.Select(name => "Knowledge:Search:" + name),
         StringComparer.OrdinalIgnoreCase);
 

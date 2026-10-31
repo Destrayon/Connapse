@@ -1,0 +1,377 @@
+{
+  "system": "grep -w -c, files ranked by matching lines",
+  "groups": {
+    "heldout": {
+      "questions": 162,
+      "recall@5": 0.6995,
+      "recall@10": 0.8292,
+      "recall@20": 0.9117
+    },
+    "heldout/callers": {
+      "questions": 38,
+      "recall@5": 0.7193,
+      "recall@10": 0.8828,
+      "recall@20": 0.9689
+    },
+    "heldout/callers/click": {
+      "questions": 12,
+      "recall@5": 0.8333,
+      "recall@10": 0.9167,
+      "recall@20": 0.9583
+    },
+    "heldout/callers/connapse": {
+      "questions": 11,
+      "recall@5": 0.7955,
+      "recall@10": 0.9354,
+      "recall@20": 1.0
+    },
+    "heldout/callers/ky": {
+      "questions": 5,
+      "recall@5": 0.2,
+      "recall@10": 0.8,
+      "recall@20": 1.0
+    },
+    "heldout/callers/serilog": {
+      "questions": 10,
+      "recall@5": 0.7583,
+      "recall@10": 0.8258,
+      "recall@20": 0.9317
+    },
+    "heldout/crowded": {
+      "questions": 71,
+      "recall@5": 0.4643,
+      "recall@10": 0.7137,
+      "recall@20": 0.9019
+    },
+    "heldout/crowded/callers": {
+      "questions": 18,
+      "recall@5": 0.4546,
+      "recall@10": 0.7526,
+      "recall@20": 0.9343
+    },
+    "heldout/crowded/definition": {
+      "questions": 27,
+      "recall@5": 0.4074,
+      "recall@10": 0.7407,
+      "recall@20": 0.9259
+    },
+    "heldout/crowded/how": {
+      "questions": 5,
+      "recall@5": 0.1167,
+      "recall@10": 0.2417,
+      "recall@20": 0.4083
+    },
+    "heldout/crowded/usages": {
+      "questions": 21,
+      "recall@5": 0.6286,
+      "recall@10": 0.7578,
+      "recall@20": 0.9606
+    },
+    "heldout/definition": {
+      "questions": 60,
+      "recall@5": 0.7167,
+      "recall@10": 0.8833,
+      "recall@20": 0.9667
+    },
+    "heldout/definition/click": {
+      "questions": 14,
+      "recall@5": 0.7857,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "heldout/definition/connapse": {
+      "questions": 15,
+      "recall@5": 0.6,
+      "recall@10": 0.8667,
+      "recall@20": 0.8667
+    },
+    "heldout/definition/ky": {
+      "questions": 16,
+      "recall@5": 0.8125,
+      "recall@10": 0.9375,
+      "recall@20": 1.0
+    },
+    "heldout/definition/serilog": {
+      "questions": 15,
+      "recall@5": 0.6667,
+      "recall@10": 0.7333,
+      "recall@20": 1.0
+    },
+    "heldout/how": {
+      "questions": 20,
+      "recall@5": 0.3942,
+      "recall@10": 0.4433,
+      "recall@20": 0.485
+    },
+    "heldout/how/click": {
+      "questions": 5,
+      "recall@5": 0.7667,
+      "recall@10": 0.7667,
+      "recall@20": 0.7667
+    },
+    "heldout/how/connapse": {
+      "questions": 6,
+      "recall@5": 0.3167,
+      "recall@10": 0.4708,
+      "recall@20": 0.4708
+    },
+    "heldout/how/ky": {
+      "questions": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.125,
+      "recall@20": 0.125
+    },
+    "heldout/how/serilog": {
+      "questions": 8,
+      "recall@5": 0.2687,
+      "recall@10": 0.2604,
+      "recall@20": 0.3646
+    },
+    "heldout/sparse": {
+      "questions": 91,
+      "recall@5": 0.883,
+      "recall@10": 0.9193,
+      "recall@20": 0.9193
+    },
+    "heldout/sparse/callers": {
+      "questions": 20,
+      "recall@5": 0.9575,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "heldout/sparse/definition": {
+      "questions": 33,
+      "recall@5": 0.9697,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "heldout/sparse/how": {
+      "questions": 15,
+      "recall@5": 0.4867,
+      "recall@10": 0.5106,
+      "recall@20": 0.5106
+    },
+    "heldout/sparse/usages": {
+      "questions": 23,
+      "recall@5": 0.9522,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "heldout/usages": {
+      "questions": 44,
+      "recall@5": 0.7977,
+      "recall@10": 0.8844,
+      "recall@20": 0.9812
+    },
+    "heldout/usages/click": {
+      "questions": 11,
+      "recall@5": 0.6909,
+      "recall@10": 0.8013,
+      "recall@20": 0.9886
+    },
+    "heldout/usages/connapse": {
+      "questions": 11,
+      "recall@5": 0.8545,
+      "recall@10": 0.8682,
+      "recall@20": 0.9771
+    },
+    "heldout/usages/ky": {
+      "questions": 10,
+      "recall@5": 0.8,
+      "recall@10": 0.925,
+      "recall@20": 1.0
+    },
+    "heldout/usages/serilog": {
+      "questions": 12,
+      "recall@5": 0.8417,
+      "recall@10": 0.9417,
+      "recall@20": 0.9625
+    },
+    "tuning": {
+      "questions": 157,
+      "recall@5": 0.7298,
+      "recall@10": 0.8393,
+      "recall@20": 0.9141
+    },
+    "tuning/callers": {
+      "questions": 34,
+      "recall@5": 0.8044,
+      "recall@10": 0.9269,
+      "recall@20": 0.9766
+    },
+    "tuning/callers/click": {
+      "questions": 8,
+      "recall@5": 0.9688,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "tuning/callers/connapse": {
+      "questions": 9,
+      "recall@5": 0.8889,
+      "recall@10": 0.9,
+      "recall@20": 0.9394
+    },
+    "tuning/callers/ky": {
+      "questions": 7,
+      "recall@5": 0.8571,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "tuning/callers/serilog": {
+      "questions": 10,
+      "recall@5": 0.56,
+      "recall@10": 0.8414,
+      "recall@20": 0.975
+    },
+    "tuning/crowded": {
+      "questions": 58,
+      "recall@5": 0.4443,
+      "recall@10": 0.6856,
+      "recall@20": 0.8879
+    },
+    "tuning/crowded/callers": {
+      "questions": 12,
+      "recall@5": 0.4667,
+      "recall@10": 0.7929,
+      "recall@20": 0.9337
+    },
+    "tuning/crowded/definition": {
+      "questions": 29,
+      "recall@5": 0.3448,
+      "recall@10": 0.6897,
+      "recall@20": 0.931
+    },
+    "tuning/crowded/how": {
+      "questions": 4,
+      "recall@5": 0.1667,
+      "recall@10": 0.1667,
+      "recall@20": 0.3125
+    },
+    "tuning/crowded/usages": {
+      "questions": 13,
+      "recall@5": 0.7308,
+      "recall@10": 0.737,
+      "recall@20": 0.9265
+    },
+    "tuning/definition": {
+      "questions": 68,
+      "recall@5": 0.6912,
+      "recall@10": 0.8676,
+      "recall@20": 0.9706
+    },
+    "tuning/definition/click": {
+      "questions": 18,
+      "recall@5": 0.8333,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "tuning/definition/connapse": {
+      "questions": 17,
+      "recall@5": 0.5882,
+      "recall@10": 0.6471,
+      "recall@20": 0.8824
+    },
+    "tuning/definition/ky": {
+      "questions": 16,
+      "recall@5": 0.75,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "tuning/definition/serilog": {
+      "questions": 17,
+      "recall@5": 0.5882,
+      "recall@10": 0.8235,
+      "recall@20": 1.0
+    },
+    "tuning/how": {
+      "questions": 19,
+      "recall@5": 0.4439,
+      "recall@10": 0.4566,
+      "recall@20": 0.4873
+    },
+    "tuning/how/click": {
+      "questions": 7,
+      "recall@5": 0.6429,
+      "recall@10": 0.6905,
+      "recall@20": 0.6905
+    },
+    "tuning/how/connapse": {
+      "questions": 6,
+      "recall@5": 0.4222,
+      "recall@10": 0.4167,
+      "recall@20": 0.4583
+    },
+    "tuning/how/ky": {
+      "questions": 2,
+      "recall@5": 0.1667,
+      "recall@10": 0.1667,
+      "recall@20": 0.3333
+    },
+    "tuning/how/serilog": {
+      "questions": 4,
+      "recall@5": 0.2667,
+      "recall@10": 0.2524,
+      "recall@20": 0.2524
+    },
+    "tuning/sparse": {
+      "questions": 99,
+      "recall@5": 0.8971,
+      "recall@10": 0.9294,
+      "recall@20": 0.9294
+    },
+    "tuning/sparse/callers": {
+      "questions": 22,
+      "recall@5": 0.9886,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "tuning/sparse/definition": {
+      "questions": 39,
+      "recall@5": 0.9487,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "tuning/sparse/how": {
+      "questions": 15,
+      "recall@5": 0.5178,
+      "recall@10": 0.534,
+      "recall@20": 0.534
+    },
+    "tuning/sparse/usages": {
+      "questions": 23,
+      "recall@5": 0.9696,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    "tuning/usages": {
+      "questions": 36,
+      "recall@5": 0.8833,
+      "recall@10": 0.905,
+      "recall@20": 0.9735
+    },
+    "tuning/usages/click": {
+      "questions": 9,
+      "recall@5": 0.8944,
+      "recall@10": 0.9444,
+      "recall@20": 1.0
+    },
+    "tuning/usages/connapse": {
+      "questions": 9,
+      "recall@5": 0.8667,
+      "recall@10": 0.8407,
+      "recall@20": 0.9105
+    },
+    "tuning/usages/ky": {
+      "questions": 10,
+      "recall@5": 0.855,
+      "recall@10": 0.9214,
+      "recall@20": 1.0
+    },
+    "tuning/usages/serilog": {
+      "questions": 8,
+      "recall@5": 0.925,
+      "recall@10": 0.9125,
+      "recall@20": 0.9812
+    }
+  }
+}

@@ -23,6 +23,8 @@ internal static class EvalEntryPoint
             cli.EnsureKnownOptions();
             RepoPaths paths = RepoPaths.Find(Directory.GetCurrentDirectory());
             using HttpClient http = new() { Timeout = TimeSpan.FromMinutes(30) };
+            // Some dataset hosts (archives.gov) answer a request with no User-Agent with 404.
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Connapse-Eval/1.0 (+https://github.com/Destrayon/Connapse)");
             return cli.Command switch
             {
                 "run" => await Commands.RunAsync(cli, paths, http, cts.Token),

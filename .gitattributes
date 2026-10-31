@@ -71,3 +71,6 @@ eval/datasets/**/*.jsonl text eol=lf
 
 # SquiggleCop writes its baselines with LF and compares them byte for byte (#786).
 SquiggleCop.Baseline.yaml text eol=lf
+
+# Eval shell scripts also run in Git Bash on Windows, where a CRLF checkout breaks them.
+eval/tools/**/*.sh text eol=lf

@@ -59,7 +59,7 @@ public class AnthropicConnectionTester : IConnectionTester
                 MaxTokens = 5,
                 Messages =
                 [
-                    new() { Role = Role.User, Content = "Say OK" }
+                    new UserMessageParam { Content = "Say OK" }
                 ]
             };
 

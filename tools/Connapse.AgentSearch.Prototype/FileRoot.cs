@@ -10,6 +10,10 @@ public sealed class FileRoot(string root, string ripgrep)
 
     public string Ripgrep { get; } = ripgrep;
 
+    // Windows and macOS file systems ignore case by default; Linux does not, so `/srv/Data/` must not admit `/srv/data/`.
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     /// <summary>Resolves an agent path like "/src/a.cs" or "src/a.cs"; null when it leaves the root.</summary>
     public string? Resolve(string? path)
     {
@@ -17,7 +21,7 @@ public sealed class FileRoot(string root, string ripgrep)
         string full = Path.GetFullPath(Path.Combine(Root, relative));
         if (full.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar == Root)
             return Root;
-        if (!full.StartsWith(Root, StringComparison.OrdinalIgnoreCase))
+        if (!full.StartsWith(Root, PathComparison))
             return null;
         return PassesThroughLink(full) ? null : full;
     }

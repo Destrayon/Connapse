@@ -42,6 +42,10 @@
     ],
     "enterprise-full": [
       "erb-full"
+    ],
+    "links-v1": [
+      "links-connapse-github",
+      "links-flink-jira"
     ]
   },
   "datasets": {
@@ -919,6 +923,56 @@
           "name": "questions.parquet",
           "url": "build:eval/tools/build_enterprise_suite.py",
           "sha256": "06845198ab5e8adde84fcedd688dd1066ede324c68b4a87dbe7c53390eaf7c50"
+        }
+      ]
+    },
+    "links-connapse-github": {
+      "adapter": "link-questions",
+      "version": "2026-10-01",
+      "tags": [
+        "shape:record",
+        "source:github"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "d8138ef1106e5310e20ba87a5088ebbdbfc1903df5a4b5e2aeeda5fea1200874"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "ef03b517fac2f84e5530e057c6a4e78a06653a7803b08623667a97904302a5ab"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-connapse-github/questions.jsonl",
+          "sha256": "dfd5546b4ad0e7f9b931bd0456a9f37d4acbaaf3bd5b421f79ecdba5968e7094"
+        }
+      ]
+    },
+    "links-flink-jira": {
+      "adapter": "link-questions",
+      "version": "2022",
+      "tags": [
+        "shape:record",
+        "source:jira"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "b04eff7a3304cd72783c980a5b17bd583adfdc507eb11cd14c6282491fe2e71b"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "fd13819113011b76bc8c3dd93d17e1acfe72d0cd1b666ddff036f7d7b973a2de"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-flink-jira/questions.jsonl",
+          "sha256": "3259a517b92116b9d37168dc116cc1cbe81f987058555f675815eb6cba736b4a"
         }
       ]
     }

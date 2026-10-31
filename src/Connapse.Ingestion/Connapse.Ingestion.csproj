@@ -1,5 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- PDFtoImage marks its renderer as supported on Windows, Linux and macOS only, so CA1416 flags
+       every call from this platform-neutral library. Connapse runs on Linux and Windows. -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Connapse.Core\Connapse.Core.csproj" />
     <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
@@ -19,9 +25,9 @@
     <PackageReference Include="PDFtoImage" Version="5.2.1" />
     <!-- PDFium itself, newer than the 147 PDFtoImage 5.2.1 asks for: it renders untrusted pages and
          takes security fixes often (#641). Its C API is stable, so PDFtoImage runs on it unchanged. -->
-    <PackageReference Include="bblanchon.PDFium.Linux" Version="157.0.8100" />
-    <PackageReference Include="bblanchon.PDFium.macOS" Version="157.0.8100" />
-    <PackageReference Include="bblanchon.PDFium.Win32" Version="157.0.8100" />
+    <PackageReference Include="bblanchon.PDFium.Linux" Version="158.0.8111" />
+    <PackageReference Include="bblanchon.PDFium.macOS" Version="158.0.8111" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="158.0.8111" />
     <PackageReference Include="RapidOcrNet" Version="4.2.0" GeneratePathProperty="true" />
     <PackageReference Include="PragmaticSegmenterNet" Version="1.0.5" />
     <PackageReference Include="ReverseMarkdown" Version="6.2.1" />

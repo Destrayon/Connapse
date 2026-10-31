@@ -12,6 +12,7 @@ namespace Connapse.Ingestion.Tests.Isolation;
 // #680: models run in the shared inference host must read pixels exactly as they do in process.
 [Trait("Category", "Integration")]
 [Trait("Size", "Large")]
+[Collection(ChildHostCollection.Name)]
 public sealed class InferenceHostTests : IDisposable
 {
     private static readonly string TestHostPath = Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.TestHost.dll");

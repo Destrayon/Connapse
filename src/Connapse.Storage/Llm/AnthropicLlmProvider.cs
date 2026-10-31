@@ -99,6 +99,7 @@ public class AnthropicLlmProvider : ILlmProvider
     internal MessageCreateParams BuildParams(
         string systemPrompt, string userPrompt, LlmCompletionOptions? options)
     {
+        // No temperature: API version 2026-10-21 rejects temperature, top_p and top_k on every model.
         var model = options?.Model ?? _settings.Model;
 
         var parameters = new MessageCreateParams
@@ -107,17 +108,9 @@ public class AnthropicLlmProvider : ILlmProvider
             MaxTokens = options?.MaxTokens ?? _settings.MaxTokens,
             Messages =
             [
-                new() { Role = Role.User, Content = userPrompt }
+                new UserMessageParam { Content = userPrompt }
             ]
         };
-
-        if (AcceptsTemperature(model))
-        {
-            // Obsolete only because newer models reject it; AcceptsTemperature keeps it from them.
-#pragma warning disable CS0618
-            parameters = parameters with { Temperature = options?.Temperature ?? (float)_settings.Temperature };
-#pragma warning restore CS0618
-        }
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
@@ -126,20 +119,6 @@ public class AnthropicLlmProvider : ILlmProvider
 
         return parameters;
     }
-
-    // Anthropic's models released after Claude Opus 4.6 reject any temperature but 1.0 with a 400.
-    // These families came out before then; a model not listed gets no temperature, so a new one
-    // runs at its default rather than failing every call.
-    private static readonly string[] TemperatureModelPrefixes =
-    [
-        "claude-instant", "claude-2", "claude-3",
-        "claude-opus-4-0", "claude-sonnet-4-0", "claude-opus-4-2", "claude-sonnet-4-2",
-        "claude-opus-4-1", "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-6",
-    ];
-
-    /// <summary>Whether the model still accepts a temperature other than 1.0.</summary>
-    internal static bool AcceptsTemperature(string model) =>
-        TemperatureModelPrefixes.Any(p => model.StartsWith(p, StringComparison.OrdinalIgnoreCase));
 
     private static string ExtractText(Message message)
     {
