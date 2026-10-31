@@ -40,6 +40,15 @@ public class SearchTieBreakTests
     }
 
     [Fact]
+    public void KeywordRanked_ScoresEqualAsFloat4_OrdersByPath()
+    {
+        // Equal to callers, who get float4; float8 bits this far down move with the owner's statistics.
+        KeywordSearchService.Bm25Row[] rows = [Row(IdA, "/b.txt", 0, 7.9498520000001), Row(IdB, "/a.txt", 0, 7.949852)];
+
+        KeywordSearchService.Ranked(rows).Select(r => r.Path).Should().Equal("/a.txt", "/b.txt");
+    }
+
+    [Fact]
     public void KeywordRanked_PathsCompareOrdinally()
     {
         // Ordinal puts "B" before "a"; a culture-aware compare would not, and would disagree with COLLATE "C".

@@ -210,9 +210,12 @@ public class KeywordSearchService
             scored = scored is null ? candidates : $"{scored} | {candidates}";
 
             List<Bm25Row> top = Ranked(best.Values).Take(topK).ToList();
-            if (top.Count == topK && top[^1].Score >= threshold)
+            // Every unscored chunk scores at most θ, so its float4 is at most θ's. Only a k-th float4 above θ's
+            // rules out an unscored chunk tied with it on an earlier path; otherwise the next round fetches every
+            // chunk whose score could round to the k-th float4.
+            if (top.Count == topK && (float)top[^1].Score > (float)threshold)
                 return top.Select(r => r.ToRow()).ToList();
-            threshold = top.Count == topK ? top[^1].Score : 0.6 * threshold;
+            threshold = top.Count == topK ? MathF.BitDecrement((float)top[^1].Score) : 0.6 * threshold;
         }
 
         foreach (Bm25Row row in await Bm25TopKAsync(
@@ -228,10 +231,15 @@ public class KeywordSearchService
     /// </summary>
     internal const string TieBreakSql = """d.path COLLATE "C", c.chunk_index, c.id""";
 
-    /// <summary>Score descending, then <see cref="TieBreakSql"/>'s order.</summary>
+    /// <summary>
+    /// Score as float4 descending, then <see cref="TieBreakSql"/>'s order. BM25 cut-offs rank on float4, the
+    /// precision callers get, in SQL too: two scores equal in exact arithmetic can differ in their last float8 bits,
+    /// and a near-tie can swap when the owner's statistics move by a token; ranked on float8, either decides the
+    /// cut-off where the tie-breaker should (CON-158).
+    /// </summary>
     internal static IEnumerable<Bm25Row> Ranked(IEnumerable<Bm25Row> rows) =>
         rows
-            .OrderByDescending(r => r.Score)
+            .OrderByDescending(r => (float)r.Score)
             .ThenBy(r => r.Path, StringComparer.Ordinal)
             .ThenBy(r => r.ChunkIndex)
             .ThenBy(r => r.ChunkId);
@@ -273,6 +281,7 @@ public class KeywordSearchService
             candidates ?? "", excluded ?? "",
         ];
         string score = Bm25ScoreSql($"{{{ownerIdx + 3}}}", $"{{{ownerIdx + 4}}}", $"{{{ownerIdx + 5}}}");
+        string rank = $"({Bm25ScoreExprSql($"{{{ownerIdx + 3}}}", $"{{{ownerIdx + 4}}}", $"{{{ownerIdx + 5}}}")})::real";
         string candidateFilter = candidates is null ? "" : $"AND c.search_vector @@ {{{ownerIdx + 7}}}::tsquery";
         string excludedFilter = excluded is null ? "" : $"AND NOT (c.search_vector @@ {{{ownerIdx + 8}}}::tsquery)";
 
@@ -299,11 +308,11 @@ public class KeywordSearchService
                   {candidateFilter}
                   {excludedFilter}
                 GROUP BY c.id, d.id
-                ORDER BY score DESC, {TieBreakSql}
+                ORDER BY {rank} DESC, {TieBreakSql}
                 LIMIT {{{ownerIdx + 6}}}) s
             INNER JOIN chunks c ON c.id = s.id
             INNER JOIN documents d ON c.document_id = d.id
-            ORDER BY s.score DESC, {TieBreakSql}";
+            ORDER BY s.score::real DESC, {TieBreakSql}";
 
         return await _context.Database
             .SqlQueryRaw<Bm25Row>(sql, bm25Parameters.ToArray())
@@ -545,10 +554,14 @@ public class KeywordSearchService
     /// textbook's constant (k1 + 1) factor; it rescales every score alike, so the ranking is the
     /// same. Chunk lengths are exact (chunks.bm25_length), not Lucene's lossy one-byte norms.
     /// </summary>
-    internal static string Bm25ScoreSql(string k1Param, string bParam, string avgdlParam) => $"""
+    internal static string Bm25ScoreSql(string k1Param, string bParam, string avgdlParam) =>
+        $"{Bm25ScoreExprSql(k1Param, bParam, avgdlParam)} AS score";
+
+    /// <summary><see cref="Bm25ScoreSql"/> without its alias, for an ORDER BY that casts it.</summary>
+    internal static string Bm25ScoreExprSql(string k1Param, string bParam, string avgdlParam) => $"""
         sum(w.weight * cardinality(u.positions)
             / (cardinality(u.positions) + {k1Param}::float8 * (1 - {bParam}::float8
-               + {bParam}::float8 * c.bm25_length / {avgdlParam}::float8))) AS score
+               + {bParam}::float8 * c.bm25_length / {avgdlParam}::float8)))
         """;
 
     private record Bm25Term(string Term, double Weight, double Df, int MaxTf, int MinLen, double N, double Avgdl);
