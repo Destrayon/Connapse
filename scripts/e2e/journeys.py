@@ -730,4 +730,12 @@ def cleanup(c, t):
             "DELETE", "/api/containers/{containerId}", (204,), containerId=c.container_id))
 
 
-ALL = [tokens, users, identity, agents, containers, settings, providers, connectors, audit, mcp, cli, cleanup]
+# ── The web UI (ui.py, which needs Playwright; --no-ui skips it) ────────────────────────────────────
+
+def web_ui(c, t):
+    """Web UI: sign-in, register and invites, containers, search, sources, settings, tokens, agents"""
+    import ui
+    ui.ui(c, t)
+
+
+ALL = [tokens, users, identity, agents, containers, settings, providers, connectors, audit, mcp, cli, web_ui, cleanup]

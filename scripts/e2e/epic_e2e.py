@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end test of a Connapse build: REST, MCP and the connapse CLI against a real stack.
+"""End-to-end test of a Connapse build: REST, MCP, the connapse CLI and the web UI against a real stack.
 
 Builds the checkout's image, starts it under its own Compose project on empty volumes (every
 container capped at 2 CPUs and 4 GB, no GPU), runs every journey, checks every response against
@@ -10,7 +10,8 @@ docs/api/openapi.json, prints a pass/fail table, and removes everything it start
     python scripts/e2e/epic_e2e.py --no-up          # test a stack already started with --keep
     python scripts/e2e/epic_e2e.py --down           # only tear down
 
-Needs Docker, Python 3.10+, the .NET 10 SDK (for the CLI) and git. Standard library only.
+Needs Docker, Python 3.10+, the .NET 10 SDK (for the CLI) and git. Standard library only, except the UI
+journey (ui.py), which needs Playwright for Python and its headless Chromium shell; --no-ui skips it.
 See scripts/e2e/README.md.
 """
 from __future__ import annotations
@@ -363,7 +364,8 @@ class Ctx:
     """Everything the journeys create, so later ones can use it."""
 
 
-def run_all(base: str, admin_email: str, admin_password: str, cli_dir: Path | None, work: Path, spec: Spec):
+def run_all(base: str, admin_email: str, admin_password: str, cli_dir: Path | None, work: Path, spec: Spec,
+            ui_shots: Path | None = None):
     anon = Api(base, spec)
     c = Ctx()
     c.base, c.work, c.spec, c.admin_email, c.admin_password = base, work, spec, admin_email, admin_password
@@ -393,7 +395,7 @@ def run_all(base: str, admin_email: str, admin_password: str, cli_dir: Path | No
     record("Errors", "no credentials -> 401 problem", lambda: anon("GET", "/api/containers", 401, query={"skip": 0, "take": 10}))
 
     import journeys  # noqa: E402  (journeys.py sits beside this file)
-    c.cli_dir = cli_dir
+    c.cli_dir, c.ui_shots = cli_dir, ui_shots
     for journey in journeys.ALL:
         print(f"Journey: {journey.__doc__.strip().splitlines()[0]}", flush=True)
         try:
@@ -440,6 +442,19 @@ def build_cli(work: Path, ref: str, local: str | None) -> Path:
     return out
 
 
+def lower_priority():
+    """Run below normal priority, so the browser and dotnet children it starts don't crowd the desktop."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            below_normal = 0x4000
+            ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), below_normal)
+        else:
+            os.nice(10)
+    except Exception:
+        pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", default=os.environ.get("E2E_WORK") or str(REPO / "artifacts" / "e2e"),
@@ -452,6 +467,8 @@ def main() -> int:
     ap.add_argument("--cli-ref", default="origin/main", help="connapse-cli ref to build (default origin/main)")
     ap.add_argument("--cli-src", help="a local connapse-cli checkout to build instead of cloning")
     ap.add_argument("--no-cli", action="store_true", help="skip the CLI journeys")
+    ap.add_argument("--no-ui", action="store_true", help="skip the web UI journey")
+    ap.add_argument("--shots", help="folder for the UI journey's screenshots (default <work>/ui-shots)")
     args = ap.parse_args()
 
     work = Path(args.work).resolve()
@@ -469,6 +486,8 @@ def main() -> int:
         return 0
 
     base = f"http://127.0.0.1:{args.port}"
+    lower_priority()
+    shots = None if args.no_ui else Path(args.shots or work / "ui-shots").resolve()
     sys.path.insert(0, str(Path(__file__).parent))
     commit = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
     try:
@@ -479,9 +498,10 @@ def main() -> int:
         cli_dir = None if args.no_cli else build_cli(work, args.cli_ref, args.cli_src)
         spec = Spec(REPO / "docs" / "api" / "openapi.json")
         started = time.monotonic()
-        run_all(base, creds["email"], creds["password"], cli_dir, work, spec)
+        run_all(base, creds["email"], creds["password"], cli_dir, work, spec, shots)
         header = (f"# Connapse end-to-end run\n\nServer: `{commit}` built from this checkout. "
                   f"CLI: {'skipped' if args.no_cli else (args.cli_src or 'connapse-cli ' + args.cli_ref)}. "
+                  f"UI: {'skipped' if shots is None else f'headless Chromium, screenshots in `{shots}`'}. "
                   f"Took {time.monotonic() - started:.0f}s.")
         return report(spec, work / "report.md", header)
     finally:
