@@ -28,14 +28,14 @@ public class PersonalTokenOperationRandomInputTests
     // Scopes as a caller might send them: none, a personal token's, repeated, or ones it can't hold.
     private static readonly Gen<string[]?> RequestedScopes = Gen.OneOfConst<string[]?>(
         null, [], ["knowledge:read"], ["knowledge:read", "admin:users", "admin:settings"], ["knowledge:read", "knowledge:read"],
-        ["admin:manage-admins"], ["Knowledge:Read"], [""], [null!, "admin:users"], ["knowledge:read,admin:users"]);
+        ["admin:manage-admins"], ["knowledge:write", "agent:ingest"], ["Knowledge:Read"], [""], [null!, "admin:users"], ["knowledge:read,admin:users"]);
 
     // Expiries as a caller might send them: none, past, now, future, and future with no time zone.
     private static readonly Gen<DateTime?> RequestedExpiry = Gen.OneOfConst<DateTime?>(
         null, Now.AddDays(-1), Now, Now.AddSeconds(1), Now.AddDays(30), DateTime.SpecifyKind(Now.AddDays(30), DateTimeKind.Unspecified));
 
     private static readonly string[] PersonalTokenScopes =
-        ["knowledge:read", "knowledge:write", "agent:ingest", "admin:users", "admin:audit", "admin:oauth-clients", "admin:settings", "admin:sources"];
+        ["knowledge:read", "knowledge:write", "admin:users", "admin:audit", "admin:oauth-clients", "admin:settings", "admin:sources"];
 
     /// <summary>One sample's world: whether the caller signed in themselves, and the fakes.</summary>
     private sealed class World
@@ -96,14 +96,16 @@ public class PersonalTokenOperationRandomInputTests
 
                 string trimmed = name?.Trim() ?? "";
                 bool validName = trimmed.Length is >= 1 and <= 256;
-                bool validScopes = (scopes ?? []).All(s => s is not null && PersonalTokenScopes.Contains(s, StringComparer.Ordinal));
+                // The deprecated agent:ingest is dropped, not refused (CON-171).
+                string?[] kept = (scopes ?? []).Where(s => s != "agent:ingest").ToArray();
+                bool validScopes = kept.All(s => s is not null && PersonalTokenScopes.Contains(s, StringComparer.Ordinal));
                 bool validExpiry = expiry is null || DateTime.SpecifyKind(expiry.Value, DateTimeKind.Utc) > Now;
                 PatStatus expected = !person ? PatStatus.Forbidden : validName && validScopes && validExpiry ? PatStatus.Success : PatStatus.Invalid;
                 created.Status.Should().Be(expected);
 
                 if (expected == PatStatus.Success)
                 {
-                    string[] stored = (scopes ?? []).Distinct(StringComparer.Ordinal).ToArray();
+                    string[] stored = kept.Distinct(StringComparer.Ordinal).ToArray()!;
                     await world.Pats.Received(1).CreateAsync(world.CallerId,
                         Arg.Is<PatCreateRequest>(r => r.Name == trimmed && r.Scopes!.SequenceEqual(stored) && r.RequiresApproval == approval
                             && (expiry == null ? r.ExpiresAt == null : r.ExpiresAt!.Value.Kind == DateTimeKind.Utc && r.ExpiresAt > Now)),

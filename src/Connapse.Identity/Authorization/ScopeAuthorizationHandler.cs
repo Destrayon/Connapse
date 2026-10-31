@@ -8,11 +8,11 @@ public class ScopeAuthorizationHandler : AuthorizationHandler<ScopeRequirement>
     // Role → implicit scopes mapping
     private static readonly Dictionary<string, HashSet<string>> RoleScopeMap = new()
     {
-        ["Owner"] = ["knowledge:read", "knowledge:write", "admin:users", "admin:manage-admins", "agent:ingest"],
-        ["Admin"] = ["knowledge:read", "knowledge:write", "admin:users", "agent:ingest"],
+        ["Owner"] = ["knowledge:read", "knowledge:write", "admin:users", "admin:manage-admins"],
+        ["Admin"] = ["knowledge:read", "knowledge:write", "admin:users"],
         ["Editor"] = ["knowledge:read", "knowledge:write"],
         ["Viewer"] = ["knowledge:read"],
-        ["Agent"] = ["knowledge:read", "agent:ingest"],
+        ["Agent"] = ["knowledge:read"],
     };
 
     protected override Task HandleRequirementAsync(

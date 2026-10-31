@@ -31,10 +31,10 @@ public class AgentOperationRandomInputTests
 
     // Scopes as a caller might send them: none, an agent key's, repeated, or ones only a person's token holds.
     private static readonly Gen<string[]?> RequestedScopes = Gen.OneOfConst<string[]?>(
-        null, [], ["knowledge:read"], ["knowledge:read", "knowledge:write", "agent:ingest"], ["knowledge:read", "knowledge:read"],
+        null, [], ["knowledge:read"], ["knowledge:read", "knowledge:write"], ["knowledge:read", "agent:ingest"], ["knowledge:read", "knowledge:read"],
         ["admin:users"], ["knowledge:read", "admin:settings"], ["Knowledge:Read"], [""], [null!, "admin:users"], ["knowledge:read,admin:users"]);
 
-    private static readonly string[] AgentKeyScopes = ["knowledge:read", "knowledge:write", "agent:ingest"];
+    private static readonly string[] AgentKeyScopes = ["knowledge:read", "knowledge:write"];
 
     /// <summary>One sample's world: who the caller is and what they hold, and the fakes.</summary>
     private sealed class World
@@ -213,7 +213,7 @@ public class AgentOperationRandomInputTests
 
                 string trimmed = name?.Trim() ?? "";
                 bool validName = trimmed.Length is >= 2 and <= 64;
-                string[] distinct = (scopes ?? []).Distinct().ToArray();
+                string[] distinct = (scopes ?? []).Where(s => s != "agent:ingest").Distinct().ToArray();
                 bool validScopes = distinct.All(AgentKeyScopes.Contains);
                 AgentStatus expected =
                     !admin || !scope ? AgentStatus.Forbidden

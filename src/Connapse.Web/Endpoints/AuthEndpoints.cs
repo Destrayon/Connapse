@@ -178,7 +178,7 @@ public static class AuthEndpoints
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden)
         .WithName("pats.create")
-        .WithDescription("Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, agent:ingest, admin:users, admin:audit, admin:oauth-clients, admin:settings and admin:sources, and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.")
+        .WithDescription("Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, admin:users, admin:audit, admin:oauth-clients, admin:settings and admin:sources (the deprecated agent:ingest is accepted and dropped), and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.")
         .RequireAuthorization(Policies.Person);
 
         // DELETE /api/v1/auth/pats/{id} — revoke one of the caller's own personal access tokens

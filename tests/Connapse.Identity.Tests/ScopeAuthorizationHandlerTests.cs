@@ -66,11 +66,11 @@ public class ScopeAuthorizationHandlerTests
     }
 
     [Fact]
-    public async Task HandleRequirement_AgentRole_GrantsAgentIngest()
+    public async Task HandleRequirement_AgentRole_DeniesKnowledgeWrite()
     {
-        var granted = await IsGrantedAsync("agent:ingest",
+        var granted = await IsGrantedAsync("knowledge:write",
             [new Claim(ClaimTypes.Role, "Agent")]);
-        granted.Should().BeTrue();
+        granted.Should().BeFalse();
     }
 
     [Fact]

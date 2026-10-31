@@ -193,7 +193,6 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
         {
             "Scope:KnowledgeRead" => "knowledge:read",
             "Scope:KnowledgeWrite" => "knowledge:write",
-            "Scope:AgentIngest" => "agent:ingest",
             GenericApiPolicies.Search => "any operation scope",
             GenericApiPolicies.Read => "a read operation scope",
             GenericApiPolicies.Write => "a write operation scope",
