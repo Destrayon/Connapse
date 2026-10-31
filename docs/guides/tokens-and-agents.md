@@ -34,7 +34,7 @@ To revoke it, choose **Revoke** on its row, then **Confirm Revoke**. Only you ca
 
 1. Open **Agents** in the navigation (`/admin/agents`).
 2. Under **New Agent**, enter a **Name** of 2 to 64 letters, digits, hyphens and underscores, and optionally a **Description**. Choose **Create Agent**.
-3. On the agent's row, choose **API Keys**, enter a **Key name**, and tick its scopes. An agent key can hold only `knowledge:read`, `knowledge:write` and `agent:ingest`.
+3. On the agent's row, choose **API Keys**, enter a **Key name**, and tick its scopes. An agent key can hold only `knowledge:read` and `knowledge:write`.
 4. Leave **Ask before it deletes anything over MCP** ticked, then choose **Add Key** and copy the key.
 
 **Disable** on the agent's row stops all of its keys until you choose **Enable**. **Delete** removes the agent and revokes every key it has.
@@ -47,7 +47,6 @@ A token passes a check only with a scope it was issued with, and a scope never l
 |-------|--------|
 | `knowledge:read` | Search, list and read containers and documents |
 | `knowledge:write` | Create and delete containers, and upload and delete files |
-| `agent:ingest` | Nothing yet: no operation checks it. Give `knowledge:write` to upload and delete |
 | `admin:users` | Manage users, invites and agents |
 | `admin:audit` | Read the audit log |
 | `admin:oauth-clients` | List and revoke OAuth clients |

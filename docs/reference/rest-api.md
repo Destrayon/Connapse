@@ -130,7 +130,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | `DELETE` | `/api/v1/agents/{id}` | `admin:users` | Delete an agent and revoke all its API keys (Admin only) |
 | `PUT` | `/api/v1/agents/{id}/active` | `admin:users` | Enable or disable an agent (Admin only) |
 | `GET` | `/api/v1/agents/{id}/keys` | `admin:users` | List API keys for an agent, revoked ones included (Admin only) |
-| `POST` | `/api/v1/agents/{id}/keys` | `admin:users` | Create an API key for an agent, with scopes from knowledge:read, knowledge:write and agent:ingest. |
+| `POST` | `/api/v1/agents/{id}/keys` | `admin:users` | Create an API key for an agent, with scopes from knowledge:read and knowledge:write (the deprecated agent:ingest is accepted and dropped). |
 | `DELETE` | `/api/v1/agents/{id}/keys/{keyId}` | `admin:users` | Revoke an agent API key (Admin only) |
 
 ### Containers

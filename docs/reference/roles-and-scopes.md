@@ -24,14 +24,13 @@ A call passes only when the caller's **role** allows it and, for a token, one of
 |-------|--------|----------------|
 | `knowledge:read` | Search, list and read containers, sources and documents | Viewer or above, or an agent key |
 | `knowledge:write` | Create and delete containers; upload and delete files; unlink your own accounts | Editor or above, or an agent key |
-| `agent:ingest` | Nothing yet: no operation checks it | — |
 | `admin:users` | Users, invites, agents and agent keys | Admin or Owner; managing Admins needs the Owner |
 | `admin:audit` | Read the audit log | Admin or Owner |
 | `admin:oauth-clients` | List and revoke OAuth clients | Admin or Owner |
 | `admin:settings` | Read, change and reset settings, reindex, providers | Admin or Owner |
 | `admin:sources` | Connections and sources, including their credentials | Admin or Owner |
 
-A personal access token may be issued any of these scopes, but it can never do more than its owner's role allows. An agent key may hold only `knowledge:read`, `knowledge:write` and `agent:ingest`. `pats:manage` is held by no token: you manage your own personal access tokens only while signed in yourself.
+A personal access token may be issued any of these scopes, but it can never do more than its owner's role allows. An agent key may hold only `knowledge:read` and `knowledge:write`. The deprecated `agent:ingest` never allowed anything: a request that still asks for it succeeds, but the scope is dropped, and a migration removed it from existing keys and tokens. `pats:manage` is held by no token: you manage your own personal access tokens only while signed in yourself.
 
 A few operations ask for more than their scope's role: regenerating or clearing a container's summaries needs an Admin, and so does the GitHub App install callback.
 
