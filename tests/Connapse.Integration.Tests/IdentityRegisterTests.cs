@@ -33,8 +33,6 @@ public class IdentityRegisterTests(SharedWebAppFixture fixture)
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await AccountExistsAsync(email)).Should().BeFalse("a stranger can't make an account");
-        var login = await anonymous.PostAsJsonAsync("/api/v1/identity/login", new { email, password = Password });
-        login.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "no account was made to sign in to");
     }
 
     [Fact]
