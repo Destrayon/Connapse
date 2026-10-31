@@ -14,3 +14,14 @@ warnings = { fail-on = ["rate_limited"] }
 [[operations]]
 include-name = "DELETE /api/v1/oauth-clients/{clientId}"
 parameters = { clientId = "schemathesis-no-such-client" }
+
+# The only user id Schemathesis can reuse is the signed-in admin's own, and changing your own account is refused
+# with a 403 every time, which is the operation working but reads as missing_auth (CON-179). A fixed id that names
+# no user gets the operation tested; it answers 404.
+[[operations]]
+include-name = "DELETE /api/v1/auth/users/{id}"
+parameters = { id = "00000000-0000-4000-8000-000000000179" }
+
+[[operations]]
+include-name = "PUT /api/v1/auth/users/{id}/roles"
+parameters = { id = "00000000-0000-4000-8000-000000000179" }
