@@ -21,6 +21,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Web;
 using Connapse.Web.Services;
 using Hangfire;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -448,7 +449,21 @@ app.MapOAuthEndpoints();
 // The auth policy (10/min per IP) is the binding constraint for anonymous callers.
 api.MapGroup("/api/v1/identity")
     .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
-    .MapIdentityApi<ConnapseUser>();
+    .MapIdentityApi<ConnapseUser>()
+    .Add(RequireAdminToRegister);
+
+// Connapse has no self sign-up: an account comes from an invite or from first-run owner setup, both in
+// the UI. MapIdentityApi maps an anonymous /register and offers no way to leave it out (dotnet/aspnetcore
+// #55792), so the convention below asks for an administrator, as inviting does, on that one endpoint;
+// the rest stay as mapped (CON-172, the main-branch port of CON-169).
+static void RequireAdminToRegister(EndpointBuilder endpoint)
+{
+    if (endpoint is RouteEndpointBuilder { RoutePattern.RawText: "/api/v1/identity/register" })
+    {
+        endpoint.Metadata.Add(new AuthorizeAttribute("RequireAdmin"));
+        endpoint.Metadata.Add(new AuthorizeAttribute("Scope:AdminUsers"));
+    }
+}
 
 // Map MCP server (Streamable HTTP + legacy SSE transport)
 var mcpEndpoint = app.MapMcp("/mcp")
