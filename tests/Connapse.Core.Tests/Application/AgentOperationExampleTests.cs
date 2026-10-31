@@ -229,16 +229,20 @@ public class AgentOperationExampleTests
     }
 
     [Fact]
-    public async Task CreateKey_TheRetiredAgentIngestScope_IsInvalidKey()
+    public async Task CreateKey_TheDeprecatedAgentIngestScope_IsDroppedNotRefused()
     {
-        // No check ever required agent:ingest; knowledge:write is what uploads and deletes (CON-171).
+        // No check ever required agent:ingest; knowledge:write is what uploads and deletes (CON-171). A client
+        // that still asks for it gets its key, without that scope.
+        _agents.CreateKeyAsync(_agentId, Arg.Any<CreateAgentKeyRequest>(), Arg.Any<CancellationToken>())
+            .Returns(c => new CreateAgentKeyResponse(Guid.NewGuid(), "key", "the-token", c.ArgAt<CreateAgentKeyRequest>(1).Scopes!, DateTime.UtcNow, null));
+
         var created = await new CreateAgentKey(_agents, _authorizer, _audit)
             .RunAsync(Caller(), new(_agentId, new("key", ["knowledge:read", "agent:ingest"])));
 
-        created.Status.Should().Be(AgentStatus.InvalidKey);
-        created.Detail.Should().Be("'agent:ingest' is an invalid agent key scope. Scopes: knowledge:read, knowledge:write.");
-        created.Field.Should().Be("scopes");
-        _agents.ReceivedCalls().Should().BeEmpty();
+        created.Status.Should().Be(AgentStatus.Success);
+        created.Result!.Scopes.Should().Equal("knowledge:read");
+        await _agents.Received(1).CreateKeyAsync(_agentId,
+            Arg.Is<CreateAgentKeyRequest>(r => r.Scopes!.SequenceEqual(new[] { "knowledge:read" })), Arg.Any<CancellationToken>());
     }
 
     [Fact]

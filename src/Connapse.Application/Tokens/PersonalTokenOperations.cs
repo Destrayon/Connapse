@@ -77,7 +77,7 @@ public sealed class CreatePersonalToken(IPatService pats, IOperationAuthorizer a
         if (name.Length > PatRules.MaxNameLength)
             return Attempt<PatCreateResponse, PatStatus>.Fail(PatStatus.Invalid, $"Token name must be at most {PatRules.MaxNameLength} characters.", "name");
 
-        string?[] scopes = (request.Scopes ?? []).Distinct(StringComparer.Ordinal).ToArray();
+        string?[] scopes = TokenScopeChoices.WithoutDeprecated(request.Scopes ?? []).Distinct(StringComparer.Ordinal).ToArray();
         // By index, not FirstOrDefault: a null scope would read as "none found" and let the ones after it through.
         int unknown = Array.FindIndex(scopes, s => s is null || !TokenScopeChoices.PersonalToken.Contains(s, StringComparer.Ordinal));
         if (unknown >= 0)

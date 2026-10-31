@@ -189,7 +189,7 @@ public sealed class CreateAgentKey(IAgentService agents, IOperationAuthorizer au
             return Attempt<CreateAgentKeyResponse, AgentStatus>.Fail(AgentStatus.InvalidKey,
                 $"Agent key name must be {ValidationConstants.MinAgentNameLength}-{ValidationConstants.MaxAgentKeyNameLength} characters.", "name");
 
-        string?[] scopes = (request.Scopes ?? []).Distinct(StringComparer.Ordinal).ToArray();
+        string?[] scopes = TokenScopeChoices.WithoutDeprecated(request.Scopes ?? []).Distinct(StringComparer.Ordinal).ToArray();
         // By index, not FirstOrDefault: a null scope would read as "none found" and let the ones after it through.
         int unknown = Array.FindIndex(scopes, s => s is null || !TokenScopeChoices.AgentKey.Contains(s, StringComparer.Ordinal));
         if (unknown >= 0)

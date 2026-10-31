@@ -287,7 +287,7 @@ The agent can't be made as asked: the name isn't 2 to 64 letters, digits, hyphen
 
 The key can't be made as asked: the name isn't 2 to 64 characters (`field` is `name`), or a scope
 isn't one an agent key can hold. The scopes are `knowledge:read` and `knowledge:write`
-(`field` is `scopes`).
+(`field` is `scopes`). The deprecated `agent:ingest` is not an error: it is accepted and dropped.
 
 ## agent-exists
 
@@ -304,7 +304,7 @@ The token can't be made as asked: the name is blank or longer than 256 character
 `name`), a scope isn't one a personal access token can hold (`field` is `scopes`), or the expiry
 isn't in the future (`field` is `expiresAt`). The scopes are `knowledge:read`, `knowledge:write`,
 `admin:users`, `admin:audit`, `admin:oauth-clients`, `admin:settings` and `admin:sources`.
-An expiry that names no time zone is read as UTC.
+The deprecated `agent:ingest` is not an error: it is accepted and dropped. An expiry that names no time zone is read as UTC.
 
 ## connection-not-found
 
