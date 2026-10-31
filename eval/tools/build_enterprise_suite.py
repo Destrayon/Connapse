@@ -4,11 +4,14 @@ The source is huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench at a pinn
 about 512,000 generated documents of one fictional company (Slack, Gmail, Linear, Google Drive,
 HubSpot, Fireflies, GitHub, Jira, Confluence) in one Parquet row group, and 500 questions.
 
-Two datasets come out, both rewritten in 10,000-row groups so the harness can stream them:
+Three datasets come out, all rewritten in 10,000-row groups so the harness can stream them:
   erb-50k   every gold document, each scored question's top 100 by BM25 over the FULL corpus
             (the hard distractors a small corpus would otherwise lack), and the rest of 50,000
             filled by a stable hash of the document ID. The pool follows what the questions ask
             about, so sources don't keep their full-corpus shares (Slack 34% here, 56% there);
+  erb-10k   a subset of erb-50k for routine runs (CON-151): every gold document, each scored
+            question's top K by the same BM25 with K the largest that keeps the set at 10,000 or
+            fewer, and the rest of 10,000 filled from erb-50k's other documents by the same hash;
   erb-full  the whole corpus.
 Questions are copied unchanged; the adapter leaves out the ones with no gold documents.
 
@@ -21,12 +24,12 @@ first build: Parquet pages break where Arrow chunks do, so each row group is wri
 chunks the whole read had (see _Cuts).
 
 Usage:
-    python eval/tools/build_enterprise_suite.py            # build both; pin them, or check existing pins
+    python eval/tools/build_enterprise_suite.py            # build all three; pin them, or check existing pins
     python eval/tools/build_enterprise_suite.py --register # pin already-built files
     python eval/tools/build_enterprise_suite.py --repin    # build and replace existing pins
 
 Outputs land in eval/.cache/datasets/<name>/<version>/ with build.json; eval/MANIFEST.json pins
-their sha256 under the "enterprise-v1" and "enterprise-full" suites.
+their sha256 under the "enterprise-v1", "enterprise-10k" and "enterprise-full" suites.
 """
 import bisect
 import concurrent.futures as cf
@@ -56,6 +59,7 @@ SOURCES = {
     "questions.parquet": ("data/questions/test.parquet", "e25066f4eff3843dd0f3df0d1348113471e072e75007ffe390a0aa83f2a80af2"),
 }
 SAMPLE = 50_000
+SMALL = 10_000
 TOP_K = 100
 ROW_GROUP = 10_000
 K1, B = 1.2, 0.75
@@ -247,23 +251,36 @@ def build():
     gold_hits = sum(1 for q in scored for d in q["expected_doc_ids"] if d in bm25_top[q["question_id"]])
     del rest, ids
 
+    # erb-10k: the largest per-question BM25 depth whose pool fits, then erb-50k's lowest hashes.
+    small_k, small_pool = 0, set(gold)
+    for k in range(1, TOP_K + 1):
+        grown = small_pool | {top[k - 1] for top in bm25_top.values() if len(top) >= k}
+        if len(grown) > SMALL:
+            break
+        small_k, small_pool = k, grown
+    small_fill = sorted(keep - small_pool, key=lambda i: (fraction(i), i))[: SMALL - len(small_pool)]
+    small = small_pool | set(small_fill)
+    small_gold_hits = sum(1 for q in scored for d in q["expected_doc_ids"] if d in bm25_top[q["question_id"]][:small_k])
+
     # Pass 2: both datasets in one more read, sliced at the whole read's chunk boundaries.
     outputs, writers = {}, {}
-    for name in ("erb-50k", "erb-full"):
+    for name in ("erb-50k", "erb-10k", "erb-full"):
         directory = os.path.join(ROOT, "eval", ".cache", "datasets", name, VERSION)
         os.makedirs(directory, exist_ok=True)
         writers[name] = _RowGroups(os.path.join(directory, "documents.parquet"), source_file.schema_arrow)
-    boundaries, value_set, position = cuts.sorted(n_source), pa.array(sorted(keep)), 0
+    boundaries, position = cuts.sorted(n_source), 0
+    value_sets = {"erb-50k": pa.array(sorted(keep)), "erb-10k": pa.array(sorted(small))}
     for batch in source_file.iter_batches(batch_size=BATCH, columns=COLUMNS):
         edges = [position] + boundaries[bisect.bisect_right(boundaries, position):bisect.bisect_left(boundaries, position + batch.num_rows)] + [position + batch.num_rows]
         for start, stop in zip(edges, edges[1:]):
             chunk = bisect.bisect_right(boundaries, start)
             table = pa.Table.from_batches([batch.slice(start - position, stop - start)]).filter(pa.array(mask[start:stop]))
             writers["erb-full"].add(chunk, table)
-            writers["erb-50k"].add(chunk, table.filter(pc.is_in(table.column("doc_id"), value_set=value_set)))
+            for name, value_set in value_sets.items():
+                writers[name].add(chunk, table.filter(pc.is_in(table.column("doc_id"), value_set=value_set)))
         position += batch.num_rows
 
-    for name, selected in (("erb-50k", keep), ("erb-full", None)):
+    for name in ("erb-50k", "erb-10k", "erb-full"):
         directory = os.path.join(ROOT, "eval", ".cache", "datasets", name, VERSION)
         writers[name].close()
         pq.write_table(pq.read_table(questions_path), os.path.join(directory, "questions.parquet"))
@@ -274,9 +291,13 @@ def build():
             "by_source": dict(writers[name].by_source),
             "files": {f: sha256(os.path.join(directory, f)) for f in ("documents.parquet", "questions.parquet")},
         }
-        if selected is not None:
+        gold_total = sum(len(q["expected_doc_ids"]) for q in scored)
+        if name == "erb-50k":
             info.update(gold=len(gold), bm25_pooled=len(pooled), hash_fill=len(fill), top_k=TOP_K,
-                        bm25_gold_recall_at_100=round(gold_hits / sum(len(q["expected_doc_ids"]) for q in scored), 4))
+                        bm25_gold_recall_at_100=round(gold_hits / gold_total, 4))
+        elif name == "erb-10k":
+            info.update(gold=len(gold), bm25_pooled=len(small_pool - gold), hash_fill=len(small_fill), top_k=small_k,
+                        bm25_gold_recall_at_top_k=round(small_gold_hits / gold_total, 4), subset_of="erb-50k")
         with open(os.path.join(directory, "build.json"), "w") as f:
             json.dump(info, f, indent=2)
         outputs[name] = info
@@ -288,7 +309,7 @@ def register(repin):
     manifest_path = os.path.join(ROOT, "eval", "MANIFEST.json")
     with open(manifest_path, encoding="utf-8") as f:
         manifest = json.load(f)
-    for name, suite in (("erb-50k", "enterprise-v1"), ("erb-full", "enterprise-full")):
+    for name, suite in (("erb-50k", "enterprise-v1"), ("erb-10k", "enterprise-10k"), ("erb-full", "enterprise-full")):
         with open(os.path.join(ROOT, "eval", ".cache", "datasets", name, VERSION, "build.json")) as f:
             files = json.load(f)["files"]
         pinned = manifest["datasets"].get(name)

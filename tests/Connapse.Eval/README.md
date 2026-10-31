@@ -95,6 +95,12 @@ disk, and a peak of about 2 GB of memory):
 - Scores break down by question category (`kind:`) and by the source holding the answer (`source:`).
 - `enterprise-full` is the whole 512,000-document corpus; use it to check that an `enterprise-v1` result
   holds at scale.
+- `enterprise-10k` is a fixed 10,000-document subset of `enterprise-v1` holding every graded document
+  (`eval/datasets/erb-10k/card.md`). It indexes in a few hours under `eval/tools/run_light.sh` with the GPU
+  (one embedding request in flight) instead of about 15, so use it for routine no-harm checks against a
+  baseline on the same set:
+
+      EVAL_GPU=1 EVAL_CONFIGS=hybrid,hybrid-links eval/tools/run_light.sh enterprise-10k
 
 ## Link questions
 
