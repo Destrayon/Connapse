@@ -160,7 +160,7 @@ public class VectorSearchService
                 ct));
         }
         if (queryEmbedding.Spaces.Count > 1)
-            results = results.OrderByDescending(r => r.Score).Take(options.TopK).ToList();
+            results = Ranked(results).Take(options.TopK).ToList();
 
         // Convert VectorSearchResult to SearchHit (MinScore applied later by HybridSearchService)
         var hits = results
@@ -181,6 +181,17 @@ public class VectorSearchService
 
         return hits;
     }
+
+    /// <summary>
+    /// Score descending, then the earlier path, chunk and chunk id, as the vector store orders one space (CON-158):
+    /// merging spaces must not let chunks tied at the cut fall in whichever order the spaces were searched.
+    /// </summary>
+    internal static IEnumerable<VectorSearchResult> Ranked(IEnumerable<VectorSearchResult> results) =>
+        results
+            .OrderByDescending(r => r.Score)
+            .ThenBy(r => r.Metadata.GetValueOrDefault("path", ""), StringComparer.Ordinal)
+            .ThenBy(r => int.TryParse(r.Metadata.GetValueOrDefault("chunkIndex"), out int index) ? index : int.MaxValue)
+            .ThenBy(r => r.Id, StringComparer.Ordinal);
 
     /// <summary>
     /// Similarity of the named chunks to the query, in the vector space the query was embedded for,

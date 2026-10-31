@@ -28,7 +28,7 @@ public sealed record RetrievedPassage(string DocId, string ChunkId, string Conte
 /// </summary>
 public sealed record CandidateCapture(IReadOnlyList<Candidate> Vector, IReadOnlyList<Candidate> Keyword);
 
-public sealed record Candidate(string ChunkId, string DocId, float? VectorScore, float? KeywordScore);
+public sealed record Candidate(string ChunkId, string DocId, float? VectorScore, float? KeywordScore, int? ChunkIndex = null);
 
 public sealed record IndexReport(int Documents, int Failed, IReadOnlyList<string> FailedDocumentIds)
 {

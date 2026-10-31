@@ -2,7 +2,11 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Search.Hybrid;
 using Connapse.Search.Links;
+using Connapse.Storage.Data;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using NSubstitute;
 using Xunit;
 
 namespace Connapse.Core.Tests.Search;
@@ -98,6 +102,97 @@ public class LinkSearchTests
             .Should().BeEmpty();
     }
 
+    // Ids that sort the opposite way to their paths, as fresh random GUIDs can on any index (CON-152).
+    private static readonly Dictionary<string, string> Paths = new()
+    {
+        ["ffff"] = "/jira/FLINK-1.md",
+        ["cccc"] = "/jira/FLINK-2.md",
+        ["aaaa"] = "/jira/FLINK-3.md",
+    };
+
+    [Fact]
+    public void TopReached_TiedScores_KeepsTheFirstPathsNotTheFirstIds()
+    {
+        Dictionary<string, float> scores = new() { ["aaaa"] = 0.5f, ["cccc"] = 0.5f, ["ffff"] = 0.5f };
+
+        LinkSearch.TopReached(scores, Paths, max: 2).Keys.Should().BeEquivalentTo(["ffff", "cccc"]);
+    }
+
+    [Fact]
+    public void TopReached_InputOrder_DoesNotChangeTheCut()
+    {
+        KeyValuePair<string, float>[] scores = [new("aaaa", 0.5f), new("cccc", 0.5f), new("ffff", 0.5f)];
+
+        LinkSearch.TopReached(scores.Reverse(), Paths, max: 2).Keys
+            .Should().BeEquivalentTo(LinkSearch.TopReached(scores, Paths, max: 2).Keys);
+    }
+
+    [Fact]
+    public void TopReached_HigherScore_BeatsAnEarlierPath()
+    {
+        Dictionary<string, float> scores = new() { ["aaaa"] = 0.9f, ["cccc"] = 0.5f, ["ffff"] = 0.5f };
+
+        Dictionary<string, float> reached = LinkSearch.TopReached(scores, Paths, max: 2);
+
+        reached.Keys.Should().BeEquivalentTo(["aaaa", "ffff"]);
+        reached["aaaa"].Should().Be(0.9f);
+    }
+
+    [Fact]
+    public void TopReached_SamePath_FallsBackToTheId()
+    {
+        // Two containers can each hold a document at one path; the id still settles it within an index.
+        Dictionary<string, float> scores = new() { ["bbbb"] = 0.5f, ["aaaa"] = 0.5f };
+        Dictionary<string, string> paths = new() { ["aaaa"] = "/same.md", ["bbbb"] = "/same.md" };
+
+        LinkSearch.TopReached(scores, paths, max: 1).Keys.Should().Equal("aaaa");
+    }
+
+    private static LinkSearch.ChunkRow Row(string doc, int index, string path) => new()
+    {
+        ChunkId = Guid.Parse($"00000000-0000-0000-{index:0000}-{doc}"),
+        DocumentId = Guid.Parse($"00000000-0000-0000-0000-{doc}"),
+        ChunkIndex = index,
+        Path = path,
+    };
+
+    [Fact]
+    public void BestChunks_RowsInAnyOrder_ComeOutInPathOrder()
+    {
+        // The documents' ids sort the opposite way to their paths; SQL returns rows in no set order.
+        List<LinkSearch.ChunkRow> rows =
+        [
+            Row("000000000003", 0, "/a.md"), Row("000000000002", 0, "/b.md"), Row("000000000001", 0, "/c.md"),
+        ];
+        Dictionary<string, float> none = [];
+
+        List<string> forward = LinkSearch.BestChunks(rows, none).Select(h => h.DocumentId).ToList();
+        List<string> backward = LinkSearch.BestChunks(Enumerable.Reverse(rows), none).Select(h => h.DocumentId).ToList();
+
+        forward.Should().Equal(
+            "00000000-0000-0000-0000-000000000003",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000001");
+        backward.Should().Equal(forward);
+    }
+
+    [Fact]
+    public void BestChunks_PerDocument_HighestScoreThenFirstChunk()
+    {
+        List<LinkSearch.ChunkRow> rows =
+        [
+            Row("000000000001", 2, "/a.md"), Row("000000000001", 1, "/a.md"), Row("000000000002", 3, "/b.md"),
+            Row("000000000002", 4, "/b.md"),
+        ];
+        Dictionary<string, float> scores = new() { [rows[3].ChunkId.ToString()] = 0.7f };
+
+        List<SearchHit> best = LinkSearch.BestChunks(rows, scores);
+
+        best.Select(h => h.ChunkId).Should().Equal(rows[1].ChunkId.ToString(), rows[3].ChunkId.ToString());
+        best[1].Score.Should().Be(0.7f);
+        best[0].Metadata["path"].Should().Be("/a.md");
+    }
+
     [Fact]
     public void Blend_LinkedDocumentAddedAndTagged_OthersKeepTheirOrder()
     {
@@ -120,6 +215,41 @@ public class LinkSearchTests
 
         LinkSearch.Blend(hits, [], new Dictionary<string, float> { ["b"] = 1f }, weight: 0f)
             .Select(h => h.ChunkId).Should().Equal("c1", "c2");
+    }
+
+    private static SearchHit PathHit(string chunk, string doc, float score, string path, int chunkIndex = 0) =>
+        new(chunk, doc, "", score, new Dictionary<string, string> { ["path"] = path, ["chunkIndex"] = chunkIndex.ToString() });
+
+    [Fact]
+    public void Blend_TiedHitsInAnyOrder_ComeOutInPathOrder()
+    {
+        List<SearchHit> hits = [PathHit("c1", "zz", 0.9f, "/z.md"), PathHit("c2", "aa", 0.9f, "/a.md"), PathHit("c3", "mm", 0.1f, "/m.md")];
+
+        List<SearchHit> forward = LinkSearch.Blend(hits, [], new Dictionary<string, float>(), weight: 0.5f);
+        List<SearchHit> reversed = LinkSearch.Blend([.. hits.AsEnumerable().Reverse()], [], new Dictionary<string, float>(), weight: 0.5f);
+
+        forward.Select(h => h.ChunkId).Should().Equal("c2", "c1", "c3");
+        reversed.Select(h => h.ChunkId).Should().Equal("c2", "c1", "c3");
+    }
+
+    [Fact]
+    public void Blend_HitTiedWithAddedDocument_EarlierPathFirst()
+    {
+        // The added a.md normalises to 0, so 0.5 × 0 + 0.5 × 1 ties z.md's 0.5 × 1.
+        List<SearchHit> hits = [PathHit("c1", "zz", 0.9f, "/z.md"), PathHit("c2", "bb", 0.1f, "/b.md")];
+        List<SearchHit> extras = [PathHit("c9", "aa", 0.1f, "/a.md")];
+
+        LinkSearch.Blend(hits, extras, new Dictionary<string, float> { ["aa"] = 1f }, weight: 0.5f)
+            .Select(h => h.ChunkId).Should().Equal("c9", "c1", "c2");
+    }
+
+    [Fact]
+    public void Blend_TiedChunksOfOneDocument_LowerChunkIndexFirst()
+    {
+        List<SearchHit> hits = [PathHit("c1", "aa", 0.9f, "/a.md", chunkIndex: 10), PathHit("c2", "aa", 0.9f, "/a.md", chunkIndex: 2)];
+
+        LinkSearch.Blend(hits, [], new Dictionary<string, float> { ["aa"] = 1f }, weight: 0.5f)
+            .Select(h => h.ChunkId).Should().Equal("c2", "c1");
     }
 
     [Theory]
@@ -161,7 +291,7 @@ public class LinkSearchTests
     {
         using JsonDocument json = JsonDocument.Parse("""{"search":{"useKeywordSearch":false,"linkWeight":0.4}}""");
 
-        SearchSettings? own = SourceSearchChoices.Parse(json);
+        SourceSearchChoices.OwnerChoices? own = SourceSearchChoices.Parse(json);
 
         own!.UseKeywordSearch.Should().BeFalse();
         own.LinkWeight.Should().Be(0.4f);
@@ -173,6 +303,63 @@ public class LinkSearchTests
         using JsonDocument json = JsonDocument.Parse("""{"search":{"fusionAlpha":0.1,"mode":"Keyword"}}""");
 
         SourceSearchChoices.Parse(json).Should().BeNull();
+    }
+
+    // The owner's parsed choices are put where ResolveAsync caches them, so no database is read (the in-memory
+    // provider cannot map the knowledge model).
+    private static async Task<SearchSettings> ResolveWith(string overridesJson, SearchSettings global)
+    {
+        Guid id = Guid.NewGuid();
+        using JsonDocument json = JsonDocument.Parse(overridesJson);
+        using MemoryCache cache = new(new MemoryCacheOptions());
+        cache.Set($"link-layer:choices:{id}", SourceSearchChoices.Parse(json));
+        IDbContextFactory<KnowledgeDbContext> contexts = Substitute.For<IDbContextFactory<KnowledgeDbContext>>();
+
+        return await SourceSearchChoices.ResolveAsync(contexts, cache, id.ToString(), global, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideNamesOnlyLinkWeight_KeepsTheGlobalSearchChoices()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, UseKeywordSearch = true, FusionAlpha = 0.3f };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"linkWeight":0.4}}""", global);
+
+        effective.UseVectorSearch.Should().BeFalse();
+        effective.UseKeywordSearch.Should().BeTrue();
+        effective.FusionAlpha.Should().Be(0.3f);
+        effective.LinkWeight.Should().Be(0.4f);
+        effective.Should().Be(global with { LinkWeight = 0.4f });
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideNamesTwoSettings_ChangesExactlyThoseTwo()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, FusionAlpha = 0.3f, LinkMaxHops = 2 };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"useKeywordSearch":false,"linkSeeds":7}}""", global);
+
+        effective.Should().Be(global with { UseKeywordSearch = false, LinkSeeds = 7 });
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideSetsASettingToNull_KeepsTheGlobalValue()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"useVectorSearch":null,"linkWeight":0.4}}""", global);
+
+        effective.Should().Be(global with { LinkWeight = 0.4f });
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OverrideSavedBeforeTheLinkLayer_LeavesTheGlobalSettings()
+    {
+        SearchSettings global = new() { EnableLinkSearch = true, UseVectorSearch = false, FusionAlpha = 0.3f };
+
+        SearchSettings effective = await ResolveWith("""{"search":{"fusionAlpha":0.1,"mode":"Keyword"}}""", global);
+
+        effective.Should().Be(global);
     }
 
     [Fact]

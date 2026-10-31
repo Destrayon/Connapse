@@ -93,11 +93,9 @@ internal sealed class LinkSearch(
             return hits;
 
         IReadOnlySet<string> readable = await access.ReadableAsync(options.UserId, docScores.Keys, ct);
-        Dictionary<string, float> reached = docScores
-            .Where(d => readable.Contains(d.Key))
-            .OrderByDescending(d => d.Value).ThenBy(d => d.Key, StringComparer.Ordinal)
-            .Take(MaxReachedDocuments)
-            .ToDictionary(d => d.Key, d => d.Value, StringComparer.Ordinal);
+        List<KeyValuePair<string, float>> candidates = [.. docScores.Where(d => readable.Contains(d.Key))];
+        Dictionary<string, float> reached = TopReached(
+            candidates, await PathsAsync([.. candidates.Select(d => d.Key)], ct), MaxReachedDocuments);
         if (reached.Count == 0)
             return hits;
 
@@ -169,8 +167,22 @@ internal sealed class LinkSearch(
     }
 
     /// <summary>
+    /// The <paramref name="max"/> best-scored reached documents. Ties go to the earlier path, then the earlier id
+    /// (CON-152).
+    /// </summary>
+    internal static Dictionary<string, float> TopReached(
+        IEnumerable<KeyValuePair<string, float>> scores, IReadOnlyDictionary<string, string> paths, int max) =>
+        scores
+            .OrderByDescending(d => d.Value)
+            .ThenBy(d => paths.GetValueOrDefault(d.Key, ""), StringComparer.Ordinal)
+            .ThenBy(d => d.Key, StringComparer.Ordinal)
+            .Take(max)
+            .ToDictionary(d => d.Key, d => d.Value, StringComparer.Ordinal);
+
+    /// <summary>
     /// Every score becomes (1 − w) × its ordinary score, min-max normalised over hits and extras, plus w × its
-    /// document's link score. Extras are tagged as found by links.
+    /// document's link score. Extras are tagged as found by links. Equal scores go to the earlier path, then the
+    /// earlier chunk, then the chunk id, so the order does not hang on the order the searches returned (CON-152).
     /// </summary>
     internal static List<SearchHit> Blend(
         List<SearchHit> hits, List<SearchHit> extras, IReadOnlyDictionary<string, float> linkScores, float weight)
@@ -195,6 +207,9 @@ internal sealed class LinkSearch(
                 return h with { Score = (1 - w) * baseScore + w * link, Metadata = metadata };
             })
             .OrderByDescending(h => h.Score)
+            .ThenBy(h => h.Metadata.GetValueOrDefault("path", ""), StringComparer.Ordinal)
+            .ThenBy(h => int.TryParse(h.Metadata.GetValueOrDefault("chunkIndex"), out int index) ? index : int.MaxValue)
+            .ThenBy(h => h.ChunkId, StringComparer.Ordinal)
             .ToList();
     }
 
@@ -220,13 +235,22 @@ internal sealed class LinkSearch(
             return [];
 
         IReadOnlyDictionary<string, float> scores = await scoreChunks([.. chunks.Select(c => c.ChunkId.ToString())], ct);
+        return BestChunks(chunks, scores);
+    }
 
-        return chunks
+    /// <summary>
+    /// Each document's highest-scored chunk (its first when none scores), in path order: the blend keeps this order
+    /// among equal scores, and the rows arrive in whatever order the database returns them.
+    /// </summary>
+    internal static List<SearchHit> BestChunks(IEnumerable<ChunkRow> chunks, IReadOnlyDictionary<string, float> scores) =>
+        chunks
             .GroupBy(c => c.DocumentId)
             .Select(g => g
                 .OrderByDescending(c => scores.GetValueOrDefault(c.ChunkId.ToString()))
                 .ThenBy(c => c.ChunkIndex)
                 .First())
+            .OrderBy(c => c.Path, StringComparer.Ordinal)
+            .ThenBy(c => c.DocumentId)
             .Select(c => new SearchHit(
                 ChunkId: c.ChunkId.ToString(),
                 DocumentId: c.DocumentId.ToString(),
@@ -234,6 +258,19 @@ internal sealed class LinkSearch(
                 Score: scores.GetValueOrDefault(c.ChunkId.ToString()),
                 Metadata: Metadata(c)))
             .ToList();
+
+    /// <summary>Each document's path, for breaking ties by a key that survives re-indexing.</summary>
+    private async Task<Dictionary<string, string>> PathsAsync(List<string> documentIds, CancellationToken ct)
+    {
+        Guid[] ids = documentIds.Select(Guid.Parse).ToArray();
+        if (ids.Length == 0)
+            return [];
+
+        List<DocumentPath> rows = await context.Database
+            .SqlQueryRaw<DocumentPath>(
+                """SELECT d.id AS "Id", d.path AS "Path" FROM documents d WHERE d.id = ANY({0})""", [ids])
+            .ToListAsync(ct);
+        return rows.ToDictionary(r => r.Id.ToString(), r => r.Path, StringComparer.Ordinal);
     }
 
     private static Dictionary<string, string> Metadata(ChunkRow c)
@@ -260,7 +297,13 @@ internal sealed class LinkSearch(
         return metadata;
     }
 
-    private sealed class ChunkRow
+    private sealed class DocumentPath
+    {
+        public Guid Id { get; init; }
+        public string Path { get; init; } = "";
+    }
+
+    internal sealed class ChunkRow
     {
         public Guid ChunkId { get; init; }
         public Guid DocumentId { get; init; }

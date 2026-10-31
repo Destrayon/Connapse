@@ -4,6 +4,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using static Connapse.Core.Utilities.LogSanitizer;
@@ -138,14 +139,35 @@ public class PostgresContainerStore(
             : JsonSerializer.Deserialize<ContainerSettingsOverrides>(json, JsonOptions);
     }
 
-    public async Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default)
+    public Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default) =>
+        SaveSettingsOverridesAsync(id, SettingsOverridesJson.Serialize(overrides, JsonOptions), ct);
+
+    public Task SaveSettingsOverridesAsync(
+        Guid id, ContainerSettingsOverrides overrides, IEnumerable<string> searchSettingsNamed,
+        CancellationToken ct = default) =>
+        SaveSettingsOverridesAsync(id, SettingsOverridesJson.Serialize(overrides, JsonOptions, searchSettingsNamed), ct);
+
+    public async Task<JsonElement?> GetSettingsOverridesJsonAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var doc = await context.Containers
+            .AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => c.SettingsOverridesJson)
+            .FirstOrDefaultAsync(ct);
+
+        return doc?.RootElement.Clone();
+    }
+
+    private async Task SaveSettingsOverridesAsync(Guid id, JsonDocument json, CancellationToken ct)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
         var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new InvalidOperationException($"Container {id} not found.");
 
-        entity.SettingsOverridesJson = JsonDocument.Parse(JsonSerializer.Serialize(overrides, JsonOptions));
+        entity.SettingsOverridesJson = json;
         entity.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
     }

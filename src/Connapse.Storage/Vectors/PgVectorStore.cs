@@ -326,7 +326,7 @@ public class PgVectorStore : IVectorStore
             INNER JOIN chunks c ON cv.chunk_id = c.id
             INNER JOIN documents d ON cv.document_id = d.id
             WHERE {string.Join(" AND ", vectorClauses.Concat(whereClauses))}
-            ORDER BY ""Distance"" ASC
+            ORDER BY ""Distance"" ASC, {TieBreakSql}
             LIMIT @topK";
 
         List<VectorSearchRow> results;
@@ -351,14 +351,14 @@ public class PgVectorStore : IVectorStore
                     FROM chunk_vectors cv
                     WHERE {string.Join(" AND ", vectorClauses)}
                     ORDER BY {distance}
-                    LIMIT @inner)
+                    FETCH FIRST (@inner) ROWS WITH TIES)
                 SELECT {select}
                 FROM nn
                 INNER JOIN chunk_vectors cv ON cv.chunk_id = nn.chunk_id
                 INNER JOIN chunks c ON cv.chunk_id = c.id
                 INNER JOIN documents d ON cv.document_id = d.id
                 WHERE {string.Join(" AND ", whereClauses)}
-                ORDER BY ""Distance"" ASC
+                ORDER BY ""Distance"" ASC, {TieBreakSql}
                 LIMIT @topK";
 
             results = await WithIndexSearchSettingsAsync(
@@ -405,6 +405,14 @@ public class PgVectorStore : IVectorStore
 
         return searchResults;
     }
+
+    /// <summary>
+    /// The order among equal distances: the earlier path, then the earlier chunk, then the chunk id. Without it, chunks
+    /// tied at the LIMIT come back in heap order, which follows ingest order and differs between two indexings of the
+    /// same documents (CON-158). The neighbours-first query keeps every chunk tied at its inner cut (WITH TIES) for
+    /// the same reason, since that cut is made before documents are joined.
+    /// </summary>
+    private const string TieBreakSql = """d.path COLLATE "C", c.chunk_index, cv.chunk_id""";
 
     /// <summary>pgvector indexes halfvec up to 4,000 dimensions; beyond that, search stays exact.</summary>
     private const int VectorIndexMaxDimensions = 4_000;

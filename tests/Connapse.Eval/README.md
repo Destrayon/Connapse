@@ -39,7 +39,7 @@ A run that indexes every dataset of its suite saves the built index, and a later
   - the index-time settings and chunking strategy;
   - non-search `Knowledge__` environment variables;
   - the contents of the source that ingests documents: `src/**` except Connapse.Search and Connapse.Agents, plus the eval harness's `Datasets`, `Model` and `Systems` folders and the root build files.
-- **When the key changes:** changing search code keeps the key. Changing ingestion, storage, the web project or a dataset makes a new one. Uncommitted edits count.
+- **When the key changes:** changing search code keeps the key. Changing ingestion, storage, the web project or a dataset makes a new one. Uncommitted edits count, and so do new files git doesn't ignore. Files git ignores don't, so the key ring the host writes into `src/Connapse.Web/appdata/` on startup can't change the key.
 - **Recording:** the run manifest's `indexCache` says whether a run `saved` or `restored` its index.
 - **Turning it off:** `--index-cache off` neither reads nor writes the cache.
 - **Freeing space:** delete old snapshots with `docker volume rm connapse-eval-index-<key>` and the matching JSON file.
@@ -86,7 +86,8 @@ work by its effect on answers; re-run it after parsing changes and compare again
 `enterprise-v1` scores retrieval over the shapes Connapse's connectors bring in: Slack threads, email,
 Linear and Jira tickets, HubSpot records, meeting transcripts, GitHub pull requests, Confluence pages and
 Drive files, from EnterpriseRAG-Bench (`eval/datasets/erb-50k/card.md`). It is built locally, not
-downloaded (needs Python with `pyarrow`, `requests`, `numpy` and PyStemmer; about 20 minutes and 1.4 GB):
+downloaded (needs Python with `pyarrow`, `requests`, `numpy` and PyStemmer; about 20 minutes, 1.4 GB of
+disk, and a peak of about 2 GB of memory):
 
     python eval/tools/build_enterprise_suite.py
     dotnet run --project tests/Connapse.Eval -- run --suite enterprise-v1 --config hybrid
@@ -94,6 +95,12 @@ downloaded (needs Python with `pyarrow`, `requests`, `numpy` and PyStemmer; abou
 - Scores break down by question category (`kind:`) and by the source holding the answer (`source:`).
 - `enterprise-full` is the whole 512,000-document corpus; use it to check that an `enterprise-v1` result
   holds at scale.
+- `enterprise-10k` is a fixed 10,000-document subset of `enterprise-v1` holding every graded document
+  (`eval/datasets/erb-10k/card.md`). It indexes in a few hours under `eval/tools/run_light.sh` with the GPU
+  (one embedding request in flight) instead of about 15, so use it for routine no-harm checks against a
+  baseline on the same set:
+
+      EVAL_GPU=1 EVAL_CONFIGS=hybrid,hybrid-links eval/tools/run_light.sh enterprise-10k
 
 ## Link questions
 
