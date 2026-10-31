@@ -15,11 +15,13 @@ files are byte-identical for every dataset measured, so every metric is identica
 | Suite | Datasets measured | Rankings | Headline | p95 off → on |
 |---|---|---|---|---|
 | pdfqa-v1 | 1 of 1 | identical | MRR@10 0.506 both, nDCG@10 0.537 both | 145 → 59 ms |
-| v1 | 12 of 16 | identical | equal on all 12 | lower with links on in all 12 (table below) |
+| v1 | 16 of 16 | identical | equal on all 16 | at most +0.4% (table below) |
 
-Latency is lower with links on for every dataset, but that reflects run order, not link search: `hybrid` always
-searches first and pays the cold start. What it does show is that link search adds no measurable time, so the
-"p95 +10% at most" bar passes.
+Latency is lower with links on for almost every dataset, but that reflects run order, not link search: `hybrid`
+always searches first and pays the cold start. What it does show is that link search adds no measurable time, so
+the "p95 +10% at most" bar passes. The one rise, cqadupstack-programmers 280 → 281 ms, is +0.4%.
+
+**Verdict: pass.** Link search changes no ranking on any of the 17 datasets.
 
 v1 p95 in ms, per query, test split (`Scoring.Percentile`):
 
@@ -37,6 +39,10 @@ v1 p95 in ms, per query, test split (`Scoring.Percentile`):
 | nanobeir-quora | 105 | 36 |
 | nanobeir-scidocs | 122 | 36 |
 | nanobeir-scifact | 241* | 59* |
+| nanobeir-touche2020 | 75 | 59 |
+| cqadupstack-programmers | 280 | 281 |
+| ragbench-techqa | 263 | 257 |
+| ragbench-emanual | 30 | 22 |
 
 Claude Code stopped the first v1 run partway through, while it was searching, because the PC ran low on memory
 (other workloads were also running). The first 11 datasets above had finished under both configs.
@@ -46,9 +52,16 @@ The rest were rerun one dataset at a time on 2026-10-31:
 - **nanobeir-scifact:** done. Rankings identical off and on; nDCG@10 0.789 and MRR@10 0.758 under both; indexed in
   1330 s. *Its run folders were lost when the old worktree was removed, so its p95 comes from the search service's
   own "Search completed in" log lines (50 queries per config), not from `Scoring.Percentile`.
-- **nanobeir-touche2020:** stopped on 2026-10-31 to free the PC, 3 h 10 min in, with 3,000 of 5,745 documents
-  indexed and nothing searched. At that rate indexing alone takes about 6 hours on this hardware.
-- **cqadupstack-programmers, ragbench-techqa, ragbench-emanual:** not started.
+- **The last four** ran later on 2026-10-31 under the same caps, except that Ollama had the GPU (still one request
+  in flight). The first touche2020 attempt, CPU only, was stopped 3 h 10 min in at 3,000 of 5,745 documents;
+  touche2020 was rerun from scratch, reusing the embeddings that attempt had cached.
+
+| Dataset | Test queries | nDCG@10 off / on | MRR@10 off / on | Indexed in |
+|---|---|---|---|---|
+| nanobeir-touche2020 | 49 | 0.656 / 0.656 | 0.827 / 0.827 | 378 s |
+| cqadupstack-programmers | 876 | 0.395 / 0.395 | 0.394 / 0.394 | 3525 s |
+| ragbench-techqa | 157 | 0.624 / 0.624 | 0.619 / 0.619 | 1731 s |
+| ragbench-emanual | 66 | 0.864 / 0.864 | 0.866 / 0.866 | 41 s |
 
 ## B. Index cost: branch point vs tip
 
@@ -85,5 +98,8 @@ At the tip, under `eval/runs/` (not committed):
 - v1 (partial): `20261030-171943-476a7ea-v1-connapse-hybrid` and `20261030-171944-476a7ea-v1-connapse-hybrid-links`.
 - v1 scifact rerun: `20261031-065159-52adc5b-v1-connapse-hybrid` and `20261031-065200-52adc5b-v1-connapse-hybrid-links`
   (deleted with the old worktree; the scores above are from the run log).
+- v1, last four, at `d7f9071` (the epic tip merged into this branch): `20261031-190253` (touche2020), `190937`
+  (cqadupstack-programmers), `201127` (ragbench-techqa) and `204229` (ragbench-emanual), each
+  `-d7f9071-v1-connapse-hybrid` and `-hybrid-links`.
 - Part B tip repeats: `20261030-1638*`, `1654*` and `1711*` for links-v1, links-v2 and links-v3. The warm-up runs are
   `20261030-093347`, `125341` and `130444`.
