@@ -676,7 +676,7 @@ On a fresh install, `AdminSeedService` runs on startup:
 
 ### Concurrency
 
-- **Upload**: 4 concurrent ingestion workers
+- **Upload**: 4 concurrent ingestion workers (`Hangfire:IngestionWorkerCount`, read at startup)
 - **Search**: Unlimited (read-only, stateless)
 - **Settings updates**: Write lock on settings table (rare operation)
 

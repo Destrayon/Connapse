@@ -451,11 +451,6 @@ public record LlmSettings
 public record UploadSettings
 {
     /// <summary>
-    /// Number of parallel ingestion workers (default: 4).
-    /// </summary>
-    public int ParallelWorkers { get; set; } = 4;
-
-    /// <summary>
     /// Longest a single file may spend in its parser before it fails with <c>parse_timeout</c>
     /// (default: 300 seconds). A parser stuck on a malformed file otherwise holds its document in
     /// Processing for good.

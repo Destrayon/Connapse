@@ -18435,14 +18435,6 @@
       "UploadSettings": {
         "type": "object",
         "properties": {
-          "parallelWorkers": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
           "parseTimeoutSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
