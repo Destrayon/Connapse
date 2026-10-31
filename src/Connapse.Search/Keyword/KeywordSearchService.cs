@@ -132,7 +132,7 @@ public class KeywordSearchService
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
               AND c.search_vector @@ {tsQuery}
-            ORDER BY Rank DESC
+            ORDER BY Rank DESC, {TieBreakSql}
             LIMIT {{{topKIdx}}}";
 
         var results = await _context.Database
@@ -209,7 +209,7 @@ public class KeywordSearchService
                 best[row.ChunkId] = row;
             scored = scored is null ? candidates : $"{scored} | {candidates}";
 
-            List<Bm25Row> top = best.Values.OrderByDescending(r => r.Score).Take(topK).ToList();
+            List<Bm25Row> top = Ranked(best.Values).Take(topK).ToList();
             if (top.Count == topK && top[^1].Score >= threshold)
                 return top.Select(r => r.ToRow()).ToList();
             threshold = top.Count == topK ? top[^1].Score : 0.6 * threshold;
@@ -218,8 +218,23 @@ public class KeywordSearchService
         foreach (Bm25Row row in await Bm25TopKAsync(
                      whereClause, tsQuery, parameters, topK, ownerId, terms, null, scored, bm25, ct))
             best[row.ChunkId] = row;
-        return best.Values.OrderByDescending(r => r.Score).Take(topK).Select(r => r.ToRow()).ToList();
+        return Ranked(best.Values).Take(topK).Select(r => r.ToRow()).ToList();
     }
+
+    /// <summary>
+    /// The order every keyword cut-off uses, in SQL after the score: the earlier path, then the earlier chunk, then the
+    /// chunk id. Chunks tied at a cut-off would otherwise come back in heap order, which follows ingest order and
+    /// differs between two indexings of the same documents (CON-158). Paths compare bytewise, as C# ordinal does.
+    /// </summary>
+    internal const string TieBreakSql = """d.path COLLATE "C", c.chunk_index, c.id""";
+
+    /// <summary>Score descending, then <see cref="TieBreakSql"/>'s order.</summary>
+    internal static IEnumerable<Bm25Row> Ranked(IEnumerable<Bm25Row> rows) =>
+        rows
+            .OrderByDescending(r => r.Score)
+            .ThenBy(r => r.Path, StringComparer.Ordinal)
+            .ThenBy(r => r.ChunkIndex)
+            .ThenBy(r => r.ChunkId);
 
     /// <summary>
     /// A repeatable-read transaction for a multi-statement read, unless the caller already has one.
@@ -283,12 +298,12 @@ public class KeywordSearchService
                   AND c.search_vector @@ {tsQuery}
                   {candidateFilter}
                   {excludedFilter}
-                GROUP BY c.id
-                ORDER BY score DESC
+                GROUP BY c.id, d.id
+                ORDER BY score DESC, {TieBreakSql}
                 LIMIT {{{ownerIdx + 6}}}) s
             INNER JOIN chunks c ON c.id = s.id
             INNER JOIN documents d ON c.document_id = d.id
-            ORDER BY s.score DESC";
+            ORDER BY s.score DESC, {TieBreakSql}";
 
         return await _context.Database
             .SqlQueryRaw<Bm25Row>(sql, bm25Parameters.ToArray())
@@ -540,7 +555,7 @@ public class KeywordSearchService
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
 
-    private record Bm25Row(
+    internal record Bm25Row(
         Guid ChunkId,
         Guid DocumentId,
         string Content,
@@ -555,7 +570,7 @@ public class KeywordSearchService
             new(ChunkId, DocumentId, Content, ChunkIndex, (float)Score, FileName, ContentType, ContainerId, Path);
     }
 
-    private record KeywordSearchRow(
+    internal record KeywordSearchRow(
         Guid ChunkId,
         Guid DocumentId,
         string Content,
