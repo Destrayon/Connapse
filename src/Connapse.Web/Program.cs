@@ -180,6 +180,7 @@ builder.Services.AddMemoryCache();
 // The REST API's shape, generated at build time into docs/api/openapi.json (#857). No route serves it.
 builder.Services.AddOpenApi(options => options
     .AddSchemaTransformer<Connapse.Web.Endpoints.DeprecatedScopeJsonTransformer>()
+    .AddSchemaTransformer<Connapse.Web.Endpoints.ObsoletePropertySchemaTransformer>()
     .AddSchemaTransformer<Connapse.Web.Problems.ProblemDetailsSchemaTransformer>()
     .AddSchemaTransformer<Connapse.Web.Endpoints.AuditDetailsSchemaTransformer>()
     .AddSchemaTransformer<Connapse.Web.Endpoints.ConnectionConfigSchemaTransformer>()

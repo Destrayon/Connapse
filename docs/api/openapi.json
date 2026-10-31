@@ -18441,7 +18441,9 @@
               "integer",
               "string"
             ],
-            "format": "int32"
+            "description": "Deprecated and ignored: set the ingestion worker count with Hangfire:IngestionWorkerCount (environment variable Hangfire__IngestionWorkerCount), which takes effect on restart.",
+            "format": "int32",
+            "deprecated": true
           },
           "parseTimeoutSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",

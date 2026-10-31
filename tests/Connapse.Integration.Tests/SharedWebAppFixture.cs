@@ -86,7 +86,6 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                 builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
                 builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
                 builder.UseSetting("Knowledge:Chunking:Overlap", "20");
-                builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
                 builder.UseSetting("Sources:Atlassian:StateDirectory", AtlassianStateDirectory);
                 builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
                 builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
