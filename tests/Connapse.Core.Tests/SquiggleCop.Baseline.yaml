@@ -351,7 +351,6 @@
 - {Id: CA5403, Title: Do not hard-code certificate, Category: Security, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
 - {Id: CA5404, Title: Do not disable token validation checks, Category: Security, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
 - {Id: CA5405, Title: Do not always skip token validation in delegates, Category: Security, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
-- {Id: CS0618, Title: Type or member is obsolete, Category: Compiler, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Warning], IsEverSuppressed: true}
 - {Id: EF1001, Title: Internal EF Core API usage., Category: Usage, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: EF1002, Title: Risk of vulnerability to SQL injection., Category: Security, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: EF1003, Title: Risk of vulnerability to SQL injection., Category: Security, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}

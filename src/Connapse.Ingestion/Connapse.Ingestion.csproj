@@ -1,11 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- PDFtoImage marks its renderer as supported on Windows, Linux and macOS only, so CA1416 flags
-       every call from this platform-neutral library. Connapse runs on Linux and Windows. -->
-  <PropertyGroup>
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
-  </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\Connapse.Core\Connapse.Core.csproj" />
     <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />

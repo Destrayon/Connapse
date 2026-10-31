@@ -9,6 +9,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
+using IDocumentAccess = Connapse.Application.Ports.IDocumentAccess;
 
 namespace Connapse.Core.Tests.Application;
 

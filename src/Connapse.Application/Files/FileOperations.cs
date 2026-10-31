@@ -3,6 +3,7 @@ using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using IDocumentAccess = Connapse.Application.Ports.IDocumentAccess;
 using Microsoft.Extensions.Logging;
 
 namespace Connapse.Application.Files;

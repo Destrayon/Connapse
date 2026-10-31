@@ -154,7 +154,7 @@ public class OllamaEmbeddingProviderTests
         await provider.EmbedBatchAsync([longText], EmbeddingInputType.Document);
 
         ollama.Accepted.Should().HaveCountGreaterThan(1)
-            .And.OnlyContain(text => text.StartsWith("search_document: ") && text == text.ToLowerInvariant());
+            .And.OnlyContain(text => text.StartsWith("search_document: ") && !text.Any(char.IsUpper));
     }
 
     [Fact]
