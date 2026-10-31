@@ -15,7 +15,7 @@ files are byte-identical for every dataset measured, so every metric is identica
 | Suite | Datasets measured | Rankings | Headline | p95 off → on |
 |---|---|---|---|---|
 | pdfqa-v1 | 1 of 1 | identical | MRR@10 0.506 both, nDCG@10 0.537 both | 145 → 59 ms |
-| v1 | 11 of 16 | identical | equal on all 11 | lower with links on in all 11 (table below) |
+| v1 | 12 of 16 | identical | equal on all 12 | lower with links on in all 12 (table below) |
 
 Latency is lower with links on for every dataset, but that reflects run order, not link search: `hybrid` always
 searches first and pays the cold start. What it does show is that link search adds no measurable time, so the
@@ -36,10 +36,19 @@ v1 p95 in ms, per query, test split (`Scoring.Percentile`):
 | nanobeir-nq | 86 | 33 |
 | nanobeir-quora | 105 | 36 |
 | nanobeir-scidocs | 122 | 36 |
+| nanobeir-scifact | 241* | 59* |
 
-Claude Code stopped the v1 run partway through, while it was searching, because the PC ran low on memory (other
-workloads were also running). The 11 datasets above had finished under both configs. Five still need a run:
-nanobeir-scifact, nanobeir-touche2020, cqadupstack-programmers, ragbench-techqa and ragbench-emanual.
+Claude Code stopped the first v1 run partway through, while it was searching, because the PC ran low on memory
+(other workloads were also running). The first 11 datasets above had finished under both configs.
+
+The rest were rerun one dataset at a time on 2026-10-31:
+
+- **nanobeir-scifact:** done. Rankings identical off and on; nDCG@10 0.789 and MRR@10 0.758 under both; indexed in
+  1330 s. *Its run folders were lost when the old worktree was removed, so its p95 comes from the search service's
+  own "Search completed in" log lines (50 queries per config), not from `Scoring.Percentile`.
+- **nanobeir-touche2020:** stopped on 2026-10-31 to free the PC, 3 h 10 min in, with 3,000 of 5,745 documents
+  indexed and nothing searched. At that rate indexing alone takes about 6 hours on this hardware.
+- **cqadupstack-programmers, ragbench-techqa, ragbench-emanual:** not started.
 
 ## B. Index cost: branch point vs tip
 
@@ -74,5 +83,7 @@ At the tip, under `eval/runs/` (not committed):
 
 - pdfqa-v1: `20261030-043338-476a7ea-pdfqa-v1-connapse-hybrid` and `-hybrid-links`.
 - v1 (partial): `20261030-171943-476a7ea-v1-connapse-hybrid` and `20261030-171944-476a7ea-v1-connapse-hybrid-links`.
+- v1 scifact rerun: `20261031-065159-52adc5b-v1-connapse-hybrid` and `20261031-065200-52adc5b-v1-connapse-hybrid-links`
+  (deleted with the old worktree; the scores above are from the run log).
 - Part B tip repeats: `20261030-1638*`, `1654*` and `1711*` for links-v1, links-v2 and links-v3. The warm-up runs are
   `20261030-093347`, `125341` and `130444`.
