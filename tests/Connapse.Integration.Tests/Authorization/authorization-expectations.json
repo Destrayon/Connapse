@@ -803,7 +803,7 @@
     "POST /api/v1/identity/register": {
       "requires": "admin",
       "risk": "credential",
-      "scope": null
+      "scope": "admin:users"
     },
     "POST /api/v1/identity/resendConfirmationEmail": {
       "requires": "anonymous",
