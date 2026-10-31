@@ -52,6 +52,7 @@ CON146_RIGHT = {"qst_0001", "qst_0024", "qst_0034", "qst_0042", "qst_0046", "qst
                 "qst_0255", "qst_0268", "qst_0270", "qst_0273", "qst_0282", "qst_0289", "qst_0299"}
 # CON-160's baseline on the same stack, the same day: the drift check, and the starting rate for the budget guard.
 CON160_BASE = {"hard": 22, "control": 11, "cost": 0.1602}
+PRIOR_RUNS = 48
 JUDGE_PER_QUESTION = 0.025
 TIEBREAK_ALLOWANCE = 6
 load_jsonl = con146.load_jsonl
@@ -100,8 +101,9 @@ def projected_spend(args, n_questions):
     judged_recs = [r for p in Path(args.out).glob("*/judged.jsonl") for r in load_jsonl(p)] if args.out else []
     agent = sum(r["cost_usd"] or 0 for r in runs)
     judge_cost = sum(r["judge"].get("judge_cost_usd") or 0 for r in judged_recs)
-    # Start from CON-160's baseline rate, weighted as 12 questions, so one expensive early question can't stop the run.
-    per_agent = (agent + 12 * CON160_BASE["cost"]) / (len(runs) + 12)
+    # Start from CON-160's baseline rate, weighted as the 48 questions it was measured on, so one expensive early
+    # question can't stop the run (at 12, one $0.84 question in the first three projected $25.77 from $1.39 spent).
+    per_agent = (agent + PRIOR_RUNS * CON160_BASE["cost"]) / (len(runs) + PRIOR_RUNS)
     main_done = sum(r.get("attempt", 1) == 1 for r in runs)
     left_runs = len(SETUPS) * n_questions - main_done + TIEBREAK_ALLOWANCE
     left_judged = len(SETUPS) * n_questions + TIEBREAK_ALLOWANCE - len(judged_recs)
