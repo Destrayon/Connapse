@@ -680,7 +680,7 @@ def cli(c, t):
     r("CLI", "agent get", lambda: run("agent", "get", ag))
     r("CLI", "agent disable", lambda: run("agent", "disable", ag))
     r("CLI", "agent enable", lambda: run("agent", "enable", ag))
-    r("CLI", "agent key create", lambda: run("agent", "key", "create", ag, "--name", "k", "--scope", "knowledge:read",
+    r("CLI", "agent key create", lambda: run("agent", "key", "create", ag, "--name", "e2e-key", "--scope", "knowledge:read",
                                              "--requires-approval", "false"))
     r("CLI", "agent key list", lambda: run("agent", "key", "list", ag))
     r("CLI", "agent delete --yes", lambda: run("agent", "delete", ag, "--yes"))
@@ -691,7 +691,8 @@ def cli(c, t):
     r("CLI", "connection create", lambda: run("connection", "create", cn, "--provider", "Filesystem",
                                               "--config", json.dumps({"allowedRoot": "/data/fs"})))
     r("CLI", "connection get", lambda: run("connection", "get", cn))
-    r("CLI", "connection test", lambda: run("connection", "test", cn))
+    # A Filesystem connection has nothing to test, so the CLI should show the 400 problem and exit 1.
+    r("CLI", "connection test shows the problem (exit 1)", lambda: run("connection", "test", cn, code=1, want="nothing to test"))
     r("CLI", "connection update", lambda: run("connection", "update", cn, "--name", cn))
     sn = f"{cn}-src"
     r("CLI", "source create", lambda: run("source", "create", sn, "--connection", cn, "--scope", json.dumps({"type": "filesystem"})))
@@ -708,7 +709,8 @@ def cli(c, t):
     r("CLI", "api POST problem -> exit 1", lambda: run("api", "POST", "/api/containers", "--data", '{"name":"Bad Name!"}', code=1))
     r("CLI", "a missing container -> exit 1", lambda: run("container", "stats", "e2e-no-such-container", code=1))
     r("CLI", "auth logout", lambda: run("auth", "logout"))
-    r("CLI", "signed out -> exit 2", lambda: run("container", "list", code=2))
+    # After logout the CLI calls a hard-coded https://localhost:5001 instead of saying it is signed out (exits 99).
+    r("CLI", "signed out -> exit 2 [known: CLI signed-out ticket]", lambda: run("container", "list", code=2))
 
 
 # ── Cleanup through the API (the stack is torn down anyway; this exercises the delete paths) ─────

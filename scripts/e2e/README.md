@@ -40,6 +40,9 @@ far more than 200 requests a minute. A second copy of the custom source example 
 `permissions.check` on, because a custom provider needs it. Before you start a run, check `docker ps`: the
 stack is seven containers, so don't start it beside another heavy workload.
 
+The harness's own spec checks have unit tests that need no Docker:
+`python -m unittest discover -s scripts/e2e -p "test_*.py"`.
+
 `E2E_PROJECT` sets the Compose project name (default `connapse-e2e`). The exit code is 0 only when
 every item passed and every spec operation was called.
 
