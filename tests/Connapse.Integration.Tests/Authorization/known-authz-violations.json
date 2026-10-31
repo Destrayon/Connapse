@@ -5,7 +5,6 @@
   "declared GET,POST /containers/{ContainerId}: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it.",
   "declared GET,POST /search: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it.",
   "declared GET,POST /sources: expects viewer, declares user": "The page requires only a signed-in user, not the Viewer role, so a user with no role can open it.",
-  "declared POST /api/v1/identity/register: expects admin, declares anonymous": "Security: MapIdentityApi's register route is open to anyone, though sign-up is invite-only in the UI. A stranger can register, sign in, open Home and mint a personal access token.",
   "matrix * /hubs/ingestion as agent-read: expects refused, got allowed": "The route requires only RequireAuthorization(), which an agent key satisfies, though it is meant for people; the agent acts as a user id that doesn't exist.",
   "matrix * /hubs/ingestion as agent-write: expects refused, got allowed": "The route requires only RequireAuthorization(), which an agent key satisfies, though it is meant for people; the agent acts as a user id that doesn't exist.",
   "matrix * /hubs/ingestion as no-role: expects refused, got allowed": "The ingestion hub requires only a signed-in user, so a user with no role can subscribe to ingestion progress.",
