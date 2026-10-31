@@ -17346,6 +17346,45 @@
           },
           "sentenceWindowSubstituteOnSearch": {
             "type": "boolean"
+          },
+          "enableLinkSearch": {
+            "type": "boolean"
+          },
+          "linkWeight": {
+            "maximum": 1,
+            "minimum": 0,
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "linkMaxHops": {
+            "maximum": 2,
+            "minimum": 1,
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "linkSeeds": {
+            "maximum": 50,
+            "minimum": 1,
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "useVectorSearch": {
+            "type": "boolean"
+          },
+          "useKeywordSearch": {
+            "type": "boolean"
           }
         }
       },

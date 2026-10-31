@@ -1,0 +1,10 @@
+{
+  "seed": 35,
+  "repos": [
+    { "name": "connapse", "url": "https://github.com/Destrayon/Connapse.git", "commit": "165f4ec8f6d0e1a3475096833a0990d4c46d5ff0", "language": "csharp", "license": "MIT", "indexer": "roslyn", "target": "Connapse.slnx" },
+    { "name": "serilog", "url": "https://github.com/serilog/serilog.git", "commit": "6d9fc0b84e004418f2677b5961b9c8970349d0be", "tag": "v4.4.0", "language": "csharp", "license": "Apache-2.0", "indexer": "roslyn", "target": "Serilog.sln" },
+    { "name": "ky", "url": "https://github.com/sindresorhus/ky.git", "commit": "3541888878c4d303a8bc2ad61815f4e048f55a5d", "tag": "v2.2.0", "language": "typescript", "license": "MIT", "indexer": "scip-typescript", "target": "." },
+    { "name": "click", "url": "https://github.com/pallets/click.git", "commit": "8b19813f2bfca99f1018a587a8cf54fc959f2e5d", "tag": "8.5.0", "language": "python", "license": "BSD-3-Clause", "indexer": "scip-python", "target": "." }
+  ],
+  "indexers": { "roslyn": "Microsoft.CodeAnalysis.Workspaces.MSBuild 5.6.0", "scip-typescript": "0.4.0", "scip-python": "0.6.6" }
+}

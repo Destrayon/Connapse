@@ -15,6 +15,7 @@ namespace Connapse.Ingestion.Tests.Isolation;
 /// </summary>
 [Trait("Category", "Integration")]
 [Trait("Size", "Large")]
+[Collection(ChildHostCollection.Name)]
 public sealed class ParserProcessPoolTests : IDisposable
 {
     private static readonly string TestHostPath = Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.TestHost.dll");

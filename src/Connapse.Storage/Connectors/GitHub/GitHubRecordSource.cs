@@ -613,7 +613,7 @@ internal sealed class GitHubRecordSource(
             .ThenBy(a => a.Login, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    private static GitHubStoredComment ToStored(GitHubComment comment, bool review) => new(
+    internal static GitHubStoredComment ToStored(GitHubComment comment, bool review) => new(
         Login: comment.User?.Login ?? "ghost",
         Body: comment.Body ?? "",
         CreatedAt: comment.CreatedAt,

@@ -39,6 +39,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
         .WithDatabase("connapse_integration_test")
         .WithUsername("integration_test")
         .WithPassword("integration_test")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     // minio/minio is no longer published; Chainguard's build is. It runs as a non-root user that
@@ -46,6 +47,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     private readonly MinioContainer _minio = new MinioBuilder()
         .WithImage("cgr.dev/chainguard/minio")
         .WithCreateParameterModifier(parameters => parameters.User = "0")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;

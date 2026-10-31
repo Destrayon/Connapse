@@ -20,6 +20,7 @@ public sealed class AzuriteFixture : IAsyncLifetime
     // (manifest-list digest sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5).
     private readonly AzuriteContainer _container = new AzuriteBuilder()
         .WithImage("mcr.microsoft.com/azure-storage/azurite:3.37.0")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
     public string ConnectionString => _container.GetConnectionString();
     public Task InitializeAsync() => ContainerStart.StartAsync(_container);

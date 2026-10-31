@@ -1,6 +1,7 @@
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using IDocumentAccess = Connapse.Application.Ports.IDocumentAccess;
 
 namespace Connapse.Application.Files;
 

@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
+using IDocumentAccess = Connapse.Application.Ports.IDocumentAccess;
 
 namespace Connapse.Core.Tests.Mcp;
 

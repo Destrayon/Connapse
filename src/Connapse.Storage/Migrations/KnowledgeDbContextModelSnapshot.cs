@@ -631,6 +631,124 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("folders", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.LinkEdgeEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("DocumentId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("document_id");
+
+                    b.Property<string>("EdgeId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("edge_id");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("evidence");
+
+                    b.Property<string>("FromNode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("from_node");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer")
+                        .HasColumnName("ordinal");
+
+                    b.Property<string>("ToNode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("to_node");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId")
+                        .HasDatabaseName("idx_link_edges_document");
+
+                    b.HasIndex("FromNode", "Type")
+                        .HasDatabaseName("idx_link_edges_from");
+
+                    b.HasIndex("ToNode", "Type")
+                        .HasDatabaseName("idx_link_edges_to");
+
+                    b.ToTable("link_edges", (string)null);
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.LinkNodeDocumentEntity", b =>
+                {
+                    b.Property<string>("NodeId")
+                        .HasColumnType("text")
+                        .HasColumnName("node_id");
+
+                    b.Property<string>("DocumentId")
+                        .HasColumnType("text")
+                        .HasColumnName("document_id");
+
+                    b.HasKey("NodeId", "DocumentId");
+
+                    b.HasIndex("DocumentId")
+                        .HasDatabaseName("idx_link_node_documents_document");
+
+                    b.ToTable("link_node_documents", (string)null);
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.LinkNodeFactEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("DocumentId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("document_id");
+
+                    b.Property<short>("Field")
+                        .HasColumnType("smallint")
+                        .HasColumnName("field");
+
+                    b.Property<string>("NodeId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("node_id");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer")
+                        .HasColumnName("ordinal");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId")
+                        .HasDatabaseName("idx_link_node_facts_document");
+
+                    b.HasIndex("NodeId")
+                        .HasDatabaseName("idx_link_node_facts_node");
+
+                    b.ToTable("link_node_facts", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.ProviderCredentialEntity", b =>
                 {
                     b.Property<string>("Provider")

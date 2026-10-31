@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Connapse.Core\Connapse.Core.csproj" />
@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Connapse.Core.Tests" />
+    <InternalsVisibleTo Include="Connapse.Integration.Tests" />
   </ItemGroup>
 
 </Project>

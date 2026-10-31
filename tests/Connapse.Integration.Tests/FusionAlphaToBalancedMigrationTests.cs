@@ -24,6 +24,7 @@ public class FusionAlphaToBalancedMigrationTests : IAsyncLifetime
         .WithDatabase("connapse_alpha_balanced_migration")
         .WithUsername("migration_test")
         .WithPassword("migration_test")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     public async Task InitializeAsync() => await _postgres.StartAsync();

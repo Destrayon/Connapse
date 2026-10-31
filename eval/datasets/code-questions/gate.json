@@ -1,0 +1,11 @@
+{
+  "metric": "recall@10",
+  "split": "heldout",
+  "margin_over_grep": 0.15,
+  "baseline": "grep-baseline.json",
+  "pass": {
+    "heldout/crowded": 0.864,
+    "heldout/how": 0.593
+  },
+  "decided": "2026-10-24, before any code-engine run (user, via ClaudePM)"
+}

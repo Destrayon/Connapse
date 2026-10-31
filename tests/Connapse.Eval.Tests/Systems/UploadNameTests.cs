@@ -22,6 +22,15 @@ public class UploadNameTests
         PathUtilities.IsValidFileName(ConnapseSearchSystem.UploadName(doc, 42)).Should().BeTrue();
     }
 
+    [Fact]
+    public void UploadName_RecordWithFileName_IsTheConnectorsNameInItsOwnFolder()
+    {
+        EvalDocument doc = Text("ignored title") with { FileName = "12.md" };
+
+        ConnapseSearchSystem.UploadName(doc, 42).Should().Be("12.md");
+        ConnapseSearchSystem.UploadFolder(doc, 42).Should().Be("/0000042");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("  ")]
