@@ -144,24 +144,11 @@ public static class IdentityServiceExtensions
             })
             .AddPolicyScheme("MultiScheme", "Route to correct auth handler", options =>
             {
-                options.ForwardDefaultSelector = context =>
-                {
-                    // Check for API key header — if the header is present (even empty),
-                    // route to ApiKey scheme so it rejects invalid keys with 401 instead
-                    // of falling through to cookie auth.
-                    if (context.Request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
-                        return ApiKeyAuthenticationOptions.SchemeName;
-
-                    // Check for JWT bearer token
-                    var authHeader = context.Request.Headers.Authorization.ToString();
-                    if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                        return JwtBearerDefaults.AuthenticationScheme;
-
-                    // Default to the Identity.Application cookie scheme so that Blazor UI
-                    // sessions (issued by SignInManager) are validated correctly.
-                    return IdentityConstants.ApplicationScheme;
-                };
+                options.ForwardDefaultSelector = context => SelectScheme(context.Request);
             })
+            // Identity's /login (without cookies) and /refresh sign in with this scheme; AddIdentity<>,
+            // unlike AddIdentityApiEndpoints<>, doesn't register it, so both answered 500 (CON-166).
+            .AddBearerToken(IdentityConstants.BearerScheme)
             .AddCookie(options =>
             {
                 options.LoginPath = "/login";
@@ -384,6 +371,31 @@ public static class IdentityServiceExtensions
                 policy.Requirements.Add(new ScopeRequirement("agent:ingest")));
 
         return services;
+    }
+
+    /// <summary>The scheme the MultiScheme policy forwards a request to.</summary>
+    internal static string SelectScheme(HttpRequest request)
+    {
+        // Check for API key header — if the header is present (even empty),
+        // route to ApiKey scheme so it rejects invalid keys with 401 instead
+        // of falling through to cookie auth.
+        if (request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
+            return ApiKeyAuthenticationOptions.SchemeName;
+
+        var authHeader = request.Headers.Authorization.ToString();
+        if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            // A JWT always has dots between its parts; the token Identity's /login issues is a
+            // base64url data-protected ticket, which never does. /mcp takes only JWTs, so its
+            // challenge always carries the resource metadata MCP clients discover OAuth from.
+            bool identityToken = !authHeader.AsSpan("Bearer ".Length).Contains('.')
+                && !request.Path.StartsWithSegments("/mcp");
+            return identityToken ? IdentityConstants.BearerScheme : JwtBearerDefaults.AuthenticationScheme;
+        }
+
+        // Default to the Identity.Application cookie scheme so that Blazor UI
+        // sessions (issued by SignInManager) are validated correctly.
+        return IdentityConstants.ApplicationScheme;
     }
 
     // Builds the WWW-Authenticate challenge that 401 responses return for /mcp.
