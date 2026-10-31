@@ -219,6 +219,53 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task ListSummarizedSampleAsync_MoreSummarizedThanMax_ReturnsSameBoundedSampleOfSummarizedDocs()
+    {
+        // CON-176: summary clustering samples summarized documents from the whole folder.
+        Guid containerId = await CreateContainerAsync("sum-sample");
+        await using (var seedScope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            var factoryDb = seedScope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+            await using var ctx = await factoryDb.CreateDbContextAsync();
+            for (int i = 0; i < 12; i++)
+            {
+                DocumentEntity doc = NewDocument(Guid.NewGuid(), containerId, $"/s-{i}.txt", contentHash: $"h{i}");
+                // Two documents have no summary and one has an empty one; none may be sampled or counted.
+                doc.Summary = i switch { 0 or 1 => null, 2 => "", _ => $"summary {i}" };
+                ctx.Documents.Add(doc);
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var docStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+
+            DocumentSetFingerprint fingerprint =
+                await docStore.GetSummarizedDocumentSetFingerprintAsync(containerId, CancellationToken.None);
+            fingerprint.DocumentCount.Should().Be(9);
+
+            IReadOnlyList<Document> first = await docStore.ListSummarizedSampleAsync(containerId, 5, CancellationToken.None);
+            IReadOnlyList<Document> second = await docStore.ListSummarizedSampleAsync(containerId, 5, CancellationToken.None);
+
+            first.Should().HaveCount(5);
+            first.Should().OnlyContain(d => !string.IsNullOrEmpty(d.Summary));
+            second.Select(d => d.Id).Should().BeEquivalentTo(first.Select(d => d.Id));
+        }
+        finally
+        {
+            await using (var cleanupScope = fixture.Factory.Services.CreateAsyncScope())
+            {
+                var factoryDb = cleanupScope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+                await using var ctx = await factoryDb.CreateDbContextAsync();
+                await ctx.Documents.Where(d => d.ContainerId == containerId).ExecuteDeleteAsync();
+            }
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private static DocumentEntity NewDocument(Guid docId, Guid containerId, string path, string contentHash) => new()

@@ -34,6 +34,18 @@ public interface IDocumentStore
     /// container of any size costs constant memory (CON-176).
     /// </summary>
     Task<DocumentSetFingerprint> GetDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Like <see cref="GetDocumentSetFingerprintAsync"/>, but counts and hashes only the documents
+    /// that have a summary (CON-176).
+    /// </summary>
+    Task<DocumentSetFingerprint> GetSummarizedDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Up to <paramref name="maxDocuments"/> documents that have a summary, drawn from across the
+    /// whole container. The same documents come back on every call while the set is unchanged (CON-176).
+    /// </summary>
+    Task<IReadOnlyList<Document>> ListSummarizedSampleAsync(Guid containerId, int maxDocuments, CancellationToken ct = default);
     Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default);
 
     /// <summary>

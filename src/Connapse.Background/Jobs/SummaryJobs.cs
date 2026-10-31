@@ -24,6 +24,12 @@ public sealed class SummaryJobs : ISummaryJobs
     /// </summary>
     internal const int PooledSampleSize = 2_000;
 
+    /// <summary>
+    /// Most summarized documents whose summaries are embedded for summary clustering. Bounds the
+    /// embedding call and memory on any container while still covering its topics.
+    /// </summary>
+    internal const int SummarySampleSize = 2_000;
+
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _docStore;
     private readonly IContainerSettingsResolver _settingsResolver;
@@ -101,11 +107,12 @@ public sealed class SummaryJobs : ISummaryJobs
     private async Task RollupSummaryClusteringAsync(
         Guid containerId, Container container, SummarySettings settings, CancellationToken ct)
     {
-        IReadOnlyList<Document> docs = await _docStore.ListAsync(
-            containerId, pathPrefix: null, skip: 0, take: 10_000, ct);
-        List<Document> withSummaries = docs.Where(d => !string.IsNullOrEmpty(d.Summary)).ToList();
+        // Count and hash every summarized document, however many, then embed only a bounded
+        // sample drawn from across the whole folder (CON-176).
+        DocumentSetFingerprint fingerprint =
+            await _docStore.GetSummarizedDocumentSetFingerprintAsync(containerId, ct);
 
-        if (withSummaries.Count == 0)
+        if (fingerprint.DocumentCount == 0)
         {
             // No summarized docs — clear any existing container summary so we don't keep
             // a stale one around after all docs are deleted.
@@ -113,7 +120,7 @@ public sealed class SummaryJobs : ISummaryJobs
             return;
         }
 
-        string docSetHash = ComputeDocSetHash(withSummaries);
+        string docSetHash = fingerprint.Hash;
         if (docSetHash == container.SummaryDocSetHash)
         {
             // doc_set_hash_match: set of summarized docs + their content hashes hasn't changed
@@ -124,13 +131,18 @@ public sealed class SummaryJobs : ISummaryJobs
             return;
         }
 
+        IReadOnlyList<Document> sample =
+            await _docStore.ListSummarizedSampleAsync(containerId, SummarySampleSize, ct);
+        ContainerStats stats = await _docStore.GetContainerStatsAsync(containerId, ct);
+        int totalDocuments = Math.Max(stats.DocumentCount, fingerprint.DocumentCount);
+
         ILlmProvider? llm = _llmResolver.Resolve(settings);
         IReadOnlyList<DocumentWithSummary> docsWithEmbeddings =
-            await _embeddingProvider.GetSummaryEmbeddingsAsync(withSummaries, ct);
+            await _embeddingProvider.GetSummaryEmbeddingsAsync(sample, ct);
 
         IContainerSummarizer summarizer = new ContainerSummarizer(llm, _tokenCounter);
         ContainerSummarizationResult result = await summarizer.GenerateAsync(
-            container.Name, docsWithEmbeddings, settings, ct: ct);
+            container.Name, docsWithEmbeddings, settings, totalDocuments: totalDocuments, ct: ct);
 
         if (result.Skipped)
         {
@@ -456,29 +468,5 @@ public sealed class SummaryJobs : ISummaryJobs
             _logger.LogWarning(ex, "GetContainersWithInFlightPerDocJobs failed; assuming none");
         }
         return result;
-    }
-
-    /// <summary>
-    /// Deterministic hash of the (sorted) set of {docId, content_hash} pairs for the docs
-    /// in this container. Works for both <c>summary-clustering</c> (docs filtered to those
-    /// with summaries — content_hash still identifies stale-vs-fresh state) and
-    /// <c>document-clustering</c> (most docs have null summaries; content_hash is the only
-    /// durable identifier).
-    /// </summary>
-    /// <remarks>
-    /// Migration impact: hashes differ from the prior (docId, summary-sha256) formula across
-    /// the deploy boundary, causing exactly one extra rollup per container on first run
-    /// post-deploy. Accepted one-shot cost.
-    /// </remarks>
-    internal static string ComputeDocSetHash(IEnumerable<Document> docs)
-    {
-        IEnumerable<string> parts = docs
-            .OrderBy(d => d.Id)
-            .Select(d =>
-            {
-                string contentHash = d.Metadata?.GetValueOrDefault("ContentHash") ?? string.Empty;
-                return $"{d.Id}|{contentHash}";
-            });
-        return HexHash.Sha256(string.Join("\n", parts));
     }
 }

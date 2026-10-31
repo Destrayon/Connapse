@@ -20,6 +20,8 @@ public class SummaryJobsWholeFolderTests
     private readonly IDocumentStore _docs = Substitute.For<IDocumentStore>();
     private readonly IVectorStore _vectors = Substitute.For<IVectorStore>();
     private readonly IPerDocSummarizer _perDoc = Substitute.For<IPerDocSummarizer>();
+    private readonly IDocumentSummaryEmbeddingProvider _summaryEmbeddings = Substitute.For<IDocumentSummaryEmbeddingProvider>();
+    private string _method = SummaryStrategy.DocumentClustering;
     private readonly ILlmProvider _llm = Substitute.For<ILlmProvider>();
     private readonly List<string> _userMessages = [];
     private readonly SummaryJobs _jobs;
@@ -35,10 +37,10 @@ public class SummaryJobsWholeFolderTests
 
         var settingsResolver = Substitute.For<IContainerSettingsResolver>();
         settingsResolver.GetSummarySettingsAsync(_containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new SummarySettings
+            .Returns(_ => Task.FromResult(new SummarySettings
             {
                 Enabled = true,
-                ContainerSummaryMethod = SummaryStrategy.DocumentClustering,
+                ContainerSummaryMethod = _method,
             }));
 
         _llm.ModelId.Returns("test-model");
@@ -52,7 +54,7 @@ public class SummaryJobsWholeFolderTests
         serviceProvider.GetService(typeof(ILlmProvider)).Returns(_llm);
 
         _jobs = new SummaryJobs(
-            _containers, _docs, settingsResolver, Substitute.For<IDocumentSummaryEmbeddingProvider>(),
+            _containers, _docs, settingsResolver, _summaryEmbeddings,
             _vectors, _perDoc, Substitute.For<IManagedStorageProvider>(), Array.Empty<IDocumentParser>(),
             new SummaryLlmResolver(optionsMonitor, serviceProvider), Substitute.For<ITokenCounter>(),
             Substitute.For<Hangfire.IBackgroundJobClient>(),
@@ -138,6 +140,95 @@ public class SummaryJobsWholeFolderTests
 
         _userMessages.Should().BeEmpty();
         await _containers.DidNotReceiveWithAnyArgs().UpdateSummaryAsync(default, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task RollupContainerAsync_SummaryClusteringFolderOf50000Docs_SamplesWholeFolderAndTellsModelRealCount()
+    {
+        _method = SummaryStrategy.SummaryClustering;
+        SetupSummarizedFolder(summarized: 50_000, total: 50_000, hash: "new-hash");
+        IReadOnlyList<Document> sample = Enumerable.Range(0, 60)
+            .Select(_ => CachedDoc(Guid.NewGuid().ToString())).ToList();
+        _docs.ListSummarizedSampleAsync(_containerId, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(sample));
+        SetupSummaryEmbeddings();
+
+        await _jobs.RollupContainerAsync(_containerId, CancellationToken.None);
+
+        await _docs.Received(1).ListSummarizedSampleAsync(
+            _containerId, SummaryJobs.SummarySampleSize, Arg.Any<CancellationToken>());
+        await _docs.DidNotReceiveWithAnyArgs().ListAsync(default, default, default, default, default);
+        await _summaryEmbeddings.Received(1).GetSummaryEmbeddingsAsync(sample, Arg.Any<CancellationToken>());
+
+        _userMessages.Should().ContainSingle();
+        _userMessages[0].Should().Contain("50000 documents total").And.Contain("cluster medoids");
+
+        await _containers.Received(1).UpdateSummaryAsync(
+            _containerId, "folder summary", Arg.Any<DateTime?>(), "new-hash", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RollupContainerAsync_SummaryClusteringFewerSummarizedThanFolder_TellsModelFolderCountAndSample()
+    {
+        _method = SummaryStrategy.SummaryClustering;
+        SetupSummarizedFolder(summarized: 3, total: 120, hash: "new-hash");
+        IReadOnlyList<Document> sample = Enumerable.Range(0, 3)
+            .Select(_ => CachedDoc(Guid.NewGuid().ToString())).ToList();
+        _docs.ListSummarizedSampleAsync(_containerId, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(sample));
+        SetupSummaryEmbeddings();
+
+        await _jobs.RollupContainerAsync(_containerId, CancellationToken.None);
+
+        _userMessages.Should().ContainSingle();
+        _userMessages[0].Should().Contain("120 documents total")
+            .And.Contain("SAMPLE of 3 documents")
+            .And.NotContain("all documents are shown");
+    }
+
+    [Fact]
+    public async Task RollupContainerAsync_SummaryClusteringHashMatches_SkipsWithoutSampling()
+    {
+        _method = SummaryStrategy.SummaryClustering;
+        SetupSummarizedFolder(summarized: 50_000, total: 50_000, hash: "previous-hash");
+
+        await _jobs.RollupContainerAsync(_containerId, CancellationToken.None);
+
+        await _docs.DidNotReceiveWithAnyArgs().ListSummarizedSampleAsync(default, default, default);
+        await _summaryEmbeddings.DidNotReceiveWithAnyArgs().GetSummaryEmbeddingsAsync(default!, default);
+        await _containers.DidNotReceiveWithAnyArgs().UpdateSummaryAsync(default, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task RollupContainerAsync_SummaryClusteringNoSummarizedDocs_ClearsContainerSummary()
+    {
+        _method = SummaryStrategy.SummaryClustering;
+        SetupSummarizedFolder(summarized: 0, total: 40, hash: "empty-hash");
+
+        await _jobs.RollupContainerAsync(_containerId, CancellationToken.None);
+
+        await _containers.Received(1).UpdateSummaryAsync(_containerId, null, null, null, Arg.Any<CancellationToken>());
+        await _docs.DidNotReceiveWithAnyArgs().ListSummarizedSampleAsync(default, default, default);
+        _userMessages.Should().BeEmpty();
+    }
+
+    private void SetupSummarizedFolder(int summarized, int total, string hash)
+    {
+        _docs.GetSummarizedDocumentSetFingerprintAsync(_containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DocumentSetFingerprint(summarized, hash)));
+        _docs.GetContainerStatsAsync(_containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ContainerStats(total, total, 0, 0, 0, 0, null)));
+    }
+
+    // Embeds each sampled document's summary with a seeded-random vector.
+    private void SetupSummaryEmbeddings()
+    {
+        Random rng = new(176);
+        _summaryEmbeddings.GetSummaryEmbeddingsAsync(Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<IReadOnlyList<DocumentWithSummary>>(call.Arg<IReadOnlyList<Document>>()
+                .Select(d => new DocumentWithSummary(Guid.Parse(d.Id), d.Summary!,
+                    Enumerable.Range(0, 8).Select(_ => (float)rng.NextDouble()).ToArray()))
+                .ToList()));
     }
 
     private void SetupFingerprint(int count, string hash) =>

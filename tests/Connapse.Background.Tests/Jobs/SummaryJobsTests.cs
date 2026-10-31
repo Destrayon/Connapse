@@ -2,7 +2,6 @@
 using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
 using Connapse.Storage.Llm;
 using FluentAssertions;
 using NSubstitute;
@@ -76,10 +75,7 @@ public class SummaryJobsTests
         var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<SummaryJobs>>();
 
         Guid containerId = Guid.NewGuid();
-        string docId = Guid.NewGuid().ToString();
-        const string docSummary = "Summary text";
-        const string contentHash = "deadbeef-content-hash";
-        string expectedHash = ComputeExpectedHash(docId, contentHash);
+        const string expectedHash = "stored-doc-set-hash";
 
         containerStore.GetAsync(containerId, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Container?>(new Container(
@@ -102,24 +98,8 @@ public class SummaryJobsTests
                 ContainerSummaryMethod = SummaryStrategy.SummaryClustering,
             }));
 
-        docStore.ListAsync(containerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Document>>(new List<Document>
-            {
-                new Document(
-                    Id: docId,
-                    ContainerId: containerId.ToString(),
-                    FileName: "a.txt",
-                    ContentType: "text/plain",
-                    Path: "/a.txt",
-                    SizeBytes: 100,
-                    CreatedAt: DateTime.UtcNow,
-                    Metadata: new Dictionary<string, string> { ["ContentHash"] = contentHash },
-                    Summary: docSummary,
-                    SummaryGeneratedAt: DateTime.UtcNow,
-                    SummaryContentHash: contentHash,
-                    Status: DocumentStatus.Ready, SummaryStatus: SummaryStatus.Done)
-            }));
+        docStore.GetSummarizedDocumentSetFingerprintAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DocumentSetFingerprint(1, expectedHash)));
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
@@ -193,9 +173,4 @@ public class SummaryJobsTests
         var serviceProvider = Substitute.For<IServiceProvider>();
         return new SummaryLlmResolver(optionsMonitor, serviceProvider);
     }
-
-    private static string ComputeExpectedHash(string docId, string contentHash) =>
-        // Must match SummaryJobs.ComputeDocSetHash logic exactly — post-HERCULES this
-        // hashes (docId, content_hash) pairs, not (docId, sha256(summary)).
-        HexHash.Sha256(string.Join("\n", new[] { $"{docId}|{contentHash}" }));
 }

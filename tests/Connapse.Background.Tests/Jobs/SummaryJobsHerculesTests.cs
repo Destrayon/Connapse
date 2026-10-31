@@ -55,9 +55,8 @@ public class SummaryJobsHerculesTests
         var (jobs, mocks) = BuildJobs(out var collected);
         collected.SetupContainer(containerId, summaryDocSetHash: null);
         collected.SetupSettings(containerId, SummaryStrategy.SummaryClustering);
-        collected.DocStore.ListAsync(containerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(),
-                Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Document>>(Array.Empty<Document>()));
+        collected.DocStore.GetSummarizedDocumentSetFingerprintAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DocumentSetFingerprint(0, "empty-hash")));
 
         // Act
         await jobs.RollupContainerAsync(containerId, CancellationToken.None);
