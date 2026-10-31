@@ -61,7 +61,7 @@ public sealed class SftpServerFixture : IAsyncLifetime
             .WithCreateParameterModifier(TestContainerLimits.Apply)
             .Build();
 
-        await _container.StartAsync();
+        await ContainerStart.StartAsync(_container);
     }
 
     public async Task DisposeAsync() => await _container.DisposeAsync();

@@ -73,7 +73,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // Start both containers in parallel — saves ~5-10 seconds vs sequential
-        await Task.WhenAll(_postgres.StartAsync(), _minio.StartAsync());
+        await Task.WhenAll(ContainerStart.StartAsync(_postgres), ContainerStart.StartAsync(_minio));
 
         MinioHostPort = $"{_minio.Hostname}:{_minio.GetMappedPublicPort(9000)}";
 

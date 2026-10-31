@@ -23,6 +23,6 @@ public sealed class AzuriteFixture : IAsyncLifetime
         .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
     public string ConnectionString => _container.GetConnectionString();
-    public Task InitializeAsync() => _container.StartAsync();
+    public Task InitializeAsync() => ContainerStart.StartAsync(_container);
     public Task DisposeAsync() => _container.DisposeAsync().AsTask();
 }
