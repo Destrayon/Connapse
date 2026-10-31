@@ -29,3 +29,18 @@ each side's top 30 candidates:
 - Metrics match CON-152's: `hybrid-links` nDCG@10 0.323, MRR@10 0.257; `hybrid` 0.220, 0.185.
 
 The vector cut-offs get the same tie-breaker anyway, since they have the same `ORDER BY distance LIMIT k` shape.
+
+## Result after the fix
+
+The fix breaks ties at both cut-offs by document path, then chunk index (63e5c82), and ranks and certifies the BM25
+cut-off on the float4 score callers receive (3bf57f1). An earlier post-fix pair still swapped chunks that were tied
+at float4 but not at float8; ranking on the float4 value lets the path decide those too.
+
+Two from-scratch runs on 3bf57f1 (`20261031-122919` and `20261031-123902`, `--index-cache off`, both capture configs):
+
+| | top-10 order differs | same order, scores differ | keyword pools differ | vector pools differ | nDCG@10 | MRR@10 |
+|---|---|---|---|---|---|---|
+| `hybrid-links-exact` | 0 of 307 | 0 | 0 | 0 | 0.323 | 0.257 |
+| `hybrid-exact` | 0 of 307 | 0 | 0 | 0 | 0.220 | 0.185 |
+
+Both parts of the pass bar hold, and the scores match CON-152's at printed precision.
