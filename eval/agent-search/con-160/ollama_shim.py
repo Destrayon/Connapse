@@ -20,7 +20,7 @@ def handler_for(log_path, model):
             if self.path != "/api/chat":
                 self.send_error(404)
                 return
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            body = json.loads(self.read_body())
             messages = body.get("messages", [])
             system = "\n".join(m["content"] for m in messages if m["role"] == "system")
             user = "\n".join(m["content"] for m in messages if m["role"] == "user")
@@ -35,6 +35,19 @@ def handler_for(log_path, model):
             self.send_header("Content-Length", str(len(reply)))
             self.end_headers()
             self.wfile.write(reply)
+
+        def read_body(self):
+            # .NET's HttpClient sends JSON content chunked, without a Content-Length.
+            if self.headers.get("Content-Length") is not None:
+                return self.rfile.read(int(self.headers["Content-Length"]))
+            chunks = []
+            while True:
+                size = int(self.rfile.readline().split(b";")[0].strip(), 16)
+                if size == 0:
+                    self.rfile.readline()
+                    return b"".join(chunks)
+                chunks.append(self.rfile.read(size))
+                self.rfile.readline()
 
         def log_message(self, fmt, *args):
             pass
