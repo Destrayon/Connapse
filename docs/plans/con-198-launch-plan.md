@@ -87,7 +87,7 @@ Ordered by what the peer repos put on the first screen and by what the README st
 5. **Quick start**: keep the 5 commands. Add the prebuilt-image path from `release/` as the shorter route, and say what you see when it works.
 6. **Connect an agent**: the `claude mcp add` line. Name the clients covered in [Connect an MCP client](../guides/mcp-clients.md) (Claude Code, Claude Desktop, VS Code, Cursor).
 7. **What your agent gets**: a table of MCP tools grouped as Search and documents, Memory, Code, and Containers. Basic Memory shows this works for an MCP-first audience. After CON-197 there are 21 named tools (section 6).
-8. **Features**, one H2-level item each, worded with the search terms: Hybrid search with reranking · Memory for agents (dated facts with sources and history) · Connect your data (nine kinds) · Search trimmed to what each person can open · Linked results across GitHub, Jira, Confluence and code (opt-in) · Run fully local with Ollama · Built on .NET 10, PostgreSQL and pgvector.
+8. **Features**, one H2-level item each, worded with the search terms: Hybrid search with reranking · Memory for agents (dated facts with sources and history) · Connect your data (nine kinds) · Search trimmed to what each person can open · Linked results (opt-in), described by the links Connapse actually stores: a GitHub issue with the PR that closes it and its sub-issues, a Jira issue with its epic, parent and Confluence pages, code with its definitions, imports and calls · Run fully local with Ollama · Built on .NET 10, PostgreSQL and pgvector.
 9. **Proof**: one small table from the retrieval eval (for example, hybrid with reranking against vector only on the v1 suite). It must use numbers already published in `docs/research/`, with a link to the run.
 10. **Documentation, Support, Contributing, License**: as today.
 
@@ -100,10 +100,10 @@ Keep each GIF under 10 MB, GitHub's upload limit [GH3]. The current hero is 3.7 
 | # | Flow | Length | Where it goes | Replaces |
 |---|---|---|---|---|
 | 1 | **Agent remembers.** In Claude Code with Connapse connected, the user asks a question. The agent calls `search_knowledge` and answers with citations from a Confluence page and a GitHub issue, then calls `memory_remember` on a decision. Cut to a new session: "what did we decide about X?" → `memory_recall` returns the fact with its source and date. | 20–25 s | README hero | `hero-upload-search.gif` |
-| 2 | **From zero to a cited result.** Terminal: `docker compose up -d`, then the browser: create the owner account, upload a PDF, search, open a result with its citation. | 15–20 s | Quick start section, and the Quickstart doc | The current hero, re-recorded on the 4.0 UI |
+| 2 | **From zero to a cited result.** Terminal: `docker compose --profile with-ollama up -d`, then `docker compose exec ollama ollama pull nomic-embed-text` (cut the wait for the pull), then the browser: create the owner account, upload a PDF, search, open a result with its citation. | 15–20 s | Quick start section, and the Quickstart doc | The current hero, re-recorded on the 4.0 UI |
 | 3 | **Same question, two people, different answers.** Add a GitHub or S3 source and sync it. Then the same search signed in as two users: the second user's results drop what they can't open in the source. | 15–20 s | "Search trimmed to what each person can open", and the permissions concept page | New |
 | 4 | **Memory keeps history.** `memory_correct` with `kind="changed"`, then `memory_timeline` shows the old value ending and the new one starting on a date. | 10–15 s | "Memory for agents", and the memory concept page | New |
-| 5 | **Linked results.** With link search on, a search for a Jira issue also brings back the Confluence page and the GitHub PR it links to. | 10–15 s | "Linked results" | New. Record only if link search is documented and supported in 4.0, since it ships off by default |
+| 5 | **Linked results.** With link search on, a search that finds a GitHub issue also brings back the PR that closes it, or one that finds a Jira issue brings back its linked Confluence page. Connapse stores no Jira-to-GitHub links, and a search scoped to one source doesn't reach another, so confirm the pair is in one container and reachable before recording. | 10–15 s | "Linked results" | New. Record only if link search is documented and supported in 4.0, since it ships off by default |
 | 6 | **Code tools.** `code_find_symbol`, then `code_impact` on a C# method, in an agent session. | 10–15 s | "What your agent gets" | New |
 
 Retire `settings-providers.gif` from the README; runtime settings are not why people star. Keep `mcp-agent-integration.gif` only if shot 1 isn't ready.
@@ -116,7 +116,7 @@ GitHub's specification is a PNG, JPG or GIF under 1 MB, ideally 1280×640 on a s
 - **Line two**, three plain-text proof points: "MCP server · hybrid search · per-user permissions". Use no third-party logos, since they are trademarks.
 - **Bottom strip**: "Open source · .NET 10 · PostgreSQL + pgvector", plus the version label once it's decided.
 
-Keep `docker compose up -d` only if it still fits without crowding. A preview is read in about a second.
+Drop the bare `docker compose up -d`: on its own it starts no embedding model (Ollama is behind the `with-ollama` profile), so a reader who copies it gets a failing first search. A preview is read in about a second.
 
 ## 7. Docs pages that are wrong or missing for 4.0
 
@@ -165,7 +165,7 @@ HN's own rules exclude routine version releases from Show HN, allow a major over
 
 **Launch day: all of this needs the user, because posting anywhere is theirs.**
 
-5. **Show HN in the founder's voice.** For example: "Show HN: Connapse – a self-hosted knowledge base and memory for AI agents (MCP, .NET)". Open with who you are and why you built it, then two or three technical choices (per-user permission trimming over MCP, dated memory facts that are hidden unless the caller can read every source, hybrid search on pgvector), then the one-command trial. No version number in the title. Don't ask for upvotes [L10]. Stay in the thread all day.
+5. **Show HN in the founder's voice.** For example: "Show HN: Connapse – a self-hosted knowledge base and memory for AI agents (MCP, .NET)". Open with who you are and why you built it, then two or three technical choices (per-user permission trimming over MCP, dated memory facts that are hidden unless the caller can read every source, hybrid search on pgvector), then the trial: the Quick start commands, with no signup. No version number in the title. Don't ask for upvotes [L10]. Stay in the thread all day.
 6. **Same day:** posts to r/selfhosted, r/LocalLLaMA ("fully local with Ollama"), r/dotnet (".NET is the empty slot"), and r/mcp. Reddit's reception is unmeasured, see gaps.
 7. **Lists and registries:** a PR to [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) under "Knowledge & Memory", with the C# and local-service icons. A PR to [awesome-selfhosted](https://github.com/awesome-selfhosted/awesome-selfhosted) under "Generative Artificial Intelligence (GenAI)", where AnythingLLM, Onyx and Khoj are listed; read its inclusion rules first. A PR to [Awesome-RAG](https://github.com/Danielskry/Awesome-RAG) under "Frameworks that Facilitate RAG". Also a listing in the official MCP registry. Connapse is already on Glama.
 8. **A long-form post with a demo video** a few days before HN, which Dify and Onyx both did: "Giving AI agents memory that respects permissions" fits the context-engineering conversation.
