@@ -66,6 +66,51 @@ public class OAuthClientRevokeRaceTests(SharedWebAppFixture fixture)
         await ShouldHoldNoWorkingTokenAsync(clientId, refreshed?.RefreshToken);
     }
 
+    [Fact]
+    public async Task RedeemCode_RevokeStartsBeforeTheTokensCommit_RevokesTheIssuedToken()
+    {
+        // The token endpoint used to save the refresh token untagged and tag it with the client afterwards, so a
+        // revoke in between missed it.
+        string clientId = MetadataClientId();
+        const string verifier = "con189-verifier-0123456789abcdefghijklmnopqrstuvwxyz";
+        string code;
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            code = await scope.ServiceProvider.GetRequiredService<OAuthAuthCodeService>().CreateAsync(AdminUserId(), clientId,
+                Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(verifier))), Redirect, "knowledge:read");
+        }
+
+        var gate = new PauseBeforeCommit();
+        await using var redeemDb = CreateDb(gate);
+        var tokens = new JwtTokenService(fixture.Factory.Services.GetRequiredService<IOptionsMonitor<JwtSettings>>(), redeemDb,
+            NullLogger<JwtTokenService>.Instance);
+        var redeem = Task.Run(() => new OAuthAuthCodeService(redeemDb, NullLogger<OAuthAuthCodeService>.Instance).RedeemAsync(
+            code, verifier, Redirect, clientId, async (exchanged, ct) =>
+            {
+                exchanged.Should().NotBeNull("the code is unused and unrevoked");
+                Guid userId = exchanged!.UserId;
+                var pair = await tokens.GenerateTokenPairAsync([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], userId, cancellationToken: ct);
+                var row = await redeemDb.RefreshTokens.SingleAsync(t => t.TokenHash == Hash(pair.RefreshToken), ct);
+                row.ClientId = clientId;
+                row.Scope = exchanged.Scope;
+                await redeemDb.SaveChangesAsync(ct);
+                return pair;
+            }));
+        await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        string revokeName = $"con189-{Guid.NewGuid():N}";
+        var revoke = RevokeAsync(clientId, revokeName);
+        await RevokeBlockedOrDoneAsync(revoke, revokeName);
+        gate.Release.SetResult();
+
+        var issued = await redeem.WaitAsync(TimeSpan.FromSeconds(30));
+        (await revoke.WaitAsync(TimeSpan.FromSeconds(30))).Should().NotBeNull("the redemption's token was the client's grant");
+        await ShouldHoldNoWorkingTokenAsync(clientId, issued.RefreshToken);
+    }
+
+    private const string Redirect = "http://127.0.0.1:8765/callback";
+
+    private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
     private static string MetadataClientId() => $"https://mcp-{Guid.NewGuid():N}.example.com/client.json";
 
     private string ConnectionString(string? applicationName = null) =>
