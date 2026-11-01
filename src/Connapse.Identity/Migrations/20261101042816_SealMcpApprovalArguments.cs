@@ -7,11 +7,16 @@ namespace Connapse.Identity.Migrations
     /// <inheritdoc />
     public partial class SealMcpApprovalArguments : Migration
     {
-        // Requests made before CON-185 stored their full arguments as the summary, secrets included. A decided
-        // or expired one is never shown again, so its copy goes. A pending one keeps its hash, so approving it
-        // still lets the call run; its summary is replaced if any field name could be a secret. The match strips
-        // '_' and '-' and lowercases, like McpCallArguments.IsSecret, and also hits values, so it hides more, never less.
+        // Requests made before CON-185 stored their full arguments as the summary, secrets included, and an unsalted
+        // hash of them. A denied, used or expired one is never shown or matched again, so both go. A pending or
+        // approved one keeps its hash, so approving or running it still works, until the store empties it on deny,
+        // use or expiry (a day at most); a pending one's summary is replaced if any field name could be a secret. The
+        // match strips '_' and '-' and lowercases, like McpCallArguments.IsSecret, and also hits values, so it hides
+        // more, never less.
         public const string HideLegacySecrets = """
+            UPDATE mcp_approvals SET arguments_hash = ''
+            WHERE status NOT IN ('Pending', 'Approved') OR expires_at <= now();
+
             UPDATE mcp_approvals SET arguments_summary = ''
             WHERE status <> 'Pending' OR expires_at <= now();
 

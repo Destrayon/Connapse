@@ -27,8 +27,9 @@ public class McpApprovalEntity
     public string ToolName { get; set; } = string.Empty;
 
     /// <summary>
-    /// SHA-256 of the redacted arguments, so it carries nothing derived from a secret (CON-185). A request made
-    /// before that, with no <see cref="ArgumentsProtected"/>, holds the SHA-256 of the full arguments instead.
+    /// SHA-256 of the redacted arguments behind a version prefix, so it carries nothing derived from a secret
+    /// (CON-185). A request with no <see cref="ArgumentsProtected"/> (no secret in it, or made before CON-185) holds
+    /// the SHA-256 of the full arguments instead. Emptied once the request is denied, used or expired.
     /// </summary>
     public string ArgumentsHash { get; set; } = string.Empty;
 

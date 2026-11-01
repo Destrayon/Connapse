@@ -50,6 +50,9 @@ public sealed class McpApprovalStore(
     /// <summary>How long an approval may be used once given.</summary>
     public static readonly TimeSpan ApprovedFor = TimeSpan.FromMinutes(15);
 
+    /// <summary>What the stored hash of a request made since CON-185 is taken over, ahead of its redacted arguments.</summary>
+    public const string HashPrefix = "mcp-approval.v2\n";
+
     private IDataProtector Protector => dataProtection.CreateProtector("McpApproval.v1");
 
     public async Task<McpApprovalEntity> RequestAsync(string tokenKey, Guid ownerUserId, string toolName, string arguments, string redactedArguments, CancellationToken ct = default)
@@ -57,6 +60,15 @@ public sealed class McpApprovalStore(
         await using var db = await contexts.CreateDbContextAsync(ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var call = new Call(arguments, redactedArguments);
+
+        // An expired request is never matched again, so its hash (which for one made before CON-185 is of the full
+        // arguments, secrets included) and its sealed arguments go.
+        await db.McpApprovals
+            .Where(a => a.ExpiresAt <= now && (a.ArgumentsHash != "" || a.ArgumentsProtected != null))
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(a => a.ArgumentsHash, "")
+                .SetProperty(a => a.ArgumentsProtected, (string?)null), ct);
+
         var candidates = await db.McpApprovals
             .Where(a => a.TokenKey == tokenKey && a.ToolName == toolName && (a.ArgumentsHash == call.Hash || a.ArgumentsHash == call.LegacyHash)
                 && a.Status == McpApprovalStatus.Pending && a.ExpiresAt > now)
@@ -71,7 +83,7 @@ public sealed class McpApprovalStore(
             TokenKey = tokenKey,
             OwnerUserId = ownerUserId,
             ToolName = toolName,
-            ArgumentsHash = call.Hash,
+            ArgumentsHash = call.HasSecrets ? call.Hash : call.LegacyHash,
             ArgumentsSummary = redactedArguments.Length <= 2048 ? redactedArguments : redactedArguments[..2045] + "...",
             ArgumentsProtected = call.HasSecrets ? Protector.Protect(arguments) : null,
             Status = McpApprovalStatus.Pending,
@@ -103,6 +115,7 @@ public sealed class McpApprovalStore(
             .ExecuteUpdateAsync(set => set
                 .SetProperty(a => a.Status, McpApprovalStatus.Used)
                 .SetProperty(a => a.UsedAt, now)
+                .SetProperty(a => a.ArgumentsHash, "")
                 .SetProperty(a => a.ArgumentsProtected, (string?)null), ct);
         return used == 1;
     }
@@ -135,10 +148,14 @@ public sealed class McpApprovalStore(
     {
         public bool HasSecrets { get; } = !string.Equals(Arguments, RedactedArguments, StringComparison.Ordinal);
 
-        /// <summary>The hash a request made now stores: of the redacted arguments, never of a secret.</summary>
-        public string Hash { get; } = Sha256(RedactedArguments);
+        /// <summary>
+        /// The hash a request made now stores: of the redacted arguments, never of a secret. Prefixed, so a matcher
+        /// from before CON-185 (still running mid-deploy, or after a rollback) can't take a call that sends the
+        /// placeholder in place of the secret for the call that was approved: no JSON object hashes to it.
+        /// </summary>
+        public string Hash { get; } = Sha256(HashPrefix + RedactedArguments);
 
-        /// <summary>The hash of the full arguments, which a request without sealed arguments holds.</summary>
+        /// <summary>The hash of the full arguments, which a request without sealed arguments holds (no secret in it, or made before CON-185).</summary>
         public string LegacyHash { get; } = Sha256(Arguments);
 
         private static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
@@ -173,6 +190,7 @@ public sealed class McpApprovalStore(
                 .SetProperty(a => a.DecidedAt, now)
                 .SetProperty(a => a.DecidedByUserId, userId)
                 .SetProperty(a => a.ExpiresAt, expiresAt)
+                .SetProperty(a => a.ArgumentsHash, a => approve ? a.ArgumentsHash : "")
                 .SetProperty(a => a.ArgumentsProtected, a => approve ? a.ArgumentsProtected : null), ct);
         return decided == 1 ? McpApprovalDecision.Decided : McpApprovalDecision.NotPending;
     }
