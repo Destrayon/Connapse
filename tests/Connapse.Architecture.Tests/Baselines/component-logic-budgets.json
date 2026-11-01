@@ -196,7 +196,7 @@
     "IsEmpty": false
   },
   "Providers/GitHubAppEasySetup.razor": {
-    "CodeLines": 90,
+    "CodeLines": 94,
     "Injects": 3,
     "Complexity": 19,
     "MarkupLogic": 20,

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Claims;
 using Bunit;
@@ -23,6 +24,8 @@ public class GitHubAppEasySetupTests : IDisposable
 
     private readonly BunitContext ctx = new();
     private readonly IProviderCredentialStore credentials = Substitute.For<IProviderCredentialStore>();
+    /// <summary>Held answers: each GitHub lookup waits on the next gate, if one is queued.</summary>
+    private readonly ConcurrentQueue<TaskCompletionSource> gates = new();
     private bool gitHubUp = true;
 
     public GitHubAppEasySetupTests()
@@ -34,7 +37,7 @@ public class GitHubAppEasySetupTests : IDisposable
         var authorizer = Substitute.For<IOperationAuthorizer>();
         authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
         var http = Substitute.For<IHttpClientFactory>();
-        http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(new GitHubUsers(() => gitHubUp)));
+        http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(new GitHubUsers(() => gitHubUp, gates)));
         var scopes = new ServiceCollection().AddSingleton(credentials).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         var gitHub = new ConnapseGitHubApp(scopes, http, NullLogger<ConnapseGitHubApp>.Instance);
 
@@ -136,6 +139,41 @@ public class GitHubAppEasySetupTests : IDisposable
     }
 
     [Fact]
+    public void Organisation_ReplaceUntickedWhileGitHubIsSlow_NeverLeavesAReplacingFormSubmittable()
+    {
+        var cut = Render(Stored);
+        UseOrganisation(cut, "octo-org");
+        cut.WaitForAssertion(() => cut.Find("#github-app-create-help").TextContent.Should().Contain("Owned by octo-org"));
+
+        Tick(cut, replace: true);
+        cut.WaitForAssertion(() => cut.Find("#github-app-create").HasAttribute("disabled").Should().BeFalse());
+
+        var held = new TaskCompletionSource();
+        gates.Enqueue(held);
+        Tick(cut, replace: false);
+        cut.WaitForAssertion(() => gates.Should().BeEmpty());
+        cut.FindAll("#github-app-create").Should().AllSatisfy(b => b.HasAttribute("disabled").Should().BeTrue());
+        held.SetResult();
+        cut.WaitForAssertion(() => cut.Find("#github-app-create-help").TextContent.Should().Contain("Tick"));
+
+        // Ticked then unticked, with GitHub answering the ticked request last.
+        var ticked = new TaskCompletionSource();
+        var unticked = new TaskCompletionSource();
+        gates.Enqueue(ticked);
+        gates.Enqueue(unticked);
+        Tick(cut, replace: true);
+        cut.WaitForAssertion(() => gates.Should().HaveCount(1));
+        Tick(cut, replace: false);
+        cut.WaitForAssertion(() => gates.Should().BeEmpty());
+        unticked.SetResult();
+        cut.WaitForAssertion(() => cut.Find("#github-app-create-help").TextContent.Should().Contain("Tick"));
+        ticked.SetResult();
+
+        cut.WaitForAssertion(() => cut.Find("#github-app-create").HasAttribute("disabled").Should().BeTrue());
+        cut.Find("#github-app-create-form").HasAttribute("action").Should().BeFalse();
+    }
+
+    [Fact]
     public void Organisation_ThatIsAPerson_IsRefusedWithGitHubsAnswer()
     {
         var cut = Render(app: null);
@@ -146,19 +184,21 @@ public class GitHubAppEasySetupTests : IDisposable
     }
 
     /// <summary>GitHub's anonymous account lookup, the only call starting a creation makes.</summary>
-    private sealed class GitHubUsers(Func<bool> up) : HttpMessageHandler
+    private sealed class GitHubUsers(Func<bool> up, ConcurrentQueue<TaskCompletionSource> gates) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            if (gates.TryDequeue(out var gate))
+                await gate.Task.WaitAsync(ct);
             string? body = request.RequestUri!.AbsolutePath switch
             {
                 "/users/octo-org" => """{"login":"octo-org","type":"Organization"}""",
                 "/users/a-person" => """{"login":"a-person","type":"User"}""",
                 _ => null,
             };
-            return Task.FromResult(!up() ? new HttpResponseMessage(HttpStatusCode.BadGateway)
+            return !up() ? new HttpResponseMessage(HttpStatusCode.BadGateway)
                 : body is null ? new HttpResponseMessage(HttpStatusCode.NotFound)
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
         }
     }
 }

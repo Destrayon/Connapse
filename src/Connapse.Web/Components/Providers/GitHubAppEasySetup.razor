@@ -120,7 +120,9 @@
         if (startedFor == (App?.AppId, ReplaceConfirmed))
             return;
 
+        // A form started under the previous box must not stay submittable while the new one starts.
         startedFor = (App?.AppId, ReplaceConfirmed);
+        ownCreation = orgCreation = null;
         await StartAsync("");
         if (confirmedOwner is { Length: > 0 } org)
             await StartAsync(org);
@@ -129,32 +131,35 @@
     /// <summary>
     /// Starts a creation for <paramref name="owner"/>, empty for the administrator's own account. True when the owner
     /// passed GitHub's check: a creation refused only because replacing isn't ticked yet still has a checked owner, and
-    /// the form says to tick the box rather than repeating the API's wording.
+    /// the form says to tick the box rather than repeating the API's wording. A result for a stored App or box that has
+    /// since changed is discarded, so a slow answer can't bring back a form started under the old box.
     /// </summary>
     private async Task<bool> StartAsync(string owner)
     {
+        var requestedFor = (App?.AppId, ReplaceConfirmed);
         string? error;
         bool ownerChecked = false;
+        GitHubAppCreation? creation = null;
         try
         {
             var started = await Create.RunAsync(await AuthState.OperationContextAsync(), Navigation.BaseUri,
-                new GitHubAppCreationRequest(owner.Length == 0 ? null : owner, ReplaceConfirmed));
+                new GitHubAppCreationRequest(owner.Length == 0 ? null : owner, requestedFor.Item2));
             ownerChecked = started.Succeeded || started.Field == "replaceExisting";
             error = ownerChecked ? null : started.Detail;
-            if (owner.Length == 0)
-                ownCreation = started.Result;
-            else
-                orgCreation = started.Result;
+            creation = started.Result;
         }
         catch (Exception ex)
         {
             error = $"Could not start creating the App. {GitHubMessages.Describe(ex, owner.Length == 0 ? null : owner)}";
         }
 
+        if (startedFor != requestedFor)
+            return false;
+
         if (owner.Length == 0)
-            ownError = error;
+            (ownCreation, ownError) = (creation, error);
         else
-            ownerError = error;
+            (orgCreation, ownerError) = (creation, error);
         return ownerChecked;
     }
 
