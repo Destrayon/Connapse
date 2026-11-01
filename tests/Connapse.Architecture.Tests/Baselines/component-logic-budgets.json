@@ -154,9 +154,9 @@
     "IsEmpty": false
   },
   "Pages/Providers.razor": {
-    "CodeLines": 1714,
+    "CodeLines": 1713,
     "Injects": 19,
-    "Complexity": 330,
+    "Complexity": 328,
     "MarkupLogic": 177,
     "IsEmpty": false
   },
@@ -200,6 +200,13 @@
     "Injects": 3,
     "Complexity": 19,
     "MarkupLogic": 20,
+    "IsEmpty": false
+  },
+  "Providers/GitHubKeyUnreadableAlert.razor": {
+    "CodeLines": 2,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 2,
     "IsEmpty": false
   },
   "Providers/PlainHttpWarning.razor": {

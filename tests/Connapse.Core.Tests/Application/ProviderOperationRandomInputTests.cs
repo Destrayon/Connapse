@@ -707,6 +707,71 @@ public class ProviderOperationRandomInputTests
             await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
         }
 
+        private static IProviderCredentialStore UnreadableGitHubKey()
+        {
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
+                .Returns<GitHubAppCredentialMaterial?>(_ => throw new ProviderCredentialUnavailableException("github", new InvalidOperationException()));
+            credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(StoredGitHubApp);
+            return credentials;
+        }
+
+        [Fact]
+        public async Task SetGitHubApp_StoredKeyUnreadableAndNewKeyGiven_SavesTheNewKey()
+        {
+            var credentials = UnreadableGitHubKey();
+
+            var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), NoAudit.Instance, Authorizer(true))
+                .RunAsync(Context(), new GitHubAppRequest(42, GitHubKey, "secret"));
+
+            saved.Status.Should().Be(GitHubAppStatus.Success);
+            saved.Result!.NewApp.Should().BeFalse();
+            await credentials.Received(1).SaveGitHubAppAsync(
+                Arg.Is<GitHubAppRegistration>(a => a.AppId == 42), GitHubKey, "secret", Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+        }
+
+        [Fact]
+        public async Task SetGitHubApp_StoredKeyUnreadableAndKeyLeftBlank_AsksForTheKeyAgain()
+        {
+            var credentials = UnreadableGitHubKey();
+
+            var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), NoAudit.Instance, Authorizer(true))
+                .RunAsync(Context(), new GitHubAppRequest(42, ClientSecret: "secret"));
+
+            saved.Status.Should().Be(GitHubAppStatus.Invalid);
+            saved.Field.Should().Be("privateKeyPem");
+            saved.Detail.Should().Contain("can't be read");
+            await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+        }
+
+        [Fact]
+        public async Task SetGitHubApp_StoredKeyUnreadableAndADifferentApp_StillNeedsReplaceConfirmed()
+        {
+            var credentials = UnreadableGitHubKey();
+
+            var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), NoAudit.Instance, Authorizer(true))
+                .RunAsync(Context(), new GitHubAppRequest(7, GitHubKey));
+
+            saved.Status.Should().Be(GitHubAppStatus.ReplaceUnconfirmed, "an unreadable key does not make the stored App's connections disposable");
+            await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+        }
+
+        [Fact]
+        public async Task SetGitHubApp_StoredKeyUnreadableAndRepairedMeanwhileUnreadablyHere_SavesNothing()
+        {
+            // Another replica, with keys this one lacks, saved the App again while GitHub was checking.
+            var credentials = UnreadableGitHubKey();
+            credentials.GetStatusAsync("github", Arg.Any<CancellationToken>()).Returns(
+                new ProviderCredentialStatus(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), null),
+                new ProviderCredentialStatus(new DateTime(2026, 1, 1, 0, 5, 0, DateTimeKind.Utc), null));
+
+            var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), NoAudit.Instance, Authorizer(true))
+                .RunAsync(Context(), new GitHubAppRequest(42, GitHubKey));
+
+            saved.Status.Should().Be(GitHubAppStatus.ReplaceUnconfirmed);
+            await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+        }
+
         [Fact]
         public async Task CompleteGitHubAppCreation_AuditFailsAfterStoring_StillReportsTheAppCreated()
         {

@@ -170,6 +170,13 @@ public class ProviderSetupReader(
             return new ProviderRequirement(name, description, RequirementStatus.Failed,
                 $"GitHub no longer accepts {app.Slug}'s private key. Generate a new key on the App's page on GitHub and paste it under Manual values, or create the App again.");
         }
+        catch (ProviderCredentialUnavailableException)
+        {
+            // Not GitHub's doing, so asking it again will not help: the key has to be entered again.
+            return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                $"{app.Slug}'s stored private key can't be read, most often because this server's encryption keys changed. Paste the App's private key again under Manual values, or create the App again.",
+                "Enter the key again", "#github-app");
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Could not reach GitHub to check the App");

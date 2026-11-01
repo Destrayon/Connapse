@@ -1707,14 +1707,14 @@
                             <dt>Owner</dt><dd>@app.OwnerLogin</dd>
                             <dt>Account linking</dt>
                             <dd>
-                                @if (gitHubCanSignIn)
+                                @if (gitHubSignIn.CanSignIn)
                                 {
                                     <span class="bi-check-circle text-success me-1" aria-hidden="true"></span><text>Available under Profile → Integrations</text>
                                 }
                                 else
                                 {
                                     <span class="bi-exclamation-triangle text-warning me-1" aria-hidden="true"></span>
-                                    <text>@(gitHubSecretStored
+                                    <text>@(gitHubSignIn.SecretStored
                                         ? "Not available: GitHub rejected the stored client secret. Paste a new one under Manual values below"
                                         : "Not available: add the App's client secret under Manual values below")</text>
                                 }
@@ -1733,6 +1733,7 @@
                     }
                 </Summary>
                 <ManualContent>
+                    <GitHubKeyUnreadableAlert App="gitHubAppInfo" Unreadable="gitHubSignIn.KeyUnreadable" />
                     @if (gitHubAppInfo is { } current)
                     {
                         <div class="alert alert-warning py-2 small" role="note">
@@ -2074,12 +2075,11 @@
 
     /// <summary>A secret already stored and still good, so its field may be left blank.</summary>
     private bool GitHubValueStored(ProviderFieldSpec spec) =>
-        spec == GitHubFieldSpecs.PrivateKey ? gitHubAppInfo is not null
-        : spec == GitHubFieldSpecs.ClientSecret && gitHubCanSignIn;
+        spec == GitHubFieldSpecs.PrivateKey ? gitHubSignIn.KeyStored
+        : spec == GitHubFieldSpecs.ClientSecret && gitHubSignIn.CanSignIn;
     private bool showGitHubSetup;
     private bool gitHubBusy;
-    private bool gitHubCanSignIn;
-    private bool gitHubSecretStored;
+    private GitHubSignInState gitHubSignIn = new(false, false, false, false);
     private bool gitHubReplaceConfirmed;
     private ProviderCredentialStatus? gitHubCredentialStatus;
     private int gitHubConnectionCount;
@@ -2108,9 +2108,9 @@
     private async Task LoadGitHubAsync()
     {
         (gitHubAppInfo, gitHubCredentialStatus) = await GitHubOps.Read.ReadAsync(AuthState);
-        // Stored and still accepted by GitHub: a revoked secret must not read as "Available".
-        gitHubSecretStored = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync();
-        gitHubCanSignIn = gitHubSecretStored && await GitHubApp.StoredClientSecretMatchesAsync() != false;
+        gitHubSignIn = await GitHubApp.ReadSignInStateAsync();
+        // A key that can't be read has to be entered again, so open the setup where it goes.
+        showGitHubSetup |= gitHubSignIn.KeyUnreadable;
         manualGitHubAppId ??= gitHubAppInfo?.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         gitHubReplaceConfirmed = false;
 
