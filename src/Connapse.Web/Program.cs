@@ -124,6 +124,7 @@ builder.Services.AddHostedService<CloudEnforcementLatch>();
 // Folds BM25 keyword-statistics deltas written by the chunks triggers (#548).
 builder.Services.AddHostedService<Bm25StatsFoldService>();
 builder.Services.AddHostedService<VectorIndexMaintenanceService>();
+builder.Services.AddHostedService<McpApprovalPurgeService>();
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<Connapse.Application.Settings.ReindexStateService>();

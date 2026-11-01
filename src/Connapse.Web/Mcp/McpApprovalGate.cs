@@ -1,9 +1,8 @@
 using System.Collections.Frozen;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Connapse.Application;
+using Connapse.Application.Approvals;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Services;
 using Connapse.Web.Services.GenericApi;
@@ -44,13 +43,14 @@ public sealed class McpApprovalGate(IMcpApprovalStore store, ApiCatalog catalog)
             };
 
         string tokenKey = McpApprovalClaims.TokenKey(user);
-        string canonical = CanonicalArguments(context.Params!.Arguments);
-        string hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+        // Approving changes nothing about how the call runs: the agent repeats it with its real arguments, and the
+        // store only lets it through if they are exactly the ones it sealed. Secrets are never stored readable (CON-185).
+        var arguments = McpCallArguments.From(context.Params!.Arguments);
 
-        if (await store.TryConsumeAsync(tokenKey, tool, hash, ct))
+        if (await store.TryConsumeAsync(tokenKey, tool, arguments.Canonical, arguments.Redacted, ct))
             return await proceed();
 
-        var request = await store.RequestAsync(tokenKey, owner, tool, hash, canonical, ct);
+        var request = await store.RequestAsync(tokenKey, owner, tool, arguments.Canonical, arguments.Redacted, ct);
         return new CallToolResult
         {
             Content =
@@ -74,46 +74,4 @@ public sealed class McpApprovalGate(IMcpApprovalStore store, ApiCatalog catalog)
         arguments is not null && arguments.TryGetValue("operation", out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
-
-    /// <summary>The arguments with object keys sorted and whitespace dropped, so an identical call hashes the same.</summary>
-    public static string CanonicalArguments(IDictionary<string, JsonElement>? arguments)
-    {
-        using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            writer.WriteStartObject();
-            foreach (var (key, value) in (arguments ?? new Dictionary<string, JsonElement>()).OrderBy(a => a.Key, StringComparer.Ordinal))
-            {
-                writer.WritePropertyName(key);
-                WriteCanonical(writer, value);
-            }
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.ToArray());
-    }
-
-    private static void WriteCanonical(Utf8JsonWriter writer, JsonElement value)
-    {
-        switch (value.ValueKind)
-        {
-            case JsonValueKind.Object:
-                writer.WriteStartObject();
-                foreach (var property in value.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(writer, property.Value);
-                }
-                writer.WriteEndObject();
-                break;
-            case JsonValueKind.Array:
-                writer.WriteStartArray();
-                foreach (var item in value.EnumerateArray())
-                    WriteCanonical(writer, item);
-                writer.WriteEndArray();
-                break;
-            default:
-                value.WriteTo(writer);
-                break;
-        }
-    }
 }

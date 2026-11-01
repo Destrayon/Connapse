@@ -794,6 +794,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.Property(e => e.ToolName).HasColumnName("tool_name").HasMaxLength(128);
             entity.Property(e => e.ArgumentsHash).HasColumnName("arguments_hash").HasMaxLength(64);
             entity.Property(e => e.ArgumentsSummary).HasColumnName("arguments_summary").HasMaxLength(2048);
+            entity.Property(e => e.ArgumentsProtected).HasColumnName("arguments_protected");
             entity.Property(e => e.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(16);
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.ExpiresAt).HasColumnName("expires_at");

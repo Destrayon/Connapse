@@ -9,12 +9,14 @@ using Connapse.Application;
 using Connapse.Application.Approvals;
 using Connapse.Core;
 using Connapse.Identity.Authentication;
+using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
@@ -140,6 +142,236 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
             await http.DeleteAsync($"/api/containers/{target}");
         }
     }
+
+    [Fact]
+    public async Task Store_RequestWithASecret_KeepsItOnlySealedAndMatchesOnlyTheRealCall()
+    {
+        string tokenKey = $"pat:{Guid.NewGuid()}";
+        string secret = $"sealed-{Guid.NewGuid():N}";
+        var call = McpCallArguments.From(Arguments(new { operation = "connections.create", body = new { Name = "x", Secret = secret } }));
+        var other = McpCallArguments.From(Arguments(new { operation = "connections.create", body = new { Name = "x", Secret = "another" } }));
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>();
+
+        var request = await store.RequestAsync(tokenKey, AdminUserId(), "connapse_api_write", call.Canonical, call.Redacted);
+        (await store.RequestAsync(tokenKey, AdminUserId(), "connapse_api_write", call.Canonical, call.Redacted)).Id
+            .Should().Be(request.Id, "the same call waits on the same request");
+        (await store.RequestAsync(tokenKey, AdminUserId(), "connapse_api_write", other.Canonical, other.Redacted)).Id
+            .Should().NotBe(request.Id, "two calls that differ only in a secret are different calls");
+
+        var stored = await RowAsync(request.Id);
+        string.Join("|", stored.ArgumentsSummary, stored.ArgumentsHash, stored.ArgumentsProtected).Should().NotContain(secret);
+        stored.ArgumentsHash.Should().NotBe(Sha256(call.Canonical), "the hash carries nothing derived from the secret")
+            .And.NotBe(Sha256(call.Redacted), "a matcher from before CON-185 must not take a call sending the placeholder as the secret");
+        stored.ArgumentsSummary.Should().Contain(McpCallArguments.Hidden);
+        stored.ArgumentsProtected.Should().NotBeNull();
+
+        (await store.DecideAsync(request.Id, AdminUserId(), isAdmin: true, approve: true)).Should().Be(McpApprovalDecision.Decided);
+        (await store.TryConsumeAsync(tokenKey, "connapse_api_write", other.Canonical, other.Redacted)).Should().BeFalse("the approval is for the real secret only");
+        (await store.TryConsumeAsync(tokenKey, "connapse_api_write", call.Canonical, call.Redacted)).Should().BeTrue();
+        var used = await RowAsync(request.Id);
+        used.ArgumentsProtected.Should().BeNull("a used request no longer needs the real arguments");
+        used.ArgumentsHash.Should().BeEmpty();
+        (await store.TryConsumeAsync(tokenKey, "connapse_api_write", call.Canonical, call.Redacted)).Should().BeFalse("an approval is used once");
+    }
+
+    [Fact]
+    public async Task Store_DeniedRequestWithASecret_DropsTheSealedArguments()
+    {
+        string secret = $"denied-{Guid.NewGuid():N}";
+        var call = McpCallArguments.From(Arguments(new { body = new { Token = secret } }));
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>();
+
+        var request = await store.RequestAsync($"pat:{Guid.NewGuid()}", AdminUserId(), "connapse_api_write", call.Canonical, call.Redacted);
+        (await store.DecideAsync(request.Id, AdminUserId(), isAdmin: true, approve: false)).Should().Be(McpApprovalDecision.Decided);
+
+        var denied = await RowAsync(request.Id);
+        denied.ArgumentsProtected.Should().BeNull();
+        denied.ArgumentsHash.Should().BeEmpty();
+        denied.ArgumentsSummary.Should().NotContain(secret);
+    }
+
+    [Fact]
+    public async Task Store_LegacyApprovedRequest_StillRunsTheCallItWasMadeFor()
+    {
+        // A request made before CON-185: the hash of the full arguments and nothing sealed.
+        string tokenKey = $"pat:{Guid.NewGuid()}";
+        var call = McpCallArguments.From(Arguments(new { body = new { Secret = $"legacy-{Guid.NewGuid():N}" } }));
+        Guid id = await InsertLegacyAsync(tokenKey, call.Canonical, McpApprovalStatus.Approved, TimeSpan.FromMinutes(10));
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>();
+
+        var different = McpCallArguments.From(Arguments(new { body = new { Secret = "something-else" } }));
+        (await store.TryConsumeAsync(tokenKey, "connapse_api_write", different.Canonical, different.Redacted)).Should().BeFalse();
+        (await store.TryConsumeAsync(tokenKey, "connapse_api_write", call.Canonical, call.Redacted)).Should().BeTrue();
+        var used = await RowAsync(id);
+        used.Status.Should().Be(McpApprovalStatus.Used);
+        used.ArgumentsHash.Should().BeEmpty("a used legacy request keeps no hash of its secret");
+    }
+
+    [Fact]
+    public async Task Store_LegacyPendingRequest_IsTheOneTheSameCallWaitsOn()
+    {
+        string tokenKey = $"pat:{Guid.NewGuid()}";
+        var call = McpCallArguments.From(Arguments(new { body = new { Password = $"legacy-{Guid.NewGuid():N}" } }));
+        Guid id = await InsertLegacyAsync(tokenKey, call.Canonical, McpApprovalStatus.Pending, TimeSpan.FromHours(1));
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>();
+
+        (await store.RequestAsync(tokenKey, AdminUserId(), "connapse_api_write", call.Canonical, call.Redacted)).Id.Should().Be(id);
+    }
+
+    [Fact]
+    public async Task HideLegacySecrets_LegacyRows_HidesEverySecretAndLeavesPendingOnesApprovable()
+    {
+        // Run against a temporary table of the same shape, which Postgres resolves before the real one, so the
+        // test touches no other test's requests.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        await db.Database.OpenConnectionAsync();
+        await db.Database.ExecuteSqlRawAsync("CREATE TEMP TABLE mcp_approvals (LIKE public.mcp_approvals INCLUDING ALL)");
+        string pendingSecret = McpCallArguments.From(Arguments(new { operation = "connections.create", body = new { client_secret = "s1" } })).Canonical;
+        string pendingPlain = McpCallArguments.From(Arguments(new { containerId = "c1" })).Canonical;
+        string deniedSecret = McpCallArguments.From(Arguments(new { body = new { Password = "s2" } })).Canonical;
+        string expiredSecret = McpCallArguments.From(Arguments(new { body = new { ApiKey = "s3" } })).Canonical;
+        string approvedSecret = McpCallArguments.From(Arguments(new { body = new { Token = "s4" } })).Canonical;
+        string usedSecret = McpCallArguments.From(Arguments(new { body = new { Passphrase = "s5" } })).Canonical;
+        string pendingAwsKey = McpCallArguments.From(Arguments(new { body = new { aws_secret_access_key = "s6", secretAccessKey = "s7" } })).Canonical;
+        // What the store writes since CON-185: redacted, with the real arguments sealed or (a null secret) nothing to seal.
+        string sealedSummary = McpCallArguments.From(Arguments(new { body = new { Name = "n", Secret = "s8" } })).Redacted;
+        string nullSecret = McpCallArguments.From(Arguments(new { body = new { Name = "n", Password = (string?)null } })).Redacted;
+        var rows = new (string Key, string Summary, string Status, int ExpiresInMinutes, string? Protected)[]
+        {
+            ("pending-secret", pendingSecret, "Pending", 60, null), ("pending-plain", pendingPlain, "Pending", 60, null),
+            ("denied", deniedSecret, "Denied", 60, null), ("expired", expiredSecret, "Pending", -1, null),
+            ("approved", approvedSecret, "Approved", 10, null), ("used", usedSecret, "Used", 10, null),
+            ("pending-aws", pendingAwsKey, "Pending", 60, null),
+            ("sealed", sealedSummary, "Pending", 60, "ciphertext"), ("null-secret", nullSecret, "Pending", 60, null),
+        };
+        foreach (var (key, summary, status, minutes, sealedArguments) in rows)
+        {
+            string hash = Sha256(summary);
+            await db.Database.ExecuteSqlAsync($"""
+                INSERT INTO mcp_approvals (id, token_key, owner_user_id, tool_name, arguments_hash, arguments_summary, arguments_protected, status, created_at, expires_at)
+                VALUES ({Guid.NewGuid()}, {key}, {Guid.NewGuid()}, 'tool', {hash}, {summary}, {sealedArguments}, {status}, now(), now() + make_interval(mins => {minutes}))
+                """);
+        }
+
+        // Twice: the purge service runs it every few minutes, so a second run must change nothing.
+        await db.Database.ExecuteSqlRawAsync(McpApprovalStore.HideUnredactedSecrets);
+        await db.Database.ExecuteSqlRawAsync(McpApprovalStore.HideUnredactedSecrets);
+
+        var after = (await db.Database.SqlQueryRaw<LegacyRow>(
+                """SELECT token_key AS "Key", arguments_hash AS "Hash", arguments_summary AS "Summary", status AS "Status" FROM mcp_approvals""").ToListAsync())
+            .ToDictionary(r => r.Key);
+        after.Should().HaveCount(rows.Length);
+        string.Join("|", after.Values.Select(r => r.Summary)).Should().NotContainAny("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8");
+        after["pending-plain"].Summary.Should().Be(pendingPlain, "a pending call with no secret still shows its arguments");
+        after["pending-aws"].Summary.Should().StartWith("(hidden:");
+        after["sealed"].Summary.Should().Be(sealedSummary, "a summary the store redacted is left as it is");
+        after["null-secret"].Summary.Should().Be(nullSecret, "a null secret reveals nothing");
+        after["pending-secret"].Summary.Should().StartWith("(hidden:");
+        after["pending-secret"].Hash.Should().Be(Sha256(pendingSecret), "its hash and status are kept, so approving it still works");
+        after["pending-secret"].Status.Should().Be("Pending");
+        after["approved"].Hash.Should().Be(Sha256(approvedSecret), "an approved call can still run");
+        foreach (string finished in new[] { "denied", "expired", "used" })
+        {
+            after[finished].Summary.Should().BeEmpty();
+            after[finished].Hash.Should().BeEmpty("a request never matched again keeps no hash of its secrets");
+        }
+    }
+
+    [Fact]
+    public async Task Store_ExpiredLegacyRequest_LosesItsHashTheNextTimeAnyRequestIsMade()
+    {
+        var call = McpCallArguments.From(Arguments(new { body = new { Secret = $"expired-{Guid.NewGuid():N}" } }));
+        Guid expired = await InsertLegacyAsync($"pat:{Guid.NewGuid()}", call.Canonical, McpApprovalStatus.Pending, TimeSpan.FromMinutes(-1));
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>();
+
+        var unrelated = McpCallArguments.From(Arguments(new { containerId = Guid.NewGuid() }));
+        await store.RequestAsync($"pat:{Guid.NewGuid()}", AdminUserId(), "container_delete", unrelated.Canonical, unrelated.Redacted);
+
+        (await RowAsync(expired)).ArgumentsHash.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Store_Purge_EmptiesExpiredRequestsAndHidesLegacySecretsWithoutAnyRequest()
+    {
+        string secret = $"late-{Guid.NewGuid():N}";
+        var expiredCall = McpCallArguments.From(Arguments(new { body = new { Secret = $"expired-{Guid.NewGuid():N}" } }));
+        Guid expired = await InsertLegacyAsync($"pat:{Guid.NewGuid()}", expiredCall.Canonical, McpApprovalStatus.Pending, TimeSpan.FromMinutes(-1));
+        // As an instance from before CON-185 would write it after the migration ran.
+        var lateCall = McpCallArguments.From(Arguments(new { body = new { secretAccessKey = secret } }));
+        Guid late = await InsertLegacyAsync($"pat:{Guid.NewGuid()}", lateCall.Canonical, McpApprovalStatus.Pending, TimeSpan.FromHours(1));
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+
+        await scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>().PurgeAsync();
+
+        (await RowAsync(expired)).ArgumentsHash.Should().BeEmpty();
+        var hidden = await RowAsync(late);
+        hidden.ArgumentsSummary.Should().NotContain(secret).And.StartWith("(hidden:");
+        hidden.ArgumentsHash.Should().Be(Sha256(lateCall.Canonical), "approving it still runs the call");
+    }
+
+    [Fact]
+    public async Task Store_RequestWithASecretAccessKey_StoresNoReadableValue()
+    {
+        string secret = $"aws-{Guid.NewGuid():N}";
+        var call = McpCallArguments.From(Arguments(new { operation = "connections.create", body = new { Name = "x", secretAccessKey = secret } }));
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>();
+
+        var request = await store.RequestAsync($"pat:{Guid.NewGuid()}", AdminUserId(), "connapse_api_write", call.Canonical, call.Redacted);
+
+        var stored = await RowAsync(request.Id);
+        string.Join("|", stored.ArgumentsSummary, stored.ArgumentsHash, stored.ArgumentsProtected).Should().NotContain(secret);
+        stored.ArgumentsSummary.Should().Contain("\"secretAccessKey\":\"[hidden]\"");
+        stored.ArgumentsProtected.Should().NotBeNull("approving still runs the call with the real key");
+    }
+
+    private sealed class LegacyRow
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Hash { get; set; } = string.Empty;
+        public string Summary { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+    }
+
+    private async Task<Guid> InsertLegacyAsync(string tokenKey, string arguments, McpApprovalStatus status, TimeSpan expiresIn)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        var row = new McpApprovalEntity
+        {
+            Id = Guid.NewGuid(),
+            TokenKey = tokenKey,
+            OwnerUserId = AdminUserId(),
+            ToolName = "connapse_api_write",
+            ArgumentsHash = Sha256(arguments),
+            ArgumentsSummary = arguments,
+            Status = status,
+            CreatedAt = DateTime.UtcNow,
+            DecidedAt = status == McpApprovalStatus.Pending ? null : DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow + expiresIn,
+        };
+        db.McpApprovals.Add(row);
+        await db.SaveChangesAsync();
+        return row.Id;
+    }
+
+    private async Task<McpApprovalEntity> RowAsync(Guid id)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync();
+        return await db.McpApprovals.AsNoTracking().SingleAsync(a => a.Id == id);
+    }
+
+    private static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    private static Dictionary<string, JsonElement> Arguments(object value) =>
+        JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(value))!;
 
     /// <summary>An administrator signed in to the UI in a browser, who may decide anyone's request.</summary>
     private static OperationContext Admin(OperationSurface surface, string authenticationType = "Identity.Application") => new(
