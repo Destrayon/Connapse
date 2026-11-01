@@ -40,11 +40,6 @@ public class SourceEntity
     /// <summary>When the remote refused this source's reads; its documents are hidden from search while set.</summary>
     public DateTime? AccessRevokedAt { get; set; }
 
-    // Auto-generated summary (agent-optimized prose for routing)
-    public string? Summary { get; set; }
-    public DateTime? SummaryGeneratedAt { get; set; }
-    public string? SummaryDocSetHash { get; set; }
-
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

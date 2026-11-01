@@ -44,7 +44,7 @@ A reranker reads each of the top candidates next to the query and reorders them.
 
 ### 5. Set one container apart
 
-A container can override the global search, chunking, embedding, upload and summary settings. An override replaces the whole category for that container, and any field you leave out takes its built-in default rather than the global value. So start from the global category and change it:
+A container can override the global search, chunking, embedding and upload settings. An override replaces the whole category for that container, and any field you leave out takes its built-in default rather than the global value. So start from the global category and change it:
 
 ```bash
 curl -s -H "X-Api-Key: $TOKEN" http://localhost:5001/api/settings/search \

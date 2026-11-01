@@ -46,10 +46,6 @@ Four documents are ingested at a time by default. A document's status moves from
 
 A reindex runs ingestion again on documents already stored. By default it skips any document whose content and settings haven't changed, and reprocesses the ones whose embedding or chunking settings have. A forced reindex reprocesses everything.
 
-## Summaries
-
-If summaries are turned on (they're off by default), an LLM writes a short summary of each container or source from a sample of its documents. Agents read it with the `container_describe` MCP tool to decide where to search. The summary uses the LLM set on the **LLM** settings tab unless the **Summary** tab picks another.
-
 ## Related
 
 - [File types](../reference/file-types.md)

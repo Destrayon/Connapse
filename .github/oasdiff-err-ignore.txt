@@ -34,4 +34,11 @@ DELETE /api/v1/auth/custom/{providerId} removed the success response with the st
 GET /api/v1/auth/custom/{providerId}/return removed the success response with the status `200`
 POST /oauth/register removed the success response with the status `200`
 POST /api/sources removed `#/components/schemas/SourceScope` from the `scope` request property `oneOf` list
-GET /api/settings/{category} added `#/components/schemas/SummarySettings` to the response body `anyOf` list for the response status `200`
+DELETE /api/containers/{containerId}/summaries api path removed without deprecation
+POST /api/containers/{containerId}/summaries api path removed without deprecation
+POST /api/v1/settings/summaries/clear api path removed without deprecation
+PUT /api/settings/{category} removed `#/components/schemas/SummarySettings` from the request body `anyOf` list
+GET /api/sources removed the required property `items/items/summary` from the response with the `200` status
+POST /api/sources removed the required property `summary` from the response with the `201` status
+GET /api/sources/{sourceId} removed the required property `summary` from the response with the `200` status
+PATCH /api/sources/{sourceId} removed the required property `summary` from the response with the `200` status

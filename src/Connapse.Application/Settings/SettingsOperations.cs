@@ -202,8 +202,7 @@ public static class SettingsCategories
     public const string Embedding = "embedding";
 
     /// <summary>
-    /// The page has always stored summary settings as "Summary", which is what ContainerSettingsResolver reads;
-    /// the rest are stored under their own names. The provider sign-in categories (azure, azuread, samlsignin,
+    /// Each is stored under its own name. The provider sign-in categories (azure, azuread, samlsignin,
     /// identitycenter) are not here: they change who can sign in, and provider setup owns them.
     /// </summary>
     public static readonly IReadOnlyList<SettingsCategory> All =
@@ -213,7 +212,6 @@ public static class SettingsCategories
         new SettingsCategory<SearchSettings>("search", "search"),
         new SettingsCategory<LlmSettings>("llm", "llm"),
         new SettingsCategory<UploadSettings>("upload", "upload"),
-        new SettingsCategory<SummarySettings>("summary", "Summary"),
     ];
 
     /// <summary>

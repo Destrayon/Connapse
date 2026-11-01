@@ -19,7 +19,7 @@ This page is for people changing Connapse's code. How the product behaves for it
 | `Connapse.Search` | Vector, keyword and hybrid search, fusion, reranking | Core, Storage |
 | `Connapse.Agents` | Agent orchestration | Core, Search, Storage |
 | `Connapse.Application` | The operations every surface calls | Core, Storage, Identity, Ingestion, Search |
-| `Connapse.Background` | Hangfire jobs for ingestion and summaries | Core, Ingestion, Storage |
+| `Connapse.Background` | Hangfire jobs for ingestion | Core, Ingestion, Storage |
 | `Connapse.ParserHost` | The sandboxed process parsers run in | Core, Ingestion |
 | `Connapse.Web` | Blazor Server UI, Minimal API endpoints, the MCP server, hosting | All of the above |
 

@@ -38,7 +38,7 @@ public class McpToolsContainerDescribeTests
     }
 
     [Fact]
-    public async Task ContainerDescribe_WithSummary_ReturnsFullDescription()
+    public async Task ContainerDescribe_ReturnsFullDescription()
     {
         var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, ContainerId.ToString());
 
@@ -46,23 +46,9 @@ public class McpToolsContainerDescribeTests
         result.Should().Contain($"ID: {ContainerId}");
         result.Should().Contain("Type: managed storage");
         result.Should().Contain("Description: Academic research papers");
-        result.Should().Contain("Summary: A collection of AI and machine learning research.");
-        result.Should().Contain("Summary generated:");
         result.Should().Contain("Documents: 12");
         result.Should().Contain("Storage: 2.0 MB");
         result.Should().Contain("Created:");
-    }
-
-    [Fact]
-    public async Task ContainerDescribe_WithoutSummary_ShowsNotGenerated()
-    {
-        _containerStore
-            .GetAsync(ContainerId, Arg.Any<CancellationToken>())
-            .Returns(MakeContainer(summary: null));
-
-        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, ContainerId.ToString());
-
-        result.Should().Contain("Summary: (not yet generated)");
     }
 
     [Fact]
@@ -139,14 +125,11 @@ public class McpToolsContainerDescribeTests
     }
 
     private static Container MakeContainer(
-        string? description = "Academic research papers",
-        string? summary = "A collection of AI and machine learning research.") =>
+        string? description = "Academic research papers") =>
         new(
             Id: ContainerId.ToString(),
             Name: "research-papers",
             Description: description,
             CreatedAt: new DateTime(2026, 1, 10, 8, 0, 0, DateTimeKind.Utc),
-            UpdatedAt: new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc),
-            Summary: summary,
-            SummaryGeneratedAt: summary is not null ? new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc) : null);
+            UpdatedAt: new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc));
 }

@@ -47,7 +47,7 @@ public static partial class SideEffects
             tokens.TryAdd(ids[i], $"{{id{i + 1}}}");
 
         var audit = await AuditRowsAsync(scope.ServiceProvider, ids, before, tokens);
-        var jobs = await JobsAsync(scope.ServiceProvider, ids, before, audit);
+        var jobs = await JobsAsync(scope.ServiceProvider, ids, before);
 
         return new Outcome(
             Normalize(CheckReturnedId(result, projection.ResourceIds.Concat(responseIds ?? []).ToList()), tokens),
@@ -149,15 +149,13 @@ public static partial class SideEffects
     /// job does (an ingestion's document and options); job state is not, since a worker may pick
     /// the job up at any moment after it is queued.
     /// </summary>
-    private static async Task<List<string>> JobsAsync(IServiceProvider services, List<string> ids, Boundary before, List<string> audit)
+    private static async Task<List<string>> JobsAsync(IServiceProvider services, List<string> ids, Boundary before)
     {
-        // A scheduled-only job an audit row names, such as containers.summaries.regenerate's rollup, was queued by the action.
-        var audited = audit.SelectMany(a => AuditedJobId().Matches(a).Select(m => m.Groups["id"].Value)).ToHashSet();
         if (ids.Count == 0)
             return [];
         await using var conn = await OpenHangfireAsync(services);
         await using var cmd = new NpgsqlCommand(
-            "SELECT invocationdata::text, arguments::text, id::text FROM hangfire.job WHERE id > @last AND arguments::text ILIKE ANY(@patterns) ORDER BY id", conn);
+            "SELECT invocationdata::text, arguments::text FROM hangfire.job WHERE id > @last AND arguments::text ILIKE ANY(@patterns) ORDER BY id", conn);
         cmd.Parameters.AddWithValue("last", before.LastJobId);
         cmd.Parameters.AddWithValue("patterns", ids.Select(id => $"%{id}%").ToArray());
 
@@ -169,22 +167,10 @@ public static partial class SideEffects
             string type = invocation.RootElement.GetProperty("Type").GetString() ?? "?";
             string method = invocation.RootElement.GetProperty("Method").GetString() ?? "?";
             string shortType = type.Split(',')[0].Split('.')[^1];
-            if (ScheduledOnly.Contains($"{shortType}.{method}") && !audited.Contains(reader.GetString(2)))
-                continue;
             jobs.Add($"{shortType}.{method}({Arguments(reader.GetString(1))})");
         }
         return jobs;
     }
-
-    /// <summary>
-    /// Jobs only a recurring sweep enqueues, on its own schedule: one landing inside an action's
-    /// window is timing, not the action's doing. ScheduledOnlyJobsTests
-    /// reads the source and fails if anything else starts enqueuing one.
-    /// </summary>
-    internal static readonly HashSet<string> ScheduledOnly = ["ISummaryJobs.RollupContainerAsync"];
-
-    [GeneratedRegex(@"""jobId"":\s*""(?<id>\d+)""")]
-    private static partial Regex AuditedJobId();
 
     /// <summary>Hangfire stores each argument as its own JSON string; unwrap them into one readable list.</summary>
     private static string Arguments(string json)

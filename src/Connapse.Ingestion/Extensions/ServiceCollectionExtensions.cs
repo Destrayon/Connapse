@@ -4,7 +4,6 @@ using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
-using Connapse.Ingestion.Summarization;
 using Connapse.Ingestion.Utilities;
 using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,9 +35,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Registers services required for document ingestion into the provided service collection:
-    /// parsers, chunking strategies, the ingestion pipeline, the reindex service, and the
-    /// per-document / container summarizers. The <see cref="IIngestionQueue"/> implementation
-    /// is registered separately by <c>AddConnapseHangfire</c> in Connapse.Background.
+    /// parsers, chunking strategies, the ingestion pipeline and the reindex service. The
+    /// <see cref="IIngestionQueue"/> implementation is registered separately by
+    /// <c>AddConnapseHangfire</c> in Connapse.Background.
     /// </summary>
     /// <returns>The same <see cref="IServiceCollection"/> instance with ingestion-related services registered.</returns>
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
@@ -70,21 +69,6 @@ public static class ServiceCollectionExtensions
 
         // Register reindex service
         services.AddScoped<IReindexService, ReindexService>();
-
-        // Register per-document summarizer — resolves ILlmProvider optionally so the
-        // service is available even when no LLM is configured.
-        services.AddScoped<IPerDocSummarizer>(sp => new PerDocSummarizer(
-            sp.GetService<ILlmProvider>(),
-            sp.GetRequiredService<IDocumentStore>(),
-            sp.GetRequiredService<ITokenCounter>()));
-
-        // Register container rollup summarizer — same nullable-provider pattern.
-        services.AddScoped<IContainerSummarizer>(sp => new ContainerSummarizer(
-            sp.GetService<ILlmProvider>(),
-            sp.GetRequiredService<ITokenCounter>()));
-
-        // Register document summary embedding helper
-        services.AddScoped<IDocumentSummaryEmbeddingProvider, DocumentSummaryEmbeddingProvider>();
 
         return services;
     }

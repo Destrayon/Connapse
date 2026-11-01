@@ -283,39 +283,6 @@ public static class ContainersEndpoints
         .WithDescription("Reconcile a container's managed storage with the document table. Lists stored objects, compares to DB, enqueues anything new or unfinished.")
         .RequireAuthorization("RequireEditor");
 
-        // POST /api/containers/{containerId}/summaries - Queue a summary rollup
-        group.MapPost("/{containerId:guid}/summaries", async (
-            Guid containerId,
-            [FromServices] RegenerateContainerSummaries regenerate,
-            HttpContext http,
-            CancellationToken ct) =>
-        {
-            var queued = await regenerate.RunAsync(Rest(http), containerId, ct);
-            return queued.Succeeded ? Results.Accepted(value: queued.Result) : OperationProblems.Result(queued);
-        })
-        .Produces<SummaryRegeneration>(StatusCodes.Status202Accepted)
-        .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("containers.summaries.regenerate")
-        .WithDescription("Queue a rollup of the container's summary from its documents' summaries. Answers with the background job's id.")
-        // The scope too, so an Administrator's knowledge:read token can't write.
-        .RequireAuthorization("RequireAdmin", "Scope:KnowledgeWrite");
-
-        // DELETE /api/containers/{containerId}/summaries - Clear the container's summaries
-        group.MapDelete("/{containerId:guid}/summaries", async (
-            Guid containerId,
-            [FromServices] ClearContainerSummaries clear,
-            HttpContext http,
-            CancellationToken ct) =>
-        {
-            var cleared = await clear.RunAsync(Rest(http), containerId, ct);
-            return cleared.Succeeded ? Results.NoContent() : OperationProblems.Result(cleared);
-        })
-        .Produces(StatusCodes.Status204NoContent)
-        .ProducesProblem(StatusCodes.Status404NotFound)
-        .WithName("containers.summaries.clear")
-        .WithDescription("Clear the container's summary and every document summary in it. The next sweep writes them again.")
-        .RequireAuthorization("RequireAdmin", "Scope:KnowledgeWrite");
-
         return app;
     }
 

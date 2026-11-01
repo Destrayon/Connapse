@@ -283,8 +283,6 @@ def containers(c, t):
         "POST", "/api/containers/{containerId}/reindex", 400, body={"strategy": "Nope"}, containerId=cid))
     r("Containers", "retry-failed", lambda: A("POST", "/api/containers/{containerId}/retry-failed", 200, containerId=cid))
     r("Containers", "sync (reconcile)", lambda: A("POST", "/api/containers/{containerId}/sync", 200, containerId=cid))
-    r("Containers", "summaries regenerate", lambda: A("POST", "/api/containers/{containerId}/summaries", 202, containerId=cid))
-    r("Containers", "summaries clear", lambda: A("DELETE", "/api/containers/{containerId}/summaries", 204, containerId=cid))
     r("Files", "retry a file", lambda: A(
         "POST", "/api/containers/{containerId}/files/{fileId}/retry", (202,), containerId=cid, fileId=orchid))
     wait_ready(c, t, cid, orchid)
@@ -304,7 +302,7 @@ def containers(c, t):
 def settings(c, t):
     """Settings, with ETag concurrency"""
     A, r = c.admin, t.record
-    for cat in ("embedding", "chunking", "search", "llm", "upload", "summary", "samlsignin", "identitycenter", "azure", "azuread"):
+    for cat in ("embedding", "chunking", "search", "llm", "upload", "samlsignin", "identitycenter", "azure", "azuread"):
         r("Settings", f"get {cat}", lambda cat=cat: A("GET", "/api/settings/{category}", category=cat))
     r("Errors", "unknown category -> 404 settings-category-not-found", lambda: A.problem(
         "GET", "/api/settings/{category}", 404, "settings-category-not-found", category="nope"))
@@ -328,7 +326,6 @@ def settings(c, t):
     r("Settings", "embedding models", lambda: A("GET", "/api/settings/embedding-models"))
     r("Settings", "reindex (all)", lambda: A("POST", "/api/settings/reindex", 200, body={"force": False}))
     r("Settings", "reindex status", lambda: A("GET", "/api/settings/reindex/status"))
-    r("Settings", "clear summaries", lambda: A("POST", "/api/v1/settings/summaries/clear", 200))
 
 
 def providers(c, t):

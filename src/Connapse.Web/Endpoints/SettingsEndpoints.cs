@@ -197,19 +197,6 @@ public static class SettingsEndpoints
         .WithName("settings.reset")
         .WithDescription("Reset a settings category to its configured defaults by removing what is stored for it.");
 
-        // POST /api/v1/settings/summaries/clear - Clear every container's summaries (#950)
-        v1.MapPost("/summaries/clear", async (
-            [FromServices] ClearAllSummaries clear,
-            HttpContext http,
-            CancellationToken ct) =>
-        {
-            var cleared = await clear.RunAsync(Rest(http), ct);
-            return cleared.Succeeded ? Results.Ok(cleared.Result) : OperationProblems.Result(cleared);
-        })
-        .Produces<SummariesCleared>()
-        .WithName("settings.summaries.clear")
-        .WithDescription("Clear every container's summary and every document summary; the next sweep writes them again. Embeddings, chunks and documents are kept.");
-
         return app;
     }
 

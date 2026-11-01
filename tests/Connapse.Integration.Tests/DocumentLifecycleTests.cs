@@ -225,50 +225,6 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task GetDocumentTextAsync_OverlappingChunks_AreJoinedWithoutRepeatingTheOverlap()
-    {
-        await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var sp = scope.ServiceProvider;
-        var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
-
-        const string text = "alpha beta gamma delta";
-        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
-        await using (var ctx = await dbFactory.CreateDbContextAsync())
-        {
-            // "alpha beta " [0,11) and "beta gamma delta" [6,22): "beta " is shared.
-            ctx.Chunks.Add(new ChunkEntity
-            {
-                Id = Guid.NewGuid(),
-                DocumentId = documentId,
-                OwnerId = containerId,
-                ChunkIndex = 0,
-                Content = text[..11],
-                StartOffset = 0,
-                EndOffset = 11,
-                TokenCount = 2,
-                Metadata = [],
-            });
-            ctx.Chunks.Add(new ChunkEntity
-            {
-                Id = Guid.NewGuid(),
-                DocumentId = documentId,
-                OwnerId = containerId,
-                ChunkIndex = 1,
-                Content = text[6..],
-                StartOffset = 6,
-                EndOffset = 22,
-                TokenCount = 3,
-                Metadata = [],
-            });
-            await ctx.SaveChangesAsync();
-        }
-
-        string? rebuilt = await sp.GetRequiredService<IDocumentStore>().GetDocumentTextAsync(documentId.ToString());
-
-        rebuilt.Should().Be(text);
-    }
-
-    [Fact]
     public async Task IngestAsync_ParserWarnings_AreStoredOnTheDocument()
     {
         // #595: a PDF indexed with a blank page used to say so only in the log.

@@ -3605,153 +3605,6 @@
         }
       }
     },
-    "/api/containers/{containerId}/summaries": {
-      "post": {
-        "tags": [
-          "Containers"
-        ],
-        "description": "Queue a rollup of the container's summary from its documents' summaries. Answers with the background job's id.",
-        "operationId": "containers.summaries.regenerate",
-        "parameters": [
-          {
-            "name": "containerId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "202": {
-            "description": "Accepted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SummaryRegeneration"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        },
-        "x-connapse-operation": {
-          "id": "containers.summaries.regenerate",
-          "scope": "knowledge:write",
-          "risk": "Write",
-          "mcp": "Generic"
-        }
-      },
-      "delete": {
-        "tags": [
-          "Containers"
-        ],
-        "description": "Clear the container's summary and every document summary in it. The next sweep writes them again.",
-        "operationId": "containers.summaries.clear",
-        "parameters": [
-          {
-            "name": "containerId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "204": {
-            "description": "No Content"
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        },
-        "x-connapse-operation": {
-          "id": "containers.summaries.clear",
-          "scope": "knowledge:write",
-          "risk": "Destructive",
-          "mcp": "Generic"
-        }
-      }
-    },
     "/api/sources": {
       "get": {
         "tags": [
@@ -7435,12 +7288,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/UploadSettings"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SummarySettings"
                     }
                   ],
-                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, summary: SummarySettings."
+                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
                 }
               }
             }
@@ -7516,12 +7366,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/UploadSettings"
-                  },
-                  {
-                    "$ref": "#/components/schemas/SummarySettings"
                   }
                 ],
-                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, summary: SummarySettings."
+                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
               }
             }
           },
@@ -7985,63 +7832,6 @@
         },
         "x-connapse-operation": {
           "id": "settings.reset",
-          "scope": "admin:settings",
-          "risk": "Destructive",
-          "mcp": "Generic"
-        }
-      }
-    },
-    "/api/v1/settings/summaries/clear": {
-      "post": {
-        "tags": [
-          "Settings"
-        ],
-        "description": "Clear every container's summary and every document summary; the next sweep writes them again. Embeddings, chunks and documents are kept.",
-        "operationId": "settings.summaries.clear",
-        "responses": {
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SummariesCleared"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        },
-        "x-connapse-operation": {
-          "id": "settings.summaries.clear",
           "scope": "admin:settings",
           "risk": "Destructive",
           "mcp": "Generic"
@@ -13955,25 +13745,6 @@
                 "$ref": "#/components/schemas/ContainerSettingsOverrides"
               }
             ]
-          },
-          "summary": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "summaryGeneratedAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "summaryDocSetHash": {
-            "type": [
-              "null",
-              "string"
-            ]
           }
         }
       },
@@ -14218,16 +13989,6 @@
               },
               {
                 "$ref": "#/components/schemas/UploadSettings"
-              }
-            ]
-          },
-          "summary": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SummarySettings"
               }
             ]
           }
@@ -15054,30 +14815,8 @@
               "type": "string"
             }
           },
-          "summary": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "summaryGeneratedAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "summaryContentHash": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "status": {
             "$ref": "#/components/schemas/DocumentStatus"
-          },
-          "summaryStatus": {
-            "$ref": "#/components/schemas/SummaryStatus"
           },
           "owner": {
             "oneOf": [
@@ -17525,7 +17264,6 @@
           "lastSyncedAt",
           "syncIntervalSeconds",
           "documentCount",
-          "summary",
           "createdAt",
           "updatedAt",
           "withheldDeletions",
@@ -17582,12 +17320,6 @@
               "string"
             ],
             "format": "int32"
-          },
-          "summary": {
-            "type": [
-              "null",
-              "string"
-            ]
           },
           "createdAt": {
             "type": "string",
@@ -18149,95 +17881,6 @@
             "format": "int32"
           }
         }
-      },
-      "SummariesCleared": {
-        "required": [
-          "containers",
-          "documents"
-        ],
-        "type": "object",
-        "properties": {
-          "containers": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "documents": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
-      "SummaryRegeneration": {
-        "required": [
-          "jobId"
-        ],
-        "type": "object",
-        "properties": {
-          "jobId": {
-            "type": "string"
-          }
-        }
-      },
-      "SummarySettings": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "containerSummaryMethod": {
-            "type": "string"
-          },
-          "llmProvider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "llmModel": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "perDocSystemPrompt": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "containerRollupSystemPrompt": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "maxInputTokens": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
-      "SummaryStatus": {
-        "enum": [
-          "NotNeeded",
-          "Pending",
-          "Done",
-          "Failed"
-        ],
-        "default": "NotNeeded"
       },
       "SyncStatus": {
         "enum": [

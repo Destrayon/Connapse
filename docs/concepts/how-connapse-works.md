@@ -40,7 +40,7 @@ The web app, the REST API and the MCP server all call the same operations. Each 
 | Users, tokens, agents, audit log | PostgreSQL, in their own tables |
 | Files indexed from a source | Left where they are; Connapse keeps only the extracted text |
 
-Settings changed in the web app are stored in PostgreSQL and apply without a restart. A container can override the search, chunking, embedding, upload and summary settings for itself. The [configuration reference](../reference/configuration.md) lists every setting.
+Settings changed in the web app are stored in PostgreSQL and apply without a restart. A container can override the search, chunking, embedding and upload settings for itself. The [configuration reference](../reference/configuration.md) lists every setting.
 
 ## Related
 

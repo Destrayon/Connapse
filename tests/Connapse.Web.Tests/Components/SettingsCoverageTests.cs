@@ -25,7 +25,6 @@ public class SettingsCoverageTests
         (typeof(SearchSettings), "SearchSettingsTab.razor"),
         (typeof(LlmSettings), "LlmSettingsTab.razor"),
         (typeof(UploadSettings), "UploadSettingsTab.razor"),
-        (typeof(SummarySettings), "SummarySettingsTab.razor"),
         (typeof(AzureAdSignInSettings), "AzureAdSignInSettingsTab.razor"),
         (typeof(AzureProviderSettings), "AzureProviderSettingsTab.razor"),
         (typeof(IdentityCenterSettings), "IdentityCenterSettingsTab.razor"),

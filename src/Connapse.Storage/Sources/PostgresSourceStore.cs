@@ -412,21 +412,6 @@ public class PostgresSourceStore(
         await context.SaveChangesAsync(ct);
     }
 
-    public async Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default)
-    {
-        await using var context = await factory.CreateDbContextAsync(ct);
-
-        var entity = await context.Sources.FirstOrDefaultAsync(s => s.Id == id, ct);
-        if (entity is null) return;
-
-        entity.Summary = summary;
-        entity.SummaryGeneratedAt = generatedAt;
-        entity.SummaryDocSetHash = docSetHash;
-        entity.UpdatedAt = DateTime.UtcNow;
-
-        await context.SaveChangesAsync(ct);
-    }
-
     private static Source MapToModel(
         SourceEntity entity, int documentCount, int failedDocumentCount, int processingDocumentCount) => new(
         Id: entity.Id,
@@ -445,9 +430,6 @@ public class PostgresSourceStore(
         SettingsOverrides: entity.SettingsOverridesJson is null
             ? null
             : JsonSerializer.Deserialize<ContainerSettingsOverrides>(entity.SettingsOverridesJson.RootElement.GetRawText(), SerializerOptions),
-        Summary: entity.Summary,
-        SummaryGeneratedAt: entity.SummaryGeneratedAt,
-        SummaryDocSetHash: entity.SummaryDocSetHash,
         DocumentCount: documentCount,
         WithheldDeletions: entity.WithheldDeletions,
         FailedDocumentCount: failedDocumentCount,

@@ -34,24 +34,6 @@ public class CrossSurfaceHarnessTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Rest_RegenerateSummaries_ReportsTheRollupItQueued()
-    {
-        string name = UniqueName();
-        var created = await Surfaces.Rest(fixture).PostAsJsonAsync("/api/containers", new { name });
-        created.EnsureSuccessStatusCode();
-        string containerId = (await created.Content.ReadFromJsonAsync<ContainerDto>())!.Id;
-
-        var outcome = await SideEffects.CaptureAsync(fixture,
-            async () => await Surfaces.ResultAsync(await Surfaces.Rest(fixture).PostAsync($"/api/containers/{containerId}/summaries", null)),
-            sp => ContainerByNameAsync(sp, name),
-            Placeholders(name));
-
-        // The sweep queues the same job; this one is kept because the action's audit row names it.
-        outcome.Audit.Should().ContainSingle().Which.Should().StartWith("container.summaries_regenerated container {id1} actor={admin}");
-        outcome.Jobs.Should().ContainSingle().Which.Should().StartWith("ISummaryJobs.RollupContainerAsync(");
-    }
-
-    [Fact]
     public async Task Mcp_CreateContainer_ReportsTheRow()
     {
         string name = UniqueName();

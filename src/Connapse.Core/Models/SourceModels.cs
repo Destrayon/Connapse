@@ -21,9 +21,6 @@ public record Source(
     string? LastSyncError = null,
     int? SyncIntervalSeconds = null,
     ContainerSettingsOverrides? SettingsOverrides = null,
-    string? Summary = null,
-    DateTime? SummaryGeneratedAt = null,
-    string? SummaryDocSetHash = null,
     int DocumentCount = 0,
     int? WithheldDeletions = null,
 

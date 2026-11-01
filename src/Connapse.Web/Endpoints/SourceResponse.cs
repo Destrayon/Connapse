@@ -33,7 +33,6 @@ public record SourceResponse(
     DateTime? LastSyncedAt,
     int? SyncIntervalSeconds,
     int DocumentCount,
-    string? Summary,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     /// <summary>
@@ -90,7 +89,6 @@ public record SourceResponse(
         LastSyncedAt: source.LastSyncedAt,
         SyncIntervalSeconds: source.SyncIntervalSeconds,
         DocumentCount: source.DocumentCount,
-        Summary: source.Summary,
         CreatedAt: source.CreatedAt,
         UpdatedAt: source.UpdatedAt,
         WithheldDeletions: source.WithheldDeletions,
