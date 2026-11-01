@@ -121,6 +121,21 @@ public sealed class ProviderSetupReaderGitHubTests
     }
 
     [Fact]
+    public async Task ReadAsync_StoredKeyUnreadable_FailsAndAsksForTheKeyAgain()
+    {
+        _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
+        var reader = Reader(HttpStatusCode.OK, 1);
+        _credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
+            .Returns<GitHubAppCredentialMaterial?>(_ => throw new ProviderCredentialUnavailableException("github", new InvalidOperationException()));
+
+        var requirement = (await GitHubAsync(reader)).Requirements.Single();
+
+        requirement.Status.Should().Be(RequirementStatus.Failed, "asking GitHub again will not make the key readable");
+        requirement.Detail.Should().Contain("can't be read").And.Contain("Manual values");
+        requirement.ActionHref.Should().Be("#github-app");
+    }
+
+    [Fact]
     public async Task ReadAsync_KeyRefused_Fails()
     {
         _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
