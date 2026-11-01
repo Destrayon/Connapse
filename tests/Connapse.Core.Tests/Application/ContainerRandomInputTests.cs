@@ -67,7 +67,7 @@ public class ContainerRandomInputTests
         }
 
         public bool Wrote =>
-            Containers.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "CreateAsync" or "UpdateAsync" or "DeleteAsync" or "SaveSettingsOverridesAsync")
+            Containers.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "CreateAsync" or "UpdateAsync" or "DeleteAsync" or "SaveSettingsOverridesAsync" or "UpdateSettingsOverridesAsync")
             || Audit.ReceivedCalls().Any();
     }
 
@@ -295,16 +295,70 @@ public class ContainerRandomInputTests
 
     // ── containers.settings.* ─────────────────────────────────────────────────────────────────────
 
-    private static readonly Gen<ContainerSettingsOverrides> AnyOverrides = Gen.Select(Gen.Bool, Gen.Bool, Gen.Int[1, 50],
-        (chunking, search, topK) => new ContainerSettingsOverrides
+    // A key set, emptied or left out, and a provider and an address that may or may not be the stored ones.
+    private static readonly Gen<string?> AnyKey = Gen.OneOfConst<string?>(null, "", "sk-a", "sk-b");
+    private static readonly Gen<string?> AnyAddress = Gen.OneOfConst<string?>(null, "", "https://a.example", "https://b.example");
+
+    private static readonly Gen<EmbeddingSettings> AnyEmbedding = Gen.Select(Gen.OneOfConst("OpenAI", "Ollama"), AnyAddress, AnyKey, AnyKey, AnyKey,
+        (provider, url, key, openAiKey, azureKey) => new EmbeddingSettings
+        {
+            Provider = provider,
+            OpenAiBaseUrl = url,
+            ApiKey = key,
+            OpenAiApiKey = openAiKey,
+            AzureApiKey = azureKey,
+        });
+
+    private static readonly Gen<SearchSettings> AnySearch = Gen.Select(Gen.Int[1, 50], AnyAddress, AnyKey,
+        (topK, url, key) => new SearchSettings { TopK = topK, CrossEncoderBaseUrl = url, CrossEncoderApiKey = key });
+
+    private static readonly Gen<ContainerSettingsOverrides> AnyOverrides = Gen.Select(Gen.Bool, Maybe(AnyEmbedding), Maybe(AnySearch),
+        (chunking, embedding, search) => new ContainerSettingsOverrides
         {
             Chunking = chunking ? new ChunkingSettings() : null,
-            Search = search ? new SearchSettings { TopK = topK } : null,
+            Embedding = embedding,
+            Search = search,
         });
+
+    // By content: a settings record holding an array is never equal to a copy of itself.
+    private static string Json(ContainerSettingsOverrides o) => System.Text.Json.JsonSerializer.Serialize(o);
+
+    /// <summary>The rule written out: every API key left out.</summary>
+    private static ContainerSettingsOverrides Hidden(ContainerSettingsOverrides o) => o with
+    {
+        Embedding = o.Embedding is null ? null : o.Embedding with { ApiKey = null, OpenAiApiKey = null, AzureApiKey = null },
+        Search = o.Search is null ? null : o.Search with { CrossEncoderApiKey = null },
+    };
+
+    /// <summary>
+    /// The rule written out: a key sent is stored, an empty one clears, and one left out keeps the stored key only while
+    /// the provider and address it goes to are the stored ones.
+    /// </summary>
+    private static string? Kept(string? sent, string? stored, bool sameDestination) =>
+        sent is "" ? null : sent ?? (sameDestination ? stored : null);
+
+    private static ContainerSettingsOverrides Stored(ContainerSettingsOverrides sent, ContainerSettingsOverrides? stored)
+    {
+        var (embedding, storedEmbedding) = (sent.Embedding, stored?.Embedding);
+        bool embeddingSame = storedEmbedding is not null
+            && embedding?.Provider == storedEmbedding.Provider && embedding.OpenAiBaseUrl == storedEmbedding.OpenAiBaseUrl;
+        var (search, storedSearch) = (sent.Search, stored?.Search);
+        bool searchSame = storedSearch is not null && search?.CrossEncoderBaseUrl == storedSearch.CrossEncoderBaseUrl;
+        return sent with
+        {
+            Embedding = embedding is null ? null : embedding with
+            {
+                ApiKey = Kept(embedding.ApiKey, storedEmbedding?.ApiKey, embeddingSame),
+                OpenAiApiKey = Kept(embedding.OpenAiApiKey, storedEmbedding?.OpenAiApiKey, embeddingSame),
+                AzureApiKey = Kept(embedding.AzureApiKey, storedEmbedding?.AzureApiKey, embeddingSame),
+            },
+            Search = search is null ? null : search with { CrossEncoderApiKey = Kept(search.CrossEncoderApiKey, storedSearch?.CrossEncoderApiKey, searchSame) },
+        };
+    }
 
     [Fact]
     [RandomInputTestOf(typeof(GetContainerSettings))]
-    public Task GetSettings_AnyContainer_AnswersItsOverridesOrNoneForAReader() =>
+    public Task GetSettings_AnyContainer_AnswersItsOverridesWithoutKeysOrNoneForAReader() =>
         Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, Maybe(AnyOverrides))
             .SampleAsync(async t =>
             {
@@ -319,21 +373,25 @@ public class ContainerRandomInputTests
                 ContainerStatus expected = !reader ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
                 read.Status.Should().Be(expected);
                 if (expected == ContainerStatus.Success)
-                    read.Result.Should().Be(saved ?? new ContainerSettingsOverrides());
+                    Json(read.Result!).Should().Be(Json(Hidden(saved ?? new ContainerSettingsOverrides())));
                 if (!reader)
                     world.Containers.ReceivedCalls().Should().BeEmpty();
             }, iter: 2000);
 
     [Fact]
     [RandomInputTestOf(typeof(UpdateContainerSettings))]
-    public Task UpdateSettings_AnyOverrides_SavesThemOnlyForAWriterOfAnExistingContainer() =>
-        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, AnyOverrides)
+    public Task UpdateSettings_AnyOverrides_SavesThemKeepingUnsentKeysOnlyForAWriterOfAnExistingContainer() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, AnyOverrides, Maybe(AnyOverrides))
             .SampleAsync(async t =>
             {
-                var (caller, writer, container, exists, overrides) = t;
+                var (caller, writer, container, exists, overrides, stored) = t;
                 var world = new World(reader: true, writer);
                 world.Holds(container, exists);
                 var id = Guid.Parse(container.Id);
+                ContainerSettingsOverrides? written = null;
+                world.Containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
+                    .Returns(c => written = c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(stored));
+                string sent = Json(overrides);
 
                 var saved = await new UpdateContainerSettings(world.Containers, world.Audit, world.Authorizer).RunAsync(caller, id, overrides);
 
@@ -344,8 +402,11 @@ public class ContainerRandomInputTests
                     world.Wrote.Should().BeFalse();
                     return;
                 }
-                saved.Result.Should().Be(overrides);
-                await world.Containers.Received(1).SaveSettingsOverridesAsync(id, overrides, Arg.Any<CancellationToken>());
+                var stores = Stored(overrides, stored);
+                Json(saved.Result!).Should().Be(Json(Hidden(stores)));
+                await world.Containers.Received(1).UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>());
+                Json(written!).Should().Be(Json(stores));
+                Json(overrides).Should().Be(sent, "the caller's overrides are never changed");
                 await world.Audit.Received(1).LogAsync("container.settings_updated", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 2000);
 

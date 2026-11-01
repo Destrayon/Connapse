@@ -46,21 +46,14 @@ public abstract class SettingsCategory(string name, string key)
     public abstract Type Type { get; }
 
     /// <summary>The string properties holding secrets: an API key or a password, by name.</summary>
-    public IReadOnlyList<PropertyInfo> Secrets => Type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-        .Where(p => p.PropertyType == typeof(string) && p.CanWrite
-            && (p.Name.EndsWith("ApiKey", StringComparison.Ordinal) || p.Name.EndsWith("Password", StringComparison.Ordinal)))
-        .ToList();
+    public IReadOnlyList<PropertyInfo> Secrets => SettingsSecrets.Of(Type);
 
     /// <summary>
     /// The string properties saying where a secret is sent: the provider and every address (a URL or an
     /// endpoint), by name. Each provider falls back on the others' keys and addresses, so any of them can
     /// decide where any key goes.
     /// </summary>
-    public IReadOnlyList<PropertyInfo> Destinations => Type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-        .Where(p => p.PropertyType == typeof(string) && p.CanWrite
-            && (p.Name.EndsWith("Provider", StringComparison.Ordinal) || p.Name.EndsWith("Url", StringComparison.Ordinal)
-                || p.Name.EndsWith("Endpoint", StringComparison.Ordinal)))
-        .ToList();
+    public IReadOnlyList<PropertyInfo> Destinations => SettingsSecrets.DestinationsOf(Type);
 
     /// <summary>
     /// The settings.update body that saves <paramref name="edited"/> from a page that opened with

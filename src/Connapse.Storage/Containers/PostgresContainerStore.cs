@@ -176,6 +176,28 @@ public class PostgresContainerStore(
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task<ContainerSettingsOverrides?> UpdateSettingsOverridesAsync(
+        Guid id, Func<ContainerSettingsOverrides?, ContainerSettingsOverrides> update, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        // The row stays locked from the read to the write, so a save made in between can't be overwritten with what was read.
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        var entity = await context.Containers.FromSql($"SELECT * FROM containers WHERE id = {id} FOR UPDATE").FirstOrDefaultAsync(ct);
+        if (entity is null) return null;
+
+        var json = entity.SettingsOverridesJson?.RootElement.GetRawText();
+        var stored = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<ContainerSettingsOverrides>(json, JsonOptions);
+        var saved = update(stored);
+        entity.SettingsOverridesJson = JsonDocument.Parse(JsonSerializer.Serialize(saved, JsonOptions));
+        entity.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return saved;
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -190,7 +212,8 @@ public class PostgresContainerStore(
             try
             {
                 var settingsJson = entity.SettingsOverridesJson.RootElement.GetRawText();
-                overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(settingsJson, JsonOptions);
+                // Without secrets: a container is read by anyone who can see it, and nothing reads its keys from here.
+                overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(settingsJson, JsonOptions)?.WithoutSecrets();
             }
             catch { /* malformed override JSON — treat as no overrides */ }
         }

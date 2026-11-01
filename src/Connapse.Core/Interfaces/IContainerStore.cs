@@ -17,4 +17,11 @@ public interface IContainerStore
     Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
     Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default);
     Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces a container's overrides with what <paramref name="update"/> makes of the stored ones, with no other save
+    /// landing in between. Answers what was saved, or null when the container doesn't exist.
+    /// </summary>
+    Task<ContainerSettingsOverrides?> UpdateSettingsOverridesAsync(
+        Guid id, Func<ContainerSettingsOverrides?, ContainerSettingsOverrides> update, CancellationToken ct = default);
 }

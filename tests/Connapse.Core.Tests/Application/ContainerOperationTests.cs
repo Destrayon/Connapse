@@ -307,7 +307,7 @@ public class ContainerOperationTests
             .RunAsync(Caller, Guid.NewGuid(), new ContainerSettingsOverrides());
 
         saved.Status.Should().Be(ContainerStatus.Forbidden);
-        await _containers.DidNotReceiveWithAnyArgs().SaveSettingsOverridesAsync(default, default!);
+        await _containers.DidNotReceiveWithAnyArgs().UpdateSettingsOverridesAsync(default, default!);
     }
 
     [Fact]
@@ -316,12 +316,29 @@ public class ContainerOperationTests
         var id = Guid.NewGuid();
         _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
         var overrides = new ContainerSettingsOverrides { Search = new SearchSettings { TopK = 7 } };
+        _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
+            .Returns(c => c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(null));
 
         var saved = await new UpdateContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, id, overrides);
 
-        saved.Result.Should().BeSameAs(overrides);
-        await _containers.Received(1).SaveSettingsOverridesAsync(id, overrides, Arg.Any<CancellationToken>());
+        saved.Result.Should().Be(overrides);
+        await _containers.Received(1).UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>());
         await _audit.Received(1).LogAsync("container.settings_updated", "container", id.ToString(), null, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateSettings_DeletedBeforeTheSave_IsNotFoundAndAuditsNothing()
+    {
+        var id = Guid.NewGuid();
+        _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
+            .Returns((ContainerSettingsOverrides?)null);
+
+        var saved = await new UpdateContainerSettings(_containers, _audit, _authorizer)
+            .RunAsync(Caller, id, new ContainerSettingsOverrides());
+
+        saved.Status.Should().Be(ContainerStatus.NotFound);
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default, default);
     }
 
     [Fact]
