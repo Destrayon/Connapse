@@ -3,6 +3,9 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application.Containers;
+using Connapse.Application.Sources;
+using Connapse.Application.Files;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -75,15 +78,25 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             var document = new DocumentEntity
             {
-                Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
-                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
-                CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             };
             db.Documents.Add(document);
             db.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = container.Id,
-                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
             });
         }
 
@@ -201,6 +214,14 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         }
     }
 
+    /// <summary>A problem body without its traceId, which differs on every request whatever the outcome.</summary>
+    private static async Task<string> BodyAsync(HttpResponseMessage response)
+    {
+        var body = System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
+        body.Remove("traceId");
+        return body.ToJsonString();
+    }
+
     private static async Task<string> DocumentIdAsync(IServiceProvider sp, Guid containerId, string fileName)
     {
         await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
@@ -215,7 +236,11 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var users = sp.GetRequiredService<UserManager<Connapse.Identity.Data.Entities.ConnapseUser>>();
         var user = new Connapse.Identity.Data.Entities.ConnapseUser
         {
-            UserName = email, Email = email, EmailConfirmed = true, DisplayName = email, CreatedAt = DateTime.UtcNow,
+            UserName = email,
+            Email = email,
+            EmailConfirmed = true,
+            DisplayName = email,
+            CreatedAt = DateTime.UtcNow,
         };
         (await users.CreateAsync(user, Password)).Succeeded.Should().BeTrue();
         await users.AddToRoleAsync(user, "Viewer");
@@ -244,13 +269,14 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var accessor = sp.GetRequiredService<IHttpContextAccessor>();
         accessor.HttpContext = new DefaultHttpContext
         {
-            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")),
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, "Viewer")], "test")),
         };
         try
         {
-            string deniedResult = await McpTools.GetDocument(sp, containerId.ToString(), denied);
-            string missingResult = await McpTools.GetDocument(sp, containerId.ToString(), Guid.Empty.ToString());
-            string allowedResult = await McpTools.GetDocument(sp, containerId.ToString(), allowed);
+            string deniedResult = await GetDocumentAsync(sp, containerId.ToString(), denied);
+            string missingResult = await GetDocumentAsync(sp, containerId.ToString(), Guid.Empty.ToString());
+            string allowedResult = await GetDocumentAsync(sp, containerId.ToString(), allowed);
 
             deniedResult.Should().Be(missingResult.Replace(Guid.Empty.ToString(), denied));
             allowedResult.Should().NotContain("not found in this container",
@@ -277,8 +303,8 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var deniedResponse = await client.GetAsync(Files(denied));
         var missingResponse = await client.GetAsync(Files(Guid.Empty.ToString()));
         deniedResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await deniedResponse.Content.ReadAsStringAsync()).Should()
-            .Be((await missingResponse.Content.ReadAsStringAsync()).Replace(Guid.Empty.ToString(), denied));
+        (await BodyAsync(deniedResponse)).Should()
+            .Be((await BodyAsync(missingResponse)).Replace(Guid.Empty.ToString(), denied));
         (await client.GetAsync(Files(denied) + "/content")).StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         (await client.GetAsync(Files(allowed))).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -318,21 +344,36 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             var document = new DocumentEntity
             {
-                Id = Guid.NewGuid(), SourceId = source.Id, FileName = name, Path = "/" + name,
-                ResourceUri = AtlassianUri.ForPage(_cloudId, pageId), ContentHash = Guid.NewGuid().ToString("N"),
-                IngestionStatus = DocumentStatus.Ready, CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = Guid.NewGuid(),
+                SourceId = source.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = AtlassianUri.ForPage(_cloudId, pageId),
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             };
             db.Documents.Add(document);
             db.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = source.Id,
-                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = source.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
             });
         }
 
         await db.SaveChangesAsync();
         return source;
     }
+
+    /// <summary>MCP get_document as the caller on the scope's HTTP context.</summary>
+    private static Task<string> GetDocumentAsync(IServiceProvider sp, string containerId, string fileId) =>
+        McpTools.GetDocument(sp.GetRequiredService<GetFile>(), sp.GetRequiredService<GetFileContent>(), sp.GetRequiredService<GetContainer>(),
+            sp.GetRequiredService<IHttpContextAccessor>(), containerId, fileId);
 
     /// <summary>Runs <paramref name="call"/> as a non-admin user linked to <paramref name="atlassianAccount"/>.</summary>
     private static async Task<T> AsUserAsync<T>(IServiceProvider sp, string? atlassianAccount, Func<Task<T>> call)
@@ -341,7 +382,9 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var accessor = sp.GetRequiredService<IHttpContextAccessor>();
         accessor.HttpContext = new DefaultHttpContext
         {
-            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")),
+            // A Viewer, as any signed-in reader is: the search operation requires knowledge:read (#916).
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, "Viewer")], "test")),
         };
         try
         {
@@ -354,7 +397,8 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
     }
 
     private static Task<string> McpSearchAsync(IServiceProvider sp, string scope) =>
-        McpTools.SearchKnowledge(sp, Term, scope, mode: "Keyword", topK: 20);
+        McpTools.SearchKnowledge(sp.GetRequiredService<Connapse.Application.Search.SearchKnowledge>(),
+            sp.GetRequiredService<IHttpContextAccessor>(), Term, scope, mode: "Keyword", topK: 20);
 
     [Fact]
     public async Task McpSearch_ConfluenceSourceById_LinkedAllowedNonAdmin_SeesPermittedPage()
@@ -394,8 +438,10 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var sp = scope.ServiceProvider;
         var source = await SeedConfluenceSourceAsync(sp);
 
-        string list = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerList(sp));
-        string describe = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerDescribe(sp, source.Id.ToString()));
+        string list = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerList(
+            sp.GetRequiredService<ListContainers>(), sp.GetRequiredService<ListSources>(), sp.GetRequiredService<IHttpContextAccessor>()));
+        string describe = await AsUserAsync(sp, AllowedAccount, () => McpTools.ContainerDescribe(
+            sp.GetRequiredService<GetContainerStats>(), sp.GetRequiredService<GetSourceStats>(), sp.GetRequiredService<IHttpContextAccessor>(), source.Id.ToString()));
         string byName = await AsUserAsync(sp, AllowedAccount, () => McpSearchAsync(sp, source.Name));
 
         list.Should().NotContain(source.Id.ToString()).And.NotContain(source.Name);
@@ -471,15 +517,25 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             var document = new DocumentEntity
             {
-                Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
-                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
-                CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             };
             db.Documents.Add(document);
             db.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = container.Id,
-                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
             });
         }
 
@@ -631,9 +687,9 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         string allowed = await DocumentIdAsync(sp, containerId, "jira-issue.md");
 
         var (deniedResult, missingResult, allowedResult) = await AsUserAsync(sp, DeniedAccount, async () => (
-            await McpTools.GetDocument(sp, containerId.ToString(), denied),
-            await McpTools.GetDocument(sp, containerId.ToString(), Guid.Empty.ToString()),
-            await McpTools.GetDocument(sp, containerId.ToString(), allowed)));
+            await GetDocumentAsync(sp, containerId.ToString(), denied),
+            await GetDocumentAsync(sp, containerId.ToString(), Guid.Empty.ToString()),
+            await GetDocumentAsync(sp, containerId.ToString(), allowed)));
 
         deniedResult.Should().Be(missingResult.Replace(Guid.Empty.ToString(), denied));
         allowedResult.Should().NotContain("not found in this container");
@@ -654,8 +710,8 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         var deniedResponse = await client.GetAsync(Files(comment));
         var missingResponse = await client.GetAsync(Files(Guid.Empty.ToString()));
         deniedResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await deniedResponse.Content.ReadAsStringAsync()).Should()
-            .Be((await missingResponse.Content.ReadAsStringAsync()).Replace(Guid.Empty.ToString(), comment));
+        (await BodyAsync(deniedResponse)).Should()
+            .Be((await BodyAsync(missingResponse)).Replace(Guid.Empty.ToString(), comment));
         (await client.GetAsync(Files(comment) + "/content")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await client.GetAsync(Files(note))).StatusCode.Should().Be(HttpStatusCode.NotFound);
 

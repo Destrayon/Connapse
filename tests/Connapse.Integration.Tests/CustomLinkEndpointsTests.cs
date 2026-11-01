@@ -78,8 +78,11 @@ public sealed class CustomLinkEndpointsTests(SharedWebAppFixture fixture) : IAsy
             {
                 ConnapseUser user = new()
                 {
-                    UserName = OtherEmail, Email = OtherEmail, EmailConfirmed = true,
-                    DisplayName = OtherEmail, CreatedAt = DateTime.UtcNow,
+                    UserName = OtherEmail,
+                    Email = OtherEmail,
+                    EmailConfirmed = true,
+                    DisplayName = OtherEmail,
+                    CreatedAt = DateTime.UtcNow,
                 };
                 (await users.CreateAsync(user, OtherPassword)).Succeeded.Should().BeTrue();
                 await users.AddToRoleAsync(user, "Viewer");
@@ -188,5 +191,15 @@ public sealed class CustomLinkEndpointsTests(SharedWebAppFixture fixture) : IAsy
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
         Remote.Links.Should().NotContainKey(adminId);
+    }
+
+    [Fact]
+    public async Task Unlink_ProviderThatDoesNotExist_Returns404()
+    {
+        using HttpClient admin = NoRedirects(fixture.AdminToken);
+
+        HttpResponseMessage response = await admin.DeleteAsync($"/api/v1/auth/custom/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

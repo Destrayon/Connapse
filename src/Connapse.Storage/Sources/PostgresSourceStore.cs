@@ -200,6 +200,22 @@ public class PostgresSourceStore(
         return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount, result.ProcessingDocumentCount);
     }
 
+    public async Task<Source?> FindAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var entity = await context.Sources.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, ct);
+        return entity is null ? null : MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
+    }
+
+    public async Task<Source?> FindByNameAsync(string name, CancellationToken ct = default)
+    {
+        var normalized = name.Trim();
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var entity = await context.Sources.AsNoTracking().FirstOrDefaultAsync(s => s.Name == normalized, ct);
+        return entity is null ? null : MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
+    }
+
     public async Task<IReadOnlyList<Source>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
@@ -251,7 +267,13 @@ public class PostgresSourceStore(
         if (entity is null) return null;
 
         if (!string.IsNullOrWhiteSpace(request.Name))
-            entity.Name = request.Name.Trim();
+        {
+            string name = request.Name.Trim();
+            // Refused here rather than by the unique index, which would surface as a server error.
+            if (name != entity.Name && await context.Sources.AnyAsync(s => s.Id != id && s.Name == name, ct))
+                throw new DuplicateSourceNameException($"A source with the name '{name}' already exists.");
+            entity.Name = name;
+        }
 
         if (request.Description is not null)
             entity.Description = request.Description.Trim();
@@ -390,21 +412,6 @@ public class PostgresSourceStore(
         await context.SaveChangesAsync(ct);
     }
 
-    public async Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default)
-    {
-        await using var context = await factory.CreateDbContextAsync(ct);
-
-        var entity = await context.Sources.FirstOrDefaultAsync(s => s.Id == id, ct);
-        if (entity is null) return;
-
-        entity.Summary = summary;
-        entity.SummaryGeneratedAt = generatedAt;
-        entity.SummaryDocSetHash = docSetHash;
-        entity.UpdatedAt = DateTime.UtcNow;
-
-        await context.SaveChangesAsync(ct);
-    }
-
     private static Source MapToModel(
         SourceEntity entity, int documentCount, int failedDocumentCount, int processingDocumentCount) => new(
         Id: entity.Id,
@@ -423,9 +430,6 @@ public class PostgresSourceStore(
         SettingsOverrides: entity.SettingsOverridesJson is null
             ? null
             : JsonSerializer.Deserialize<ContainerSettingsOverrides>(entity.SettingsOverridesJson.RootElement.GetRawText(), SerializerOptions),
-        Summary: entity.Summary,
-        SummaryGeneratedAt: entity.SummaryGeneratedAt,
-        SummaryDocSetHash: entity.SummaryDocSetHash,
         DocumentCount: documentCount,
         WithheldDeletions: entity.WithheldDeletions,
         FailedDocumentCount: failedDocumentCount,

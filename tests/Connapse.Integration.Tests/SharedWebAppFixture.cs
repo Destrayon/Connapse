@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Identity.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -72,7 +73,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // Start both containers in parallel — saves ~5-10 seconds vs sequential
-        await Task.WhenAll(_postgres.StartAsync(), _minio.StartAsync());
+        await Task.WhenAll(ContainerStart.StartAsync(_postgres), ContainerStart.StartAsync(_minio));
 
         MinioHostPort = $"{_minio.Hostname}:{_minio.GetMappedPublicPort(9000)}";
 
@@ -87,7 +88,6 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                 builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
                 builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
                 builder.UseSetting("Knowledge:Chunking:Overlap", "20");
-                builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
                 builder.UseSetting("Sources:Atlassian:StateDirectory", AtlassianStateDirectory);
                 builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
                 builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
@@ -109,6 +109,9 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
 
                 builder.ConfigureTestServices(services =>
                 {
+                    // Every /api response checked against docs/api/openapi.json (CON-8).
+                    services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, Spec.SpecConformance.StartupFilter>();
+
                     // Replaces the real AzureOidcTokenExchanger (dials login.microsoftonline.com)
                     // and the real JWKS lookup (fetches the tenant's signing keys) with in-process
                     // fakes, so the callback endpoint can be driven end to end without a real
@@ -128,6 +131,10 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                         .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(Atlassian));
                     services.AddHttpClient(Connapse.Storage.Connectors.Custom.CustomSourceClient.HttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(CustomSource));
+
+                    // Answers the authorization matrix's probe requests without running the
+                    // endpoint; every other request is handled exactly as in production.
+                    services.AddSingleton<IAuthorizationMiddlewareResultHandler, Authorization.AuthzProbe>();
                 });
             });
 
@@ -159,6 +166,8 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
 
         if (Directory.Exists(AtlassianStateDirectory))
             Directory.Delete(AtlassianStateDirectory, recursive: true);
+
+        Spec.SpecConformance.Finish();
     }
 
     private static async Task WaitForAppReadyAsync(HttpClient client)

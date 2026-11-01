@@ -18,6 +18,7 @@ namespace Connapse.Core.Tests.CloudScope;
 /// only an explicit read-or-higher answer for the user's linked account opens a repository.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubSearchScopeResolverTests
 {
     private static readonly Guid User = Guid.NewGuid();
@@ -54,7 +55,8 @@ public sealed class GitHubSearchScopeResolverTests
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(_github, disposeHandler: false));
         var app = new ConnapseGitHubApp(scopes, http, NullLogger<ConnapseGitHubApp>.Instance) { ApiBaseUrl = "https://api.github.test" };
         var access = new GitHubRepositoryAccess(new GitHubCredentialPool(app, scopes), http,
-            new MemoryCache(new MemoryCacheOptions()), NullLogger<GitHubRepositoryAccess>.Instance) { ApiBaseUrl = "https://api.github.test" };
+            new MemoryCache(new MemoryCacheOptions()), NullLogger<GitHubRepositoryAccess>.Instance)
+        { ApiBaseUrl = "https://api.github.test" };
 
         return new GitHubSearchScopeResolver(sources, connections, _links, access, NullLogger<GitHubSearchScopeResolver>.Instance);
     }

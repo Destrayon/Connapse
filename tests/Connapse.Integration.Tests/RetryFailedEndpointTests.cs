@@ -27,18 +27,34 @@ public class RetryFailedEndpointTests(SharedWebAppFixture fixture)
         {
             ctx.Containers.Add(new ContainerEntity
             {
-                Id = containerId, Name = $"retry-{containerId:N}", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                Id = containerId,
+                Name = $"retry-{containerId:N}",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
             });
             ctx.Documents.Add(new DocumentEntity
             {
-                Id = failed, ContainerId = containerId, FileName = "failed.md", Path = "/failed.md", ContentHash = "",
-                CreatedAt = DateTime.UtcNow, Metadata = [],
-                IngestionStatus = DocumentStatus.FailedRetryable, AttemptCount = 4, ErrorMessage = "provider down",
+                Id = failed,
+                ContainerId = containerId,
+                FileName = "failed.md",
+                Path = "/failed.md",
+                ContentHash = "",
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
+                IngestionStatus = DocumentStatus.FailedRetryable,
+                AttemptCount = 4,
+                ErrorMessage = "provider down",
             });
             ctx.Documents.Add(new DocumentEntity
             {
-                Id = ready, ContainerId = containerId, FileName = "ready.md", Path = "/ready.md", ContentHash = "",
-                CreatedAt = DateTime.UtcNow, Metadata = [], IngestionStatus = DocumentStatus.Ready,
+                Id = ready,
+                ContainerId = containerId,
+                FileName = "ready.md",
+                Path = "/ready.md",
+                ContentHash = "",
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
+                IngestionStatus = DocumentStatus.Ready,
             });
             await ctx.SaveChangesAsync();
         }

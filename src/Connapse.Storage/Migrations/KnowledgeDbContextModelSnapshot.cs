@@ -285,19 +285,6 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_overrides");
 
-                    b.Property<string>("Summary")
-                        .HasColumnType("text")
-                        .HasColumnName("summary");
-
-                    b.Property<string>("SummaryDocSetHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("summary_doc_set_hash");
-
-                    b.Property<DateTime?>("SummaryGeneratedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("summary_generated_at");
-
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -543,27 +530,6 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("status_changed_at")
                         .HasDefaultValueSql("now()");
-
-                    b.Property<string>("Summary")
-                        .HasColumnType("text")
-                        .HasColumnName("summary");
-
-                    b.Property<string>("SummaryContentHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("summary_content_hash");
-
-                    b.Property<DateTime?>("SummaryGeneratedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("summary_generated_at");
-
-                    b.Property<string>("SummaryStatus")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasDefaultValue("NotNeeded")
-                        .HasColumnName("summary_status");
 
                     b.HasKey("Id");
 
@@ -904,18 +870,6 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_overrides");
 
-                    b.Property<string>("Summary")
-                        .HasColumnType("text")
-                        .HasColumnName("summary");
-
-                    b.Property<string>("SummaryDocSetHash")
-                        .HasColumnType("text")
-                        .HasColumnName("summary_doc_set_hash");
-
-                    b.Property<DateTime?>("SummaryGeneratedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("summary_generated_at");
-
                     b.Property<string>("SyncCursor")
                         .HasColumnType("text")
                         .HasColumnName("sync_cursor");
@@ -949,6 +903,47 @@ namespace Connapse.Storage.Migrations
                         {
                             t.HasCheckConstraint("ck_sources_connection_xor_provider", "(connection_id IS NULL) <> (provider IS NULL)");
                         });
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.StoredFileRemovalEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("path");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("idx_stored_file_removals_next_attempt");
+
+                    b.ToTable("stored_file_removals", (string)null);
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.BatchDocumentEntity", b =>

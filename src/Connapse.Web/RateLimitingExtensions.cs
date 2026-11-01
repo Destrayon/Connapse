@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Connapse.Core.Utilities;
+using Connapse.Web.Problems;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace Connapse.Web;
@@ -22,6 +23,36 @@ public static class RateLimitingExtensions
     public const string ApiPolicy = "api";
     public const string McpPolicy = "mcp";
 
+    /// <summary>
+    /// The 429 body: a problem under /api, RFC 6749's <c>temporarily_unavailable</c> on the OAuth
+    /// endpoints, and the JSON error MCP has always returned anywhere else, since those keep their
+    /// protocols' error shapes.
+    /// </summary>
+    public static async Task WriteRejectionAsync(HttpContext http, CancellationToken cancellationToken)
+    {
+        const string detail = "Rate limit exceeded. Try again later.";
+        http.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        if (http.IsApiRequest())
+        {
+            await http.RequestServices.GetRequiredService<IProblemDetailsService>().WriteAsync(new ProblemDetailsContext
+            {
+                HttpContext = http,
+                ProblemDetails = { Status = StatusCodes.Status429TooManyRequests, Detail = detail },
+            });
+            return;
+        }
+
+        // RFC 6749 §5.2: an OAuth error is a code a client can act on, with the text beside it.
+        if (http.Request.Path.StartsWithSegments("/oauth"))
+        {
+            await http.Response.WriteAsJsonAsync(new Endpoints.OAuthError("temporarily_unavailable", detail), cancellationToken);
+            return;
+        }
+
+        http.Response.ContentType = "application/json";
+        await http.Response.WriteAsJsonAsync(new { error = detail }, cancellationToken);
+    }
+
     public static IServiceCollection AddConnapseRateLimiting(
         this IServiceCollection services, IConfiguration configuration)
     {
@@ -35,7 +66,6 @@ public static class RateLimitingExtensions
             options.OnRejected = async (context, cancellationToken) =>
             {
                 context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                context.HttpContext.Response.ContentType = "application/json";
 
                 if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
                 {
@@ -52,9 +82,7 @@ public static class RateLimitingExtensions
                     context.HttpContext.Connection.RemoteIpAddress,
                     LogSanitizer.Sanitize(context.HttpContext.Request.Path.Value));
 
-                await context.HttpContext.Response.WriteAsJsonAsync(
-                    new { error = "Rate limit exceeded. Try again later." },
-                    cancellationToken);
+                await WriteRejectionAsync(context.HttpContext, cancellationToken);
             };
 
             // Auth policy: strict per-IP limit for anonymous auth endpoints (login, register, token)

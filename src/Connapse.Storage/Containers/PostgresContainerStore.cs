@@ -116,6 +116,32 @@ public class PostgresContainerStore(
         return true;
     }
 
+    public async Task<Container?> UpdateAsync(Guid id, string? name, string? description, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (entity is null)
+            return null;
+
+        if (name is not null)
+        {
+            name = name.Trim();
+            if (!PathUtilities.IsValidContainerName(name))
+                throw new InvalidOperationException($"'{name}' is not a valid container name.");
+            if (name != entity.Name && await context.Containers.AnyAsync(c => c.Name == name && c.Id != id, ct))
+                throw new InvalidOperationException($"Container '{name}' already exists");
+            entity.Name = name;
+        }
+        if (description is not null)
+            entity.Description = description.Length == 0 ? null : description;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+
+        logger.LogInformation("Updated container {ContainerId} ({Name})", id, Sanitize(entity.Name));
+        return await GetAsync(id, ct);
+    }
+
     public async Task<bool> ExistsAsync(Guid id, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
@@ -150,54 +176,6 @@ public class PostgresContainerStore(
         await context.SaveChangesAsync(ct);
     }
 
-    public async Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default)
-    {
-        await using var context = await factory.CreateDbContextAsync(ct);
-
-        var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct);
-        if (entity is null) return;
-
-        entity.Summary = summary;
-        entity.SummaryGeneratedAt = generatedAt;
-        entity.SummaryDocSetHash = docSetHash;
-        entity.UpdatedAt = DateTime.UtcNow;
-        await context.SaveChangesAsync(ct);
-    }
-
-    public async Task MarkSummaryStaleAsync(Guid id, CancellationToken ct = default)
-    {
-        await using var context = await factory.CreateDbContextAsync(ct);
-
-        bool stillHasSummarized = await context.Documents
-            .AnyAsync(d => d.ContainerId == id && d.Summary != null, ct);
-
-        if (stillHasSummarized)
-        {
-            // Keep summary text visible; clear generated-at + hash so the sweep query
-            // ("docs with summaries exist AND container.summary_generated_at IS NULL") fires.
-            await context.Containers
-                .Where(c => c.Id == id)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(c => c.SummaryGeneratedAt, (DateTime?)null)
-                    .SetProperty(c => c.SummaryDocSetHash, (string?)null)
-                    .SetProperty(c => c.UpdatedAt, DateTime.UtcNow),
-                    ct);
-        }
-        else
-        {
-            // No summarized docs left — clear the entire container summary so we don't
-            // display stale text for what's now an empty (from the summary's POV) container.
-            await context.Containers
-                .Where(c => c.Id == id)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(c => c.Summary, (string?)null)
-                    .SetProperty(c => c.SummaryGeneratedAt, (DateTime?)null)
-                    .SetProperty(c => c.SummaryDocSetHash, (string?)null)
-                    .SetProperty(c => c.UpdatedAt, DateTime.UtcNow),
-                    ct);
-        }
-    }
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -224,9 +202,6 @@ public class PostgresContainerStore(
             entity.CreatedAt,
             entity.UpdatedAt,
             documentCount,
-            overrides,
-            entity.Summary,
-            entity.SummaryGeneratedAt,
-            entity.SummaryDocSetHash);
+            overrides);
     }
 }

@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: the User management page revokes only the invites it lists, so it can't name one that doesn't exist,
+  Reference: {
+    Result: error:not_found,
+    State: [
+      invite invite-{name}@cross-surface.connapse.io role=Viewer pending
+    ]
+  },
+  Surface: {
+    Result: absent,
+    State: [
+      invite invite-{name}@cross-surface.connapse.io role=Viewer pending
+    ]
+  }
+}

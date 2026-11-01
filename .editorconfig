@@ -1,0 +1,42 @@
+root = true
+
+# Analyzer severities only (epic #783, #786). Formatting follows dotnet format's defaults: a formatting
+# option added here changes what `dotnet format --verify-no-changes` demands of every file.
+
+[*.cs]
+# AnalysisLevel=10.0-recommended (Directory.Build.props) makes these warnings, and each one already
+# fires in the code. Each is a suggestion until a ticket clears its sites and raises it back; the
+# numbers are its sites on 2026-10-23 (src, tests). Every other recommended rule applies as a warning.
+dotnet_diagnostic.CA1848.severity = suggestion # 380, 0: use LoggerMessage delegates
+dotnet_diagnostic.CA1305.severity = suggestion # 49, 167: specify an IFormatProvider
+dotnet_diagnostic.CA1861.severity = suggestion # 28, 100: avoid constant arrays as arguments
+dotnet_diagnostic.CA1873.severity = suggestion # 119, 0: avoid potentially expensive logging arguments
+dotnet_diagnostic.CA1852.severity = suggestion # 0, 58: seal internal types
+dotnet_diagnostic.CA1859.severity = suggestion # 12, 33: use concrete types for performance
+dotnet_diagnostic.CA1822.severity = suggestion # 9, 22: mark members as static
+dotnet_diagnostic.CA1310.severity = suggestion # 2, 30: specify a StringComparison
+dotnet_diagnostic.CA1816.severity = suggestion # 0, 26: call GC.SuppressFinalize correctly
+dotnet_diagnostic.CA1001.severity = suggestion # 3, 9: types owning disposable fields should be disposable
+dotnet_diagnostic.CA1000.severity = suggestion # 11, 0: no static members on generic types
+dotnet_diagnostic.CA1716.severity = suggestion # 10, 1: identifiers that are keywords in other languages
+dotnet_diagnostic.CA2201.severity = suggestion # 1, 7: don't throw reserved exception types
+dotnet_diagnostic.CA1826.severity = suggestion # 2, 5: use a property instead of Enumerable methods
+dotnet_diagnostic.CA1711.severity = suggestion # 3, 4: identifiers with reserved suffixes
+dotnet_diagnostic.CA2101.severity = suggestion # 6, 0: specify marshaling for P/Invoke string arguments
+dotnet_diagnostic.CA1805.severity = suggestion # 6, 0: don't initialize to default values
+dotnet_diagnostic.CA1725.severity = suggestion # 3, 3: parameter names should match the base declaration
+dotnet_diagnostic.CA2263.severity = suggestion # 0, 6: prefer the generic overload
+dotnet_diagnostic.CA1806.severity = suggestion # 4, 1: don't ignore method results
+dotnet_diagnostic.CA2016.severity = suggestion # 4, 0: forward the CancellationToken
+dotnet_diagnostic.CA1875.severity = suggestion # 0, 4: use Regex.Count
+dotnet_diagnostic.CA1863.severity = suggestion # 0, 4: use CompositeFormat
+dotnet_diagnostic.CA1068.severity = suggestion # 1, 0, plus 1 in samples: CancellationToken parameters last
+dotnet_diagnostic.CA2250.severity = suggestion # 2, 0: use ThrowIfCancellationRequested
+dotnet_diagnostic.CA1850.severity = suggestion # 1, 1: prefer static HashData
+dotnet_diagnostic.CA1869.severity = suggestion # 1, 1: cache and reuse JsonSerializerOptions
+dotnet_diagnostic.CA1847.severity = suggestion # 0, 1: use a char literal for a single-character lookup
+dotnet_diagnostic.CA2215.severity = suggestion # 0, 1: dispose methods should call the base Dispose
+
+[tests/**.cs]
+# Test names are MethodName_Scenario_ExpectedResult (CLAUDE.md), which CA1707 forbids. 3,994 sites.
+dotnet_diagnostic.CA1707.severity = none

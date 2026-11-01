@@ -209,19 +209,19 @@ public static class AdfRenderer
                 case "paragraph":
                     return EscapeLines(InlineChildren(node, depth).Trim());
                 case "heading":
-                {
-                    string text = Clean(InlineChildren(node, depth));
-                    return text.Length == 0 ? string.Empty : new string('#', Level(node)) + " " + text;
-                }
+                    {
+                        string text = Clean(InlineChildren(node, depth));
+                        return text.Length == 0 ? string.Empty : new string('#', Level(node)) + " " + text;
+                    }
                 case "bulletList":
                     return List(node, ordered: false, depth);
                 case "orderedList":
                     return List(node, ordered: true, depth);
                 case "blockquote":
-                {
-                    string body = Blocks(node, depth);
-                    return body.Length == 0 ? string.Empty : Quote(body);
-                }
+                    {
+                        string body = Blocks(node, depth);
+                        return body.Length == 0 ? string.Empty : Quote(body);
+                    }
                 case "rule":
                     return "---";
                 case "codeBlock":
@@ -308,19 +308,19 @@ public static class AdfRenderer
                 case "hardBreak":
                     return "  \n";
                 case "mention":
-                {
-                    string text = (StringAttr(node, "text") ?? string.Empty).Trim();
-                    return text.StartsWith("@@", StringComparison.Ordinal) ? "@" + text.TrimStart('@') : text;
-                }
+                    {
+                        string text = (StringAttr(node, "text") ?? string.Empty).Trim();
+                        return text.StartsWith("@@", StringComparison.Ordinal) ? "@" + text.TrimStart('@') : text;
+                    }
                 case "inlineCard":
                     return HttpHref(StringAttr(node, "url")) ?? string.Empty;
                 case "status":
                     return Clean(StringAttr(node, "text") ?? string.Empty);
                 case "emoji":
-                {
-                    string text = StringAttr(node, "text") ?? string.Empty;
-                    return text.Length > 0 ? text : StringAttr(node, "shortName") ?? string.Empty;
-                }
+                    {
+                        string text = StringAttr(node, "text") ?? string.Empty;
+                        return text.Length > 0 ? text : StringAttr(node, "shortName") ?? string.Empty;
+                    }
                 case "date":
                     return Date(node);
                 case "media":

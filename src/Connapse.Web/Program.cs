@@ -1,7 +1,9 @@
 ﻿using System.Reflection;
 using System.Text.Json.Serialization;
+using Connapse.Application.Extensions;
 using Connapse.Background;
 using Connapse.Core;
+using Connapse.Core.Extensions;
 using Connapse.Identity;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
@@ -17,6 +19,8 @@ using Connapse.Storage.Vectors;
 using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
+using Connapse.Web.Mcp;
+using Connapse.Web.Problems;
 using Connapse.Core.Interfaces;
 using Connapse.Web;
 using Connapse.Web.Services;
@@ -26,15 +30,25 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // First, before anything touches Regex: the default match timeout is read once, at type init.
 Connapse.Core.Utilities.RegexTimeout.ApplyProcessDefault();
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The build runs this entry point to write the OpenAPI document (#857). It needs only the mapped
+// endpoints, so it must not touch the database, start background services or schedule jobs: a
+// build has no database.
+bool generatingOpenApiDocument = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
+
 // Serialize enums as strings in all Minimal API JSON responses and request bodies.
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    // A source scope's "type" may come anywhere in the object, as clients write members in any order (#859).
+    options.SerializerOptions.AllowOutOfOrderMetadataProperties = true;
+});
 
 // Persist Data Protection keys to the appdata volume so they survive container restarts.
 // In dev this lands in <ContentRoot>/appdata/DataProtection-Keys; in the container it
@@ -59,7 +73,11 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Database connection string not found.");
 
-var dbSettingsProvider = builder.Configuration.AddDatabaseSettings(connectionString);
+// Loading this source reads the settings table, so OpenAPI generation keeps the provider in DI
+// (endpoints take it as a service) without adding it to configuration.
+var dbSettingsProvider = generatingOpenApiDocument
+    ? new DatabaseSettingsProvider(_ => { })
+    : builder.Configuration.AddDatabaseSettings(connectionString);
 
 // Register DatabaseSettingsProvider for settings reload
 builder.Services.AddSingleton(dbSettingsProvider);
@@ -96,6 +114,7 @@ builder.Services.AddSingleton<IIngestionStateBroadcaster, IngestionProgressBroad
 // that nothing called into it at runtime; the sync-now route is that caller.
 builder.Services.AddSingleton<SourceSyncService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SourceSyncService>());
+builder.Services.AddSingleton<Connapse.Application.Ports.ISourceSync>(sp => sp.GetRequiredService<SourceSyncService>());
 
 // Carries an existing deployment's per-user permissions across the upgrade that separated
 // "enforcing" from "configured". Without it, an installation that already had filtering working
@@ -107,7 +126,7 @@ builder.Services.AddHostedService<Bm25StatsFoldService>();
 builder.Services.AddHostedService<VectorIndexMaintenanceService>();
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
-builder.Services.AddSingleton<ReindexStateService>();
+builder.Services.AddSingleton<Connapse.Application.Settings.ReindexStateService>();
 
 // Add MCP server (official SDK)
 var allowAnonDiscovery = builder.Configuration.GetValue<bool>("Mcp:AllowAnonymousDiscovery");
@@ -122,10 +141,17 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
 })
 .WithHttpTransport()
 .WithToolsFromAssembly()
-.AddAuthorizationFilters();
+.AddAuthorizationFilters()
+.WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
+    context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)));
+builder.Services.AddScoped<Connapse.Web.Mcp.McpApprovalGate>();
+// The generic connapse_api_* tools, built from the committed spec (CON-20).
+builder.Services.AddSingleton<Connapse.Web.Services.GenericApi.ApiCatalog>();
+builder.Services.AddScoped<Connapse.Web.Services.GenericApi.ApiDispatcher>();
 
 if (allowAnonDiscovery)
 {
+    builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, Connapse.Web.Mcp.AnonymousMcpDiscoveryHandler>();
     mcpBuilder.WithRequestFilters(filters =>
     {
         filters.AddCallToolFilter(next => async (context, ct) =>
@@ -151,6 +177,20 @@ if (allowAnonDiscovery)
 
 builder.Services.AddMemoryCache();
 
+// The REST API's shape, generated at build time into docs/api/openapi.json (#857). No route serves it.
+builder.Services.AddOpenApi(options => options
+    .AddSchemaTransformer<Connapse.Web.Endpoints.DeprecatedScopeJsonTransformer>()
+    .AddSchemaTransformer<Connapse.Web.Endpoints.ObsoletePropertySchemaTransformer>()
+    .AddSchemaTransformer<Connapse.Web.Problems.ProblemDetailsSchemaTransformer>()
+    .AddSchemaTransformer<Connapse.Web.Endpoints.AuditDetailsSchemaTransformer>()
+    .AddSchemaTransformer<Connapse.Web.Endpoints.ConnectionConfigSchemaTransformer>()
+    .AddOperationTransformer<Connapse.Web.Problems.ResendConfirmationValidationTransformer>()
+    .AddOperationTransformer<Connapse.Web.Problems.IdentitySignInUnauthorizedTransformer>()
+    .AddOperationTransformer<Connapse.Web.Problems.RateLimitResponseTransformer>()
+    .AddOperationTransformer<Connapse.Web.Endpoints.MultipartFormTransformer>()
+    .AddOperationTransformer<Connapse.Web.Endpoints.OperationExtensionTransformer>()
+    .AddDocumentTransformer<Connapse.Web.Endpoints.DiscriminatedSubtypesTransformer>());
+
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed
 // after a source already exists.
@@ -160,14 +200,34 @@ builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceSetup>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomSourceConnectionMigration>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomProviderSetup>();
+builder.Services.AddScoped<Connapse.Application.Ports.ICustomProviderChecker>(sp => sp.GetRequiredService<Connapse.Web.Services.CustomProviderSetup>());
+builder.Services.AddSingleton<Connapse.Application.Ports.IAwsSession, Connapse.Web.Services.AwsSession>();
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkService>();
+builder.Services.AddScoped<Connapse.Application.Ports.ICustomAccountLinks>(sp => sp.GetRequiredService<Connapse.Web.Services.CustomLinkService>());
 builder.Services.AddScoped<Connapse.Web.Services.CustomLinkRemovalJob>();
+builder.Services.AddScoped<Connapse.Web.Services.StoredFileRemovalJob>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppService>();
 builder.Services.AddScoped<Connapse.Web.Services.AtlassianLinkAppCheckJob>();
-builder.Services.AddScoped<Connapse.Web.Services.ConnectionAdminService>();
-builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
+builder.Services.AddSingleton<Connapse.Storage.Connectors.GitHub.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
+builder.Services.AddScoped<Connapse.Application.Ports.ISourceVisibility>(sp => sp.GetRequiredService<Connapse.Web.Services.PrivateSourceVisibility>());
+builder.Services.AddScoped<Connapse.Application.Ports.IOperationAuthorizer, Connapse.Web.Services.OperationAuthorizer>();
+builder.Services.AddScoped<Connapse.Application.Ports.IUserDirectory, Connapse.Web.Services.UserDirectory>();
+builder.Services.AddScoped<Connapse.Application.Ports.IInviteStore, Connapse.Web.Services.InviteStore>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConfiguredSettings, Connapse.Web.Services.ConfiguredSettings>();
+builder.Services.AddScoped<Connapse.Application.Ports.IVectorIndexReconciler, Connapse.Web.Services.HangfireVectorIndexReconciler>();
+builder.Services.AddSingleton<Connapse.Application.Ports.IBackgroundReindex, Connapse.Web.Services.BackgroundReindex>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionTests, Connapse.Web.Services.ConnectionTests>();
+builder.Services.AddScoped<Connapse.Web.Components.SettingsPageSaves>();
+builder.Services.AddScoped<Connapse.Application.Ports.ISourceScopeRules, Connapse.Web.Services.SourceScopeRules>();
+builder.Services.AddScoped<Connapse.Web.Services.ConnectionSettingsRules>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionSettingsRules>(sp => sp.GetRequiredService<Connapse.Web.Services.ConnectionSettingsRules>());
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionTestRunner, Connapse.Web.Services.ConnectionTestRunner>();
+builder.Services.AddScoped<Connapse.Application.Ports.IConnectionDiscovery, Connapse.Web.Services.ConnectionDiscoverer>();
+builder.Services.AddScoped<Connapse.Application.Ports.ISourceCreateRules, Connapse.Web.Services.SourceCreateRules>();
 builder.Services.AddScoped<Connapse.Web.Services.DocumentReadGuard>();
+builder.Services.AddScoped<Connapse.Application.Ports.IDocumentAccess, Connapse.Web.Services.DocumentAccess>();
+builder.Services.AddScoped<Connapse.Application.Ports.IIngestionJobs, Connapse.Web.Services.IngestionJobs>();
 builder.Services.AddScoped<Connapse.Web.Services.GitHubAppUsage>();
 
 // So an MCP tool can name its caller. Tools receive an IServiceProvider and nothing else, so
@@ -195,10 +255,18 @@ builder.Services.AddConnapseHangfire(builder.Configuration);
 // Add knowledge search (hybrid vector + keyword search)
 builder.Services.AddKnowledgeSearch();
 
+// Add the operations every surface calls (epic #783)
+builder.Services.AddApplication();
+builder.Services.AddConnapseProblemDetails();
+// Validation runs on request records before handlers; Core declares records too, so it registers its own.
+builder.Services.AddCoreValidation();
+builder.Services.AddValidation();
+
 // Add Identity, authentication, and authorization
 builder.Services.AddConnapseIdentity(builder.Configuration);
 builder.Services.AddConnapseAuthentication(builder.Configuration);
 builder.Services.AddConnapseAuthorization();
+Connapse.Web.Services.GenericApi.GenericApiPolicies.AddGenericApiPolicies(builder.Services.AddAuthorizationBuilder());
 
 // Provide auth state to Blazor components via cascading parameter
 builder.Services.AddCascadingAuthenticationState();
@@ -214,8 +282,6 @@ builder.Services.Configure<LlmSettings>(
     builder.Configuration.GetSection("Knowledge:LLM"));
 builder.Services.Configure<UploadSettings>(
     builder.Configuration.GetSection("Knowledge:Upload"));
-builder.Services.Configure<SummarySettings>(
-    builder.Configuration.GetSection("Knowledge:Summary"));
 
 // Add rate limiting
 builder.Services.AddConnapseRateLimiting(builder.Configuration);
@@ -261,46 +327,51 @@ builder.Services.AddCors(options =>
 // Remove default "Server: Kestrel" header from all responses
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
+// Generating the OpenAPI document still starts the host, which would construct every hosted service.
+if (generatingOpenApiDocument)
+    builder.Services.RemoveAll<IHostedService>();
+
 var app = builder.Build();
 
 // Apply pending migrations and ensure infrastructure is ready
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
-    await db.Database.MigrateAsync();
-
-    // Migrate Identity tables (separate migration history)
-    var identityDb = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
-    await identityDb.Database.MigrateAsync();
-
-    // Seed default roles and admin user
-    var adminSeed = scope.ServiceProvider.GetRequiredService<AdminSeedService>();
-    await adminSeed.SeedAsync();
-
-    // Custom sources made before they needed a connection move onto one; it runs before the sync starts.
-    try
+if (!generatingOpenApiDocument)
+    using (var scope = app.Services.CreateScope())
     {
-        await scope.ServiceProvider.GetRequiredService<Connapse.Web.Services.CustomSourceConnectionMigration>().RunAsync();
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "Custom sources could not be moved onto connections; they keep reading with their own tokens until the next start.");
-    }
+        var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
+        await db.Database.MigrateAsync();
 
-    var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
-    if (minio is not null)
-    {
+        // Migrate Identity tables (separate migration history)
+        var identityDb = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+        await identityDb.Database.MigrateAsync();
+
+        // Seed default roles and admin user
+        var adminSeed = scope.ServiceProvider.GetRequiredService<AdminSeedService>();
+        await adminSeed.SeedAsync();
+
+        // Custom sources made before they needed a connection move onto one; it runs before the sync starts.
         try
         {
-            await minio.EnsureBucketExistsAsync();
+            await scope.ServiceProvider.GetRequiredService<Connapse.Web.Services.CustomSourceConnectionMigration>().RunAsync();
         }
         catch (Exception ex)
         {
-            app.Logger.LogWarning(ex, "MinIO is not reachable — bucket check skipped. File uploads will fail until MinIO is available.");
+            app.Logger.LogError(ex, "Custom sources could not be moved onto connections; they keep reading with their own tokens until the next start.");
         }
-    }
 
-}
+        var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
+        if (minio is not null)
+        {
+            try
+            {
+                await minio.EnsureBucketExistsAsync();
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "MinIO is not reachable — bucket check skipped. File uploads will fail until MinIO is available.");
+            }
+        }
+
+    }
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -320,8 +391,9 @@ app.Use(async (ctx, next) =>
         if (feature is not null)
             feature.Enabled = false;
     }
-        await next(ctx);
+    await next(ctx);
 });
+app.UseApiProblemDetails();
 
 app.UseForwardedHeaders();
 
@@ -346,60 +418,63 @@ app.Use(async (ctx, next) =>
 
 app.UseHttpsRedirection();
 app.UseCors();
+// Before authentication, so a rebinding page learns nothing about credentials (#846).
+app.UseMcpOriginValidation(app.Configuration);
 
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
 // Hangfire dashboard — gated by HangfireDashboardAuthFilter (defers to "RequireAdmin" policy).
-app.UseHangfireDashboard("/hangfire", new DashboardOptions
-{
-    Authorization = new[]
+// Its storage opens a database connection, so OpenAPI generation leaves it out.
+if (!generatingOpenApiDocument)
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
     {
+        Authorization = new[]
+        {
         app.Services.GetRequiredService<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
     }
-});
+    });
 
 // Register recurring jobs idempotently at startup. AddOrUpdate is safe to call repeatedly.
-using (var scope = app.Services.CreateScope())
-{
-    var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
-    // Every 5 minutes: scan for containers with stale summaries (per-doc summaries newer
-    // than container summary) and enqueue a rollup for those that have settled (no in-flight
-    // PerDocSummary jobs). This replaces per-PerDocSummary scheduling: bursts of N uploads
-    // converge to 1 rollup instead of N. Pattern matches Postgres materialized view refresh
-    // and Algolia derived-index updates — sweep-based, not write-through, for expensive
-    // aggregates over frequently-changing base data.
-    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.ISummaryJobs>(
-        recurringJobId: "summary-sweep-stale-containers",
-        methodCall: s => s.SweepStaleContainersAsync(default),
-        cronExpression: "*/5 * * * *");
+if (!generatingOpenApiDocument)
+    using (var scope = app.Services.CreateScope())
+    {
+        var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+        // Summaries were removed (CON-180); drop the sweep an earlier version registered.
+        recurringJobManager.RemoveIfExists("summary-sweep-stale-containers");
 
-    // Every 10 minutes: re-enqueue documents whose ingestion job was lost. Status lives on the
-    // document row, so a document whose job died would otherwise sit Queued or Processing for good.
-    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.IIngestionJobs>(
-        recurringJobId: "ingestion-requeue-stuck-documents",
-        methodCall: j => j.RequeueStuckDocumentsAsync(default),
-        cronExpression: "*/10 * * * *");
+        // Every 10 minutes: re-enqueue documents whose ingestion job was lost. Status lives on the
+        // document row, so a document whose job died would otherwise sit Queued or Processing for good.
+        recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.IIngestionJobs>(
+            recurringJobId: "ingestion-requeue-stuck-documents",
+            methodCall: j => j.RequeueStuckDocumentsAsync(default),
+            cronExpression: "*/10 * * * *");
 
-    // Daily: ask Atlassian whether it still accepts the stored linking app, so a revoked secret
-    // shows on the Providers page before someone's sign-in fails.
-    recurringJobManager.AddOrUpdate<Connapse.Web.Services.AtlassianLinkAppCheckJob>(
-        recurringJobId: Connapse.Web.Services.AtlassianLinkAppCheckJob.RecurringJobId,
-        methodCall: j => j.RunAsync(default),
-        cronExpression: Cron.Daily());
+        // Daily: ask Atlassian whether it still accepts the stored linking app, so a revoked secret
+        // shows on the Providers page before someone's sign-in fails.
+        recurringJobManager.AddOrUpdate<Connapse.Web.Services.AtlassianLinkAppCheckJob>(
+            recurringJobId: Connapse.Web.Services.AtlassianLinkAppCheckJob.RecurringJobId,
+            methodCall: j => j.RunAsync(default),
+            cronExpression: Cron.Daily());
 
-    // Every minute: tell custom providers' middle men about deleted users' links until each acknowledges.
-    recurringJobManager.AddOrUpdate<Connapse.Web.Services.CustomLinkRemovalJob>(
-        recurringJobId: Connapse.Web.Services.CustomLinkRemovalJob.RecurringJobId,
-        methodCall: j => j.RunAsync(default),
-        cronExpression: Cron.Minutely());
+        // Every minute: tell custom providers' middle men about deleted users' links until each acknowledges.
+        recurringJobManager.AddOrUpdate<Connapse.Web.Services.CustomLinkRemovalJob>(
+            recurringJobId: Connapse.Web.Services.CustomLinkRemovalJob.RecurringJobId,
+            methodCall: j => j.RunAsync(default),
+            cronExpression: Cron.Minutely());
 
-    // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
-    // in the database independently of the code that registered them. Left in place, the old
-    // entry would fire every half hour into a job type that no longer exists.
-    recurringJobManager.RemoveIfExists("grant-reconcile-orphaned");
-}
+        // Every minute: remove stored files a folder delete owed a removal but could not remove itself (CON-100).
+        recurringJobManager.AddOrUpdate<Connapse.Web.Services.StoredFileRemovalJob>(
+            recurringJobId: Connapse.Web.Services.StoredFileRemovalJob.RecurringJobId,
+            methodCall: j => j.RunAsync(default),
+            cronExpression: Cron.Minutely());
+
+        // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
+        // in the database independently of the code that registered them. Left in place, the old
+        // entry would fire every half hour into a job type that no longer exists.
+        recurringJobManager.RemoveIfExists("grant-reconcile-orphaned");
+    }
 
 app.UseAntiforgery();
 
@@ -409,33 +484,39 @@ app.MapRazorComponents<App>()
 
 // Health check — returns 200 when the app is fully initialized.
 // Used by integration tests to replace Task.Delay(2000) startup waits.
-app.MapGet("/health", () => Results.Ok());
+app.MapGet("/health", () => Results.Ok()).Produces(StatusCodes.Status200OK);
 
 // Server info — lets CLI detect whether it's talking to Cloud or self-hosted
-app.MapGet("/api/v1/info", () => Results.Json(new
-{
-    edition = "self-hosted",
-    version = typeof(Program).Assembly
+app.MapGet("/api/v1/info", () => Results.Json(new Connapse.Web.Endpoints.ServerInfo(
+    "self-hosted",
+    typeof(Program).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
         ?.InformationalVersion ?? "0.0.0",
-    features = new[] { "mcp", "connectors", "agents" },
-})).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
+    ["mcp", "connectors", "agents"])))
+    .AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.ApiPolicy)
+    .Produces<Connapse.Web.Endpoints.ServerInfo>();
 
 // Map API endpoints — antiforgery is disabled for all API routes because they
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
 var api = app.MapGroup("").DisableAntiforgery()
-    .RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
+    .RequireRateLimiting(RateLimitingExtensions.ApiPolicy)
+    .WithProblemResults();
 api.MapAuthEndpoints();
+api.MapInviteEndpoints();
 api.MapCloudIdentityEndpoints();
 api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapSourcesEndpoints();
+api.MapConnectionsEndpoints();
+api.MapAuditEndpoints();
+api.MapOAuthClientEndpoints();
 api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
+api.MapProvidersEndpoints();
 api.MapGitHubAppEndpoints();
 api.MapAtlassianEndpoints();
 api.MapAtlassianLinkAppEndpoints();
@@ -449,19 +530,34 @@ app.MapOAuthEndpoints();
 // The auth policy (10/min per IP) is the binding constraint for anonymous callers.
 api.MapGroup("/api/v1/identity")
     .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
+    .AddEndpointFilter<RouteGroupBuilder, MalformedSignInInputFilter>()
     .MapIdentityApi<ConnapseUser>()
-    .Add(RequireAdminToRegister);
+    .Add(endpoint =>
+    {
+        RequireAdminToRegister(endpoint);
+        DeclareMalformedTextRefusal(endpoint);
+    });
+
+// MalformedSignInInputFilter answers 400 for a NUL in the request's text. Login and refresh declare no 400 of
+// their own, so the spec gets theirs here (CON-165).
+static void DeclareMalformedTextRefusal(EndpointBuilder endpoint)
+{
+    if (endpoint is RouteEndpointBuilder { RoutePattern.RawText: "/api/v1/identity/login" or "/api/v1/identity/refresh" })
+        endpoint.Metadata.Add(new ProducesResponseTypeMetadata(StatusCodes.Status400BadRequest, typeof(Microsoft.AspNetCore.Mvc.ProblemDetails), ["application/problem+json"]));
+}
 
 // Connapse has no self sign-up: an account comes from an invite or from first-run owner setup, both in
 // the UI. MapIdentityApi maps an anonymous /register and offers no way to leave it out (dotnet/aspnetcore
 // #55792), so the convention below asks for an administrator, as inviting does, on that one endpoint;
-// the rest stay as mapped (CON-172, the main-branch port of CON-169).
+// the rest stay as mapped (CON-169).
 static void RequireAdminToRegister(EndpointBuilder endpoint)
 {
     if (endpoint is RouteEndpointBuilder { RoutePattern.RawText: "/api/v1/identity/register" })
     {
         endpoint.Metadata.Add(new AuthorizeAttribute("RequireAdmin"));
         endpoint.Metadata.Add(new AuthorizeAttribute("Scope:AdminUsers"));
+        endpoint.Metadata.Add(new ProducesResponseTypeMetadata(StatusCodes.Status401Unauthorized, typeof(Microsoft.AspNetCore.Mvc.ProblemDetails), ["application/problem+json"]));
+        endpoint.Metadata.Add(new ProducesResponseTypeMetadata(StatusCodes.Status403Forbidden, typeof(Microsoft.AspNetCore.Mvc.ProblemDetails), ["application/problem+json"]));
     }
 }
 

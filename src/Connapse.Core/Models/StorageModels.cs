@@ -8,7 +8,6 @@ public record ContainerSettingsOverrides
     public EmbeddingSettings? Embedding { get; init; }
     public SearchSettings? Search { get; init; }
     public UploadSettings? Upload { get; init; }
-    public SummarySettings? Summary { get; init; }
 }
 
 /// <summary>One file a connector found, as the connector sees it.</summary>
@@ -61,10 +60,7 @@ public record Container(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int DocumentCount = 0,
-    ContainerSettingsOverrides? SettingsOverrides = null,
-    string? Summary = null,
-    DateTime? SummaryGeneratedAt = null,
-    string? SummaryDocSetHash = null);
+    ContainerSettingsOverrides? SettingsOverrides = null);
 
 public record CreateContainerRequest(
     string Name,
@@ -81,11 +77,7 @@ public record Document(
     long SizeBytes,
     DateTime CreatedAt,
     Dictionary<string, string> Metadata,
-    string? Summary = null,
-    DateTime? SummaryGeneratedAt = null,
-    string? SummaryContentHash = null,
-    DocumentStatus Status = DocumentStatus.Queued,
-    SummaryStatus SummaryStatus = SummaryStatus.NotNeeded)
+    DocumentStatus Status = DocumentStatus.Queued)
 {
     /// <summary>
     /// Which owner the row actually has. Needed because <see cref="ContainerId"/> carries

@@ -27,7 +27,7 @@ public sealed class LocalStackFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await _container.StartAsync();
+        await ContainerStart.StartAsync(_container);
 
         ServiceUrl = _container.GetConnectionString();
 

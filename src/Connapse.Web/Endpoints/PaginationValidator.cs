@@ -1,3 +1,5 @@
+using Connapse.Web.Problems;
+
 namespace Connapse.Web.Endpoints;
 
 public static class PaginationValidator
@@ -12,13 +14,13 @@ public static class PaginationValidator
     public static IResult? Validate(int skip, int take)
     {
         if (skip < 0)
-            return Results.BadRequest(new { error = "skip must be >= 0" });
+            return ApiProblem.BadRequest("skip must be >= 0");
 
         if (take < MinTake)
-            return Results.BadRequest(new { error = $"take must be >= {MinTake}" });
+            return ApiProblem.BadRequest($"take must be >= {MinTake}");
 
         if (take > MaxTake)
-            return Results.BadRequest(new { error = $"take must be <= {MaxTake}" });
+            return ApiProblem.BadRequest($"take must be <= {MaxTake}");
 
         return null;
     }

@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.CloudScope;
 using Microsoft.AspNetCore.Authorization;
 
@@ -14,7 +16,7 @@ namespace Connapse.Web.Services;
 /// search gives for its documents. Every other source is visible as before.
 /// </summary>
 public sealed class PrivateSourceVisibility(
-    ISearchScopeResolver resolver, IAuthorizationService authorization, IConnectionStore connections)
+    ISearchScopeResolver resolver, IAuthorizationService authorization, IConnectionStore connections) : ISourceVisibility
 {
     /// <summary>A filter for <paramref name="caller"/>, resolved once and reused across a listing.</summary>
     public async Task<Func<Source, bool>> ForAsync(ClaimsPrincipal? caller, CancellationToken ct = default)
@@ -41,7 +43,7 @@ public sealed class PrivateSourceVisibility(
         HashSet<Guid>? atlassianConnections;
         try
         {
-            // Custom connections that check permissions too: such a source's name and summary describe documents
+            // Custom connections that check permissions too: such a source's name describes documents
             // each user is checked for one by one, so its listing is for administrators as Confluence's is. A
             // custom connection without a provider is content-only and listed like any other source.
             atlassianConnections = (await connections.ListAsync(take: int.MaxValue, ct: ct))
@@ -68,7 +70,7 @@ public sealed class PrivateSourceVisibility(
     {
         // A Confluence space's name can itself be sensitive, and no per-user answer is cheap enough
         // to ask per listing, so these are shown to administrators only (who return before here).
-        if (IsAtlassianContent(source.ScopeJson))
+        if (LooksAtlassian(source.ScopeJson))
             return false;
 
         // The same holds for every kind an Atlassian connection carries, Jira's included, so the
@@ -82,7 +84,7 @@ public sealed class PrivateSourceVisibility(
         if (!GitHubSearchScopeResolver.IsPrivate(source.ScopeJson))
         {
             // A public GitHub source whose repository a sync found it can no longer read (most
-            // often, made private) is treated as private from then on: its name and summary would
+            // often, made private) is treated as private from then on: its name would
             // otherwise keep describing a repository its documents are already hidden for.
             return source.AccessRevokedAt is null || !GitHubSearchScopeResolver.IsGitHubScope(source.ScopeJson);
         }
@@ -104,8 +106,18 @@ public sealed class PrivateSourceVisibility(
     public static bool IsSearchableWhenHidden(Source source) =>
         IsAtlassianContent(source.ScopeJson) || CustomSourceScope.TryParse(source.ScopeJson) is not null;
 
+    bool ISourceVisibility.IsSearchableWhenHidden(Source source) => IsSearchableWhenHidden(source);
+
     /// <summary>A Confluence space or a Jira project: an Atlassian kind whose hits are checked live per user.</summary>
-    private static bool IsAtlassianContent(string? scopeJson)
+    private static bool IsAtlassianContent(string? scopeJson) =>
+        SourceScopeCodec.AtlassianKindOf(scopeJson) != AtlassianScopeKind.None;
+
+    /// <summary>
+    /// Whether a row names an Atlassian kind in any case, for hiding only. Deliberately broader than
+    /// <see cref="SourceScopeCodec.AtlassianKindOf(string?)"/>: a hand-edited row the kind rule reads as no
+    /// kind must not be listed more widely for it, so hiding keeps the looser match and fails closed.
+    /// </summary>
+    private static bool LooksAtlassian(string? scopeJson)
     {
         try
         {

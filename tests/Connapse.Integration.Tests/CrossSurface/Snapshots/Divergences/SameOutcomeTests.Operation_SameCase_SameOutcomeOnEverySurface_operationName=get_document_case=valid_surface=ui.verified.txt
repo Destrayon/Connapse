@@ -1,0 +1,15 @@
+﻿{
+  Reason: the file browser's detail panel shows a document's details but not its text, which REST's content route and MCP get_document return,
+  Reference: {
+    Result: ok content,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  },
+  Surface: {
+    Result: ok no-content,
+    State: [
+      document doc1.txt content=A155A2672E4A
+    ]
+  }
+}

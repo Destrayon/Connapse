@@ -1,0 +1,64 @@
+# End-to-end stack for scripts/e2e/epic_e2e.py. Layered on docker-compose.yml under its own project name,
+# so it never touches a developer's stack, and every container is capped at 2 CPUs and 4 GB with no GPU.
+# Paths resolve from the repo root (--project-directory). The script sets E2E_PORT, E2E_WORK and the admin variables; see scripts/e2e/README.md.
+# Postgres and MinIO keep the base file's smaller limits.
+services:
+  ollama:
+    # Embeddings only (nomic-embed-text), on the CPU. On the frontend network too, so the model can be pulled.
+    networks:
+      - backend
+      - frontend
+    volumes:
+      - ollamadata:/root/.ollama
+    deploy: &cap
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+
+  web:
+    ports: !override
+      - "127.0.0.1:${E2E_PORT:-5163}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      CONNAPSE_ADMIN_EMAIL: ${E2E_ADMIN_EMAIL}
+      CONNAPSE_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD}
+      Identity__Jwt__Secret: ${E2E_JWT_SECRET}
+      Knowledge__Embedding__BaseUrl: "http://ollama:11434"
+      # The custom source example server answers plain HTTP on the Docker network.
+      CustomSources__AllowedHttpHosts__0: custom-source
+      CustomSources__AllowedHttpHosts__1: custom-perms
+      # The harness makes a few hundred calls a minute as one user; the defaults (200 a minute) would refuse them.
+      RateLimiting__ApiPermitLimit: "100000"
+      RateLimiting__AuthPermitLimit: "100000"
+      RateLimiting__McpPermitLimit: "100000"
+    volumes:
+      - ${E2E_WORK}/fs:/data/fs:ro
+    deploy: *cap
+
+  sftp:
+    image: atmoz/sftp:alpine
+    command: e2e::1001::upload
+    volumes:
+      - ${E2E_WORK}/sftp/id_ed25519.pub:/home/e2e/.ssh/keys/id_ed25519.pub:ro
+      - ${E2E_WORK}/sftp/upload:/home/e2e/upload
+    networks:
+      - backend
+    deploy: *cap
+
+  custom-source:
+    build: samples/Connapse.CustomSource.Example
+    volumes:
+      - ${E2E_WORK}/custom:/app/sample-data
+    networks:
+      - backend
+    deploy: *cap
+
+  # The same example server with permission checks on, for the custom provider journey.
+  custom-perms:
+    build: samples/Connapse.CustomSource.Example
+    volumes:
+      - ${E2E_WORK}/custom-perms:/app/sample-data
+    networks:
+      - backend
+    deploy: *cap

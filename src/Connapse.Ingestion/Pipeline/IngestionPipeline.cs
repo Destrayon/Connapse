@@ -97,11 +97,18 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <summary>The parser that owned each extension when parser identities started being recorded (#596).</summary>
     private static readonly Dictionary<string, string> LegacyParserByExtension = new(StringComparer.OrdinalIgnoreCase)
     {
-        [".txt"] = "TextParser", [".md"] = "TextParser", [".markdown"] = "TextParser", [".csv"] = "TextParser",
-        [".log"] = "TextParser", [".json"] = "TextParser", [".xml"] = "TextParser", [".yaml"] = "TextParser",
+        [".txt"] = "TextParser",
+        [".md"] = "TextParser",
+        [".markdown"] = "TextParser",
+        [".csv"] = "TextParser",
+        [".log"] = "TextParser",
+        [".json"] = "TextParser",
+        [".xml"] = "TextParser",
+        [".yaml"] = "TextParser",
         [".yml"] = "TextParser",
         [".pdf"] = "PdfParser",
-        [".docx"] = "OfficeParser", [".pptx"] = "OfficeParser",
+        [".docx"] = "OfficeParser",
+        [".pptx"] = "OfficeParser",
     };
 
     /// <summary>
@@ -334,16 +341,28 @@ public class IngestionPipeline : IKnowledgeIngester
             // direct caller has not, and takes it the same way a job would: as a new generation,
             // so that anything already working on the document can no longer complete it.
             int generation = options.Generation;
-            if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
+            if (existing is null && generation != 0)
+            {
+                // A job's row existed when it was enqueued, so a missing one was deleted after the job read the file,
+                // by a file or folder delete that then removes the stored file. Writing the row back would leave a
+                // document whose file is gone (CON-98).
+                return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
+            }
+            if (existing is not null && generation != 0)
+            {
+                // A re-upload sets the row back to Queued under a newer generation. Read as a direct caller's
+                // unclaimed row, that let a job still holding the old file claim it and index the old content (CON-102).
+                if (existing.Generation != generation)
+                    return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
+                if (existing.IngestionStatus != DocumentStatus.Processing)
+                    return Superseded(documentId, stopwatch, "Document changed before ingestion started");
+            }
+            else if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
             {
                 int? claimed = await _lifecycle.EnqueuedAsync(documentId, resetAttempts: false, ct);
                 if (claimed is null || !await _lifecycle.TryClaimAsync(documentId, claimed.Value, ct))
                     return Superseded(documentId, stopwatch, "Document changed before ingestion started");
                 generation = claimed.Value;
-            }
-            else if (existing is not null && generation != 0 && existing.Generation != generation)
-            {
-                return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
             }
 
             // The old chunks stay; the document returns to Ready marked incomplete, with its previous
@@ -395,8 +414,8 @@ public class IngestionPipeline : IKnowledgeIngester
             if (existing is null)
             {
                 // Only direct callers reach here; every job's document row exists before the job
-                // is enqueued. Nothing else can be working on a row that does not exist yet, so
-                // it is created already Ready.
+                // is enqueued, and a job whose row has since been deleted stopped above. Nothing else
+                // can be working on a row that does not exist yet, so it is created already Ready.
                 documentEntity = new DocumentEntity
                 {
                     Id = documentId,

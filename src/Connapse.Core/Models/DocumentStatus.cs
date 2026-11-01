@@ -2,8 +2,7 @@ namespace Connapse.Core;
 
 /// <summary>
 /// Where a document is in ingestion. The only status a document has: searchability is
-/// <see cref="Ready"/>, and summarization is tracked separately in <see cref="SummaryStatus"/>
-/// so a failed summary can never make a searchable document look broken.
+/// <see cref="Ready"/>.
 /// </summary>
 /// <remarks>Written only by <see cref="Interfaces.IDocumentLifecycle"/>.</remarks>
 public enum DocumentStatus
@@ -28,16 +27,6 @@ public enum DocumentStatus
     /// only when the file itself changes, or by hand.
     /// </summary>
     FailedPermanent = 4,
-}
-
-/// <summary>Per-document summary progress, independent of <see cref="DocumentStatus"/>.</summary>
-public enum SummaryStatus
-{
-    /// <summary>No per-document summary is expected (summaries off, or produced at rollup time).</summary>
-    NotNeeded = 0,
-    Pending = 1,
-    Done = 2,
-    Failed = 3,
 }
 
 public static class DocumentStatusExtensions

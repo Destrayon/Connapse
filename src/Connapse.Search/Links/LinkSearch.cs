@@ -47,7 +47,7 @@ internal sealed class LinkSearch(
 
         Dictionary<string, float> seedScores = SeedScores(hits, settings.LinkSeeds);
         ILookup<string, string> seedNodes = await linkIndex.NodesOfAsync(seedScores.Keys, ct);
-        if (!seedNodes.Any())
+        if (seedNodes.Count == 0)
             return hits;
 
         // Hits are not verified yet: a seed the per-hit verifier would drop must not lend its score to anything.
@@ -57,7 +57,7 @@ internal sealed class LinkSearch(
         seedNodes = seedNodes.Where(g => readableSeeds.Contains(g.Key))
             .SelectMany(g => g.Select(node => (Doc: g.Key, Node: node)))
             .ToLookup(x => x.Doc, x => x.Node, StringComparer.Ordinal);
-        if (!seedNodes.Any())
+        if (seedNodes.Count == 0)
             return hits;
         Dictionary<string, float> nodeSeeds = new(StringComparer.Ordinal);
         foreach (IGrouping<string, string> doc in seedNodes)

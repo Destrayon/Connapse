@@ -420,9 +420,10 @@ public class PgVectorStore : IVectorStore
             return await query();
 
         await using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        // SET takes no bind parameters, so the value is inlined; it is a clamped int, never user text.
-        string settings = $"SET LOCAL hnsw.ef_search = {Math.Clamp(efSearch, 1, 1000)}; SET LOCAL hnsw.iterative_scan = relaxed_order;";
-        await _context.Database.ExecuteSqlRawAsync(settings, ct);
+        // set_config(..., true) is SET LOCAL in a form whose value can be a parameter.
+        string candidates = Math.Clamp(efSearch, 1, 1000).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await _context.Database.ExecuteSqlAsync(
+            $"SELECT set_config('hnsw.ef_search', {candidates}, true), set_config('hnsw.iterative_scan', 'relaxed_order', true)", ct);
         T result = await query();
         await transaction.CommitAsync(ct);
         return result;
@@ -532,115 +533,4 @@ public class PgVectorStore : IVectorStore
             vectors.Count,
             documentId);
     }
-
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<(Guid DocumentId, float[] Embedding)>> GetPooledDocumentEmbeddingsAsync(
-        Guid containerId,
-        CancellationToken ct = default)
-    {
-        // Step 1: pick the dominant (model_id, dimensions) group in the container. The same model id
-        // can hold vectors of two sizes after its dimensions were reconfigured, and those can
-        // neither be averaged together nor compared, so the size is part of the group.
-        var modelCounts = await _context.Database
-            .SqlQueryRaw<ModelDimensionCount>(
-                "SELECT model_id AS \"ModelId\", vector_dims(embedding) AS \"Dimensions\", COUNT(*)::int AS \"Count\" " +
-                "FROM chunk_vectors WHERE owner_id = {0} " +
-                "GROUP BY model_id, vector_dims(embedding) ORDER BY COUNT(*) DESC",
-                containerId)
-            .ToListAsync(ct);
-
-        if (modelCounts.Count == 0)
-        {
-            return Array.Empty<(Guid, float[])>();
-        }
-
-        string dominantModelId = modelCounts[0].ModelId;
-        int dominantDimensions = modelCounts[0].Dimensions;
-
-        if (modelCounts.Count > 1)
-        {
-            // The interface contract asks for the count of *documents* excluded due to a
-            // non-dominant model. A document is excluded only when it has no chunks of the
-            // dominant model — docs with mixed-model chunks still contribute their dominant
-            // ones. Compute total vs. dominant-reachable distinct docs (mixed-model path only).
-            int totalDocs = await _context.ChunkVectors
-                .Where(cv => cv.OwnerId == containerId)
-                .Select(cv => cv.DocumentId)
-                .Distinct()
-                .CountAsync(ct);
-            int includedDocs = await _context.Database
-                .SqlQueryRaw<int>(
-                    "SELECT COUNT(DISTINCT document_id)::int AS \"Value\" FROM chunk_vectors " +
-                    "WHERE owner_id = {0} AND model_id = {1} AND vector_dims(embedding) = {2}",
-                    containerId, dominantModelId, dominantDimensions)
-                .SingleAsync(ct);
-            int excludedDocuments = totalDocs - includedDocs;
-
-            _logger.LogWarning(
-                "GetPooledDocumentEmbeddingsAsync: container {ContainerId} has mixed embedding models. " +
-                "Using dominant model '{DominantModelId}' ({DominantVectorCount} vectors). " +
-                "Excluding {ExcludedDocumentCount} document(s) with no chunks of the dominant model, " +
-                "across {OtherModelCount} other model(s).",
-                containerId, dominantModelId, modelCounts[0].Count, excludedDocuments, modelCounts.Count - 1);
-        }
-
-        // Step 2: pool per-document. AVG(embedding) returns a vector at the same dimensionality.
-        var conn = _context.Database.GetDbConnection();
-        bool openedHere = false;
-        if (conn.State != System.Data.ConnectionState.Open)
-        {
-            await conn.OpenAsync(ct);
-            openedHere = true;
-        }
-        try
-        {
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                SELECT document_id, AVG(embedding)::vector AS pooled
-                FROM chunk_vectors
-                WHERE owner_id = @cid
-                  AND model_id = @model_id
-                  AND vector_dims(embedding) = @dims
-                GROUP BY document_id
-                """;
-
-            var p = cmd.Parameters;
-            p.Add(new NpgsqlParameter("cid", containerId));
-            p.Add(new NpgsqlParameter("model_id", dominantModelId));
-            p.Add(new NpgsqlParameter("dims", dominantDimensions));
-
-            var results = new List<(Guid DocumentId, float[] Embedding)>();
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                Guid docId = reader.GetGuid(0);
-                Vector pooled = reader.GetFieldValue<Vector>(1);
-                float[] raw = pooled.ToArray();
-                float[] normalized = L2Normalize(raw);
-                results.Add((docId, normalized));
-            }
-
-            return results;
-        }
-        finally
-        {
-            if (openedHere)
-            {
-                await conn.CloseAsync();
-            }
-        }
-    }
-
-    private static float[] L2Normalize(float[] v)
-    {
-        double sumSq = 0;
-        for (int i = 0; i < v.Length; i++) sumSq += v[i] * v[i];
-        double norm = Math.Sqrt(sumSq);
-        if (norm < 1e-12) return v; // degenerate; leave as-is rather than div-by-zero
-        float[] result = new float[v.Length];
-        for (int i = 0; i < v.Length; i++) result[i] = (float)(v[i] / norm);
-        return result;
-    }
-
-    private sealed record ModelDimensionCount(string ModelId, int Dimensions, int Count);
 }

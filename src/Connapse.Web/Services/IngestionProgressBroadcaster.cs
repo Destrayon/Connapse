@@ -15,11 +15,11 @@ public class IngestionProgressBroadcaster(
     IngestionProgressNotifier notifier) : IIngestionStateBroadcaster
 {
     public async Task BroadcastStatusChangedAsync(
-        string documentId, DocumentStatus status, SummaryStatus summaryStatus, CancellationToken ct = default)
+        string documentId, DocumentStatus status, CancellationToken ct = default)
     {
         // In-process first — Blazor Server components subscribe here because a server-to-server
         // SignalR client has no auth cookies.
-        notifier.NotifyStatusChanged(new DocumentStatusChangedEvent(documentId, status, summaryStatus));
+        notifier.NotifyStatusChanged(new DocumentStatusChangedEvent(documentId, status));
 
         await hubContext.Clients.Group(IngestionHub.DocumentGroup(documentId)).SendAsync(
             "DocumentStatusChanged",
@@ -33,7 +33,6 @@ public class IngestionProgressBroadcaster(
                     DocumentStatus.FailedRetryable => "Retryable",
                     _ => null,
                 },
-                SummaryStatus = summaryStatus.ToString(),
             },
             ct);
     }

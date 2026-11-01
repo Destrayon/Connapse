@@ -27,7 +27,8 @@ public class FolderValidationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
-            body.GetProperty("error").GetString().Should().Be("path_too_deep");
+            body.GetProperty("type").GetString().Should().EndWith("#invalid-folder");
+            body.GetProperty("field").GetString().Should().Be("path");
         }
         finally
         {
@@ -46,6 +47,31 @@ public class FolderValidationTests(SharedWebAppFixture fixture)
                 $"/api/containers/{container.Id}/folders",
                 new { Path = maxPath });
             response.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+        }
+    }
+
+    // The fuzz run's folder (CON-179): it was created, then the response failed with a 500 because a response
+    // header can't hold a non-ASCII or control character.
+    [Theory]
+    [InlineData("/Café")]
+    [InlineData("/\u0098ß\u0081Ñ\u008aeøp")]
+    public async Task CreateFolder_NonAsciiPath_Returns201WithAnEncodedLocation(string path)
+    {
+        var container = await CreateTestContainer();
+        try
+        {
+            var response = await fixture.AdminClient.PostAsJsonAsync(
+                $"/api/containers/{container.Id}/folders",
+                new { Path = path });
+
+            response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+            var folder = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+            response.Headers.Location!.OriginalString.Should().Be(
+                $"/api/containers/{container.Id}/folders?path={Uri.EscapeDataString(folder.GetProperty("path").GetString()!)}");
         }
         finally
         {

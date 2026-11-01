@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Connapse.Web.Services;
+using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
 

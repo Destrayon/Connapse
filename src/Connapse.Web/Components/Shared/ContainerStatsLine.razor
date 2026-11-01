@@ -1,0 +1,19 @@
+@*
+    A container's document counts and chunk total, one line under the file browser's breadcrumb. Renders
+    nothing until the stats have loaded.
+*@
+
+@if (Stats is { } s)
+{
+    <div class="container-stats">
+        <span data-stat="documents">@s.DocumentCount @(s.DocumentCount == 1 ? "document" : "documents")</span>
+        <span data-stat="ready">@s.ReadyCount ready</span>
+        <span data-stat="processing">@s.ProcessingCount processing</span>
+        <span data-stat="failed">@s.FailedCount failed</span>
+        <span data-stat="chunks">@s.TotalChunks.ToString("N0") chunks</span>
+    </div>
+}
+
+@code {
+    [Parameter] public Connapse.Core.ContainerStats? Stats { get; set; }
+}

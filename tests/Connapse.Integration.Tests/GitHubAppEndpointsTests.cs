@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
@@ -56,7 +58,7 @@ public sealed class GitHubAppEndpointsTests(SharedWebAppFixture fixture)
         // Both are singletons the page, the endpoint, and the setup reader share; a missing
         // registration would only surface as a GitHub card that never leaves "not configured".
         fixture.Factory.Services.GetService(typeof(Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp)).Should().NotBeNull();
-        fixture.Factory.Services.GetService(typeof(Connapse.Web.Services.GitHubManifestRequests)).Should().NotBeNull();
+        fixture.Factory.Services.GetService(typeof(Connapse.Storage.Connectors.GitHub.GitHubManifestRequests)).Should().NotBeNull();
     }
 
     [Fact]
@@ -68,5 +70,71 @@ public sealed class GitHubAppEndpointsTests(SharedWebAppFixture fixture)
 
         response.StatusCode.Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Redirect);
         response.Headers.Location?.ToString().Should().NotContain("github_created");
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/v1/providers/github/app")]
+    [InlineData("PUT", "/api/v1/providers/github/app")]
+    [InlineData("DELETE", "/api/v1/providers/github/app")]
+    [InlineData("POST", "/api/v1/providers/github/manifest")]
+    public async Task AppSetup_Anonymous_IsUnauthorized(string method, string path)
+    {
+        using var client = Client(asAdmin: false);
+
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = JsonContent.Create(new { }) });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetApp_Admin_ReadsTheAppWithoutItsSecrets()
+    {
+        using var client = Client(asAdmin: true);
+
+        var response = await client.GetAsync("/api/v1/providers/github/app");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var stored = await response.Content.ReadFromJsonAsync<JsonElement>();
+        stored.TryGetProperty("app", out _).Should().BeTrue();
+        stored.TryGetProperty("status", out _).Should().BeTrue();
+        string body = stored.GetRawText();
+        body.Should().NotContain("privateKey").And.NotContain("clientSecret");
+    }
+
+    [Fact]
+    public async Task PutApp_NoAppId_IsInvalidOnAppIdBeforeAskingGitHub()
+    {
+        using var client = Client(asAdmin: true);
+
+        var response = await client.PutAsJsonAsync("/api/v1/providers/github/app", new { privateKeyPem = "key" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        string body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("invalid-github-app").And.Contain("appId");
+    }
+
+    [Fact]
+    public async Task Manifest_OwnAccount_ReturnsGitHubsFormAndTheSetupPage()
+    {
+        using var client = Client(asAdmin: true);
+
+        var response = await client.PostAsJsonAsync("/api/v1/providers/github/manifest", new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var creation = await response.Content.ReadFromJsonAsync<JsonElement>();
+        creation.GetProperty("formAction").GetString().Should().StartWith("https://github.com/settings/apps/new?state=");
+        creation.GetProperty("manifest").GetString().Should().Contain(Callback);
+        creation.GetProperty("setupPageUrl").GetString().Should().EndWith("/admin/providers/github");
+    }
+
+    [Fact]
+    public async Task Manifest_NotAnOrganisationName_IsInvalidOnOrganisation()
+    {
+        using var client = Client(asAdmin: true);
+
+        var response = await client.PostAsJsonAsync("/api/v1/providers/github/manifest", new { organisation = "not a name!" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("organisation");
     }
 }

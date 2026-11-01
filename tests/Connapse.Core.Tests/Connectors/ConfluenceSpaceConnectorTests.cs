@@ -7,6 +7,7 @@ using Xunit;
 namespace Connapse.Core.Tests.Connectors;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class ConfluenceSpaceConnectorTests : IDisposable
 {
     private const string CloudId = "11111111-2222-3333-4444-555555555555";

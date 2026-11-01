@@ -10,6 +10,7 @@ namespace Connapse.Ingestion.Tests.Isolation;
 // #680: a parser host that runs the PDF models through the shared inference host reads a PDF
 // exactly as one that runs them itself, and still reads it when the inference host is gone.
 [Trait("Category", "Integration")]
+[Trait("Size", "Large")]
 [Collection(ChildHostCollection.Name)]
 public sealed class InferenceRelayTests : IDisposable
 {

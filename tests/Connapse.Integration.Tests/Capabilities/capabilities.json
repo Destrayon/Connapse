@@ -1,0 +1,1044 @@
+{
+  "capabilities": [
+    {
+      "id": "containers.list",
+      "capability": "List containers",
+      "routes": [
+        "GET /api/containers/"
+      ],
+      "mcp": "container_list"
+    },
+    {
+      "id": "containers.get",
+      "capability": "Get a container by id or name",
+      "routes": [
+        "GET /api/containers/{containerId:guid}",
+        "GET /api/containers/by-name/{name}"
+      ],
+      "mcp": "container_describe"
+    },
+    {
+      "id": "containers.create",
+      "capability": "Create a container",
+      "routes": [
+        "POST /api/containers/"
+      ],
+      "mcp": "container_create"
+    },
+    {
+      "id": "containers.rename",
+      "capability": "Rename or edit a container",
+      "routes": [
+        "PATCH /api/containers/{containerId:guid}"
+      ],
+      "mcp": "generic",
+      "note": "No surface has this today."
+    },
+    {
+      "id": "containers.delete",
+      "capability": "Delete a container",
+      "routes": [
+        "DELETE /api/containers/{containerId:guid}"
+      ],
+      "mcp": "container_delete",
+      "note": "Over MCP it waits for approval unless the token has approval off: the token's owner or an administrator approves it on the /approvals page, which only the UI offers, and the same call then runs once."
+    },
+    {
+      "id": "containers.stats",
+      "capability": "Container statistics",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/stats"
+      ],
+      "mcp": "container_stats"
+    },
+    {
+      "id": "containers.settings.get",
+      "capability": "Read a container's settings overrides",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/settings"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "containers.settings.update",
+      "capability": "Change a container's settings overrides",
+      "routes": [
+        "PUT /api/containers/{containerId:guid}/settings"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "containers.settings.reset",
+      "capability": "Clear a container's settings overrides",
+      "routes": [
+        "DELETE /api/containers/{containerId:guid}/settings"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "containers.reindex",
+      "capability": "Reindex a container",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/reindex"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "containers.retryFailed",
+      "capability": "Retry a container's failed documents",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/retry-failed"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "containers.reconcile",
+      "capability": "Reconcile a container with its storage",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/sync"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "files.upload",
+      "capability": "Upload a file",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/files/"
+      ],
+      "mcp": "upload_file"
+    },
+    {
+      "id": "files.bulkUpload",
+      "capability": "Upload many files at once",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/files/"
+      ],
+      "mcp": "bulk_upload"
+    },
+    {
+      "id": "files.list",
+      "capability": "Browse files and folders",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/files/"
+      ],
+      "mcp": "list_files"
+    },
+    {
+      "id": "files.get",
+      "capability": "Read a file's details",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/files/{fileId}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "files.content",
+      "capability": "Read a document's text",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/files/{fileId}/content"
+      ],
+      "mcp": "get_document"
+    },
+    {
+      "id": "files.delete",
+      "capability": "Delete a file",
+      "routes": [
+        "DELETE /api/containers/{containerId:guid}/files/{fileId}"
+      ],
+      "mcp": "delete_file",
+      "note": "Over MCP it waits for approval unless the token has approval off: the token's owner or an administrator approves it on the /approvals page, which only the UI offers, and the same call then runs once."
+    },
+    {
+      "id": "files.bulkDelete",
+      "capability": "Delete many files at once",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/files/bulk-delete"
+      ],
+      "mcp": "bulk_delete",
+      "note": "REST deletes one file at a time today. Over MCP it waits for approval unless the token has approval off: the token's owner or an administrator approves it on the /approvals page, which only the UI offers, and the same call then runs once."
+    },
+    {
+      "id": "files.reindexCheck",
+      "capability": "Check whether a file needs reindexing",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/files/{fileId}/reindex-check"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "files.retry",
+      "capability": "Retry one file's ingestion",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/files/{fileId}/retry"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "folders.create",
+      "capability": "Create a folder",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/folders/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "folders.delete",
+      "capability": "Delete a folder",
+      "routes": [
+        "DELETE /api/containers/{containerId:guid}/folders/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "batches.status",
+      "capability": "Ingestion batch status",
+      "routes": [
+        "GET /api/batches/{id}/status"
+      ],
+      "mcp": "generic",
+      "note": "After bulk_upload, an agent can't tell whether ingestion finished."
+    },
+    {
+      "id": "search.container",
+      "capability": "Search a container",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/search/",
+        "POST /api/containers/{containerId:guid}/search/"
+      ],
+      "mcp": "search_knowledge"
+    },
+    {
+      "id": "search.models",
+      "capability": "List the embedding models a container can be searched with",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/search/models"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "search.source",
+      "capability": "Search a source",
+      "routes": [
+        "POST /api/sources/{sourceId:guid}/search"
+      ],
+      "mcp": "search_knowledge",
+      "note": "REST search takes container ids only; MCP is ahead here."
+    },
+    {
+      "id": "sources.list",
+      "capability": "List sources",
+      "routes": [
+        "GET /api/sources/"
+      ],
+      "mcp": "container_list",
+      "note": "MCP lists sources as kind=source, without sync status or errors."
+    },
+    {
+      "id": "sources.get",
+      "capability": "Read a source",
+      "routes": [
+        "GET /api/sources/{sourceId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "sources.stats",
+      "capability": "Source statistics",
+      "routes": [
+        "GET /api/sources/{sourceId:guid}/stats"
+      ],
+      "mcp": "container_describe",
+      "note": "MCP returns these counts when container_describe is given a source id or name."
+    },
+    {
+      "id": "sources.create",
+      "capability": "Create a source on a connection",
+      "routes": [
+        "POST /api/sources/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "sources.update",
+      "capability": "Edit, enable, disable a source or replace its token",
+      "routes": [
+        "PATCH /api/sources/{sourceId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "sources.sync",
+      "capability": "Sync a source now",
+      "routes": [
+        "POST /api/sources/{sourceId:guid}/sync"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "sources.retryFailed",
+      "capability": "Retry a source's failed documents",
+      "routes": [
+        "POST /api/sources/{sourceId:guid}/retry-failed"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "sources.delete",
+      "capability": "Delete a source",
+      "routes": [
+        "DELETE /api/sources/{sourceId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "sources.scopeSchema",
+      "capability": "Read the scope shape a provider's sources accept",
+      "routes": [
+        "GET /api/v1/sources/scope-schema/{provider}"
+      ],
+      "mcp": "generic",
+      "note": "Each provider's scope kinds, from the typed SourceScope records; the OpenAPI document shows the same scope as a discriminated anyOf."
+    },
+    {
+      "id": "sources.unlocated",
+      "capability": "Report of documents a source couldn't locate",
+      "routes": [
+        "GET /api/sources/{sourceId:guid}/unlocated"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.list",
+      "capability": "List connections",
+      "routes": [
+        "GET /api/v1/connections/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.get",
+      "capability": "Read a connection",
+      "routes": [
+        "GET /api/v1/connections/{connectionId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.create",
+      "capability": "Create a connection (local folder, SFTP, S3, Azure Blob, GitHub, custom)",
+      "routes": [
+        "POST /api/v1/connections/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.update",
+      "capability": "Rename a connection or change its config",
+      "routes": [
+        "PATCH /api/v1/connections/{connectionId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.replaceSecret",
+      "capability": "Replace a connection's secret",
+      "routes": [
+        "PUT /api/v1/connections/{connectionId:guid}/secret"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.test",
+      "capability": "Test a connection",
+      "routes": [
+        "POST /api/v1/connections/{connectionId:guid}/test"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.pause",
+      "capability": "Pause a connection's syncing",
+      "routes": [
+        "POST /api/v1/connections/{connectionId:guid}/pause"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.resume",
+      "capability": "Resume a connection's syncing",
+      "routes": [
+        "POST /api/v1/connections/{connectionId:guid}/resume"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.delete",
+      "capability": "Delete a connection",
+      "routes": [
+        "DELETE /api/v1/connections/{connectionId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.discover",
+      "capability": "Discover what a connection can reach (buckets, accounts, installations, repos)",
+      "routes": [
+        "GET /api/v1/connections/{connectionId:guid}/discover"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "connections.forgetHostKey",
+      "capability": "Forget an SFTP host key",
+      "routes": [
+        "DELETE /api/v1/connections/{connectionId:guid}/host-key"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.list",
+      "capability": "List Atlassian site connections",
+      "routes": [
+        "GET /api/v1/atlassian/sites/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.get",
+      "capability": "Read an Atlassian site connection",
+      "routes": [
+        "GET /api/v1/atlassian/sites/{connectionId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.resolve",
+      "capability": "Resolve an Atlassian site address",
+      "routes": [
+        "POST /api/v1/atlassian/sites/resolve"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.create",
+      "capability": "Create an Atlassian site connection",
+      "routes": [
+        "POST /api/v1/atlassian/sites/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.update",
+      "capability": "Edit an Atlassian site connection",
+      "routes": [
+        "PATCH /api/v1/atlassian/sites/{connectionId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.credentials",
+      "capability": "Replace an Atlassian site's credentials",
+      "routes": [
+        "PUT /api/v1/atlassian/sites/{connectionId:guid}/credentials"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.test",
+      "capability": "Test an Atlassian site connection",
+      "routes": [
+        "POST /api/v1/atlassian/sites/{connectionId:guid}/test"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.pause",
+      "capability": "Pause an Atlassian site",
+      "routes": [
+        "POST /api/v1/atlassian/sites/{connectionId:guid}/pause"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.resume",
+      "capability": "Resume an Atlassian site",
+      "routes": [
+        "POST /api/v1/atlassian/sites/{connectionId:guid}/resume"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.delete",
+      "capability": "Delete an Atlassian site connection",
+      "routes": [
+        "DELETE /api/v1/atlassian/sites/{connectionId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.spaces",
+      "capability": "List an Atlassian site's Confluence spaces",
+      "routes": [
+        "GET /api/v1/atlassian/sites/{connectionId:guid}/spaces"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "atlassian.sites.projects",
+      "capability": "List an Atlassian site's Jira projects",
+      "routes": [
+        "GET /api/v1/atlassian/sites/{connectionId:guid}/projects"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.status",
+      "capability": "List providers and their setup status",
+      "routes": [
+        "GET /api/v1/providers/"
+      ],
+      "mcp": "generic",
+      "note": "Status comes from IProviderSetupReader, which no endpoint calls."
+    },
+    {
+      "id": "providers.aws.access.get",
+      "capability": "Read the stored AWS access credential",
+      "routes": [
+        "GET /api/v1/providers/aws/access"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.aws.access",
+      "capability": "Set up AWS access (IAM Roles Anywhere)",
+      "routes": [
+        "PUT /api/v1/providers/aws/access"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.aws.access.reset",
+      "capability": "Reset AWS access",
+      "routes": [
+        "DELETE /api/v1/providers/aws/access"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.aws.identityCenter",
+      "capability": "Set the AWS IAM Identity Center instance",
+      "routes": [
+        "PUT /api/v1/providers/aws/identity-center"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.aws.identityCenter.reset",
+      "capability": "Reset the AWS IAM Identity Center settings",
+      "routes": [
+        "DELETE /api/v1/providers/aws/identity-center"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.aws.permissions",
+      "capability": "Set up AWS per-user permissions",
+      "routes": [
+        "PUT /api/v1/providers/aws/permissions"
+      ],
+      "mcp": "generic",
+      "note": "Turning enforcement on can't be undone."
+    },
+    {
+      "id": "providers.aws.permissions.reset",
+      "capability": "Reset the AWS SAML application",
+      "routes": [
+        "DELETE /api/v1/providers/aws/permissions"
+      ],
+      "mcp": "generic",
+      "note": "Clears stored sign-in settings; AWS search access can stop."
+    },
+    {
+      "id": "providers.azure.access",
+      "capability": "Set up Azure access",
+      "routes": [
+        "PUT /api/v1/providers/azure/access"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.azure.access.reset",
+      "capability": "Reset Azure access",
+      "routes": [
+        "DELETE /api/v1/providers/azure/access"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.azure.permissions",
+      "capability": "Set up Azure per-user permissions",
+      "routes": [
+        "PUT /api/v1/providers/azure/permissions"
+      ],
+      "mcp": "generic",
+      "note": "Admin consent itself needs a browser."
+    },
+    {
+      "id": "providers.azure.permissions.reset",
+      "capability": "Reset the Azure sign-in application",
+      "routes": [
+        "DELETE /api/v1/providers/azure/permissions"
+      ],
+      "mcp": "generic",
+      "note": "Clears stored sign-in settings; Azure search access can stop."
+    },
+    {
+      "id": "providers.github.createApp",
+      "capability": "Start creating the GitHub App through the manifest flow",
+      "routes": [
+        "POST /api/v1/providers/github/manifest"
+      ],
+      "mcp": null,
+      "mcpOff": "A person signs in to the other system in a browser; the most an agent can do is hand them the link.",
+      "note": "Returns the manifest, GitHub's form address and the providers page link; a browser does the rest."
+    },
+    {
+      "id": "providers.github.createApp.callback",
+      "capability": "Finish creating the GitHub App when GitHub redirects back",
+      "routes": [
+        "GET /api/v1/providers/github/manifest/callback"
+      ],
+      "mcp": null,
+      "mcpOff": "A person signs in to the other system in a browser; the most an agent can do is hand them the link."
+    },
+    {
+      "id": "providers.github.installed",
+      "capability": "Read the GitHub App's installations",
+      "routes": [
+        "GET /api/v1/providers/github/installed"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.github.app.get",
+      "capability": "Read the stored GitHub App",
+      "routes": [
+        "GET /api/v1/providers/github/app"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.github.app",
+      "capability": "Save the GitHub App's values by hand",
+      "routes": [
+        "PUT /api/v1/providers/github/app"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.github.app.remove",
+      "capability": "Remove the GitHub App",
+      "routes": [
+        "DELETE /api/v1/providers/github/app"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.atlassian.linkingApp.get",
+      "capability": "Read the Atlassian linking app",
+      "routes": [
+        "GET /api/v1/atlassian/linking-app/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.atlassian.linkingApp.save",
+      "capability": "Save the Atlassian linking app",
+      "routes": [
+        "PUT /api/v1/atlassian/linking-app/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.atlassian.linkingApp.check",
+      "capability": "Re-check the Atlassian linking app",
+      "routes": [
+        "POST /api/v1/atlassian/linking-app/check"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.atlassian.linkingApp.signIn",
+      "capability": "Turn Atlassian sign-in on or off",
+      "routes": [
+        "PUT /api/v1/atlassian/linking-app/sign-in"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.atlassian.linkingApp.delete",
+      "capability": "Remove the Atlassian linking app",
+      "routes": [
+        "DELETE /api/v1/atlassian/linking-app/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.custom.list",
+      "capability": "List custom providers",
+      "routes": [
+        "GET /api/v1/providers/custom/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.custom.create",
+      "capability": "Create a custom provider",
+      "routes": [
+        "POST /api/v1/providers/custom/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.custom.update",
+      "capability": "Edit a custom provider",
+      "routes": [
+        "PATCH /api/v1/providers/custom/{providerId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.custom.check",
+      "capability": "Check a custom provider's server",
+      "routes": [
+        "POST /api/v1/providers/custom/{providerId:guid}/check"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.custom.linkSecret",
+      "capability": "Replace a custom provider's link secret",
+      "routes": [
+        "PUT /api/v1/providers/custom/{providerId:guid}/link-secret"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "providers.custom.delete",
+      "capability": "Delete a custom provider",
+      "routes": [
+        "DELETE /api/v1/providers/custom/{providerId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "settings.get",
+      "capability": "Read a settings category",
+      "routes": [
+        "GET /api/settings/{category}"
+      ],
+      "mcp": "generic",
+      "note": "The summary and provider categories are rejected; route existence can't show that."
+    },
+    {
+      "id": "settings.update",
+      "capability": "Change a settings category",
+      "routes": [
+        "PUT /api/settings/{category}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "settings.reset",
+      "capability": "Reset a settings category to its defaults",
+      "routes": [
+        "DELETE /api/v1/settings/{category}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "settings.embeddingModels",
+      "capability": "List available embedding models",
+      "routes": [
+        "GET /api/settings/embedding-models"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "settings.testConnection",
+      "capability": "Test a model-provider connection",
+      "routes": [
+        "POST /api/settings/test-connection"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "settings.reindex",
+      "capability": "Re-embed outdated documents",
+      "routes": [
+        "POST /api/settings/reindex"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "settings.reindexStatus",
+      "capability": "Re-embedding queue status",
+      "routes": [
+        "GET /api/settings/reindex/status"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "users.list",
+      "capability": "List users",
+      "routes": [
+        "GET /api/v1/auth/users"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "users.setRoles",
+      "capability": "Change a user's roles",
+      "routes": [
+        "PUT /api/v1/auth/users/{id:guid}/roles"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "users.delete",
+      "capability": "Delete a user",
+      "routes": [
+        "DELETE /api/v1/auth/users/{id:guid}"
+      ],
+      "mcp": "generic",
+      "note": "Also queues custom-link removals."
+    },
+    {
+      "id": "invites.list",
+      "capability": "List invites",
+      "routes": [
+        "GET /api/v1/invites/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "invites.create",
+      "capability": "Invite a user",
+      "routes": [
+        "POST /api/v1/invites/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "invites.revoke",
+      "capability": "Revoke an invite",
+      "routes": [
+        "DELETE /api/v1/invites/{id:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.list",
+      "capability": "List agents",
+      "routes": [
+        "GET /api/v1/agents/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.get",
+      "capability": "Read an agent",
+      "routes": [
+        "GET /api/v1/agents/{id:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.create",
+      "capability": "Create an agent",
+      "routes": [
+        "POST /api/v1/agents/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.setActive",
+      "capability": "Enable or disable an agent",
+      "routes": [
+        "PUT /api/v1/agents/{id:guid}/active"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.delete",
+      "capability": "Delete an agent",
+      "routes": [
+        "DELETE /api/v1/agents/{id:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.keys.list",
+      "capability": "List an agent's keys",
+      "routes": [
+        "GET /api/v1/agents/{id:guid}/keys"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.keys.create",
+      "capability": "Create an agent key",
+      "routes": [
+        "POST /api/v1/agents/{id:guid}/keys"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "agents.keys.revoke",
+      "capability": "Revoke an agent key",
+      "routes": [
+        "DELETE /api/v1/agents/{id:guid}/keys/{keyId:guid}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "pats.list",
+      "capability": "List my personal access tokens",
+      "routes": [
+        "GET /api/v1/auth/pats"
+      ],
+      "mcp": null,
+      "mcpOff": "Mints a credential for the caller's own account; an agent should never create or see its user's tokens."
+    },
+    {
+      "id": "pats.create",
+      "capability": "Create a personal access token",
+      "routes": [
+        "POST /api/v1/auth/pats"
+      ],
+      "mcp": null,
+      "mcpOff": "Mints a credential for the caller's own account; an agent should never create or see its user's tokens."
+    },
+    {
+      "id": "pats.revoke",
+      "capability": "Revoke a personal access token",
+      "routes": [
+        "DELETE /api/v1/auth/pats/{id:guid}"
+      ],
+      "mcp": null,
+      "mcpOff": "Mints a credential for the caller's own account; an agent should never create or see its user's tokens."
+    },
+    {
+      "id": "account.me",
+      "capability": "Read my account and roles",
+      "routes": [
+        "GET /api/v1/auth/me"
+      ],
+      "mcp": null,
+      "mcpOff": "An MCP client already knows who it signed in as."
+    },
+    {
+      "id": "audit.list",
+      "capability": "Read the audit log",
+      "routes": [
+        "GET /api/v1/audit/"
+      ],
+      "mcp": "generic",
+      "note": "Audit entries are written, but nothing reads them."
+    },
+    {
+      "id": "oauthClients.list",
+      "capability": "List OAuth clients",
+      "routes": [
+        "GET /api/v1/oauth-clients/"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "oauthClients.revoke",
+      "capability": "Revoke an OAuth client",
+      "routes": [
+        "DELETE /api/v1/oauth-clients/{clientId}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "server.info",
+      "capability": "Read the server's version and features",
+      "routes": [
+        "GET /api/v1/info"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "links.connect",
+      "capability": "Link my AWS, Azure, GitHub, Atlassian or custom-provider account",
+      "routes": [
+        "GET /api/v1/auth/cloud/atlassian/callback",
+        "GET /api/v1/auth/cloud/atlassian/confirm",
+        "GET /api/v1/auth/cloud/atlassian/connect",
+        "GET /api/v1/auth/cloud/aws/confirm",
+        "GET /api/v1/auth/cloud/aws/connect",
+        "GET /api/v1/auth/cloud/azure/callback",
+        "GET /api/v1/auth/cloud/azure/confirm",
+        "GET /api/v1/auth/cloud/azure/connect",
+        "GET /api/v1/auth/cloud/github/callback",
+        "GET /api/v1/auth/cloud/github/confirm",
+        "GET /api/v1/auth/cloud/github/connect",
+        "GET /api/v1/auth/custom/{providerId:guid}/connect",
+        "GET /api/v1/auth/custom/{providerId:guid}/return",
+        "POST /api/v1/auth/cloud/aws/acs"
+      ],
+      "mcp": null,
+      "mcpOff": "A person signs in to the other system in a browser; the most an agent can do is hand them the link."
+    },
+    {
+      "id": "links.list",
+      "capability": "See which accounts I've linked",
+      "routes": [
+        "GET /api/v1/auth/links"
+      ],
+      "mcp": "generic",
+      "note": "Without this, an agent can't explain why search hides a document."
+    },
+    {
+      "id": "links.unlink",
+      "capability": "Unlink an account",
+      "routes": [
+        "DELETE /api/v1/auth/cloud/{provider}",
+        "DELETE /api/v1/auth/custom/{providerId:guid}/"
+      ],
+      "mcp": "generic"
+    }
+  ],
+  "plumbing": {
+    "POST /api/v1/auth/token": "Signs a person in and returns a token.",
+    "POST /api/v1/auth/token/refresh": "Refreshes a sign-in token.",
+    "GET /api/v1/identity/confirmEmail": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "GET /api/v1/identity/manage/info": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/forgotPassword": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/login": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/manage/2fa": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/manage/info": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/refresh": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/register": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/resendConfirmationEmail": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "POST /api/v1/identity/resetPassword": "ASP.NET Identity's built-in sign-in API (MapIdentityApi), not a Connapse capability.",
+    "* /_blazor": "Blazor Server's circuit.",
+    "* /_blazor/disconnect/": "Blazor Server's circuit.",
+    "* /_blazor/initializers/": "Blazor Server's circuit.",
+    "* /_blazor/negotiate": "Blazor Server's circuit.",
+    "GET /_framework/opaque-redirect": "Blazor's redirect helper.",
+    "* /hubs/ingestion": "The UI's live ingestion feed; batches.status is the capability.",
+    "* /hubs/ingestion/negotiate": "The UI's live ingestion feed; batches.status is the capability.",
+    "POST /mcp/": "The MCP transport itself; its tools are rows.",
+    "GET /.well-known/oauth-authorization-server": "OAuth discovery metadata.",
+    "GET /.well-known/oauth-protected-resource": "OAuth discovery metadata.",
+    "GET /.well-known/oauth-protected-resource/{**resourcePath}": "OAuth discovery metadata.",
+    "POST /oauth/register": "OAuth dynamic client registration (RFC 7591): how an MCP client signs itself up. Listing and revoking clients are rows.",
+    "POST /oauth/token": "The OAuth token endpoint.",
+    "GET /oauth/clients/cli.json": "The CLI's published OAuth client metadata.",
+    "GET /health": "Liveness probe.",
+    "GET,HEAD {**path:file}": "Static file fallback."
+  }
+}

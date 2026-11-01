@@ -92,6 +92,14 @@ public class JwtTokenService(
             return null;
         }
 
+        // A client's refresh token stored before its scope was can't say what the client was granted, so it is
+        // refused and the client signs in again (#934).
+        if (existingToken.ClientId is not null && existingToken.Scope is null)
+        {
+            logger.LogWarning("Refused a refresh token for user {UserId} that holds no granted scope", existingToken.UserId);
+            return null;
+        }
+
         // Revoke old token
         existingToken.RevokedAt = DateTime.UtcNow;
 
@@ -122,6 +130,13 @@ public class JwtTokenService(
             claims.Add(new Claim(ClaimTypes.Role, role));
         }
 
+        // An OAuth client's token keeps the client and exactly the scopes it was granted; without them a
+        // refreshed token reads as a sign-in, whose roles imply every scope they allow (#934).
+        if (existingToken.ClientId is { } clientId)
+            claims.Add(new Claim("client_id", clientId));
+        foreach (var scope in (existingToken.Scope ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            claims.Add(new Claim("scope", scope));
+
         // Carry the RFC 8707 resource binding through the refresh chain so the
         // new access token keeps the same `aud` the MCP client originally asked
         // for. Without this, refreshed tokens would fall back to the static
@@ -136,6 +151,7 @@ public class JwtTokenService(
             TokenHash = newRefreshTokenHash,
             ClientId = existingToken.ClientId,
             Resource = existingToken.Resource,
+            Scope = existingToken.Scope,
             ExpiresAt = DateTime.UtcNow.AddDays(settings.RefreshTokenLifetimeDays),
             CreatedAt = DateTime.UtcNow,
         };

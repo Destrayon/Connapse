@@ -49,6 +49,7 @@ public class SourceEditConfluenceTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<IConnectorFactory>());
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
     }
 
     public void Dispose() => ctx.Dispose();
@@ -169,7 +170,7 @@ public class SourceEditConfluenceTests : IDisposable
 
         var guide = cut.Find("#atlassian-setup-guide");
         guide.GetAttribute("href").Should().Be(
-            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
+            "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#4-confluence-sources");
         guide.PreviousElementSibling!.TagName.Should().Be("H1", "the link sits in the page's title row");
 
         var help = cut.Find("#confluence-attachments-help");
@@ -178,7 +179,7 @@ public class SourceEditConfluenceTests : IDisposable
         text.Should().NotContain("Comments and blog posts");
         // Only the specific troubleshooting link stays inline.
         help.QuerySelectorAll("a").Select(a => a.GetAttribute("href"))
-            .Should().Equal("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+            .Should().Equal("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope");
     }
 
     [Fact]

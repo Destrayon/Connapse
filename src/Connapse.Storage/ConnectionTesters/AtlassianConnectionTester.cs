@@ -133,11 +133,11 @@ public static class AtlassianSiteScopes
 
 /// <summary>
 /// The troubleshooting entries of the Atlassian setup guide that test failures link to. Each value
-/// is the anchor of a heading under "Troubleshooting" in <c>docs/atlassian-setup.md</c>.
+/// is the anchor of a heading under "Troubleshooting" in <c>docs/sources/atlassian-setup.md</c>.
 /// </summary>
 public static class AtlassianSiteTroubleshooting
 {
-    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md";
+    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md";
 
     public const string SiteNotFound = "site-not-found";
     public const string CredentialsRejected = "client-id-or-secret-rejected";
@@ -224,6 +224,12 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     public const string JiraContentStep = "jira-content";
     public const string JiraAdminStep = "jira-admin";
     public const string JiraMembershipStep = "jira-membership";
+
+    /// <summary>
+    /// Set in <c>Details</c> when Atlassian didn't answer at all (a rate limit, a timeout or no connection), so the
+    /// failure says nothing about the credential.
+    /// </summary>
+    public const string UnansweredDetail = "unanswered";
 
     /// <summary>Every step in the order the test runs them.</summary>
     public static IReadOnlyList<string> Steps { get; } =
@@ -363,7 +369,7 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
         }
         catch (Exception ex) when (Unanswered(ex, ct) is { } failure)
         {
-            return run.Fail(failure.Message, failure.Troubleshoot, failure.Detail);
+            return run.FailUnanswered(failure.Message, failure.Troubleshoot, failure.Detail);
         }
     }
 
@@ -412,6 +418,14 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
 
         public ConnectionTestResult Fail(string message, string? troubleshoot = null, string? detail = null) =>
             ConnectionTestResult.CreateFailure(message, Details(Step, StepMs, troubleshoot, detail), _total.Elapsed);
+
+        /// <summary>A failure because Atlassian didn't answer: <see cref="UnansweredDetail"/>.</summary>
+        public ConnectionTestResult FailUnanswered(string message, string? troubleshoot, string? detail)
+        {
+            var failed = Fail(message, troubleshoot, detail);
+            failed.Details![UnansweredDetail] = true;
+            return failed;
+        }
 
         /// <summary>A product's failure, at the step and with the duration that product recorded.</summary>
         public ConnectionTestResult Fail(ProductProbeResult product) =>

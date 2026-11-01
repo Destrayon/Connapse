@@ -12,6 +12,7 @@ using NSubstitute;
 namespace Connapse.Web.Tests.Components;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AtlassianProviderCardTests : IDisposable
 {
     private const string Secret = "super-secret-value";

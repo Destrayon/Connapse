@@ -1,7 +1,7 @@
 ﻿namespace Connapse.Core.Interfaces;
 
 /// <summary>
-/// The only writer of a document's ingestion and summary status.
+/// The only writer of a document's ingestion status.
 /// </summary>
 /// <remarks>
 /// Every transition is one conditional UPDATE: it applies only if the row is still in one of the
@@ -47,7 +47,8 @@ public interface IDocumentLifecycle
     /// </summary>
     Task RecordJobAsync(Guid documentId, int generation, string jobId, CancellationToken ct = default);
 
-    Task SetSummaryStatusAsync(Guid documentId, SummaryStatus status, CancellationToken ct = default);
+    /// <summary>The document's current generation, or null when it no longer exists.</summary>
+    Task<int?> CurrentGenerationAsync(Guid documentId, CancellationToken ct = default);
 
     /// <summary>
     /// Pushes the document's current status to UI clients. For a transition committed inside a

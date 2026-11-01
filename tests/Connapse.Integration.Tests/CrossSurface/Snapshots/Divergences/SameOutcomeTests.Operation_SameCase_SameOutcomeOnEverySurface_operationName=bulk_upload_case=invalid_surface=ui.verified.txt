@@ -1,0 +1,18 @@
+﻿{
+  Reason: absent: the page uploads from browser JavaScript straight to the REST route,
+  Reference: {
+    Result: partial:1/2 failed=[Unsupported file extension. Supported types: .csv, .docx, .eml, .epub, .htm, .html, .json, .log, .markdown, .md, .msg, .pdf, .pptx, .txt, .xml, .yaml, .yml],
+    State: [
+      document ok.txt content=A155A2672E4A
+    ],
+    Audit: [
+      doc.uploaded document {id1} actor={admin} details={"Via": "{via}", "FileName": "ok.txt", "ContainerId": "{id2}"}
+    ],
+    Jobs: [
+      IIngestionJobs.IngestAsync("{id1}", {"DocumentId":"{id1}","FileName":"ok.txt","ContentType":"text/plain","ContainerId":"{id2}","Path":"/ok.txt","Metadata":{"OriginalFileName":"ok.txt","UploadedAt":"{time}","IngestedVia":"{via}"},"Generation":2}, null)
+    ]
+  },
+  Surface: {
+    Result: absent: the page uploads from browser JavaScript straight to the REST route
+  }
+}

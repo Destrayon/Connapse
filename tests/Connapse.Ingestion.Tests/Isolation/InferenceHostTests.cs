@@ -11,6 +11,7 @@ namespace Connapse.Ingestion.Tests.Isolation;
 
 // #680: models run in the shared inference host must read pixels exactly as they do in process.
 [Trait("Category", "Integration")]
+[Trait("Size", "Large")]
 [Collection(ChildHostCollection.Name)]
 public sealed class InferenceHostTests : IDisposable
 {
@@ -23,6 +24,8 @@ public sealed class InferenceHostTests : IDisposable
 
     private static PdfImage Render(byte[] pdf, RenderOptions options)
     {
+        if (!Connapse.Ingestion.Parsers.Pdfium.IsSupported)
+            throw new PlatformNotSupportedException(Connapse.Ingestion.Parsers.Pdfium.Unsupported);
         using SKBitmap bitmap = Conversion.ToImage(pdf, 0, options: options);
         return PdfImage.From(bitmap);
     }

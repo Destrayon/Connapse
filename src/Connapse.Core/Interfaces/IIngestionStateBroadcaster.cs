@@ -12,5 +12,5 @@ public interface IIngestionStateBroadcaster
     /// fire-and-forget — failures must not break the caller.
     /// </summary>
     Task BroadcastStatusChangedAsync(
-        string documentId, DocumentStatus status, SummaryStatus summaryStatus, CancellationToken ct = default);
+        string documentId, DocumentStatus status, CancellationToken ct = default);
 }

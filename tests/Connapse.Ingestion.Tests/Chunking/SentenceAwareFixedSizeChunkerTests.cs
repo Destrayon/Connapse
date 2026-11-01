@@ -7,6 +7,7 @@ using FluentAssertions;
 namespace Connapse.Ingestion.Tests.Chunking;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SentenceAwareFixedSizeChunkerTests
 {
     private readonly SentenceAwareFixedSizeChunker _chunker;

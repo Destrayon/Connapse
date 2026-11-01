@@ -11,6 +11,7 @@ namespace Connapse.CustomSource.Example.Tests;
 /// so each test asserts the specific check fails.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class ConformanceNegativeTests
 {
     private const string Token = "broken-token";

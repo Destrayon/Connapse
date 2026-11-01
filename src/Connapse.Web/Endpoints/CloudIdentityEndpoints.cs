@@ -1,10 +1,14 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using Connapse.Application;
+using Connapse.Application.Links;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
 using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Web.Problems;
 using ITfoxtec.Identity.Saml2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -105,7 +109,10 @@ public static class CloudIdentityEndpoints
             binding.Bind(authnRequest);
 
             return Results.Redirect(binding.RedirectLocation.OriginalString);
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // POST /api/v1/auth/cloud/aws/acs — where IAM Identity Center posts the assertion.
         //
@@ -188,7 +195,9 @@ public static class CloudIdentityEndpoints
             });
 
             return Results.Redirect("/api/v1/auth/cloud/aws/confirm");
-        }).AllowAnonymous();
+        }).AllowAnonymous()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
 
         // GET /api/v1/auth/cloud/aws/confirm — where the link is actually saved.
         //
@@ -239,7 +248,9 @@ public static class CloudIdentityEndpoints
                 userId.Value, link.DirectoryUserId, link.DirectoryUserName, link.Email, ct);
 
             return Results.Redirect("/profile/integrations");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // --- Azure (Entra user identity link) ---
         //
@@ -282,7 +293,9 @@ public static class CloudIdentityEndpoints
             pending.Add(new AzurePendingSignIn(state, verifier, nonce, userId.Value, DateTime.UtcNow.AddMinutes(10), StartedAtUtc: DateTime.UtcNow));
 
             return Results.Redirect(AzureAuthorizationUrl.Build(azureAd, state, nonce, challenge));
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // GET /api/v1/auth/cloud/azure/callback — where Entra redirects back with the code.
         //
@@ -347,7 +360,8 @@ public static class CloudIdentityEndpoints
                 logger.LogWarning(ex, "Entra sign-in callback failed");
                 return Results.Redirect("/profile/integrations?error=azure_link_failed");
             }
-        }).AllowAnonymous();
+        }).AllowAnonymous()
+        .Produces(StatusCodes.Status302Found);
 
         // GET /api/v1/auth/cloud/azure/confirm — where the link is actually saved.
         //
@@ -396,7 +410,9 @@ public static class CloudIdentityEndpoints
             await linkService.StoreAsync(userId.Value, link.ObjectId, link.TenantId, link.DisplayName, ct);
 
             return Results.Redirect("/profile/integrations");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // ── GitHub ─────────────────────────────────────────────────────────
         //
@@ -424,7 +440,9 @@ public static class CloudIdentityEndpoints
             flow.AddSignIn(new GitHubPendingSignIn(state, verifier, userId.Value,
                 DateTime.UtcNow.Add(GitHubLinkFlow.SignInLifetime), DateTime.UtcNow));
             return Results.Redirect(url);
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // GET /api/v1/auth/cloud/github/callback — GitHub's redirect with the sign-in code. Saves nothing.
         group.MapGet("/github/callback", async (
@@ -474,7 +492,8 @@ public static class CloudIdentityEndpoints
                 logger.LogWarning(ex, "GitHub sign-in callback failed");
                 return Results.Redirect("/profile/integrations?error=github_link_failed");
             }
-        }).AllowAnonymous();
+        }).AllowAnonymous()
+        .Produces(StatusCodes.Status302Found);
 
         // GET /api/v1/auth/cloud/github/confirm — where the link is saved, for the user who started it only.
         group.MapGet("/github/confirm", async (
@@ -520,7 +539,9 @@ public static class CloudIdentityEndpoints
             await audit.LogAsync("identity.github.linked", "user", userId.Value.ToString(),
                 new { link.GitHubUserId, link.Login }, ct);
             return Results.Redirect("/profile/integrations?linked=github");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // ── Atlassian ──────────────────────────────────────────────────────
         //
@@ -576,7 +597,9 @@ public static class CloudIdentityEndpoints
             flow.AddSignIn(new AtlassianPendingSignIn(state, verifier, userId.Value,
                 startedAt.Add(AtlassianLinkFlow.SignInLifetime), startedAt, revocationGeneration, attempt));
             return Results.Redirect(url);
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // GET /api/v1/auth/cloud/atlassian/callback — Atlassian's redirect with the sign-in code. Saves nothing.
         group.MapGet("/atlassian/callback", async (
@@ -647,7 +670,8 @@ public static class CloudIdentityEndpoints
                 logger.LogWarning(ex, "Atlassian sign-in callback failed");
                 return await FailAsync("atlassian_link_failed");
             }
-        }).AllowAnonymous();
+        }).AllowAnonymous()
+        .Produces(StatusCodes.Status302Found);
 
         // GET /api/v1/auth/cloud/atlassian/confirm — where the link is saved, for the user who started it only.
         group.MapGet("/atlassian/confirm", async (
@@ -692,106 +716,27 @@ public static class CloudIdentityEndpoints
 
             await RecordAtlassianLinkAsync(audit, credentials, logger, userId.Value, link, ct);
             return Results.Redirect("/profile/integrations?linked=atlassian");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
+        // DELETE /api/v1/auth/cloud/{provider}: the same links.unlink the profile page runs (#866).
         group.MapDelete("/{provider}", async (
             string provider,
             HttpContext httpContext,
-            [FromServices] IAwsIdentityLinkService awsLinks,
-            [FromServices] IAzureIdentityLinkService azureLinks,
-            [FromServices] GitHubIdentityLinkStore gitHubLinks,
-            [FromServices] GitHubLinkFlow gitHubFlow,
-            [FromServices] AtlassianIdentityLinkStore atlassianLinks,
-            [FromServices] AtlassianLinkFlow atlassianFlow,
-            [FromServices] IAuditLogger audit,
-            [FromServices] IConnectorScopeCache scopeCache,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IConnectionStore connectionStore,
+            [FromServices] UnlinkAccount unlink,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null) return Results.Unauthorized();
-
-            if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider)
-                || cloudProvider is not (CloudProvider.AWS or CloudProvider.Azure or CloudProvider.GitHub or CloudProvider.Atlassian))
-            {
-                return Results.BadRequest(new
-                {
-                    error = "invalid_provider",
-                    message = $"Unknown provider: {provider}. Valid values: AWS, Azure, GitHub, Atlassian."
-                });
-            }
-
-            if (cloudProvider == CloudProvider.Atlassian)
-            {
-                // Refused first, so a sign-in racing the delete cannot put the link back.
-                atlassianFlow.RevokeFor(userId.Value);
-                bool atlassianDeleted = await atlassianLinks.DeleteAsync(userId.Value, ct);
-                if (atlassianDeleted)
-                    await audit.LogAsync("identity.atlassian.unlinked", "user", userId.Value.ToString(), null, ct);
-                return atlassianDeleted ? Results.NoContent() : Results.NotFound();
-            }
-
-            if (cloudProvider == CloudProvider.GitHub)
-            {
-                // Refused first, so a sign-in racing the delete cannot put the link back.
-                gitHubFlow.RevokeFor(userId.Value);
-                bool gitHubDeleted = await gitHubLinks.DeleteAsync(userId.Value, ct);
-                if (gitHubDeleted)
-                    await audit.LogAsync("identity.github.unlinked", "user", userId.Value.ToString(), null, ct);
-                return gitHubDeleted ? Results.NoContent() : Results.NotFound();
-            }
-
-            if (cloudProvider == CloudProvider.Azure)
-            {
-                // Azure permissions are resolved live per search hit rather than cached against
-                // the link, so removing the link is the whole revocation.
-                bool azureDeleted = await azureLinks.DisconnectAsync(userId.Value, ct);
-                return azureDeleted ? Results.NoContent() : Results.NotFound();
-            }
-
-            // AWS links live in their own store, the one the integrations page reads and
-            // deletes through; the cloud-identity table this route used to consult never holds
-            // a SAML link, so deleting there answered 404 and left the link in force.
-            var result = await awsLinks.DisconnectAsync(userId.Value, ct);
-            if (result.LinkChangedDuringDisconnect)
-            {
-                return Results.Conflict(new
-                {
-                    error = "link_changed",
-                    message = "The AWS identity link changed while disconnecting. Try again."
-                });
-            }
-
-            bool deleted = result.Deleted;
-
-            // Evict cached scope entries for this user + provider
-            if (deleted)
-            {
-                // Sources, not containers (#353). The scope cache is keyed on the thing whose
-                // access was cached, and that is now a source: containers are managed storage
-                // and were never cloud-scoped. A source's provider lives on its connection,
-                // so the match is made there.
-                try
-                {
-                    var connections = await connectionStore.ListAsync(take: int.MaxValue, ct: ct);
-                    var matching = connections
-                        .Where(c => c.Provider == ConnectionProvider.S3)
-                        .Select(c => c.Id)
-                        .ToHashSet();
-
-                    if (matching.Count > 0)
-                    {
-                        var sources = await sourceStore.ListAsync(take: int.MaxValue, ct: ct);
-                        foreach (var s in sources.Where(s => s.ConnectionId is Guid cid && matching.Contains(cid)))
-                            scopeCache.Invalidate(userId.Value, s.Id);
-                    }
-                }
-                catch { /* Best-effort eviction — cache will expire naturally */ }
-            }
-
-            return deleted ? Results.NoContent() : Results.NotFound();
-        }).RequireAuthorization();
+            var unlinked = await unlink.RunAsync(new OperationContext(httpContext.User, OperationSurface.Rest), new UnlinkAccountRequest(provider), ct);
+            return unlinked.Succeeded ? Results.NoContent() : OperationProblems.Result(unlinked);
+        }).RequireAuthorization(Policies.Person)
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status502BadGateway);
 
         return app;
     }
@@ -848,7 +793,7 @@ public static class CloudIdentityEndpoints
     /// App's manifest registered, so GitHub accepts it as a redirect.
     /// </summary>
     private static string GitHubCallbackUrl(HttpContext http) =>
-        $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{Connapse.Web.Services.GitHubAppManifest.UserCallbackPath}";
+        $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{Connapse.Storage.Connectors.GitHub.GitHubAppManifest.UserCallbackPath}";
 
     internal static string AtlassianCallbackUrl(HttpContext http) =>
         $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{AtlassianCallbackPath}";

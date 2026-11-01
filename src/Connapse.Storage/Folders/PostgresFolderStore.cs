@@ -10,9 +10,15 @@ namespace Connapse.Storage.Folders;
 
 public class PostgresFolderStore(
     IDbContextFactory<KnowledgeDbContext> factory,
-    IContainerStore containerStore,
+    IDocumentStore documents,
+    IManagedStorageProvider storage,
     ILogger<PostgresFolderStore> logger) : IFolderStore
 {
+    private const int StoredFileDeleteAttempts = 3;
+
+    /// <summary>How long a removal saved with a folder delete waits for the delete's own attempt before the job may take it.</summary>
+    public static readonly TimeSpan InlineRemovalGrace = TimeSpan.FromMinutes(5);
+
     public async Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
@@ -97,14 +103,46 @@ public class PostgresFolderStore(
             new Folder(e.Id.ToString(), e.ContainerId.ToString(), e.Path, e.CreatedAt)).ToList();
     }
 
+    public async Task<Folder> EnsureAsync(Guid containerId, string path, CancellationToken ct = default)
+    {
+        var normalizedPath = PathUtilities.NormalizeFolderPath(path);
+        var segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        // ON CONFLICT DO NOTHING, so two uploads creating the same folder at once both get it. A folder delete may
+        // remove it before it is read back, so this tries again rather than hand back a folder that is gone.
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            for (int i = 1; i <= segments.Length; i++)
+            {
+                string ancestor = "/" + string.Join("/", segments.Take(i)) + "/";
+                await context.Database.ExecuteSqlAsync(
+                    $"INSERT INTO folders (id, container_id, path, created_at) VALUES (gen_random_uuid(), {containerId}, {ancestor}, now()) ON CONFLICT (container_id, path) DO NOTHING",
+                    ct);
+            }
+
+            var entity = await context.Folders.AsNoTracking()
+                .FirstOrDefaultAsync(f => f.ContainerId == containerId && f.Path == normalizedPath, ct);
+            if (entity is not null)
+                return new Folder(entity.Id.ToString(), entity.ContainerId.ToString(), entity.Path, entity.CreatedAt);
+        }
+
+        throw new InvalidOperationException($"Folder '{normalizedPath}' kept being deleted while it was being created.");
+    }
+
     public async Task<bool> DeleteAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
 
         await using var context = await factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
+        // Locking the folders first is what keeps an upload whole: one storing a document into any of them holds
+        // FOR KEY SHARE until it has, so this waits for it and the documents read below include it; one that comes
+        // after finds its folder gone and removes its own stored file.
         var foldersToDelete = await context.Folders
-            .Where(f => f.ContainerId == containerId && f.Path.StartsWith(normalizedPath))
+            .FromSql($"SELECT * FROM folders WHERE container_id = {containerId} AND starts_with(path, {normalizedPath}) FOR UPDATE")
             .ToListAsync(ct);
 
         if (foldersToDelete.Count == 0)
@@ -113,8 +151,6 @@ public class PostgresFolderStore(
         var documentsToDelete = await context.Documents
             .Where(d => d.ContainerId == containerId && d.Path.StartsWith(normalizedPath))
             .ToListAsync(ct);
-
-        bool anyDeletedHadSummary = documentsToDelete.Any(d => !string.IsNullOrEmpty(d.Summary));
 
         if (documentsToDelete.Count > 0)
         {
@@ -125,20 +161,110 @@ public class PostgresFolderStore(
         }
 
         context.Folders.RemoveRange(foldersToDelete);
-        await context.SaveChangesAsync(ct);
 
-        // If any cascade-deleted doc contributed to the container summary, mark stale so the
-        // next sweep tick triggers a re-rollup. Same reason as PostgresDocumentStore.DeleteAsync
-        // (pure deletes don't otherwise show up in the sweep's "newer doc timestamp" query).
-        if (anyDeletedHadSummary)
+        // Saved with the delete, so a removal that keeps failing or that a crash cuts off is still owed, and
+        // StoredFileRemovalJob retries it (CON-100). Not due until the removal below has had its chance.
+        DateTime now = DateTime.UtcNow;
+        List<StoredFileRemovalEntity> removals = [.. documentsToDelete.Select(d => new StoredFileRemovalEntity
         {
-            await containerStore.MarkSummaryStaleAsync(containerId, ct);
-        }
+            Id = Guid.NewGuid(),
+            ContainerId = containerId,
+            Path = d.Path,
+            CreatedAt = now,
+            NextAttemptAt = now + InlineRemovalGrace,
+        })];
+        context.StoredFileRemovals.AddRange(removals);
+
+        await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(CancellationToken.None);
+
+        // Stored files go only once the delete is saved, so a delete that fails before then leaves every file its
+        // records point to (CON-94). Past the commit the delete isn't cancelled, since stopping would leave files
+        // nothing points to.
+        await DeleteStoredFilesAsync(containerId, removals);
 
         logger.LogInformation("Deleted folder {Path} and {SubCount} sub-folders in container {ContainerId}",
             normalizedPath, foldersToDelete.Count - 1, containerId);
 
         return true;
+    }
+
+    private async Task DeleteStoredFilesAsync(Guid containerId, IReadOnlyCollection<StoredFileRemovalEntity> removals)
+    {
+        if (removals.Count == 0)
+            return;
+
+        IConnector connector;
+        try
+        {
+            connector = storage.CreateConnector(containerId.ToString());
+        }
+        catch (Exception ex)
+        {
+            // The delete is already saved, so it isn't reported as failed.
+            logger.LogError(ex, "Could not reach storage to remove {Count} files in container {ContainerId} after their folder was deleted; they will be retried",
+                removals.Count, containerId);
+            return;
+        }
+
+        try
+        {
+            if (connector is not IWritableConnector writable)
+                return;
+
+            foreach (StoredFileRemovalEntity removal in removals)
+            {
+                if (await DeleteStoredFileAsync(containerId, writable, removal.Path))
+                    await CompleteRemovalAsync(removal.Id);
+            }
+        }
+        finally
+        {
+            (connector as IDisposable)?.Dispose();
+        }
+    }
+
+    private async Task<bool> DeleteStoredFileAsync(Guid containerId, IWritableConnector writable, string path)
+    {
+        // The folders are no longer locked, so an upload may already have written a new file to the same path. The
+        // file is removed under that path's lock, and only while no record points to it, so the newer upload's stays.
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await documents.RemoveUnrecordedFileAsync(containerId, path,
+                    token => writable.DeleteFileAsync(path, token), CancellationToken.None);
+                return true;
+            }
+            catch (Exception ex) when (attempt < StoredFileDeleteAttempts)
+            {
+                logger.LogWarning(ex, "Could not remove the stored file {Path} in container {ContainerId} (attempt {Attempt}), trying again",
+                    LogSanitizer.Sanitize(path), containerId, attempt);
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt));
+            }
+            catch (Exception ex)
+            {
+                // Its record is already gone, so nothing points to the file; it is logged rather than failing a delete
+                // that has been saved.
+                logger.LogError(ex, "Could not remove the stored file {Path} in container {ContainerId} after its folder was deleted; it will be retried",
+                    LogSanitizer.Sanitize(path), containerId);
+                return false;
+            }
+        }
+    }
+
+    private async Task CompleteRemovalAsync(Guid removalId)
+    {
+        try
+        {
+            await using var context = await factory.CreateDbContextAsync(CancellationToken.None);
+            await context.StoredFileRemovals.Where(r => r.Id == removalId).ExecuteDeleteAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // The file is gone; the job finds nothing to remove and drops the entry.
+            logger.LogWarning(ex, "Could not mark stored-file removal {RemovalId} done", removalId);
+        }
     }
 
     public async Task<bool> ExistsAsync(Guid containerId, string path, CancellationToken ct = default)

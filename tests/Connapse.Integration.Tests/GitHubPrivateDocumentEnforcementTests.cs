@@ -38,15 +38,25 @@ public class GitHubPrivateDocumentEnforcementTests(SharedWebAppFixture fixture)
         {
             var document = new DocumentEntity
             {
-                Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
-                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
-                CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             };
             db.Documents.Add(document);
             db.Chunks.Add(new ChunkEntity
             {
-                Id = Guid.NewGuid(), DocumentId = document.Id, OwnerId = container.Id,
-                Content = $"the {Term} appears here", ChunkIndex = 0, Metadata = [],
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
             });
         }
 
