@@ -1016,6 +1016,51 @@
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"
+    },
+    "code_find_symbol": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "code_references": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "code_impact": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "code_repo_map": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "memory_remember": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
+    "memory_correct": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
+    "memory_forget": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "destructive"
+    },
+    "memory_recall": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "memory_timeline": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
     }
   }
 }

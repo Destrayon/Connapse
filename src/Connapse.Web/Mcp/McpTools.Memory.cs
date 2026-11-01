@@ -28,7 +28,7 @@ public partial class McpTools
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    [McpServerTool(Name = "memory_remember"),
+    [McpServerTool(Name = "memory_remember", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Store one fact in a container's memory: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them, and a fact citing none only to you. When a value you stored before has changed, call `memory_correct` instead.")]
     public static async Task<string> MemoryRemember(
@@ -56,7 +56,7 @@ public partial class McpTools
             : Refused(written);
     }
 
-    [McpServerTool(Name = "memory_correct"),
+    [McpServerTool(Name = "memory_correct", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Replace a fact and keep the old one in history. kind=\"changed\": the world changed, so the old fact ends on `validFrom` and the new value starts there (validFrom required). kind=\"wrong\": the old fact was never right, so it is marked superseded and the new value takes its dates; a date you pass replaces the old one, except one where another version of the fact starts or ends. Subject and attribute default to the old fact's.")]
     public static async Task<string> MemoryCorrect(

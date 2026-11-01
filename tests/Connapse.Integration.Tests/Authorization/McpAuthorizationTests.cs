@@ -80,6 +80,9 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             ["bulk_delete"] = new() { ["containerId"] = missing, ["fileIds"] = $"[\"{Guid.NewGuid()}\"]" },
             ["bulk_upload"] = new() { ["containerId"] = missing, ["files"] = "[{\"filename\":\"probe.txt\",\"content\":\"probe\"}]" },
             [McpApiTools.WriteName] = new() { ["operation"] = missing },
+            ["memory_remember"] = new() { ["containerId"] = missing, ["subject"] = "probe", ["attribute"] = "probe", ["value"] = "probe" },
+            ["memory_correct"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString(), ["value"] = "probe", ["kind"] = "wrong" },
+            ["memory_forget"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString() },
         };
 
         var hidden = Tools.Keys.Where(t => !Visible(AuthzPrincipal.AgentRead, t)).Order().ToList();
@@ -125,6 +128,9 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             string first = await UploadAsync(http, full, "first.txt");
             string second = await UploadAsync(http, full, "second.txt");
             string third = await UploadAsync(http, full, "third.txt", "/probe");
+            var remembered = await agent.CallToolAsync("memory_remember",
+                new Dictionary<string, object?> { ["containerId"] = full, ["subject"] = "probe", ["attribute"] = "kept", ["value"] = "yes" });
+            string fact = JsonDocument.Parse(Text(remembered)).RootElement.GetProperty("remembered").GetProperty("id").GetString()!;
 
             (string Tool, Dictionary<string, object?> Arguments, Func<Task<bool>> Unchanged)[] cases =
             [
@@ -136,6 +142,8 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{second}")).IsSuccessStatusCode),
                 (McpApiTools.WriteName, new() { ["operation"] = "folders.delete", ["parameters"] = new Dictionary<string, object?> { ["containerId"] = full, ["path"] = "/probe", ["cascade"] = true } },
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{third}")).IsSuccessStatusCode),
+                ("memory_forget", new() { ["containerId"] = full, ["factId"] = fact },
+                    async () => Text(await agent.CallToolAsync("memory_recall", new Dictionary<string, object?> { ["containerId"] = full, ["subject"] = "probe" })).Contains(fact)),
             ];
             Tools.Where(t => t.Value.Risk == "destructive").Select(t => t.Key)
                 .Should().BeEquivalentTo(cases.Select(c => c.Tool), "each destructive tool needs a case here");
@@ -144,7 +152,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             foreach (var (tool, arguments, unchanged) in cases)
             {
                 var result = await agent.CallToolAsync(tool, arguments);
-                string text = string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+                string text = Text(result);
                 // Until #782 defines the approval result, a successful result saying the call is
                 // pending approval is the floor: an error that merely mentions approval isn't one.
                 if (result.IsError == true || !text.Contains("pending approval", StringComparison.OrdinalIgnoreCase))
@@ -239,6 +247,9 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
             http,
             ownsHttpClient: true));
+
+    private static string Text(ModelContextProtocol.Protocol.CallToolResult result) =>
+        string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
 
     private static async Task<string> CreateContainerAsync(HttpClient http, string prefix)
     {

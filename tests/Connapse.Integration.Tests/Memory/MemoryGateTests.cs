@@ -89,6 +89,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
                 new Claim("actor_type", "agent"),
                 new Claim("on_behalf_of", user.ToString()),
                 new Claim(ClaimTypes.Role, "Agent"),
+                new Claim("scope", "knowledge:read"),
                 new Claim("scope", "knowledge:write"),
             ], "test")),
         };

@@ -121,6 +121,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
                 new Claim("actor_type", role == "Agent" ? "agent" : "user"),
                 new Claim("on_behalf_of", user.ToString()),
                 new Claim(ClaimTypes.Role, role),
+                new Claim("scope", "knowledge:read"),
                 new Claim("scope", "knowledge:write"),
             ], "test")),
         };
