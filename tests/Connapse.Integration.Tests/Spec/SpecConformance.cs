@@ -47,13 +47,21 @@ internal static class SpecConformance
         if (Seen.IsEmpty)
             return;
 
+        // One report per machine, so a shard that runs the suite twice (its tests, then the memory speed gate) still
+        // reports once: a later run adds what it saw to the earlier run's report.
         string results = Path.Combine(RepoRoot, "tests", "Connapse.Integration.Tests", "TestResults");
         Directory.CreateDirectory(results);
-        File.WriteAllText(Path.Combine(results, $"spec-conformance-{Guid.NewGuid():N}.json"), JsonSerializer.Serialize(new
+        string report = Path.Combine(results, "spec-conformance-run.json");
+        SortedSet<string> seen = new(Seen.Keys, StringComparer.Ordinal);
+        SortedDictionary<string, string> violations = new(Violations, StringComparer.Ordinal);
+        if (File.Exists(report))
         {
-            seen = Seen.Keys.Order(StringComparer.Ordinal),
-            violations = new SortedDictionary<string, string>(Violations, StringComparer.Ordinal),
-        }, new JsonSerializerOptions { WriteIndented = true }));
+            var earlier = JsonSerializer.Deserialize<Report>(File.ReadAllText(report), ReportJson)!;
+            seen.UnionWith(earlier.Seen);
+            foreach (var (key, detail) in earlier.Violations)
+                violations.TryAdd(key, detail);
+        }
+        File.WriteAllText(report, JsonSerializer.Serialize(new Report(seen, violations), ReportJson));
 
         var known = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(KnownPath))!;
         var added = Violations.Keys.Where(k => !known.ContainsKey(k)).Order(StringComparer.Ordinal).ToList();
@@ -63,6 +71,10 @@ internal static class SpecConformance
                 + "tests/Connapse.Integration.Tests/Spec/known-spec-violations.json with the reason:" + Environment.NewLine
                 + string.Join(Environment.NewLine, added.Select(k => $"  \"{k}\": \"\",   // {Violations[k]}")));
     }
+
+    private sealed record Report(IEnumerable<string> Seen, IDictionary<string, string> Violations);
+
+    private static readonly JsonSerializerOptions ReportJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
 
     /// <summary>Runs first in the test host's pipeline, so it sees every /api response as sent.</summary>
     internal sealed class StartupFilter : IStartupFilter

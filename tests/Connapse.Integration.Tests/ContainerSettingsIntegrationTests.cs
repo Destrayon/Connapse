@@ -152,6 +152,34 @@ public class ContainerSettingsIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Theory]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","topK":9}}""", "co-con197-rerank")]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","crossEncoderApiKey":null}}""", "co-con197-rerank")]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","crossEncoderApiKey":""}}""", null)]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://elsewhere.example"}}""", null)]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","topK":9}}""", null)]
+    public async Task SaveContainerSettings_JsonLeavesTheKeyOut_KeepsItOnlyForTheSameNamedDestinations(string json, string? expected)
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"settings-json-key-{Guid.NewGuid():N}"[..40] });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        string url = $"/api/containers/{container!.Id}/settings";
+        using StringContent stored = new("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","crossEncoderApiKey":"co-con197-rerank"}}""",
+            System.Text.Encoding.UTF8, "application/json");
+        (await fixture.AdminClient.PutAsync(url, stored)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using StringContent body = new(json, System.Text.Encoding.UTF8, "application/json");
+        var put = await fixture.AdminClient.PutAsync(url, body);
+
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await put.Content.ReadAsStringAsync()).Should().NotContain("con197");
+        await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+        IContainerStore store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+        (await store.GetSettingsOverridesAsync(Guid.Parse(container.Id)))!.Search!.CrossEncoderApiKey.Should().Be(expected);
+
+        await fixture.AdminClient.DeleteAsync(url[..^"/settings".Length]);
+    }
+
+    [Theory]
     [InlineData("", null)]
     [InlineData("co-con186-replaced", "co-con186-replaced")]
     public async Task UpdateSettingsOverrides_KeyChangedDuringASaveThatLeftItOut_KeepsTheChange(string change, string? expected)
