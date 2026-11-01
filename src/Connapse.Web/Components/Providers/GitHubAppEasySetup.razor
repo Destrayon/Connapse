@@ -1,0 +1,206 @@
+@using Connapse.Application.Providers
+@using Connapse.Core.Interfaces
+@using Connapse.Web.Services
+@inject StartGitHubAppCreation Create
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+@* Easy setup for the GitHub App: GitHub's manifest flow, on the administrator's own account or an
+   organisation. A stored App is replaced only once ReplaceConfirmed is ticked, so each creation
+   is started again whenever that box or the stored App changes. *@
+<p class="small mb-2">
+    GitHub shows you what the App will be allowed to do, then sends you back here and
+    Connapse stores it. Nothing to copy or paste.
+</p>
+<p class="small mb-2">
+    GitHub will send people back to <code>@BaseUrl</code>. Open Connapse at the address
+    your users use before creating the App.
+</p>
+@if (new Uri(BaseUrl) is { Scheme: "http" } uri && !uri.IsLoopback)
+{
+    <div class="alert alert-warning py-2 small" role="note">
+        <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+        This address is not HTTPS, so people linking their GitHub accounts would be sent back
+        over an unencrypted connection. Open Connapse over HTTPS before creating the App.
+    </div>
+}
+@if (confirmedOwner is { } owner && (owner.Length == 0 ? ownCreation : orgCreation) is var creation
+     && (creation is not null || (App is not null && !ReplaceConfirmed)))
+{
+    @* A native form, not a Blazor one: GitHub's flow starts with the browser
+       posting the manifest to github.com. Always public: "public" decides who
+       may install the App, not which repositories it reads, and one App
+       installed on every organisation is how Connapse covers several. *@
+    <form id="github-app-create-form" method="post" action="@creation?.FormAction">
+        <input type="hidden" name="manifest" value="@creation?.Manifest" />
+        <button id="github-app-create" type="submit" class="btn btn-primary" disabled="@(creation is null)">
+            <span class="bi-github me-1" aria-hidden="true"></span> @(App is null ? "Create the App on GitHub" : "Create a new App on GitHub")
+        </button>
+    </form>
+    <div id="github-app-create-help" class="form-text">
+        @if (creation is null)
+        {
+            <text>Tick "Replace @App!.Slug with a different App" above first. </text>
+        }
+        @if (owner.Length == 0)
+        {
+            <text>Created on your own GitHub account. You choose which organisations to install it on next, on GitHub.</text>
+        }
+        else
+        {
+            <text>Owned by <strong>@owner</strong>. You must be an owner or App manager there; otherwise GitHub refuses, and offers to create it on your own account instead.</text>
+        }
+    </div>
+}
+@if (ownError is not null && !showOrgOwner)
+{
+    <div id="github-app-create-error" class="alert alert-danger py-2 small" role="alert">
+        <span class="bi-x-circle me-1" aria-hidden="true"></span>@ownError
+    </div>
+}
+
+<button id="github-app-org-toggle" type="button" class="btn btn-link btn-sm px-0 mt-2" @onclick="ToggleOrgOwner"
+        aria-expanded="@(showOrgOwner ? "true" : "false")" aria-controls="github-app-org-group">
+    @(showOrgOwner ? "Use my own account instead" : "Have an organisation own the App instead")
+</button>
+@if (showOrgOwner)
+{
+    <div id="github-app-org-group" class="mt-1" style="max-width:24rem">
+        <label class="form-label small" for="github-app-org">Organisation</label>
+        <div class="input-group input-group-sm">
+            <input id="github-app-org" class="form-control @(ownerError is not null ? "is-invalid" : "")" placeholder="my-org"
+                   aria-invalid="@(ownerError is not null ? "true" : "false")"
+                   aria-describedby="@(ownerError is not null ? "github-app-org-error github-app-org-help" : "github-app-org-help")"
+                   @bind="organisation" @bind:event="oninput" @bind:after="ResetOwner" />
+            <button id="github-app-org-check" type="button" class="btn btn-outline-secondary" disabled="@busy" @onclick="CheckOwner">
+                @if (busy)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking…</span>
+                }
+                else
+                {
+                    <span>Use this organisation</span>
+                }
+            </button>
+        </div>
+        @if (ownerError is not null)
+        {
+            <div id="github-app-org-error" class="invalid-feedback d-block" role="alert">
+                <span class="bi-x-circle me-1" aria-hidden="true"></span>@ownerError
+            </div>
+        }
+        <div id="github-app-org-help" class="form-text">
+            The organisation's login on GitHub, as in github.com/my-org. An organisation-owned App
+            outlives any one person's account, and other organisations can still install it.
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>The App Connapse has stored, if any.</summary>
+    [Parameter] public GitHubAppRegistration? App { get; set; }
+
+    /// <summary>Whether the administrator ticked replacing <see cref="App"/>, which a new App does.</summary>
+    [Parameter] public bool ReplaceConfirmed { get; set; }
+
+    /// <summary>The manifest flow started for the administrator's own account, and for the organisation GitHub confirmed.</summary>
+    private GitHubAppCreation? ownCreation, orgCreation;
+    /// <summary>The App's owner: empty for the administrator's own account, or an organisation GitHub confirmed.</summary>
+    private string? confirmedOwner = "";
+    private string? organisation, ownerError, ownError;
+    private bool showOrgOwner, busy;
+    /// <summary>The stored App and box the creations were started for.</summary>
+    private (long?, bool)? startedFor;
+
+    /// <summary>The address GitHub will send people back to: the one this administrator is using.</summary>
+    private string BaseUrl => Navigation.BaseUri.TrimEnd('/') + "/";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (startedFor == (App?.AppId, ReplaceConfirmed))
+            return;
+
+        // A form started under the previous box must not stay submittable while the new one starts.
+        startedFor = (App?.AppId, ReplaceConfirmed);
+        ownCreation = orgCreation = null;
+        await StartAsync("");
+        if (confirmedOwner is { Length: > 0 } org)
+            await StartAsync(org);
+    }
+
+    /// <summary>
+    /// Starts a creation for <paramref name="owner"/>, empty for the administrator's own account. True when the owner
+    /// passed GitHub's check: a creation refused only because replacing isn't ticked yet still has a checked owner, and
+    /// the form says to tick the box rather than repeating the API's wording. A result for a stored App or box that has
+    /// since changed is discarded, so a slow answer can't bring back a form started under the old box.
+    /// </summary>
+    private async Task<bool> StartAsync(string owner)
+    {
+        var requestedFor = (App?.AppId, ReplaceConfirmed);
+        string? error;
+        bool ownerChecked = false;
+        GitHubAppCreation? creation = null;
+        try
+        {
+            var started = await Create.RunAsync(await AuthState.OperationContextAsync(), Navigation.BaseUri,
+                new GitHubAppCreationRequest(owner.Length == 0 ? null : owner, requestedFor.Item2));
+            ownerChecked = started.Succeeded || started.Field == "replaceExisting";
+            error = ownerChecked ? null : started.Detail;
+            creation = started.Result;
+        }
+        catch (Exception ex)
+        {
+            error = $"Could not start creating the App. {GitHubMessages.Describe(ex, owner.Length == 0 ? null : owner)}";
+        }
+
+        if (startedFor != requestedFor)
+            return false;
+
+        if (owner.Length == 0)
+            (ownCreation, ownError) = (creation, error);
+        else
+            (orgCreation, ownerError) = (creation, error);
+        return ownerChecked;
+    }
+
+    /// <summary>A changed organisation name goes back to unconfirmed until it is checked again.</summary>
+    private void ResetOwner()
+    {
+        ownerError = null;
+        confirmedOwner = string.IsNullOrWhiteSpace(organisation) ? "" : null;
+    }
+
+    /// <summary>Closing the organisation option goes back to the administrator's own account.</summary>
+    private void ToggleOrgOwner()
+    {
+        showOrgOwner = !showOrgOwner;
+        if (!showOrgOwner)
+        {
+            organisation = null;
+            ResetOwner();
+        }
+    }
+
+    /// <summary>
+    /// Confirms with GitHub that the named organisation exists before the manifest is posted to it —
+    /// a wrong name would otherwise create an App the organisation cannot install.
+    /// </summary>
+    private async Task CheckOwner()
+    {
+        ResetOwner();
+        string org = organisation?.Trim() ?? "";
+        if (org.Length == 0)
+            return;
+
+        busy = true;
+        try
+        {
+            if (await StartAsync(org))
+                confirmedOwner = org;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

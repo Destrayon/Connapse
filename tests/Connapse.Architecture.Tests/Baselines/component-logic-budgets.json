@@ -154,10 +154,10 @@
     "IsEmpty": false
   },
   "Pages/Providers.razor": {
-    "CodeLines": 1769,
+    "CodeLines": 1714,
     "Injects": 19,
-    "Complexity": 341,
-    "MarkupLogic": 193,
+    "Complexity": 330,
+    "MarkupLogic": 177,
     "IsEmpty": false
   },
   "Pages/Search.razor": {
@@ -192,6 +192,13 @@
     "CodeLines": 419,
     "Injects": 5,
     "Complexity": 88,
+    "MarkupLogic": 20,
+    "IsEmpty": false
+  },
+  "Providers/GitHubAppEasySetup.razor": {
+    "CodeLines": 94,
+    "Injects": 3,
+    "Complexity": 19,
     "MarkupLogic": 20,
     "IsEmpty": false
   },
