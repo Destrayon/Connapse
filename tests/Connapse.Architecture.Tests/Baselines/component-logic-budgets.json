@@ -119,10 +119,10 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 805,
-    "Injects": 9,
-    "Complexity": 194,
-    "MarkupLogic": 80,
+    "CodeLines": 714,
+    "Injects": 8,
+    "Complexity": 162,
+    "MarkupLogic": 79,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
@@ -168,10 +168,10 @@
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
-    "CodeLines": 69,
-    "Injects": 2,
-    "Complexity": 10,
-    "MarkupLogic": 21,
+    "CodeLines": 58,
+    "Injects": 1,
+    "Complexity": 8,
+    "MarkupLogic": 18,
     "IsEmpty": false
   },
   "Pages/SourceEdit.razor": {
@@ -298,13 +298,6 @@
     "Injects": 3,
     "Complexity": 22,
     "MarkupLogic": 14,
-    "IsEmpty": false
-  },
-  "Settings/SummarySettingsTab.razor": {
-    "CodeLines": 204,
-    "Injects": 2,
-    "Complexity": 39,
-    "MarkupLogic": 24,
     "IsEmpty": false
   },
   "Settings/UploadSettingsTab.razor": {

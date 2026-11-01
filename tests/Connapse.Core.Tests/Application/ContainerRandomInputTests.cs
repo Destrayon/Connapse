@@ -51,11 +51,10 @@ public class ContainerRandomInputTests
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly PolicyAuthorizer Authorizer;
-        public bool Admin;
 
         public World(bool reader, bool writer)
         {
-            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.Reader => reader, Policies.Writer => writer, Policies.Admin => Admin, _ => false });
+            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.Reader => reader, Policies.Writer => writer, _ => false });
         }
 
         /// <summary>The store holds <paramref name="container"/> when <paramref name="exists"/>, by id and by name.</summary>
@@ -509,64 +508,4 @@ public class ContainerRandomInputTests
                 jobs.Select(j => j.Options.Path).Should().BeEquivalentTo(fresh);
                 await world.Audit.Received(1).LogAsync("container.synced", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 1000);
-
-    // ── containers.summaries.* ────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    [RandomInputTestOf(typeof(RegenerateContainerSummaries))]
-    public Task RegenerateSummaries_AnyCaller_QueuesARollupOnlyForAnAdministrator() =>
-        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool)
-            .SampleAsync(async t =>
-            {
-                var (caller, admin, writer, container, exists) = t;
-                var world = new World(reader: true, writer);
-                world.Admin = admin;
-                world.Holds(container, exists);
-                var id = Guid.Parse(container.Id);
-                var rollup = Substitute.For<ISummaryRollup>();
-                rollup.Enqueue(id).Returns("17");
-
-                var queued = await new RegenerateContainerSummaries(world.Containers, rollup, world.Audit, world.Authorizer).RunAsync(caller, id);
-
-                // An Editor may write containers but not regenerate: the Summary tab has always been for administrators.
-                ContainerStatus expected = !admin ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
-                queued.Status.Should().Be(expected);
-                if (expected != ContainerStatus.Success)
-                {
-                    rollup.ReceivedCalls().Should().BeEmpty();
-                    world.Audit.ReceivedCalls().Should().BeEmpty();
-                    return;
-                }
-                queued.Result.Should().Be(new SummaryRegeneration("17"));
-                await world.Audit.Received(1).LogAsync("container.summaries_regenerated", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
-            }, iter: 2000);
-
-    [Fact]
-    [RandomInputTestOf(typeof(ClearContainerSummaries))]
-    public Task ClearSummaries_AnyCaller_ClearsOnlyForAnAdministrator() =>
-        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool, Gen.Int[0, 9])
-            .SampleAsync(async t =>
-            {
-                var (caller, admin, writer, container, exists, summaries) = t;
-                var world = new World(reader: true, writer);
-                world.Admin = admin;
-                world.Holds(container, exists);
-                var id = Guid.Parse(container.Id);
-                world.Documents.ClearDocumentSummariesAsync(id, Arg.Any<CancellationToken>()).Returns(summaries);
-
-                var cleared = await new ClearContainerSummaries(world.Containers, world.Documents, world.Audit, world.Authorizer).RunAsync(caller, id);
-
-                ContainerStatus expected = !admin ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
-                cleared.Status.Should().Be(expected);
-                if (expected != ContainerStatus.Success)
-                {
-                    world.Documents.ReceivedCalls().Should().BeEmpty();
-                    await world.Containers.DidNotReceiveWithAnyArgs().UpdateSummaryAsync(default, default, default, default);
-                    world.Audit.ReceivedCalls().Should().BeEmpty();
-                    return;
-                }
-                cleared.Result.Should().Be(summaries);
-                await world.Containers.Received(1).UpdateSummaryAsync(id, null, null, null, Arg.Any<CancellationToken>());
-                await world.Audit.Received(1).LogAsync("container.summaries_cleared", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
-            }, iter: 2000);
 }

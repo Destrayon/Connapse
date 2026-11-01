@@ -115,8 +115,7 @@ public partial class SettingsOperationTests
     {
         SettingsCategories.All.Select(c => (c.Name, c.Key, c.Type)).Should().Equal(
             ("embedding", "embedding", typeof(EmbeddingSettings)), ("chunking", "chunking", typeof(ChunkingSettings)),
-            ("search", "search", typeof(SearchSettings)), ("llm", "llm", typeof(LlmSettings)), ("upload", "upload", typeof(UploadSettings)),
-            ("summary", "Summary", typeof(SummarySettings)));
+            ("search", "search", typeof(SearchSettings)), ("llm", "llm", typeof(LlmSettings)), ("upload", "upload", typeof(UploadSettings)));
     }
 
     [Theory]
@@ -175,13 +174,12 @@ public partial class SettingsOperationTests
     [InlineData("llm", new[] { "ApiKey", "OpenAiApiKey", "AzureApiKey", "AnthropicApiKey" })]
     [InlineData("search", new[] { "CrossEncoderApiKey" })]
     [InlineData("chunking", new string[0])]
-    [InlineData("summary", new string[0])]
     public void Secrets_AreTheKeysAndPasswords(string category, string[] secrets) =>
         SettingsCategories.Find(category)!.Secrets.Select(p => p.Name).Should().BeEquivalentTo(secrets);
 
     [Theory]
     [InlineData("EMBEDDING", "embedding")]
-    [InlineData("Summary", "summary")]
+    [InlineData("Chunking", "chunking")]
     [InlineData("nope", null)]
     [InlineData(null, null)]
     public void Find_MatchesTheNameInAnyCase(string? name, string? found) =>
@@ -240,17 +238,6 @@ public partial class SettingsOperationTests
         settings.Model.Should().Be("m");
         settings.AnthropicApiKey.Should().BeNull();
         configured.AnthropicApiKey.Should().Be("secret", "the configured value is shared by every reader");
-    }
-
-    [Fact]
-    public async Task Get_Summary_ReadsTheKeyThePageStores()
-    {
-        var world = new World();
-        world.Store.Rows["Summary"] = JsonSerializer.Serialize(new SummarySettings { Enabled = true });
-
-        var read = await world.Get().RunAsync(Caller, "summary");
-
-        read.Result!.Settings.Should().BeOfType<SummarySettings>().Which.Enabled.Should().BeTrue();
     }
 
     // ── settings.update ────────────────────────────────────────────────────────────────────────
@@ -312,11 +299,11 @@ public partial class SettingsOperationTests
     {
         var world = new World();
 
-        var updated = await world.Update().RunAsync(Caller, "summary", Body(new { containerSummaryMethod = "Guess" }));
+        var updated = await world.Update().RunAsync(Caller, "search", Body(new { fusionAlpha = 2f }));
 
         updated.Status.Should().Be(SettingsStatus.Invalid);
-        updated.Detail.Should().StartWith("ContainerSummaryMethod must be one of: ");
-        updated.Field.Should().Be("containerSummaryMethod");
+        updated.Detail.Should().StartWith("The field FusionAlpha must be between 0 and 1");
+        updated.Field.Should().Be("fusionAlpha");
         world.Store.Rows.Should().BeEmpty();
         world.Audit.ReceivedCalls().Should().BeEmpty();
     }
@@ -577,15 +564,15 @@ public partial class SettingsOperationTests
     }
 
     [Fact]
-    public async Task Reset_Summary_RemovesTheKeyThePageStoresAndAudits()
+    public async Task Reset_CategoryInAnyCase_RemovesItsKeyAndAudits()
     {
         var world = new World();
 
-        var reset = await world.ResetOperation().RunAsync(Caller, "SUMMARY");
+        var reset = await world.ResetOperation().RunAsync(Caller, "CHUNKING");
 
-        reset.Result.Should().Be("summary");
-        world.Store.Reset.Should().Equal("Summary");
-        await world.Audit.Received(1).LogAsync("settings.reset", "settings", "summary", null, Arg.Any<CancellationToken>());
+        reset.Result.Should().Be("chunking");
+        world.Store.Reset.Should().Equal("chunking");
+        await world.Audit.Received(1).LogAsync("settings.reset", "settings", "chunking", null, Arg.Any<CancellationToken>());
         world.Indexes.ReceivedCalls().Should().BeEmpty();
     }
 

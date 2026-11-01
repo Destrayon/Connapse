@@ -48,7 +48,6 @@ These are read once at startup, so a change needs a restart. None of them is on 
 | `Cors:AllowedOrigins`: Browser origins allowed to call the API and `/mcp`, besides loopback | — | `Cors__AllowedOrigins__0`, `__1`, … | string[] | empty | Yes | No |
 | `Mcp:AllowAnonymousDiscovery`: Let MCP clients list tools before signing in | — | `Mcp__AllowAnonymousDiscovery` | bool | `false` | Yes | No |
 | `Hangfire:IngestionWorkerCount`: Files ingested at once, and parser processes kept | — | `Hangfire__IngestionWorkerCount` | int | `4` | Yes | No |
-| `Hangfire:SummaryWorkerCount`: Summary jobs run at once | — | `Hangfire__SummaryWorkerCount` | int | `1` | Yes | No |
 | `Hangfire:MaxPoolSize`: Most database connections the job queue may hold | — | `Hangfire__MaxPoolSize` | int | `30` | Yes | No |
 | `Hangfire:DisableServer`: Queue jobs but run none on this instance | — | `Hangfire__DisableServer` | bool | `false` | Yes | No |
 
@@ -183,18 +182,6 @@ Each group below is a tab on the **Settings** page and a category of `GET` and `
 | `PdfRemoveRepeatedHeadersAndFooters`: Drop running headers, footers and page numbers -- text repeating at the edges of the pages -- in PDFs of three or more pages (default: true). | **Settings** → **Upload** | `Knowledge__Upload__PdfRemoveRepeatedHeadersAndFooters` | bool | `true` | No | No |
 | `PdfTableMode`: Which PDF tables become Markdown tables: Off, Ruled (drawn with lines) or RuledAndStream (also borderless tables found from text alignment) (default: Ruled). | **Settings** → **Upload** | `Knowledge__Upload__PdfTableMode` | string | `Ruled` | No | No |
 | `PdfLayoutOnOcrPages`: In the Layout text mode, also read OCR'd pages by layout region: running headers and footers dropped, columns ordered, tables read (default: true, #653). | **Settings** → **Upload** | `Knowledge__Upload__PdfLayoutOnOcrPages` | bool | `true` | No | No |
-
-### `Knowledge:Summary`
-
-| Setting | UI path | Env var | Type | Default | Restart? | Secret? |
-|---------|---------|---------|------|---------|----------|---------|
-| `Enabled`: Master toggle. | **Settings** → **Summary** | `Knowledge__Summary__Enabled` | bool | `false` | No | No |
-| `ContainerSummaryMethod`: Container summary generation method. | **Settings** → **Summary** | `Knowledge__Summary__ContainerSummaryMethod` | string | `document-clustering` | No | No |
-| `LlmProvider`: LLM provider for summary generation (Ollama / OpenAI / AzureOpenAI / Anthropic). | **Settings** → **Summary** | `Knowledge__Summary__LlmProvider` | string? | — | No | No |
-| `LlmModel`: Model identifier for summary generation (e.g. | **Settings** → **Summary** | `Knowledge__Summary__LlmModel` | string? | — | No | No |
-| `PerDocSystemPrompt`: Override for the per-document system prompt. | **Settings** → **Summary** | `Knowledge__Summary__PerDocSystemPrompt` | string? | — | No | No |
-| `ContainerRollupSystemPrompt`: Override for the container-rollup system prompt. | **Settings** → **Summary** | `Knowledge__Summary__ContainerRollupSystemPrompt` | string? | — | No | No |
-| `MaxInputTokens`: Max input tokens fed to the per-document LLM call. | **Settings** → **Summary** | `Knowledge__Summary__MaxInputTokens` | int? | — | No | No |
 
 ## Sign-in and providers
 

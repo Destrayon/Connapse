@@ -72,9 +72,6 @@ public static class ServiceCollectionExtensions
         // Per-container settings resolver
         services.AddScoped<IContainerSettingsResolver, ContainerSettingsResolver>();
 
-        // Summary LLM resolver — picks the right ILlmProvider per-container based on SummarySettings.LlmProvider
-        services.AddScoped<SummaryLlmResolver>();
-
         // Settings reload service - requires IConfigurationRoot to trigger reload
         services.AddSingleton<ISettingsReloader, SettingsReloader>();
 

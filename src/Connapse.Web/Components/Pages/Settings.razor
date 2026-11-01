@@ -3,9 +3,7 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Application.Settings
-@using Microsoft.Extensions.Options
 @inject SettingsPageSaves Saves
-@inject IOptionsMonitor<LlmSettings> LlmOptions
 @rendermode InteractiveServer
 
 <PageTitle>Settings - Connapse</PageTitle>
@@ -61,13 +59,6 @@
                 Upload
             </button>
         </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "summary" ? "active" : "")"
-                    @onclick='() => activeTab = "summary"'
-                    type="button">
-                Summary
-            </button>
-        </li>
     </ul>
 
     <!-- Tab Content -->
@@ -92,13 +83,6 @@
         {
             <UploadSettingsTab Settings="uploadSettings" OnSave="SaveUploadSettings" />
         }
-        else if (activeTab == "summary")
-        {
-            <SummarySettingsTab @ref="summaryTabRef"
-                                Settings="summarySettings"
-                                ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model" />
-            <button class="btn btn-primary mt-3" @onclick="SaveSummarySettings">Save Summary Settings</button>
-        }
     </div>
 </div>
 
@@ -112,8 +96,6 @@
     private SearchSettings searchSettings = new();
     private LlmSettings llmSettings = new();
     private UploadSettings uploadSettings = new();
-    private SummarySettings summarySettings = new();
-    private SummarySettingsTab? summaryTabRef;
 
     protected override async Task OnInitializedAsync()
     {
@@ -123,7 +105,6 @@
         searchSettings = Saves.Open<SearchSettings>("search");
         llmSettings = Saves.Open<LlmSettings>("llm");
         uploadSettings = Saves.Open<UploadSettings>("upload");
-        summarySettings = Saves.Open<SummarySettings>("summary");
     }
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
@@ -149,14 +130,6 @@
     private async Task SaveUploadSettings(UploadSettings settings)
     {
         uploadSettings = await SaveSettings("upload", settings);
-    }
-
-    private async Task SaveSummarySettings()
-    {
-        if (summaryTabRef is null) return;
-        // settings.update stores it under "Summary", the key ContainerSettingsResolver reads.
-        var toSave = summaryTabRef.GetCurrentSettings();
-        summarySettings = await SaveSettings("summary", toSave);
     }
 
     /// <summary>Saves a category; the settings the page keeps afterwards, which hold no saved key.</summary>

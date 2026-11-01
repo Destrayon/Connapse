@@ -98,7 +98,6 @@ public class FolderDeletePartialFailureTests(SharedWebAppFixture fixture)
 
         return new PostgresFolderStore(
             services.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>(),
-            services.GetRequiredService<IContainerStore>(),
             services.GetRequiredService<IDocumentStore>(),
             storage,
             NullLogger<PostgresFolderStore>.Instance);

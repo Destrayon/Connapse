@@ -196,7 +196,6 @@ public class FolderDeleteRemovalOutboxTests(SharedWebAppFixture fixture)
 
     private static PostgresFolderStore FolderStore(IServiceProvider services, IManagedStorageProvider storage) => new(
         services.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>(),
-        services.GetRequiredService<IContainerStore>(),
         services.GetRequiredService<IDocumentStore>(),
         storage,
         NullLogger<PostgresFolderStore>.Instance);

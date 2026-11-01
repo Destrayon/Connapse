@@ -90,34 +90,10 @@ public class SettingsApiTests(SharedWebAppFixture fixture)
     [Fact]
     public async Task Update_ValueTheCategoryRefuses_Returns400WithTheField()
     {
-        var response = await fixture.AdminClient.PutAsJsonAsync("/api/settings/summary", new { containerSummaryMethod = "Guess" });
+        var response = await fixture.AdminClient.PutAsJsonAsync("/api/settings/search", new { fusionAlpha = 2f });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("containerSummaryMethod");
-    }
-
-    [Fact]
-    public async Task ClearAllSummaries_ClearsEveryContainersSummary()
-    {
-        var created = await fixture.AdminClient.PostAsJsonAsync("/api/containers", new { Name = $"clear-all-{Guid.NewGuid():N}"[..30] });
-        created.StatusCode.Should().Be(HttpStatusCode.Created);
-        var id = Guid.Parse((await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!);
-        try
-        {
-            using var scope = fixture.Factory.Services.CreateScope();
-            var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-            await containers.UpdateSummaryAsync(id, "a summary", DateTime.UtcNow, "hash");
-
-            var response = await fixture.AdminClient.PostAsync("/api/v1/settings/summaries/clear", null);
-
-            response.StatusCode.Should().Be(HttpStatusCode.OK);
-            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("containers").GetInt32().Should().BeGreaterThanOrEqualTo(1);
-            (await containers.GetAsync(id))!.Summary.Should().BeNull();
-        }
-        finally
-        {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
-        }
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("field").GetString().Should().Be("fusionAlpha");
     }
 
     [Fact]

@@ -150,8 +150,6 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | `POST` | `/api/containers/{containerId}/reindex` | `knowledge:write` | Reindex all documents in a container |
 | `POST` | `/api/containers/{containerId}/retry-failed` | `knowledge:write` | Re-enqueue every document in a container whose ingestion failed, with a fresh attempt budget |
 | `POST` | `/api/containers/{containerId}/sync` | `knowledge:write` | Reconcile a container's managed storage with the document table. |
-| `POST` | `/api/containers/{containerId}/summaries` | `knowledge:write` | Queue a rollup of the container's summary from its documents' summaries. |
-| `DELETE` | `/api/containers/{containerId}/summaries` | `knowledge:write` | Clear the container's summary and every document summary in it. |
 
 ### Sources
 
@@ -242,7 +240,6 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | `POST` | `/api/settings/reindex` | `admin:settings` | Start re-embedding in the background: without force, only documents whose embedding or chunking settings changed; with force, every document. |
 | `GET` | `/api/settings/reindex/status` | `admin:settings` | Get current re-embedding/reindex queue status |
 | `DELETE` | `/api/v1/settings/{category}` | `admin:settings` | Reset a settings category to its configured defaults by removing what is stored for it. |
-| `POST` | `/api/v1/settings/summaries/clear` | `admin:settings` | Clear every container's summary and every document summary; the next sweep writes them again. |
 
 ### Providers
 

@@ -92,13 +92,6 @@ public class McpTools
                 text += $" — {owner.Description}";
             text += "\n";
 
-            // Append summary first sentence if available
-            string? firstSentence = TruncateToFirstSentence(owner.Summary, maxChars: 120);
-            if (!string.IsNullOrEmpty(firstSentence))
-            {
-                text += $"  Summary: {firstSentence}\n";
-            }
-
             text += $"  ID: {owner.Id}\n";
         }
 
@@ -614,7 +607,7 @@ public class McpTools
 
     [McpServerTool(Name = "container_describe", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Returns an agent-optimized description of a knowledge scope — container or source: its description, auto-generated summary (if available), and document statistics. Use this to understand what a scope covers before querying via search_knowledge, or when container_list output is insufficient to choose between them. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
+     Description("Returns an agent-optimized description of a knowledge scope — container or source: its description and document statistics. Use this to understand what a scope covers before querying via search_knowledge, or when container_list output is insufficient to choose between them. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
     public static async Task<string> ContainerDescribe(
         GetContainerStats getStats,
         GetSourceStats getSourceStats,
@@ -628,11 +621,10 @@ public class McpTools
             return Refused(read);
 
         SearchableOwner owner;
-        Connapse.Core.Container? container = null;
         ContainerStats stats;
         if (read.Succeeded)
         {
-            container = read.Result!.Container;
+            var container = read.Result!.Container;
             stats = read.Result.Stats;
             // The store keys containers by GUID, so a container it returned always has one.
             owner = ToOwner(container) ?? throw new InvalidOperationException($"Container {container.Id} has no GUID id.");
@@ -665,18 +657,6 @@ public class McpTools
 
         if (!string.IsNullOrWhiteSpace(owner.Description))
             text += $"Description: {owner.Description}\n";
-
-        if (!string.IsNullOrWhiteSpace(owner.Summary))
-        {
-            text += $"Summary: {owner.Summary}\n";
-            text += container?.SummaryGeneratedAt is { } generatedAt
-                ? $"Summary generated: {generatedAt:u}\n"
-                : "";
-        }
-        else
-        {
-            text += "Summary: (not yet generated)\n";
-        }
 
         if (stats.ProcessingCount > 0 || stats.FailedCount > 0)
             text += $"Documents: {stats.DocumentCount} ({stats.ReadyCount} ready, {stats.ProcessingCount} processing, {stats.FailedCount} failed)\n";
@@ -727,7 +707,7 @@ public class McpTools
     /// external source.
     /// </summary>
     internal sealed record SearchableOwner(
-        Guid Id, string Name, string Kind, string? Description, string? Summary,
+        Guid Id, string Name, string Kind, string? Description,
         int DocumentCount, DateTime CreatedAt)
     {
         public const string ManagedKind = "managed";
@@ -739,40 +719,12 @@ public class McpTools
     private static SearchableOwner? ToOwner(Connapse.Core.Container container) =>
         Guid.TryParse(container.Id, out var id)
             ? new SearchableOwner(id, container.Name, SearchableOwner.ManagedKind,
-                container.Description, container.Summary, container.DocumentCount, container.CreatedAt)
+                container.Description, container.DocumentCount, container.CreatedAt)
             : null;
 
     private static SearchableOwner ToOwner(Source source) =>
         new(source.Id, source.Name, SearchableOwner.SourceKind,
-            source.Description, source.Summary, source.DocumentCount, source.CreatedAt);
-
-    private static string? TruncateToFirstSentence(string? text, int maxChars)
-    {
-        if (string.IsNullOrEmpty(text)) return null;
-
-        // Find first sentence-terminating pattern: period/!/? followed by whitespace or end-of-string,
-        // where the character before the punctuation is not a digit (avoids "1." "2." list prefixes).
-        int sentenceEnd = -1;
-        for (int i = 1; i < text.Length; i++)
-        {
-            char c = text[i];
-            if ((c == '.' || c == '!' || c == '?')
-                && !char.IsDigit(text[i - 1])
-                && (i == text.Length - 1 || char.IsWhiteSpace(text[i + 1])))
-            {
-                sentenceEnd = i;
-                break;
-            }
-        }
-
-        string firstSentence = sentenceEnd > 0
-            ? text[..(sentenceEnd + 1)]
-            : text;
-
-        return firstSentence.Length > maxChars
-            ? firstSentence[..maxChars] + "…"
-            : firstSentence;
-    }
+            source.Description, source.DocumentCount, source.CreatedAt);
 
 }
 

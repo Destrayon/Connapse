@@ -40,11 +40,6 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
-    "DELETE /api/containers/{containerId:guid}/summaries": {
-      "requires": "admin",
-      "risk": "destructive",
-      "scope": "knowledge:write"
-    },
     "DELETE /api/containers/{containerId:guid}/files/{fileId}": {
       "requires": "editor",
       "risk": "destructive",
@@ -650,11 +645,6 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
-    "POST /api/containers/{containerId:guid}/summaries": {
-      "requires": "admin",
-      "risk": "write",
-      "scope": "knowledge:write"
-    },
     "POST /api/containers/{containerId:guid}/search/": {
       "requires": "viewer",
       "risk": "read",
@@ -828,11 +818,6 @@
     "POST /api/v1/providers/custom/{providerId:guid}/check": {
       "requires": "admin",
       "risk": "write",
-      "scope": "admin:settings"
-    },
-    "POST /api/v1/settings/summaries/clear": {
-      "requires": "admin",
-      "risk": "destructive",
       "scope": "admin:settings"
     },
     "POST /mcp/": {

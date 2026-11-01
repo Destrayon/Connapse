@@ -245,7 +245,7 @@ public sealed class GetContainerStats(IContainerStore containers, IDocumentStore
 public sealed class ContainerOperations(
     ListContainers list, GetContainer get, CreateContainer create, RenameContainer rename, DeleteContainer delete, GetContainerStats stats,
     GetContainerSettings getSettings, UpdateContainerSettings updateSettings, ResetContainerSettings resetSettings,
-    RetryFailedContainerDocuments retryFailed, RegenerateContainerSummaries regenerateSummaries, ClearContainerSummaries clearSummaries)
+    RetryFailedContainerDocuments retryFailed)
 {
     public ListContainers List { get; } = list;
 
@@ -266,8 +266,4 @@ public sealed class ContainerOperations(
     public ResetContainerSettings ResetSettings { get; } = resetSettings;
 
     public RetryFailedContainerDocuments RetryFailed { get; } = retryFailed;
-
-    public RegenerateContainerSummaries RegenerateSummaries { get; } = regenerateSummaries;
-
-    public ClearContainerSummaries ClearSummaries { get; } = clearSummaries;
 }

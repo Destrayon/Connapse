@@ -100,23 +100,6 @@
       "mcp": "generic"
     },
     {
-      "id": "containers.summaries.regenerate",
-      "capability": "Regenerate a container's summaries",
-      "routes": [
-        "POST /api/containers/{containerId:guid}/summaries"
-      ],
-      "mcp": "generic",
-      "note": "Enqueued straight to Hangfire from the page today."
-    },
-    {
-      "id": "containers.summaries.clear",
-      "capability": "Clear a container's summaries",
-      "routes": [
-        "DELETE /api/containers/{containerId:guid}/summaries"
-      ],
-      "mcp": "generic"
-    },
-    {
       "id": "files.upload",
       "capability": "Upload a file",
       "routes": [
@@ -802,14 +785,6 @@
       "capability": "Re-embedding queue status",
       "routes": [
         "GET /api/settings/reindex/status"
-      ],
-      "mcp": "generic"
-    },
-    {
-      "id": "settings.summaries.clear",
-      "capability": "Clear all summaries",
-      "routes": [
-        "POST /api/v1/settings/summaries/clear"
       ],
       "mcp": "generic"
     },

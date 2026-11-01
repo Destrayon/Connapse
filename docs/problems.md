@@ -21,7 +21,7 @@ unlinking needs the person signed in themselves, never a personal access token o
 Search needs `knowledge:read`: the Viewer role or above, or an agent key or token with that scope.
 
 Settings: reading, changing and resetting them, and the settings actions (re-indexing, listing embedding
-models, testing a connection, clearing all summaries), need Administrator, and a token needs `admin:settings`.
+models, testing a connection), need Administrator, and a token needs `admin:settings`.
 
 Connections: listing, reading, renaming, pausing, resuming, deleting them and replacing their secret
 (over `PUT /api/v1/connections/{id}/secret`, `PUT /api/v1/atlassian/sites/{id}/credentials` or a change that
@@ -105,7 +105,7 @@ or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
 ## settings-category-not-found
 
 Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,
-`llm`, `upload` and `summary`, in any case, and `samlsignin`, `identitycenter`, `azure` and `azuread` can be read.
+`llm` and `upload`, in any case, and `samlsignin`, `identitycenter`, `azure` and `azuread` can be read.
 
 ## provider-owned-settings
 

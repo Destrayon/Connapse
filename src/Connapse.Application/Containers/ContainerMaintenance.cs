@@ -21,9 +21,6 @@ public sealed record ContainerReindexQuery(
 /// <summary>What a reconcile found in managed storage and queued.</summary>
 public sealed record ContainerReconcileResult(string BatchId, int TotalFiles, int EnqueuedCount, int SkippedCount);
 
-/// <summary>A summary rollup queued for a container, by its background job's id.</summary>
-public sealed record SummaryRegeneration(string JobId);
-
 /// <summary>Reindexes a container's documents, in pages when asked. Editors and above.</summary>
 [Operation("containers.reindex", Scope = "knowledge:write", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
 public sealed class ReindexContainer(IContainerStore containers, IReindexService reindex, IOperationAuthorizer authorizer)
@@ -201,43 +198,4 @@ public sealed class ReconcileContainer(
             ".epub" => "application/epub+zip",
             _ => null
         };
-}
-
-/// <summary>Queues a rollup of a container's summary from its documents' summaries. Administrators, as the Summary tab has always required.</summary>
-[Operation("containers.summaries.regenerate", Scope = "knowledge:write", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
-public sealed class RegenerateContainerSummaries(IContainerStore containers, ISummaryRollup rollup, IAuditLogger audit, IOperationAuthorizer authorizer)
-{
-    public async Task<Attempt<SummaryRegeneration, ContainerStatus>> RunAsync(OperationContext context, Guid containerId, CancellationToken ct = default)
-    {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
-            return Attempt<SummaryRegeneration, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to regenerate summaries.");
-        if (!await containers.ExistsAsync(containerId, ct))
-            return ContainerRules.NotFound<SummaryRegeneration>(ContainerKey.ById(containerId));
-
-        string jobId = rollup.Enqueue(containerId);
-        await audit.LogAsync("container.summaries_regenerated", "container", containerId.ToString(), new { jobId }, ct);
-        return Attempt<SummaryRegeneration, ContainerStatus>.Succeed(new SummaryRegeneration(jobId));
-    }
-}
-
-/// <summary>
-/// Clears a container's summary and every document summary in it; the next sweep writes them again.
-/// Administrators, as the Summary tab has always required.
-/// </summary>
-[Operation("containers.summaries.clear", Scope = "knowledge:write", Risk = RiskTier.Destructive, Mcp = McpExposure.Generic)]
-public sealed class ClearContainerSummaries(IContainerStore containers, IDocumentStore documents, IAuditLogger audit, IOperationAuthorizer authorizer)
-{
-    /// <returns>How many document summaries were cleared.</returns>
-    public async Task<Attempt<int, ContainerStatus>> RunAsync(OperationContext context, Guid containerId, CancellationToken ct = default)
-    {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Admin))
-            return Attempt<int, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to clear summaries.");
-        if (!await containers.ExistsAsync(containerId, ct))
-            return ContainerRules.NotFound<int>(ContainerKey.ById(containerId));
-
-        int cleared = await documents.ClearDocumentSummariesAsync(containerId, ct);
-        await containers.UpdateSummaryAsync(containerId, null, null, null, ct);
-        await audit.LogAsync("container.summaries_cleared", "container", containerId.ToString(), new { cleared }, ct);
-        return Attempt<int, ContainerStatus>.Succeed(cleared);
-    }
 }

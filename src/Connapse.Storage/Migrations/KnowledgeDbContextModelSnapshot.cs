@@ -285,19 +285,6 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_overrides");
 
-                    b.Property<string>("Summary")
-                        .HasColumnType("text")
-                        .HasColumnName("summary");
-
-                    b.Property<string>("SummaryDocSetHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("summary_doc_set_hash");
-
-                    b.Property<DateTime?>("SummaryGeneratedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("summary_generated_at");
-
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -543,27 +530,6 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("status_changed_at")
                         .HasDefaultValueSql("now()");
-
-                    b.Property<string>("Summary")
-                        .HasColumnType("text")
-                        .HasColumnName("summary");
-
-                    b.Property<string>("SummaryContentHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("summary_content_hash");
-
-                    b.Property<DateTime?>("SummaryGeneratedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("summary_generated_at");
-
-                    b.Property<string>("SummaryStatus")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasDefaultValue("NotNeeded")
-                        .HasColumnName("summary_status");
 
                     b.HasKey("Id");
 
@@ -903,18 +869,6 @@ namespace Connapse.Storage.Migrations
                     b.Property<JsonDocument>("SettingsOverridesJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_overrides");
-
-                    b.Property<string>("Summary")
-                        .HasColumnType("text")
-                        .HasColumnName("summary");
-
-                    b.Property<string>("SummaryDocSetHash")
-                        .HasColumnType("text")
-                        .HasColumnName("summary_doc_set_hash");
-
-                    b.Property<DateTime?>("SummaryGeneratedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("summary_generated_at");
 
                     b.Property<string>("SyncCursor")
                         .HasColumnType("text")

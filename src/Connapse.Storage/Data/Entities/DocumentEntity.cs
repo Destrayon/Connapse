@@ -63,7 +63,6 @@ public class DocumentEntity
 
     // Written only by DocumentLifecycle.
     public DocumentStatus IngestionStatus { get; set; } = DocumentStatus.Queued;
-    public SummaryStatus SummaryStatus { get; set; } = SummaryStatus.NotNeeded;
     public int AttemptCount { get; set; }
     public DateTime StatusChangedAt { get; set; }
 
@@ -74,11 +73,6 @@ public class DocumentEntity
     public DateTime CreatedAt { get; set; }
     public DateTime? LastIndexedAt { get; set; }
     public Dictionary<string, string> Metadata { get; set; } = new();
-
-    // Per-document summary (input to container summary rollup)
-    public string? Summary { get; set; }
-    public DateTime? SummaryGeneratedAt { get; set; }
-    public string? SummaryContentHash { get; set; } // raw-file content hash (= content_hash) at time of summary
 
     // Navigation properties
     public ContainerEntity? Container { get; set; }

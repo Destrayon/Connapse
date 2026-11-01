@@ -121,16 +121,6 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("updated_at")
                 .HasDefaultValueSql("now()");
 
-            entity.Property(e => e.Summary)
-                .HasColumnName("summary");
-
-            entity.Property(e => e.SummaryGeneratedAt)
-                .HasColumnName("summary_generated_at");
-
-            entity.Property(e => e.SummaryDocSetHash)
-                .HasColumnName("summary_doc_set_hash")
-                .HasMaxLength(64);
-
             entity.HasIndex(e => e.Name)
                 .HasDatabaseName("ix_containers_name")
                 .IsUnique();
@@ -227,13 +217,6 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .IsRequired()
                 .HasDefaultValue(DocumentStatus.Queued);
 
-            entity.Property(e => e.SummaryStatus)
-                .HasConversion<string>()
-                .HasMaxLength(32)
-                .HasColumnName("summary_status")
-                .IsRequired()
-                .HasDefaultValue(SummaryStatus.NotNeeded);
-
             entity.Property(e => e.AttemptCount)
                 .HasColumnName("attempt_count")
                 .HasDefaultValue(0);
@@ -260,16 +243,6 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("metadata")
                 .HasColumnType("jsonb")
                 .HasDefaultValueSql("'{}'::jsonb");
-
-            entity.Property(e => e.Summary)
-                .HasColumnName("summary");
-
-            entity.Property(e => e.SummaryGeneratedAt)
-                .HasColumnName("summary_generated_at");
-
-            entity.Property(e => e.SummaryContentHash)
-                .HasColumnName("summary_content_hash")
-                .HasMaxLength(64);
 
             entity.HasIndex(e => e.IngestionStatus)
                 .HasDatabaseName("ix_documents_ingestion_status");
@@ -742,15 +715,6 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
 
             entity.Property(e => e.AccessRevokedAt)
                 .HasColumnName("access_revoked_at");
-
-            entity.Property(e => e.Summary)
-                .HasColumnName("summary");
-
-            entity.Property(e => e.SummaryGeneratedAt)
-                .HasColumnName("summary_generated_at");
-
-            entity.Property(e => e.SummaryDocSetHash)
-                .HasColumnName("summary_doc_set_hash");
 
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at");

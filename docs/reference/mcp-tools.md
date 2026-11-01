@@ -27,7 +27,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | Tool | Scope | Risk | What it does |
 |------|-------|------|--------------|
 | `container_list` | `knowledge:read` | Read | Lists every container and source with its description and document count. Each entry is `managed` (a container, browsable with `list_files`) or `source` (searchable, with no file listing). |
-| `container_describe` | `knowledge:read` | Read | Describes one container or source: its description, its generated summary if summaries are on, and document statistics. |
+| `container_describe` | `knowledge:read` | Read | Describes one container or source: its description and document statistics. |
 | `container_stats` | `knowledge:read` | Read | A container's document, chunk and storage counts and its embedding model. |
 | `container_create` | `knowledge:write` | Write | Creates a container. |
 | `container_delete` | `knowledge:write` | Destructive | Deletes an empty container. Sources can't be deleted here. |

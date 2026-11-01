@@ -18,24 +18,4 @@ public interface IVectorStore
     Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(float[] queryVector, IReadOnlyCollection<string> chunkIds, string modelId, CancellationToken ct = default);
     Task DeleteAsync(string id, CancellationToken ct = default);
     Task DeleteByDocumentIdAsync(string documentId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Returns one mean-pooled embedding per document, computed across that document's chunk
-    /// vectors, for at most <paramref name="maxDocuments"/> documents sampled from across the
-    /// whole container — not the first or newest ones. The sample is deterministic, so an
-    /// unchanged container yields the same documents each time. Used by the
-    /// <c>document-clustering</c> container summary path to cluster docs without re-embedding them.
-    /// </summary>
-    /// <remarks>
-    /// Implementations should:
-    /// 1. Pick the dominant <c>model_id</c> in the container and filter to vectors of that model.
-    ///    Containers can hold mixed-model chunk vectors; clustering requires a single dimensionality.
-    /// 2. Skip documents that have zero chunks of the dominant model.
-    /// 3. L2-normalize each pooled vector before returning (pgvector AVG does not renormalize).
-    /// 4. Log a warning naming the count of documents excluded due to non-dominant model_id.
-    /// </remarks>
-    Task<IReadOnlyList<(Guid DocumentId, float[] Embedding)>> GetPooledDocumentEmbeddingsAsync(
-        Guid containerId,
-        int maxDocuments,
-        CancellationToken ct = default);
 }

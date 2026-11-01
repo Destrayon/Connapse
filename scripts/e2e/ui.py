@@ -384,7 +384,7 @@ class Sources:
 # ── The journey ──────────────────────────────────────────────────────────────────────────────────
 
 ADMIN_ONLY = ["/admin/users", "/admin/agents", "/admin/providers", "/connections", "/settings"]
-SETTINGS_TABS = ["Embedding", "Chunking", "Search", "LLM", "Upload", "Summary"]
+SETTINGS_TABS = ["Embedding", "Chunking", "Search", "LLM", "Upload"]
 
 
 def ui(c, t):

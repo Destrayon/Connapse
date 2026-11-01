@@ -82,7 +82,7 @@ curl -X PUT http://localhost:5001/api/settings/search \
   -H "Content-Type: application/json" --data @search-new.json
 ```
 
-The categories are `embedding`, `chunking`, `search`, `llm`, `upload` and `summary`. API keys are never returned: one you leave out or send as `null` keeps its value, and an empty string clears it. `DELETE /api/v1/settings/{category}` resets a category to its configured defaults.
+The categories are `embedding`, `chunking`, `search`, `llm` and `upload`. API keys are never returned: one you leave out or send as `null` keeps its value, and an empty string clears it. `DELETE /api/v1/settings/{category}` resets a category to its configured defaults.
 
 ### 4. Delete safely
 

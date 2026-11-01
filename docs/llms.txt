@@ -42,7 +42,7 @@ Every page below is Markdown. API keys go in the `X-Api-Key` header; errors are 
 
 - [How Connapse works](concepts/how-connapse-works.md): the parts and how a document becomes a search result
 - [About search](concepts/search.md): hybrid search, fusion, reranking and AutoCut
-- [About ingestion](concepts/ingestion.md): parsing, chunking and summaries
+- [About ingestion](concepts/ingestion.md): parsing, chunking and reindexing
 - [About permissions](concepts/permissions.md): per-object trimming, cloud identity and failing closed
 
 ## Reference

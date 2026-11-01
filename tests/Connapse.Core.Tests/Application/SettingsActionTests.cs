@@ -24,14 +24,11 @@ public partial class SettingsOperationTests
         public readonly IBackgroundReindex Reindex = Substitute.For<IBackgroundReindex>();
         public readonly ReindexStateService Runs = new();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
-        public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IConnectionTests Tests = Substitute.For<IConnectionTests>();
 
         public Actions(bool admin = true)
         {
             World = new World(admin);
-            Containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
             Tests.TestAsync(Arg.Any<ConnectionTesterKind>(), Arg.Any<object>(), Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>())
                 .Returns(ConnectionTestResult.CreateSuccess("connected"));
         }
@@ -42,73 +39,7 @@ public partial class SettingsOperationTests
 
         public GetReindexStatus Status() => new(Runs, Queue, World.Authorizer);
 
-        public ClearAllSummaries Clear() => new(Containers, Documents, World.Audit, World.Authorizer);
-
         public TestConnection Test() => new(Tests, World.Store, World.Configured, World.Authorizer);
-
-        /// <summary>Containers in pages of 200, as ListAsync returns them.</summary>
-        public void Holding(params Container[] containers) =>
-            Containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                .Returns(call => containers.Skip(call.ArgAt<int>(0)).Take(call.ArgAt<int>(1)).ToList());
-    }
-
-    private static Container ContainerWith(string id) => new(id, id, null, DateTime.UnixEpoch, DateTime.UnixEpoch);
-
-    /// <summary>
-    /// Containers paged from an array, counting summary updates. The random clear test makes hundreds of
-    /// calls per sample, which cost far less on a plain class than through NSubstitute's call matching.
-    /// </summary>
-    private sealed class PagedContainers(Container[] containers) : IContainerStore
-    {
-        public int SummaryUpdates;
-
-        public Task<IReadOnlyList<Container>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<Container>>(containers.Skip(skip).Take(take).ToList());
-
-        public Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default)
-        {
-            Interlocked.Increment(ref SummaryUpdates);
-            return Task.CompletedTask;
-        }
-
-        public Task<Container> CreateAsync(CreateContainerRequest request, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Container?> GetAsync(Guid id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Container?> GetByNameAsync(string name, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<bool> DeleteAsync(Guid id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Container?> UpdateAsync(Guid id, string? name, string? description, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<bool> ExistsAsync(Guid id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task MarkSummaryStaleAsync(Guid id, CancellationToken ct = default) => throw new NotSupportedException();
-    }
-
-    /// <summary>Documents whose summaries clear a fixed count per container, counting the clears.</summary>
-    private sealed class ClearingDocuments(int perContainer) : IDocumentStore
-    {
-        public int Clears;
-
-        public Task<int> ClearDocumentSummariesAsync(Guid containerId, CancellationToken ct = default)
-        {
-            Interlocked.Increment(ref Clears);
-            return Task.FromResult(perContainer);
-        }
-
-        public Task<StoreResult> StoreAsync(Document document, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<StoreResult?> StoreInFolderAsync(Document document, Guid? folderId, Func<CancellationToken, Task> writeFile, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<bool> RemoveUnrecordedFileAsync(Guid containerId, string path, Func<CancellationToken, Task> deleteFile, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Document?> GetAsync(string documentId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, int skip = 0, int take = 50, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task DeleteAsync(string documentId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<string?> GetDocumentTextAsync(string documentId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DocumentSetFingerprint> GetDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DocumentSetFingerprint> GetSummarizedDocumentSetFingerprintAsync(Guid containerId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<Document>> ListSummarizedSampleAsync(Guid containerId, int maxDocuments, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyDictionary<string, string?>> GetResourceUrisAsync(IReadOnlyCollection<string> documentIds, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     // ── settings.embeddingModels ──────────────────────────────────────────────────────────────
@@ -272,63 +203,6 @@ public partial class SettingsOperationTests
         read.Result!.QueueDepth.Should().Be(4);
         read.Result.Run.Should().Be(actions.Runs.Current);
         (read.Result.Run.Status, read.Result.Run.LastError).Should().Be((ReindexStatus.Failed, "boom"));
-    }
-
-    // ── settings.summaries.clear ──────────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task Clear_NotAnAdministrator_IsForbiddenAndClearsNothing()
-    {
-        var actions = new Actions(admin: false);
-
-        var cleared = await actions.Clear().RunAsync(Caller);
-
-        cleared.Status.Should().Be(SettingsStatus.Forbidden);
-        cleared.Detail.Should().Be("Only administrators can clear all summaries.");
-        actions.Containers.ReceivedCalls().Should().BeEmpty();
-        actions.Documents.ReceivedCalls().Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task Clear_NoContainers_ClearsNoneAndRecordsIt()
-    {
-        var actions = new Actions();
-
-        var cleared = await actions.Clear().RunAsync(Caller);
-
-        cleared.Result.Should().Be(new SummariesCleared(0, 0));
-        await actions.World.Audit.Received(1).LogAsync(ClearAllSummaries.ClearedEvent, "settings", "summaries",
-            new SummariesCleared(0, 0), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Clear_ManyContainers_ClearsEveryPageSkippingIdsThatArentGuids()
-    {
-        var actions = new Actions();
-        var containers = Enumerable.Range(0, 201).Select(_ => ContainerWith(Guid.NewGuid().ToString()))
-            .Append(ContainerWith("not-a-guid")).ToArray();
-        actions.Holding(containers);
-        actions.Documents.ClearDocumentSummariesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(2);
-
-        var cleared = await actions.Clear().RunAsync(Caller);
-
-        cleared.Result.Should().Be(new SummariesCleared(201, 402));
-        await actions.Containers.Received(1).ListAsync(0, 200, Arg.Any<CancellationToken>());
-        await actions.Containers.Received(1).ListAsync(200, 200, Arg.Any<CancellationToken>());
-        foreach (var container in containers.Take(201))
-            await actions.Containers.Received(1).UpdateSummaryAsync(Guid.Parse(container.Id), null, null, null, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Clear_ExactlyAPage_AsksForTheNextPageAndStops()
-    {
-        var actions = new Actions();
-        actions.Holding(Enumerable.Range(0, 200).Select(_ => ContainerWith(Guid.NewGuid().ToString())).ToArray());
-
-        var cleared = await actions.Clear().RunAsync(Caller);
-
-        cleared.Result!.Containers.Should().Be(200);
-        await actions.Containers.Received(2).ListAsync(Arg.Any<int>(), 200, Arg.Any<CancellationToken>());
     }
 
     // ── settings.testConnection ───────────────────────────────────────────────────────────────
@@ -721,29 +595,6 @@ public partial class SettingsOperationTests
             if (admin)
                 read.Result.Should().Be(new ReindexProgress(depth, actions.Runs.Current));
         }, iter: 200);
-
-    [Fact]
-    [RandomInputTestOf(typeof(ClearAllSummaries))]
-    public Task Clear_AnyContainers_ClearsEachContainerWithAGuidOnce() =>
-        Gen.Select(Gen.Bool, Gen.Int[0, 450], Gen.Int[0, 5], Gen.Int[0, 3]).SampleAsync(async t =>
-        {
-            var (admin, count, junk, perContainer) = t;
-            var world = new World(admin);
-            var containers = new PagedContainers(Enumerable.Range(0, count).Select(_ => ContainerWith(Guid.NewGuid().ToString()))
-                .Concat(Enumerable.Range(0, junk).Select(i => ContainerWith($"junk-{i}"))).ToArray());
-            var documents = new ClearingDocuments(perContainer);
-
-            var cleared = await new ClearAllSummaries(containers, documents, world.Audit, world.Authorizer).RunAsync(Caller);
-
-            cleared.Status.Should().Be(admin ? SettingsStatus.Success : SettingsStatus.Forbidden);
-            if (!admin)
-            {
-                documents.Clears.Should().Be(0);
-                return;
-            }
-            cleared.Result.Should().Be(new SummariesCleared(count, count * perContainer));
-            containers.SummaryUpdates.Should().Be(count);
-        }, iter: 100);
 
     [Fact]
     [RandomInputTestOf(typeof(TestConnection))]

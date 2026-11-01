@@ -32,7 +32,7 @@ A call passes only when the caller's **role** allows it and, for a token, one of
 
 A personal access token may be issued any of these scopes, but it can never do more than its owner's role allows. An agent key may hold only `knowledge:read` and `knowledge:write`. The deprecated `agent:ingest` never allowed anything: a request that still asks for it succeeds, but the scope is dropped, and a migration removed it from existing keys and tokens. `pats:manage` is held by no token: you manage your own personal access tokens only while signed in yourself.
 
-A few operations ask for more than their scope's role: regenerating or clearing a container's summaries needs an Admin, and so does the GitHub App install callback.
+One operation asks for more than its scope's role: the GitHub App install callback needs an Admin.
 
 ## Operations by scope
 
@@ -84,7 +84,6 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `settings.reindex` | `POST /api/settings/reindex` | Write | Generic tools |
 | `settings.reindexStatus` | `GET /api/settings/reindex/status` | Read | Generic tools |
 | `settings.reset` | `DELETE /api/v1/settings/{category}` | Destructive | Generic tools |
-| `settings.summaries.clear` | `POST /api/v1/settings/summaries/clear` | Destructive | Generic tools |
 | `settings.testConnection` | `POST /api/settings/test-connection` | Write | Generic tools |
 | `settings.update` | `PUT /api/settings/{category}` | Credential | Generic tools |
 
@@ -171,8 +170,6 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `containers.retryFailed` | `POST /api/containers/{containerId}/retry-failed` | Write | Generic tools |
 | `containers.settings.reset` | `DELETE /api/containers/{containerId}/settings` | Write | Generic tools |
 | `containers.settings.update` | `PUT /api/containers/{containerId}/settings` | Credential | Generic tools |
-| `containers.summaries.clear` | `DELETE /api/containers/{containerId}/summaries` | Destructive | Generic tools |
-| `containers.summaries.regenerate` | `POST /api/containers/{containerId}/summaries` | Write | Generic tools |
 | `files.bulkDelete` | `POST /api/containers/{containerId}/files/bulk-delete` | Destructive | — |
 | `files.delete` | `DELETE /api/containers/{containerId}/files/{fileId}` | Destructive | — |
 | `files.retry` | `POST /api/containers/{containerId}/files/{fileId}/retry` | Write | Generic tools |

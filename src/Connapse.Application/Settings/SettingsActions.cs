@@ -32,9 +32,6 @@ public sealed record ReindexRequest(string? ContainerId = null, bool Force = fal
 /// <summary>The latest re-index run and how many documents wait in the ingestion queue.</summary>
 public sealed record ReindexProgress(int QueueDepth, ReindexState Run);
 
-/// <summary>Summaries cleared across every container: how many containers, and how many document summaries.</summary>
-public sealed record SummariesCleared(int Containers, int Documents);
-
 /// <summary>
 /// A connection test. <see cref="Category"/> is embedding, llm, crossencoder or minio; <see cref="Settings"/>
 /// is that category's settings as JSON. A key left out is the saved one only at the address it was saved for.
@@ -99,45 +96,6 @@ public sealed class GetReindexStatus(ReindexStateService runs, IIngestionQueue q
             return Attempt<ReindexProgress, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can read re-index status.");
 
         return Attempt<ReindexProgress, SettingsStatus>.Succeed(new ReindexProgress(await queue.GetQueueDepthAsync(ct), runs.Current));
-    }
-}
-
-/// <summary>
-/// Clears every container's summary and every document summary, as clearing one container does for each;
-/// the next sweep writes them again. Embeddings, chunks and documents are kept.
-/// </summary>
-[Operation("settings.summaries.clear", Scope = SettingsScope.Name, Risk = RiskTier.Destructive, Mcp = McpExposure.Generic)]
-public sealed class ClearAllSummaries(IContainerStore containers, IDocumentStore documents, IAuditLogger audit, IOperationAuthorizer authorizer)
-{
-    public const string ClearedEvent = "settings.summaries_cleared";
-
-    private const int PageSize = 200;
-
-    public async Task<Attempt<SummariesCleared, SettingsStatus>> RunAsync(OperationContext context, CancellationToken ct = default)
-    {
-        if (!await authorizer.AllowsAsync(context.User, Policies.SettingsAdmin))
-            return Attempt<SummariesCleared, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can clear all summaries.");
-
-        int containersCleared = 0;
-        int documentsCleared = 0;
-        for (int skip = 0; ; skip += PageSize)
-        {
-            var page = await containers.ListAsync(skip, PageSize, ct);
-            foreach (var container in page)
-            {
-                if (!Guid.TryParse(container.Id, out var id))
-                    continue;
-                documentsCleared += await documents.ClearDocumentSummariesAsync(id, ct);
-                await containers.UpdateSummaryAsync(id, null, null, null, ct);
-                containersCleared++;
-            }
-            if (page.Count < PageSize)
-                break;
-        }
-
-        var cleared = new SummariesCleared(containersCleared, documentsCleared);
-        await audit.LogAsync(ClearedEvent, "settings", "summaries", cleared, ct);
-        return Attempt<SummariesCleared, SettingsStatus>.Succeed(cleared);
     }
 }
 

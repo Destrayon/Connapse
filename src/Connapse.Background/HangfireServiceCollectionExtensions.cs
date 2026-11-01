@@ -67,16 +67,10 @@ public static class HangfireServiceCollectionExtensions
         bool disableServer = configuration.GetValue<bool>("Hangfire:DisableServer", defaultValue: false);
         if (!disableServer)
         {
-            // Two pools, so neither kind of work can take the other's workers: a burst of slow LLM
-            // summaries cannot stall ingestion, and a large sync cannot starve summaries. Each
-            // running job holds a database connection, so both stay small; more ingestion workers
-            // than the embedding throttle's ingestion lane only overlaps download and parsing with
-            // embedding, and does not load the provider further.
-            //
-            // The default queue — short recurring sweeps — rides with ingestion rather than with a
-            // single summary worker that may be busy for minutes on one LLM call.
+            // Each running job holds a database connection, so the pool stays small; more ingestion
+            // workers than the embedding throttle's ingestion lane only overlaps download and parsing
+            // with embedding, and does not load the provider further.
             int ingestionWorkers = PositiveSetting(configuration, "Hangfire:IngestionWorkerCount", 4);
-            int summaryWorkers = PositiveSetting(configuration, "Hangfire:SummaryWorkerCount", 1);
 
             services.AddHangfireServer(opt =>
             {
@@ -84,19 +78,12 @@ public static class HangfireServiceCollectionExtensions
                 opt.Queues = [Jobs.JobQueues.Ingestion, Jobs.JobQueues.Default];
                 opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}:ingestion";
             });
-            services.AddHangfireServer(opt =>
-            {
-                opt.WorkerCount = summaryWorkers;
-                opt.Queues = [Jobs.JobQueues.Summarization];
-                opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}:summarization";
-            });
         }
 
         services.AddSingleton<IDashboardAuthorizationFilter, HangfireDashboardAuthFilter>();
 
         // Job-class registrations — Hangfire activator resolves these via this IServiceProvider.
         services.AddScoped<Jobs.IIngestionJobs, Jobs.IngestionJobs>();
-        services.AddScoped<Jobs.ISummaryJobs, Jobs.SummaryJobs>();
 
         // Bridge the legacy IIngestionQueue API onto Hangfire. Replaces the in-memory
         // Channel-based queue + IngestionWorker that previously lived in Connapse.Ingestion.

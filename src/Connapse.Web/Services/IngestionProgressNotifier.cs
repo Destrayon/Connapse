@@ -15,4 +15,4 @@ public class IngestionProgressNotifier
         StatusChanged?.Invoke(ev);
 }
 
-public record DocumentStatusChangedEvent(string DocumentId, DocumentStatus Status, SummaryStatus SummaryStatus);
+public record DocumentStatusChangedEvent(string DocumentId, DocumentStatus Status);

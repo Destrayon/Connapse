@@ -124,6 +124,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
         {
             string first = await UploadAsync(http, full, "first.txt");
             string second = await UploadAsync(http, full, "second.txt");
+            string third = await UploadAsync(http, full, "third.txt", "/probe");
 
             (string Tool, Dictionary<string, object?> Arguments, Func<Task<bool>> Unchanged)[] cases =
             [
@@ -133,8 +134,8 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{first}")).IsSuccessStatusCode),
                 ("bulk_delete", new() { ["containerId"] = full, ["fileIds"] = $"[\"{second}\"]" },
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{second}")).IsSuccessStatusCode),
-                (McpApiTools.WriteName, new() { ["operation"] = "containers.summaries.clear", ["parameters"] = new Dictionary<string, object?> { ["containerId"] = empty } },
-                    async () => (await http.GetAsync($"/api/containers/{empty}")).IsSuccessStatusCode),
+                (McpApiTools.WriteName, new() { ["operation"] = "folders.delete", ["parameters"] = new Dictionary<string, object?> { ["containerId"] = full, ["path"] = "/probe", ["cascade"] = true } },
+                    async () => (await http.GetAsync($"/api/containers/{full}/files/{third}")).IsSuccessStatusCode),
             ];
             Tools.Where(t => t.Value.Risk == "destructive").Select(t => t.Key)
                 .Should().BeEquivalentTo(cases.Select(c => c.Tool), "each destructive tool needs a case here");
@@ -247,12 +248,14 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
         return body.RootElement.GetProperty("id").GetString()!;
     }
 
-    private static async Task<string> UploadAsync(HttpClient http, string containerId, string fileName)
+    private static async Task<string> UploadAsync(HttpClient http, string containerId, string fileName, string? folder = null)
     {
         using var multipart = new MultipartFormDataContent();
         var file = new ByteArrayContent("approval probe"u8.ToArray());
         file.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(file, "files", fileName);
+        if (folder is not null)
+            multipart.Add(new StringContent(folder), "path");
         var response = await http.PostAsync($"/api/containers/{containerId}/files", multipart);
         response.EnsureSuccessStatusCode();
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
