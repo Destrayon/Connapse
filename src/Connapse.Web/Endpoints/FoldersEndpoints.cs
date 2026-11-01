@@ -49,7 +49,7 @@ public static class FoldersEndpoints
             CancellationToken ct) =>
         {
             var deleted = await delete.RunAsync(Rest(http), containerId, path, ct);
-            return deleted.Succeeded ? Results.NoContent() : FileProblems.Result(deleted, path);
+            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)

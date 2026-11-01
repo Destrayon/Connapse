@@ -37,6 +37,28 @@ public class FolderValidationTests(SharedWebAppFixture fixture)
         }
     }
 
+    // Only folder creation ever answered with path_too_deep; a delete never did, so it doesn't now.
+    [Fact]
+    public async Task DeleteFolder_PathTooDeep_HasNoOldCode()
+    {
+        var container = await CreateTestContainer();
+        try
+        {
+            var deepPath = "/" + string.Join("/", Enumerable.Range(0, 51).Select(i => $"d{i}"));
+            var response = await fixture.AdminClient.DeleteAsync(
+                $"/api/containers/{container.Id}/folders?path={Uri.EscapeDataString(deepPath)}&cascade=true");
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+            body.GetProperty("type").GetString().Should().EndWith("#invalid-folder");
+            body.GetProperty("error").GetString().Should().NotBe("path_too_deep");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+        }
+    }
+
     [Fact]
     public async Task CreateFolder_PathAtMaxDepth_Returns201()
     {

@@ -22,6 +22,7 @@ public static class FileProblems
         return Results.Problem(problem);
     }
 
+    /// <summary>A failed folder create's problem. Only creation ever answered with path_too_deep, so a delete doesn't use this.</summary>
     /// <param name="path">The folder path the request named, so a path that is too deep keeps its code.</param>
     public static IResult Result<TResult>(Attempt<TResult, FolderStatus> failed, string? path)
     {
