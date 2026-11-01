@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Connapse.Application.Approvals;
+using Connapse.Identity.Services;
 using CsCheck;
 using FluentAssertions;
 
@@ -19,7 +20,8 @@ public class McpCallArgumentsTests
     private static readonly Gen<string> SecretName = Gen.OneOfConst(
         "Secret", "secret", "clientSecret", "client_secret", "Token", "token", "Passphrase", "Password",
         "ClientCertificatePassword", "PrivateKey", "PrivateKeyPem", "OpenAiApiKey", "x-api-key", "Authorization",
-        "ConnectionString", "credentials", "Cookie");
+        "ConnectionString", "credentials", "Cookie", "secretAccessKey", "aws_secret_access_key", "AccountKey",
+        "SecretString", "accessToken");
 
     private static readonly Gen<string> PlainName = Gen.OneOfConst(
         "operation", "name", "containerId", "BaseUrl", "CertificatePem", "TokenKey", "secretName", "tokens", "keyId", "Region", "body", "parameters");
@@ -120,9 +122,31 @@ public class McpCallArgumentsTests
     [InlineData("secretName", false)]
     [InlineData("CertificatePem", false)]
     [InlineData("tokens", false)]
+    [InlineData("secretAccessKey", true)]
+    [InlineData("aws_secret_access_key", true)]
+    [InlineData("SecretAccessKey", true)]
+    [InlineData("AccountKey", true)]
+    [InlineData("storageAccountKey", true)]
+    [InlineData("signingKey", true)]
+    [InlineData("SecretString", true)]
+    [InlineData("passwordValue", true)]
+    [InlineData("refresh_token", true)]
+    [InlineData("db-passwd", true)]
+    [InlineData("AccessKeyId", false)]
+    [InlineData("publicKey", false)]
+    [InlineData("sortKey", false)]
+    [InlineData("keyId", false)]
     public void IsSecret_Name_MatchesBySuffix(string name, bool secret)
     {
         McpCallArguments.IsSecret(name).Should().Be(secret);
+    }
+
+    [Fact]
+    public void LegacyScrub_RunsTheSameSecretNamePattern()
+    {
+        // The scrub can't call IsSecret from SQL, so it carries the pattern verbatim; if they drift, a summary the
+        // store writes could be hidden by mistake or one an older instance writes could be missed.
+        McpApprovalStore.HideUnredactedSecrets.Should().Contain("\"[^\"]*" + McpCallArguments.SecretNamePattern + "\":");
     }
 
     private static JsonObject Reverse(JsonObject obj)

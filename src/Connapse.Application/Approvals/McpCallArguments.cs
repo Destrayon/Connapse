@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Connapse.Application.Approvals;
 
@@ -14,19 +15,23 @@ public sealed record McpCallArguments(string Canonical, string Redacted)
     /// <summary>What a secret field's value reads as once redacted.</summary>
     public const string Hidden = "[hidden]";
 
-    // Matched against the end of a field's name, lowercased with '_' and '-' dropped, so "Secret", "clientSecret",
-    // "client_secret", "PrivateKeyPem", "x-api-key" and "Authorization" are all caught at any depth.
-    private static readonly string[] SecretSuffixes =
-    [
-        "secret", "password", "passphrase", "token", "apikey", "privatekey", "privatekeypem", "connectionstring",
-        "authorization", "credential", "credentials", "cookie",
-    ];
+    /// <summary>
+    /// What a secret field's name ends with, once lowercased with '_' and '-' dropped: a secret word, optionally
+    /// followed by a word naming its form ("clientSecret", "SecretString", "PrivateKeyPem", "x-api-key"), or "key"
+    /// with a secret qualifier anywhere before it ("secretAccessKey", "aws_secret_access_key", "AccountKey").
+    /// "secretName", "TokenKey" and "keyId" name a secret without holding one, so they aren't matched. The legacy
+    /// scrub in McpApprovalStore runs this same pattern in SQL, so change both together.
+    /// </summary>
+    public const string SecretNamePattern =
+        """(?:(?:secret|password|passwd|pwd|passphrase|token|credentials?|apikey|privatekey|connectionstring|authorization|cookie)(?:value|string|text|data|base64|pem)?|(?:secret|private|access|account|signing|session|shared|master|encryption)[^"]*key)""";
+
+    private static readonly Regex SecretName = new(SecretNamePattern + "$", RegexOptions.CultureInvariant);
 
     /// <summary>Whether a field with this name holds a secret.</summary>
     public static bool IsSecret(string name)
     {
         string normalized = name.Replace("_", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal).ToLowerInvariant();
-        return SecretSuffixes.Any(suffix => normalized.EndsWith(suffix, StringComparison.Ordinal));
+        return SecretName.IsMatch(normalized);
     }
 
     /// <summary>Whether redacting hid anything, which is when the real arguments must be sealed to be matched later.</summary>

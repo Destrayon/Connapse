@@ -7,26 +7,6 @@ namespace Connapse.Identity.Migrations
     /// <inheritdoc />
     public partial class SealMcpApprovalArguments : Migration
     {
-        // Requests made before CON-185 stored their full arguments as the summary, secrets included, and an unsalted
-        // hash of them. A denied, used or expired one is never shown or matched again, so both go. A pending or
-        // approved one keeps its hash, so approving or running it still works, until the store empties it on deny,
-        // use or expiry (a day at most); a pending one's summary is replaced if any field name could be a secret. The
-        // match strips '_' and '-' and lowercases, like McpCallArguments.IsSecret, and also hits values, so it hides
-        // more, never less.
-        public const string HideLegacySecrets = """
-            UPDATE mcp_approvals SET arguments_hash = ''
-            WHERE status NOT IN ('Pending', 'Approved') OR expires_at <= now();
-
-            UPDATE mcp_approvals SET arguments_summary = ''
-            WHERE status <> 'Pending' OR expires_at <= now();
-
-            UPDATE mcp_approvals
-            SET arguments_summary = '(hidden: requested before secret fields were redacted. Approving still runs the call; deny it and repeat the call to see its other arguments.)'
-            WHERE status = 'Pending' AND expires_at > now()
-              AND regexp_replace(lower(arguments_summary), '[-_]', '', 'g')
-                  ~ '(secret|password|passphrase|token|apikey|privatekey|privatekeypem|connectionstring|authorization|credential|credentials|cookie)"';
-            """;
-
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -36,7 +16,10 @@ namespace Connapse.Identity.Migrations
                 type: "text",
                 nullable: true);
 
-            migrationBuilder.Sql(HideLegacySecrets);
+            // Requests made before CON-185 stored their full arguments as the summary, secrets included, and an
+            // unsalted hash of them. The store runs the same scrub every few minutes after this, for any an older
+            // instance still writes mid-deploy.
+            migrationBuilder.Sql(Connapse.Identity.Services.McpApprovalStore.HideUnredactedSecrets);
         }
 
         /// <inheritdoc />

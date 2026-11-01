@@ -34,6 +34,12 @@ public interface IMcpApprovalStore
 
     /// <summary>Approves or denies a waiting request; only its owner or an administrator may.</summary>
     Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, CancellationToken ct = default);
+
+    /// <summary>
+    /// Empties expired requests and runs <see cref="McpApprovalStore.HideUnredactedSecrets"/>, on a schedule rather
+    /// than only when a request is made, so nothing readable outlives its use while MCP traffic is quiet.
+    /// </summary>
+    Task PurgeAsync(CancellationToken ct = default);
 }
 
 /// <summary>
@@ -53,6 +59,31 @@ public sealed class McpApprovalStore(
     /// <summary>What the stored hash of a request made since CON-185 is taken over, ahead of its redacted arguments.</summary>
     public const string HashPrefix = "mcp-approval.v2\n";
 
+    /// <summary>
+    /// Hides what code from before CON-185 stored readable: an unsalted hash of the full arguments and a summary
+    /// with secrets in it. The migration that added sealing runs it once, and <see cref="PurgeAsync"/> runs it on a
+    /// schedule, so a request an older instance still writes mid-deploy is hidden within minutes. A denied, used or
+    /// expired request is never shown or matched again, so its hash and summary go. A pending or approved one keeps
+    /// its hash, so approving or running it still works, until the store empties it on deny, use or expiry (a day at
+    /// most). A pending one without sealed arguments has its summary replaced when a field McpCallArguments.IsSecret
+    /// would match holds anything but null or the placeholder: the pattern is McpCallArguments.SecretNamePattern, run
+    /// on the summary lowercased with '_' and '-' dropped as IsSecret does, so a summary the store wrote since CON-185
+    /// never matches. Every statement is idempotent.
+    /// </summary>
+    public const string HideUnredactedSecrets = """
+        UPDATE mcp_approvals SET arguments_hash = ''
+        WHERE arguments_hash <> '' AND (status NOT IN ('Pending', 'Approved') OR expires_at <= now());
+
+        UPDATE mcp_approvals SET arguments_summary = ''
+        WHERE arguments_summary <> '' AND (status <> 'Pending' OR expires_at <= now());
+
+        UPDATE mcp_approvals
+        SET arguments_summary = '(hidden: requested before secret fields were redacted. Approving still runs the call; deny it and repeat the call to see its other arguments.)'
+        WHERE status = 'Pending' AND expires_at > now() AND arguments_protected IS NULL
+          AND regexp_replace(lower(arguments_summary), '[-_]', '', 'g')
+              ~ '"[^"]*(?:(?:secret|password|passwd|pwd|passphrase|token|credentials?|apikey|privatekey|connectionstring|authorization|cookie)(?:value|string|text|data|base64|pem)?|(?:secret|private|access|account|signing|session|shared|master|encryption)[^"]*key)":(?!null|"\[hidden\])';
+        """;
+
     private IDataProtector Protector => dataProtection.CreateProtector("McpApproval.v1");
 
     public async Task<McpApprovalEntity> RequestAsync(string tokenKey, Guid ownerUserId, string toolName, string arguments, string redactedArguments, CancellationToken ct = default)
@@ -61,13 +92,7 @@ public sealed class McpApprovalStore(
         var now = clock.GetUtcNow().UtcDateTime;
         var call = new Call(arguments, redactedArguments);
 
-        // An expired request is never matched again, so its hash (which for one made before CON-185 is of the full
-        // arguments, secrets included) and its sealed arguments go.
-        await db.McpApprovals
-            .Where(a => a.ExpiresAt <= now && (a.ArgumentsHash != "" || a.ArgumentsProtected != null))
-            .ExecuteUpdateAsync(set => set
-                .SetProperty(a => a.ArgumentsHash, "")
-                .SetProperty(a => a.ArgumentsProtected, (string?)null), ct);
+        await ClearExpiredAsync(db, now, ct);
 
         var candidates = await db.McpApprovals
             .Where(a => a.TokenKey == tokenKey && a.ToolName == toolName && (a.ArgumentsHash == call.Hash || a.ArgumentsHash == call.LegacyHash)
@@ -119,6 +144,22 @@ public sealed class McpApprovalStore(
                 .SetProperty(a => a.ArgumentsProtected, (string?)null), ct);
         return used == 1;
     }
+
+    public async Task PurgeAsync(CancellationToken ct = default)
+    {
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        await ClearExpiredAsync(db, clock.GetUtcNow().UtcDateTime, ct);
+        await db.Database.ExecuteSqlRawAsync(HideUnredactedSecrets, ct);
+    }
+
+    // An expired request is never matched again, so its hash (which for one made before CON-185 is of the full
+    // arguments, secrets included) and its sealed arguments go.
+    private static Task<int> ClearExpiredAsync(ConnapseIdentityDbContext db, DateTime now, CancellationToken ct) =>
+        db.McpApprovals
+            .Where(a => a.ExpiresAt <= now && (a.ArgumentsHash != "" || a.ArgumentsProtected != null))
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(a => a.ArgumentsHash, "")
+                .SetProperty(a => a.ArgumentsProtected, (string?)null), ct);
 
     /// <summary>
     /// Whether a stored request is for exactly this call. One with sealed arguments matches only a call whose real
