@@ -5,6 +5,7 @@ using System.Text.Json;
 using Connapse.Application;
 using Connapse.Application.Approvals;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Identity.Authentication;
 using Connapse.Integration.Tests.CrossSurface;
 using Connapse.Web.Mcp;
@@ -153,6 +154,54 @@ public class GenericApiToolsTests(SharedWebAppFixture fixture)
         finally
         {
             await fixture.AdminClient.PutAsJsonAsync("/api/settings/chunking", original);
+        }
+    }
+
+    [Fact]
+    public async Task ApiWrite_ConnectionWithAKey_ApproverNeverSeesTheKeyAndTheApprovedCallStoresIt()
+    {
+        await using var agent = await AdminTokenAsync(["admin:sources"], requiresApproval: true);
+        string name = $"sealed-{Guid.NewGuid():N}";
+        string key = $"private-key-{Guid.NewGuid():N}";
+        object Body(string privateKey) => new
+        {
+            name,
+            provider = "Sftp",
+            config = new { host = "sftp.example.com", port = 2222, username = "reader", allowedRoot = "/data" },
+            privateKey,
+        };
+        var create = Call("connections.create", [], Body(key));
+        Guid? created = null;
+        try
+        {
+            Text(await agent.CallToolAsync(McpApiTools.WriteName, create)).Should().Contain("pending approval").And.NotContain(key);
+
+            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            {
+                var listed = await scope.ServiceProvider.GetRequiredService<ListMcpApprovals>().ExecuteAsync(Admin());
+                var pending = listed.Result!.Should().ContainSingle(a => a.ArgumentsSummary.Contains(name)).Subject;
+                pending.ArgumentsSummary.Should().NotContain(key, "the approvals page shows secret fields hidden")
+                    .And.Contain(McpCallArguments.Hidden).And.Contain("sftp.example.com", "everything else stays readable");
+                (await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>().ExecuteAsync(Admin(), pending.Id, approve: true))
+                    .Succeeded.Should().BeTrue();
+            }
+
+            Text(await agent.CallToolAsync(McpApiTools.WriteName, Call("connections.create", [], Body("a-different-key"))))
+                .Should().Contain("pending approval", "the approval is for the key that was asked for, though the page hid it");
+
+            string ran = Text(await agent.CallToolAsync(McpApiTools.WriteName, create));
+            ran.Should().StartWith("201", "the approved call ran").And.NotContain(key);
+            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            {
+                var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+                created = (await connections.ListAsync(take: 1000)).Single(c => c.Name == name).Id;
+                (await connections.GetSecretAsync(created.Value)).Should().Contain(key, "the call ran with the real key");
+            }
+        }
+        finally
+        {
+            if (created is { } id)
+                await fixture.AdminClient.DeleteAsync($"/api/v1/connections/{id}");
         }
     }
 

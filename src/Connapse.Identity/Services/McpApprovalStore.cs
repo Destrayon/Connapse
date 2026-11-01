@@ -1,5 +1,8 @@
+using System.Security.Cryptography;
+using System.Text;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace Connapse.Identity.Services;
@@ -16,11 +19,15 @@ public enum McpApprovalDecision
 /// <summary>High-impact MCP calls waiting for a person, and the approvals that let them run once (#782).</summary>
 public interface IMcpApprovalStore
 {
-    /// <summary>The pending request for this call, made now unless one is already waiting.</summary>
-    Task<McpApprovalEntity> RequestAsync(string tokenKey, Guid ownerUserId, string toolName, string argumentsHash, string argumentsSummary, CancellationToken ct = default);
+    /// <summary>
+    /// The pending request for this call, made now unless one is already waiting. <paramref name="arguments"/> are
+    /// the call's real canonical arguments and <paramref name="redactedArguments"/> the same with secrets hidden:
+    /// only the redacted ones are stored readable.
+    /// </summary>
+    Task<McpApprovalEntity> RequestAsync(string tokenKey, Guid ownerUserId, string toolName, string arguments, string redactedArguments, CancellationToken ct = default);
 
     /// <summary>Whether an approval for exactly this call is waiting; if so, it is used up and the call may run.</summary>
-    Task<bool> TryConsumeAsync(string tokenKey, string toolName, string argumentsHash, CancellationToken ct = default);
+    Task<bool> TryConsumeAsync(string tokenKey, string toolName, string arguments, string redactedArguments, CancellationToken ct = default);
 
     /// <summary>Requests still waiting: a person's own, or everyone's for an administrator.</summary>
     Task<IReadOnlyList<McpApprovalEntity>> ListPendingAsync(Guid userId, bool isAdmin, CancellationToken ct = default);
@@ -29,7 +36,13 @@ public interface IMcpApprovalStore
     Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, CancellationToken ct = default);
 }
 
-public sealed class McpApprovalStore(IDbContextFactory<ConnapseIdentityDbContext> contexts, TimeProvider clock) : IMcpApprovalStore
+/// <summary>
+/// Stores approval requests without a readable secret (CON-185): the summary and hash are of the redacted
+/// arguments, and when redacting hid something the real arguments are kept only as DataProtection ciphertext,
+/// which a retried call must unprotect to exactly. Its own purpose, so no other protector can read them.
+/// </summary>
+public sealed class McpApprovalStore(
+    IDbContextFactory<ConnapseIdentityDbContext> contexts, TimeProvider clock, IDataProtectionProvider dataProtection) : IMcpApprovalStore
 {
     /// <summary>How long a request waits for a person.</summary>
     public static readonly TimeSpan PendingFor = TimeSpan.FromDays(1);
@@ -37,13 +50,19 @@ public sealed class McpApprovalStore(IDbContextFactory<ConnapseIdentityDbContext
     /// <summary>How long an approval may be used once given.</summary>
     public static readonly TimeSpan ApprovedFor = TimeSpan.FromMinutes(15);
 
-    public async Task<McpApprovalEntity> RequestAsync(string tokenKey, Guid ownerUserId, string toolName, string argumentsHash, string argumentsSummary, CancellationToken ct = default)
+    private IDataProtector Protector => dataProtection.CreateProtector("McpApproval.v1");
+
+    public async Task<McpApprovalEntity> RequestAsync(string tokenKey, Guid ownerUserId, string toolName, string arguments, string redactedArguments, CancellationToken ct = default)
     {
         await using var db = await contexts.CreateDbContextAsync(ct);
         var now = clock.GetUtcNow().UtcDateTime;
-        var waiting = await db.McpApprovals.FirstOrDefaultAsync(a => a.TokenKey == tokenKey && a.ToolName == toolName
-            && a.ArgumentsHash == argumentsHash && a.Status == McpApprovalStatus.Pending && a.ExpiresAt > now, ct);
-        if (waiting is not null)
+        var call = new Call(arguments, redactedArguments);
+        var candidates = await db.McpApprovals
+            .Where(a => a.TokenKey == tokenKey && a.ToolName == toolName && (a.ArgumentsHash == call.Hash || a.ArgumentsHash == call.LegacyHash)
+                && a.Status == McpApprovalStatus.Pending && a.ExpiresAt > now)
+            .OrderBy(a => a.CreatedAt)
+            .ToListAsync(ct);
+        if (candidates.FirstOrDefault(a => Matches(a, call)) is { } waiting)
             return waiting;
 
         var request = new McpApprovalEntity
@@ -52,8 +71,9 @@ public sealed class McpApprovalStore(IDbContextFactory<ConnapseIdentityDbContext
             TokenKey = tokenKey,
             OwnerUserId = ownerUserId,
             ToolName = toolName,
-            ArgumentsHash = argumentsHash,
-            ArgumentsSummary = argumentsSummary.Length <= 2048 ? argumentsSummary : argumentsSummary[..2045] + "...",
+            ArgumentsHash = call.Hash,
+            ArgumentsSummary = redactedArguments.Length <= 2048 ? redactedArguments : redactedArguments[..2045] + "...",
+            ArgumentsProtected = call.HasSecrets ? Protector.Protect(arguments) : null,
             Status = McpApprovalStatus.Pending,
             CreatedAt = now,
             ExpiresAt = now + PendingFor,
@@ -63,24 +83,65 @@ public sealed class McpApprovalStore(IDbContextFactory<ConnapseIdentityDbContext
         return request;
     }
 
-    public async Task<bool> TryConsumeAsync(string tokenKey, string toolName, string argumentsHash, CancellationToken ct = default)
+    public async Task<bool> TryConsumeAsync(string tokenKey, string toolName, string arguments, string redactedArguments, CancellationToken ct = default)
     {
         await using var db = await contexts.CreateDbContextAsync(ct);
         var now = clock.GetUtcNow().UtcDateTime;
-        var approved = await db.McpApprovals
-            .Where(a => a.TokenKey == tokenKey && a.ToolName == toolName && a.ArgumentsHash == argumentsHash
+        var call = new Call(arguments, redactedArguments);
+        var candidates = await db.McpApprovals.AsNoTracking()
+            .Where(a => a.TokenKey == tokenKey && a.ToolName == toolName && (a.ArgumentsHash == call.Hash || a.ArgumentsHash == call.LegacyHash)
                 && a.Status == McpApprovalStatus.Approved && a.ExpiresAt > now)
             .OrderBy(a => a.DecidedAt)
-            .Select(a => a.Id)
-            .FirstOrDefaultAsync(ct);
-        if (approved == Guid.Empty)
+            .ToListAsync(ct);
+        if (candidates.FirstOrDefault(a => Matches(a, call)) is not { } approved)
             return false;
 
-        // Conditional on still being Approved, so two identical calls racing can't both use one approval.
+        // Conditional on still being Approved, so two identical calls racing can't both use one approval. The
+        // sealed arguments go with it: a used request never needs them again.
         int used = await db.McpApprovals
-            .Where(a => a.Id == approved && a.Status == McpApprovalStatus.Approved)
-            .ExecuteUpdateAsync(set => set.SetProperty(a => a.Status, McpApprovalStatus.Used).SetProperty(a => a.UsedAt, now), ct);
+            .Where(a => a.Id == approved.Id && a.Status == McpApprovalStatus.Approved)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(a => a.Status, McpApprovalStatus.Used)
+                .SetProperty(a => a.UsedAt, now)
+                .SetProperty(a => a.ArgumentsProtected, (string?)null), ct);
         return used == 1;
+    }
+
+    /// <summary>
+    /// Whether a stored request is for exactly this call. One with sealed arguments matches only a call whose real
+    /// arguments are those, so two calls that differ only in a secret never share an approval. One without (no
+    /// secrets, or made before CON-185) matches by its hash, which for those is the hash of the full arguments.
+    /// </summary>
+    private bool Matches(McpApprovalEntity request, Call call)
+    {
+        if (request.ArgumentsProtected is null)
+            return request.ArgumentsHash == call.LegacyHash;
+        if (request.ArgumentsHash != call.Hash)
+            return false;
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(Protector.Unprotect(request.ArgumentsProtected)), Encoding.UTF8.GetBytes(call.Arguments));
+        }
+        catch (CryptographicException)
+        {
+            // The key ring that sealed it is gone; the request can't be shown to be this call, so it isn't.
+            return false;
+        }
+    }
+
+    /// <summary>A call's arguments and the hashes a stored request may hold for it.</summary>
+    private sealed record Call(string Arguments, string RedactedArguments)
+    {
+        public bool HasSecrets { get; } = !string.Equals(Arguments, RedactedArguments, StringComparison.Ordinal);
+
+        /// <summary>The hash a request made now stores: of the redacted arguments, never of a secret.</summary>
+        public string Hash { get; } = Sha256(RedactedArguments);
+
+        /// <summary>The hash of the full arguments, which a request without sealed arguments holds.</summary>
+        public string LegacyHash { get; } = Sha256(Arguments);
+
+        private static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     }
 
     public async Task<IReadOnlyList<McpApprovalEntity>> ListPendingAsync(Guid userId, bool isAdmin, CancellationToken ct = default)
@@ -111,7 +172,8 @@ public sealed class McpApprovalStore(IDbContextFactory<ConnapseIdentityDbContext
                 .SetProperty(a => a.Status, status)
                 .SetProperty(a => a.DecidedAt, now)
                 .SetProperty(a => a.DecidedByUserId, userId)
-                .SetProperty(a => a.ExpiresAt, expiresAt), ct);
+                .SetProperty(a => a.ExpiresAt, expiresAt)
+                .SetProperty(a => a.ArgumentsProtected, a => approve ? a.ArgumentsProtected : null), ct);
         return decided == 1 ? McpApprovalDecision.Decided : McpApprovalDecision.NotPending;
     }
 }

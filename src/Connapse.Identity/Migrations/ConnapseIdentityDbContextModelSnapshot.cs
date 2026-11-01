@@ -363,6 +363,10 @@ namespace Connapse.Identity.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("arguments_hash");
 
+                    b.Property<string>("ArgumentsProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("arguments_protected");
+
                     b.Property<string>("ArgumentsSummary")
                         .IsRequired()
                         .HasMaxLength(2048)

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application.Approvals;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Authorization;
 using Connapse.Web.Mcp;
@@ -97,14 +98,15 @@ public class McpApprovalUnitTests
         var a = Arguments("""{ "b": [1, {"y": 2, "x": 1}], "a": "z" }""");
         var b = Arguments("""{"a":"z","b":[1,{"x":1,"y":2}]}""");
 
-        McpApprovalGate.CanonicalArguments(a).Should().Be(McpApprovalGate.CanonicalArguments(b));
+        McpCallArguments.From(a).Canonical.Should().Be(McpCallArguments.From(b).Canonical)
+            .And.Be("""{"a":"z","b":[1,{"x":1,"y":2}]}""", "requests made before CON-185 are matched by the hash of exactly this form");
     }
 
     [Fact]
     public void CanonicalArguments_DifferentValues_Differ()
     {
-        McpApprovalGate.CanonicalArguments(Arguments("""{"containerId":"one"}"""))
-            .Should().NotBe(McpApprovalGate.CanonicalArguments(Arguments("""{"containerId":"two"}""")));
+        McpCallArguments.From(Arguments("""{"containerId":"one"}""")).Canonical
+            .Should().NotBe(McpCallArguments.From(Arguments("""{"containerId":"two"}""")).Canonical);
     }
 
     [Fact]

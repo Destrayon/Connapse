@@ -26,11 +26,20 @@ public class McpApprovalEntity
 
     public string ToolName { get; set; } = string.Empty;
 
-    /// <summary>SHA-256 of the canonical arguments; the retried call must match it exactly.</summary>
+    /// <summary>
+    /// SHA-256 of the redacted arguments, so it carries nothing derived from a secret (CON-185). A request made
+    /// before that, with no <see cref="ArgumentsProtected"/>, holds the SHA-256 of the full arguments instead.
+    /// </summary>
     public string ArgumentsHash { get; set; } = string.Empty;
 
-    /// <summary>The arguments as shown to the approver, cut short if long.</summary>
+    /// <summary>The arguments as shown to the approver, with every secret field hidden, cut short if long.</summary>
     public string ArgumentsSummary { get; set; } = string.Empty;
+
+    /// <summary>
+    /// DataProtection ciphertext (purpose <c>McpApproval.v1</c>) of the full arguments, set only when redacting
+    /// hid something: the retried call must unprotect to exactly these. Cleared once the request is denied or used.
+    /// </summary>
+    public string? ArgumentsProtected { get; set; }
 
     public McpApprovalStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
