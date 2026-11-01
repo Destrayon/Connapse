@@ -46,6 +46,27 @@ public class OAuthAuthCodeService(
         return rawCode;
     }
 
+    /// <summary>
+    /// Exchanges a code and runs <paramref name="issue"/>, which saves the client's tokens through this same context,
+    /// as one transaction under the client's lock (CON-189). A revoke that committed first leaves no code to exchange;
+    /// one that starts before this commits waits, then revokes the tokens just issued. <paramref name="issue"/> gets
+    /// null when the code doesn't exchange.
+    /// </summary>
+    public async Task<T> RedeemAsync<T>(
+        string rawCode,
+        string codeVerifier,
+        string redirectUri,
+        string clientId,
+        Func<OAuthCodeExchangeResult?, CancellationToken, Task<T>> issue,
+        CancellationToken ct = default)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+        await OAuthClientLock.AcquireAsync(dbContext, clientId, ct);
+        T result = await issue(await ExchangeAsync(rawCode, codeVerifier, redirectUri, clientId, ct), ct);
+        await transaction.CommitAsync(ct);
+        return result;
+    }
+
     public async Task<OAuthCodeExchangeResult?> ExchangeAsync(
         string rawCode,
         string codeVerifier,

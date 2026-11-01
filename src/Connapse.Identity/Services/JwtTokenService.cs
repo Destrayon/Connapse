@@ -100,14 +100,9 @@ public class JwtTokenService(
             return null;
         }
 
-        // Revoke old token
-        existingToken.RevokedAt = DateTime.UtcNow;
-
         // Generate new token pair
         var newRefreshToken = GenerateRefreshToken();
         var newRefreshTokenHash = ComputeSha256Hash(newRefreshToken);
-
-        existingToken.ReplacedByTokenHash = newRefreshTokenHash;
 
         var settings = jwtSettings.CurrentValue;
 
@@ -156,8 +151,27 @@ public class JwtTokenService(
             CreatedAt = DateTime.UtcNow,
         };
 
+        // The old token is retired only if it is still unrevoked when the replacement is saved: a revoke or another
+        // refresh of it that committed after it was read wins, and this refresh issues nothing. The client lock makes
+        // a revoke that starts before this commits wait for it, then revoke the replacement too (CON-189).
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        if (existingToken.ClientId is { } lockedClient)
+            await OAuthClientLock.AcquireAsync(dbContext, lockedClient, cancellationToken);
+        DateTime revokedAt = DateTime.UtcNow;
+        int retired = await dbContext.RefreshTokens
+            .Where(t => t.Id == existingToken.Id && t.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.RevokedAt, revokedAt)
+                .SetProperty(t => t.ReplacedByTokenHash, newRefreshTokenHash), cancellationToken);
+        if (retired == 0)
+        {
+            logger.LogWarning("Refresh token for user {UserId} was revoked while it was being refreshed", existingToken.UserId);
+            return null;
+        }
+
         dbContext.RefreshTokens.Add(newRefreshTokenEntity);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return new TokenResponse(
             AccessToken: accessToken,

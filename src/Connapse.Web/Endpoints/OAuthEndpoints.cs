@@ -189,61 +189,67 @@ public static class OAuthEndpoints
             return Results.Json(new OAuthError("invalid_request"), statusCode: 400);
         }
 
-        var exchangeResult = await authCodeService.ExchangeAsync(code, codeVerifier, redirectUri, clientId, ct);
-        if (exchangeResult is null || !await ClientMayHoldGrantsAsync(dbContext, clientId, ct))
-            return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
+        return await authCodeService.RedeemAsync(code, codeVerifier, redirectUri, clientId, IssueAsync, ct);
 
-        // RFC 8707 §2 / MCP §Token Audience Binding: if the client included a
-        // `resource` parameter at the token endpoint, it MUST match the value
-        // it presented at the authorization endpoint. Mismatches mean the
-        // client is requesting a token for a different audience than the user
-        // consented to — reject as invalid_target.
-        if (!string.IsNullOrWhiteSpace(resourceParam) &&
-            !string.Equals(resourceParam, exchangeResult.Resource, StringComparison.Ordinal))
+        // Runs inside the redemption's transaction under the client's lock, so a revoke either leaves no code to
+        // exchange or waits and then revokes the refresh token tagged here (CON-189).
+        async Task<IResult> IssueAsync(OAuthCodeExchangeResult? exchangeResult, CancellationToken ct)
         {
-            return Results.Json(new OAuthError("invalid_target"), statusCode: 400);
+            if (exchangeResult is null || !await ClientMayHoldGrantsAsync(dbContext, clientId, ct))
+                return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
+
+            // RFC 8707 §2 / MCP §Token Audience Binding: if the client included a
+            // `resource` parameter at the token endpoint, it MUST match the value
+            // it presented at the authorization endpoint. Mismatches mean the
+            // client is requesting a token for a different audience than the user
+            // consented to — reject as invalid_target.
+            if (!string.IsNullOrWhiteSpace(resourceParam) &&
+                !string.Equals(resourceParam, exchangeResult.Resource, StringComparison.Ordinal))
+            {
+                return Results.Json(new OAuthError("invalid_target"), statusCode: 400);
+            }
+
+            // Bind the access token's `aud` claim to the resource the client asked
+            // for so that MCP clients can verify the token was issued for their
+            // intended resource. If no resource was provided (legacy / non-MCP
+            // clients), fall back to the static server audience.
+            var audience = exchangeResult.Resource;
+
+            // RFC 9068 §2.2 / RFC 8414: the `iss` claim must equal the authorization
+            // server's issuer identifier advertised in /.well-known/oauth-authorization-server.
+            // That document computes `issuer` from the request's scheme+host, so we bind
+            // the token's `iss` to the same value at mint time. Without this, spec-compliant
+            // MCP clients silently discard the token because `iss` won't match AS metadata.
+            var issuer = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+
+            var user = await userManager.FindByIdAsync(exchangeResult.UserId.ToString());
+            if (user is null)
+                return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
+
+            var roles = await userManager.GetRolesAsync(user);
+            var claims = BuildClaims(user, roles, exchangeResult.Scope, clientId);
+            var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, audience, issuer, ct);
+
+            // Tag the refresh token with the client_id and the resource so refresh
+            // cycles keep the same `aud` binding.
+            var refreshTokenHash = ComputeSha256Hex(tokenResponse.RefreshToken);
+            var refreshEntity = await dbContext.RefreshTokens
+                .FirstOrDefaultAsync(r => r.TokenHash == refreshTokenHash, ct);
+            if (refreshEntity is not null)
+            {
+                refreshEntity.ClientId = clientId;
+                refreshEntity.Resource = exchangeResult.Resource;
+                refreshEntity.Scope = exchangeResult.Scope;
+                await dbContext.SaveChangesAsync(ct);
+            }
+
+            return Results.Json(new OAuthTokenResponse(
+                tokenResponse.AccessToken,
+                "bearer",
+                (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
+                tokenResponse.RefreshToken,
+                exchangeResult.Scope));
         }
-
-        // Bind the access token's `aud` claim to the resource the client asked
-        // for so that MCP clients can verify the token was issued for their
-        // intended resource. If no resource was provided (legacy / non-MCP
-        // clients), fall back to the static server audience.
-        var audience = exchangeResult.Resource;
-
-        // RFC 9068 §2.2 / RFC 8414: the `iss` claim must equal the authorization
-        // server's issuer identifier advertised in /.well-known/oauth-authorization-server.
-        // That document computes `issuer` from the request's scheme+host, so we bind
-        // the token's `iss` to the same value at mint time. Without this, spec-compliant
-        // MCP clients silently discard the token because `iss` won't match AS metadata.
-        var issuer = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
-
-        var user = await userManager.FindByIdAsync(exchangeResult.UserId.ToString());
-        if (user is null)
-            return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
-
-        var roles = await userManager.GetRolesAsync(user);
-        var claims = BuildClaims(user, roles, exchangeResult.Scope, clientId);
-        var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, audience, issuer, ct);
-
-        // Tag the refresh token with the client_id and the resource so refresh
-        // cycles keep the same `aud` binding.
-        var refreshTokenHash = ComputeSha256Hex(tokenResponse.RefreshToken);
-        var refreshEntity = await dbContext.RefreshTokens
-            .FirstOrDefaultAsync(r => r.TokenHash == refreshTokenHash, ct);
-        if (refreshEntity is not null)
-        {
-            refreshEntity.ClientId = clientId;
-            refreshEntity.Resource = exchangeResult.Resource;
-            refreshEntity.Scope = exchangeResult.Scope;
-            await dbContext.SaveChangesAsync(ct);
-        }
-
-        return Results.Json(new OAuthTokenResponse(
-            tokenResponse.AccessToken,
-            "bearer",
-            (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
-            tokenResponse.RefreshToken,
-            exchangeResult.Scope));
     }
 
     /// <summary>
