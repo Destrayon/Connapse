@@ -43,7 +43,7 @@ public sealed class PrivateSourceVisibility(
         HashSet<Guid>? atlassianConnections;
         try
         {
-            // Custom connections that check permissions too: such a source's name and summary describe documents
+            // Custom connections that check permissions too: such a source's name describes documents
             // each user is checked for one by one, so its listing is for administrators as Confluence's is. A
             // custom connection without a provider is content-only and listed like any other source.
             atlassianConnections = (await connections.ListAsync(take: int.MaxValue, ct: ct))
@@ -84,7 +84,7 @@ public sealed class PrivateSourceVisibility(
         if (!GitHubSearchScopeResolver.IsPrivate(source.ScopeJson))
         {
             // A public GitHub source whose repository a sync found it can no longer read (most
-            // often, made private) is treated as private from then on: its name and summary would
+            // often, made private) is treated as private from then on: its name would
             // otherwise keep describing a repository its documents are already hidden for.
             return source.AccessRevokedAt is null || !GitHubSearchScopeResolver.IsGitHubScope(source.ScopeJson);
         }
