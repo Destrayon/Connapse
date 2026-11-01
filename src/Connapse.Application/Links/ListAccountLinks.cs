@@ -24,6 +24,24 @@ public enum AccountLinkReadStatus
 /// </summary>
 public sealed record ListAccountLinksQuery(bool CustomStatus = true);
 
+/// <summary>Why people can't sign in to GitHub through this server's App, or <see cref="None"/> when they can.</summary>
+public enum GitHubSignInProblem
+{
+    None,
+
+    /// <summary>No GitHub App is stored.</summary>
+    NoApp,
+
+    /// <summary>The App was registered by hand, without a client secret.</summary>
+    NoClientSecret,
+
+    /// <summary>GitHub no longer accepts the stored client secret.</summary>
+    SecretRevoked,
+
+    /// <summary>The stored key can't be decrypted, most often because the server's encryption keys changed.</summary>
+    KeyUnreadable,
+}
+
 /// <summary>A GitHub account the user linked.</summary>
 public sealed record GitHubAccountLink(string Login, DateTime ConnectedAt);
 
@@ -47,12 +65,13 @@ public sealed record AccountLinks(
     bool AzureAvailable,
     GitHubAccountLink? GitHub,
     bool GitHubAvailable,
+    GitHubSignInProblem GitHubProblem,
     AtlassianAccountLink? Atlassian,
     bool AtlassianAvailable,
     IReadOnlyList<CustomAccountLink> Custom)
 {
     /// <summary>Nothing linked and nothing offered: what a page shows when the read failed.</summary>
-    public static AccountLinks None { get; } = new(null, false, null, false, null, false, null, false, []);
+    public static AccountLinks None { get; } = new(null, false, null, false, null, false, GitHubSignInProblem.NoApp, null, false, []);
 }
 
 /// <summary>
@@ -81,8 +100,15 @@ public sealed class ListAccountLinks(
 
         var gitHubLink = await gitHub.GetAsync(userId, ct);
         var atlassianLink = await atlassian.GetAsync(userId, ct);
-        // An App whose stored client secret no longer matches GitHub's can't finish a sign-in.
-        bool gitHubAvailable = await gitHubApp.CanSignInUsersAsync(ct) && await gitHubApp.StoredClientSecretMatchesAsync(ct) != false;
+        // An App whose stored client secret no longer matches GitHub's, or whose key can't be read, can't finish a sign-in.
+        var gitHubProblem = await gitHubApp.ReadSignInStateAsync(ct) switch
+        {
+            { CanSignIn: true } => GitHubSignInProblem.None,
+            { KeyUnreadable: true } => GitHubSignInProblem.KeyUnreadable,
+            { SecretStored: true } => GitHubSignInProblem.SecretRevoked,
+            { KeyStored: true } => GitHubSignInProblem.NoClientSecret,
+            _ => GitHubSignInProblem.NoApp,
+        };
 
         var providers = await custom.LinkableAsync(ct);
         var customLinks = query.CustomStatus
@@ -95,7 +121,8 @@ public sealed class ListAccountLinks(
             await azure.GetAsync(userId, ct),
             azureAd.CurrentValue.IsConfigured,
             gitHubLink is null ? null : new GitHubAccountLink(gitHubLink.Login, gitHubLink.ConnectedAt),
-            gitHubAvailable,
+            gitHubProblem == GitHubSignInProblem.None,
+            gitHubProblem,
             atlassianLink is null ? null : new AtlassianAccountLink(atlassianLink.AccountId, atlassianLink.ConnectedAt),
             await credentials.GetAtlassianLinkAppAsync(ct) is { SignInEnabled: true },
             customLinks));
