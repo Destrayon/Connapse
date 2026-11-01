@@ -728,7 +728,7 @@ public static class CloudIdentityEndpoints
             CancellationToken ct) =>
         {
             var unlinked = await unlink.RunAsync(new OperationContext(httpContext.User, OperationSurface.Rest), new UnlinkAccountRequest(provider), ct);
-            return unlinked.Succeeded ? Results.NoContent() : OperationProblems.Result(unlinked);
+            return unlinked.Succeeded ? Results.NoContent() : LinkProblems.Result(unlinked);
         }).RequireAuthorization(Policies.Person)
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)

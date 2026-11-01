@@ -80,6 +80,13 @@ Two old file errors behave differently now:
 - A bulk upload no longer fails as a whole when one file has an unsupported type or a name that is too long. It succeeds, and that file's entry carries the reason in its own `error`.
 - `cloud_access_denied` is gone. Only containers with Connapse-managed storage take uploads, and an upload to any other container gets `write_denied`.
 
+Unlinking a cloud identity with `DELETE /api/v1/auth/cloud/{provider}` also still puts the old code in `error`:
+
+| Old code in `error` | New `type` slug | Status |
+|---|---|---|
+| `invalid_provider` | `invalid-link-provider` | 400 |
+| `link_changed` | `link-changed` | 409 |
+
 ## Roll back
 
 Migrations only go forward. An older release can't run against a database a newer release has migrated, so rolling back means restoring the backup from step 1.
