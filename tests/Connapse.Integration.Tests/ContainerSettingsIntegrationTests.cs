@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests;
@@ -145,6 +147,59 @@ public class ContainerSettingsIntegrationTests(SharedWebAppFixture fixture)
         }
 
         await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
+    }
+
+    [Theory]
+    [InlineData("", null)]
+    [InlineData("co-con186-replaced", "co-con186-replaced")]
+    public async Task UpdateSettingsOverrides_KeyChangedDuringASaveThatLeftItOut_KeepsTheChange(string change, string? expected)
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"settings-race-{(change == "" ? "clear" : "replace")}" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        var id = Guid.Parse(container!.Id);
+        using var scope = fixture.Factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+        await store.SaveSettingsOverridesAsync(id, new ContainerSettingsOverrides
+        {
+            Search = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderApiKey = "co-con186-original" },
+        });
+
+        // A save that leaves the key out holds the row while it merges; the key changes in the middle of it.
+        var leftOut = new ContainerSettingsOverrides { Search = new SearchSettings { CrossEncoderProvider = "Cohere", TopK = 9 } };
+        var changed = new ContainerSettingsOverrides { Search = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderApiKey = change } };
+        Task<ContainerSettingsOverrides?>? changing = null;
+        await store.UpdateSettingsOverridesAsync(id, stored =>
+        {
+            changing = Task.Run(() => store.UpdateSettingsOverridesAsync(id, changed.KeepingSecretsOf));
+            WaitUntilALockIsAwaitedAsync(changing).GetAwaiter().GetResult();
+            return leftOut.KeepingSecretsOf(stored);
+        });
+        await changing!;
+
+        var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+        (await resolver.GetSearchSettingsAsync(id)).CrossEncoderApiKey.Should().Be(expected);
+
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
+    }
+
+    /// <summary>Waits until some session is blocked on a row lock, failing if <paramref name="other"/> finishes without one.</summary>
+    private async Task WaitUntilALockIsAwaitedAsync(Task other)
+    {
+        using var scope = fixture.Factory.Services.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline && !other.IsCompleted)
+        {
+            await using var context = await factory.CreateDbContextAsync();
+            var waiting = await context.Database
+                .SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_locks WHERE NOT granted AND locktype IN ('tuple', 'transactionid')")
+                .ToListAsync();
+            if (waiting[0] > 0)
+                return;
+        }
+        await other;
+        throw new InvalidOperationException("The other save never waited for the row, so it could land in the middle of this one.");
     }
 
     [Fact]

@@ -67,7 +67,7 @@ public class ContainerRandomInputTests
         }
 
         public bool Wrote =>
-            Containers.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "CreateAsync" or "UpdateAsync" or "DeleteAsync" or "SaveSettingsOverridesAsync")
+            Containers.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "CreateAsync" or "UpdateAsync" or "DeleteAsync" or "SaveSettingsOverridesAsync" or "UpdateSettingsOverridesAsync")
             || Audit.ReceivedCalls().Any();
     }
 
@@ -302,7 +302,11 @@ public class ContainerRandomInputTests
     private static readonly Gen<EmbeddingSettings> AnyEmbedding = Gen.Select(Gen.OneOfConst("OpenAI", "Ollama"), AnyAddress, AnyKey, AnyKey, AnyKey,
         (provider, url, key, openAiKey, azureKey) => new EmbeddingSettings
         {
-            Provider = provider, OpenAiBaseUrl = url, ApiKey = key, OpenAiApiKey = openAiKey, AzureApiKey = azureKey,
+            Provider = provider,
+            OpenAiBaseUrl = url,
+            ApiKey = key,
+            OpenAiApiKey = openAiKey,
+            AzureApiKey = azureKey,
         });
 
     private static readonly Gen<SearchSettings> AnySearch = Gen.Select(Gen.Int[1, 50], AnyAddress, AnyKey,
@@ -384,7 +388,9 @@ public class ContainerRandomInputTests
                 var world = new World(reader: true, writer);
                 world.Holds(container, exists);
                 var id = Guid.Parse(container.Id);
-                world.Containers.GetSettingsOverridesAsync(id, Arg.Any<CancellationToken>()).Returns(stored);
+                ContainerSettingsOverrides? written = null;
+                world.Containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
+                    .Returns(c => written = c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(stored));
                 string sent = Json(overrides);
 
                 var saved = await new UpdateContainerSettings(world.Containers, world.Audit, world.Authorizer).RunAsync(caller, id, overrides);
@@ -398,7 +404,8 @@ public class ContainerRandomInputTests
                 }
                 var stores = Stored(overrides, stored);
                 Json(saved.Result!).Should().Be(Json(Hidden(stores)));
-                await world.Containers.Received(1).SaveSettingsOverridesAsync(id, Arg.Is<ContainerSettingsOverrides>(o => Json(o) == Json(stores)), Arg.Any<CancellationToken>());
+                await world.Containers.Received(1).UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>());
+                Json(written!).Should().Be(Json(stores));
                 Json(overrides).Should().Be(sent, "the caller's overrides are never changed");
                 await world.Audit.Received(1).LogAsync("container.settings_updated", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 2000);

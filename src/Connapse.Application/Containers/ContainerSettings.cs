@@ -39,8 +39,9 @@ public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLo
         if (!await containers.ExistsAsync(containerId, ct))
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
 
-        var saved = overrides.KeepingSecretsOf(await containers.GetSettingsOverridesAsync(containerId, ct));
-        await containers.SaveSettingsOverridesAsync(containerId, saved, ct);
+        var saved = await containers.UpdateSettingsOverridesAsync(containerId, overrides.KeepingSecretsOf, ct);
+        if (saved is null)
+            return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
         await audit.LogAsync("container.settings_updated", "container", containerId.ToString(), cancellationToken: ct);
         return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(saved.WithoutSecrets());
     }
