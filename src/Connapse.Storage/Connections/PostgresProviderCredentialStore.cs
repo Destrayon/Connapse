@@ -350,6 +350,92 @@ public class PostgresProviderCredentialStore(
         return new ProviderCredentialInfo(GitHubProvider, existing.PrincipalName, now);
     }
 
+    public async Task<GitHubAppSnapshot?> GetGitHubAppSnapshotAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var row = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == GitHubProvider)
+            .Select(c => new { c.ConfigJson, c.PrivateKeyProtected, c.SecretProtected })
+            .FirstOrDefaultAsync(ct);
+        if (row is null) return null;
+
+        var version = new GitHubAppVersion(row.ConfigJson, row.PrivateKeyProtected, row.SecretProtected);
+        GitHubAppRegistration? app = ReadApp(row.ConfigJson);
+        if (app is null || string.IsNullOrEmpty(row.PrivateKeyProtected))
+            return new GitHubAppSnapshot(app, null, version);
+
+        try
+        {
+            return new GitHubAppSnapshot(app, new GitHubAppCredentialMaterial(
+                app,
+                Protector.Unprotect(row.PrivateKeyProtected),
+                string.IsNullOrEmpty(row.SecretProtected) ? null : Protector.Unprotect(row.SecretProtected)), version);
+        }
+        catch (Exception)
+        {
+            return new GitHubAppSnapshot(app, null, version);
+        }
+    }
+
+    public async Task<ProviderCredentialInfo?> ReplaceGitHubAppAsync(
+        GitHubAppVersion? expected, GitHubAppRegistration app, string privateKeyPem, string? clientSecret,
+        Guid? createdByUserId, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentException.ThrowIfNullOrWhiteSpace(app.Slug);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+        if (app.AppId <= 0) throw new ArgumentException("The App id must be positive.", nameof(app));
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        DateTime now = DateTime.UtcNow;
+        string config = System.Text.Json.JsonSerializer.Serialize(app, AppJson);
+        string keyProtected = Protector.Protect(privateKeyPem);
+        string? secretProtected = string.IsNullOrWhiteSpace(clientSecret) ? null : Protector.Protect(clientSecret);
+
+        if (expected is not null)
+        {
+            // Every save encrypts afresh, so matching the ciphertexts read matches that one save and no later one.
+            int updated = await db.ProviderCredentials
+                .Where(c => c.Provider == GitHubProvider
+                    && c.ConfigJson == expected.ConfigJson
+                    && c.PrivateKeyProtected == expected.PrivateKeyProtected
+                    && c.SecretProtected == expected.SecretProtected)
+                .ExecuteUpdateAsync(c => c
+                    .SetProperty(x => x.ConfigJson, config)
+                    .SetProperty(x => x.PrivateKeyProtected, keyProtected)
+                    .SetProperty(x => x.SecretProtected, secretProtected)
+                    .SetProperty(x => x.PrincipalName, app.Slug)
+                    .SetProperty(x => x.CreatedAt, now)
+                    .SetProperty(x => x.CreatedByUserId, createdByUserId)
+                    .SetProperty(x => x.VerifiedAt, (DateTime?)null), ct);
+            return updated > 0 ? new ProviderCredentialInfo(GitHubProvider, app.Slug, now) : null;
+        }
+
+        // Nothing stored when read: insert, and let the provider key refuse a row another save inserted first.
+        db.ProviderCredentials.Add(new ProviderCredentialEntity
+        {
+            Provider = GitHubProvider,
+            ConfigJson = config,
+            PrivateKeyProtected = keyProtected,
+            SecretProtected = secretProtected,
+            PrincipalName = app.Slug,
+            CreatedAt = now,
+            CreatedByUserId = createdByUserId,
+        });
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            return null;
+        }
+        return new ProviderCredentialInfo(GitHubProvider, app.Slug, now);
+    }
+
     /// <summary>The provider key the Atlassian link app is stored under.</summary>
     public const string AtlassianProvider = "atlassian";
 

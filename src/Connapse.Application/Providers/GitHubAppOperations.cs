@@ -21,6 +21,9 @@ public enum GitHubAppStatus
     [Failure(409, "github-app-replace-unconfirmed", "A different GitHub App is stored")]
     ReplaceUnconfirmed,
 
+    [Failure(409, "github-app-changed", "The GitHub App changed")]
+    Changed,
+
     [Failure(400, "github-app-refused", "GitHub refused the App's values")]
     Refused,
 
@@ -91,7 +94,9 @@ public sealed class SetGitHubApp(
                 "Enter the App ID: the number at the top of the App's page on GitHub.", "appId");
 
         // A blank key or secret on the stored App keeps what is stored: rotating one value never asks for the other.
-        var (storedApp, stored, storedSavedAt) = await ReadStoredAsync(ct);
+        GitHubAppSnapshot? snapshot = await credentials.GetGitHubAppSnapshotAsync(ct);
+        GitHubAppRegistration? storedApp = snapshot?.App;
+        GitHubAppCredentialMaterial? stored = snapshot?.Material;
         bool sameApp = storedApp?.AppId == appId;
         string? key = GitHubRules.Blank(request.PrivateKeyPem) ?? (sameApp ? stored?.PrivateKeyPem : null);
         string? givenSecret = GitHubRules.Blank(request.ClientSecret);
@@ -132,40 +137,16 @@ public sealed class SetGitHubApp(
             return Attempt<GitHubAppSaved, GitHubAppStatus>.Fail(GitHubAppStatus.Unavailable, GitHubRules.Unavailable(ex));
         }
 
-        // Asking GitHub takes a moment; a save that landed meanwhile is not overwritten with values read before it.
-        var (currentApp, current, currentSavedAt) = await ReadStoredAsync(ct);
-        if (currentApp?.AppId != storedApp?.AppId || current?.PrivateKeyPem != stored?.PrivateKeyPem || current?.ClientSecret != stored?.ClientSecret
-            || currentSavedAt != storedSavedAt)
-            return Attempt<GitHubAppSaved, GitHubAppStatus>.Fail(GitHubAppStatus.ReplaceUnconfirmed,
-                "The stored GitHub App changed while GitHub was checking these values, so nothing was saved. Read it again and resend.",
-                "replaceExisting");
+        // Asking GitHub takes a moment; a save that landed meanwhile, here or on another server, is not overwritten
+        // with values read before it.
+        if (await credentials.ReplaceGitHubAppAsync(snapshot?.Version, app, key, secret, GitHubRules.UserId(context), ct) is null)
+            return Attempt<GitHubAppSaved, GitHubAppStatus>.Fail(GitHubAppStatus.Changed, GitHubRules.Changed);
 
-        await credentials.SaveGitHubAppAsync(app, key, secret, GitHubRules.UserId(context), ct);
         gitHub.ClearCache();
         await audit.LogAsync("provider.credential.saved", "provider", GitHubRules.Provider,
             new { app.AppId, app.Slug, app.OwnerLogin, Via = "manual", Replaced = storedApp is not null && !sameApp }, ct);
 
         return Attempt<GitHubAppSaved, GitHubAppStatus>.Succeed(new GitHubAppSaved(app, CanSignIn: secret is not null, NewApp: !sameApp));
-    }
-
-    /// <summary>
-    /// The stored App, and its key and secret while they can be decrypted. An App without them is one whose key can't
-    /// be read, most often after this server's encryption keys changed: a new key can still be saved over it. Its save
-    /// time then stands in for the key, so a repair saved meanwhile that this server can't read either is still noticed.
-    /// </summary>
-    private async Task<(GitHubAppRegistration? App, GitHubAppCredentialMaterial? Material, DateTime? UnreadableSavedAt)> ReadStoredAsync(
-        CancellationToken ct)
-    {
-        try
-        {
-            GitHubAppCredentialMaterial? material = await credentials.GetGitHubAppMaterialAsync(ct);
-            return (material?.App, material, null);
-        }
-        catch (ProviderCredentialUnavailableException)
-        {
-            var status = await credentials.GetStatusAsync(GitHubRules.Provider, ct);
-            return (await credentials.GetGitHubAppAsync(ct), null, status?.CreatedAt);
-        }
     }
 }
 
@@ -289,15 +270,17 @@ public sealed class CompleteGitHubAppCreation(
 
         // Only the App stored when the person started, if any, may be replaced: an App stored since is kept, and the
         // code is left unspent.
-        if (await credentials.GetGitHubAppAsync(ct) is { } stored && stored.AppId != replacing)
+        GitHubAppSnapshot? snapshot = await credentials.GetGitHubAppSnapshotAsync(ct);
+        if (snapshot?.App is { } stored && stored.AppId != replacing)
             return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.ReplaceUnconfirmed,
                 $"{stored.Slug} was stored after this creation started, so the new App wasn't stored over it.", "replaceExisting");
 
         GitHubAppManifestResult created;
+        ProviderCredentialInfo? saved;
         try
         {
             created = await gitHub.ConvertManifestAsync(code, ct);
-            await credentials.SaveGitHubAppAsync(created.App, created.PrivateKeyPem, created.ClientSecret, userId, ct);
+            saved = await credentials.ReplaceGitHubAppAsync(snapshot?.Version, created.App, created.PrivateKeyPem, created.ClientSecret, userId, ct);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -306,6 +289,12 @@ public sealed class CompleteGitHubAppCreation(
             return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.Unavailable,
                 "GitHub didn't hand over the new App, so nothing was stored. Start again.");
         }
+
+        // A save that landed while GitHub was creating the App is kept. The new App exists on GitHub but isn't stored.
+        if (saved is null)
+            return Attempt<GitHubAppRegistration, GitHubAppStatus>.Fail(GitHubAppStatus.Changed,
+                $"The stored GitHub App changed while GitHub was creating {created.App.Slug}, so {created.App.Slug} wasn't stored. "
+                + $"Reload the providers page; delete {created.App.Slug} on GitHub if it isn't needed.");
 
         // Stored and in use from here: a failure below must not tell the person to start again.
         gitHub.ClearCache();
@@ -382,6 +371,10 @@ internal static class GitHubRules
     public const string KeyUnreadable =
         "The stored private key can't be read, most often because this server's encryption keys changed. "
         + "Paste the App's private key again, and its client secret so people can link their GitHub accounts.";
+
+    /// <summary>Someone else saved or removed the App between this request reading it and saving.</summary>
+    public const string Changed =
+        "The stored GitHub App changed since it was read, so nothing was saved. Reload it, review the values and save again.";
 
     public static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

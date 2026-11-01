@@ -23,6 +23,7 @@ public sealed class ProvidersPageGitHubKeyTests : IDisposable
 {
     private static readonly GitHubAppRegistration App =
         new(42, "connapse-test", "Iv1.client", "octo-org", "https://github.com/apps/connapse-test");
+    private static readonly GitHubAppVersion StoredVersion = new("{}", "stored-key-cipher", "stored-secret-cipher");
 
     private readonly BunitContext ctx = new();
     private readonly IProviderCredentialStore credentials = Substitute.For<IProviderCredentialStore>();
@@ -43,7 +44,9 @@ public sealed class ProvidersPageGitHubKeyTests : IDisposable
         credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>()).Returns(_ => keyReadable
             ? new GitHubAppCredentialMaterial(App, pem, "secret")
             : throw new ProviderCredentialUnavailableException("github", new CryptographicException("The key ring is gone.")));
-        credentials.SaveGitHubAppAsync(
+        credentials.GetGitHubAppSnapshotAsync(Arg.Any<CancellationToken>()).Returns(_ => new GitHubAppSnapshot(
+            App, keyReadable ? new GitHubAppCredentialMaterial(App, pem, "secret") : null, StoredVersion));
+        credentials.ReplaceGitHubAppAsync(Arg.Any<GitHubAppVersion?>(),
                 Arg.Any<GitHubAppRegistration>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
@@ -135,7 +138,7 @@ public sealed class ProvidersPageGitHubKeyTests : IDisposable
         cut.FindAll("button").Single(b => b.TextContent.Contains("Check and save")).Click();
 
         cut.WaitForAssertion(() => cut.FindAll("#github-key-unreadable").Should().BeEmpty());
-        credentials.Received(1).SaveGitHubAppAsync(
+        credentials.Received(1).ReplaceGitHubAppAsync(StoredVersion,
             Arg.Is<GitHubAppRegistration>(a => a.AppId == 42), newKey, null, Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
         cut.Markup.Should().Contain("GitHub App connapse-test saved.");
     }

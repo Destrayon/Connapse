@@ -95,7 +95,7 @@ public static class GitHubAppEndpoints
                 GitHubAppStatus.Expired => Results.Redirect(ProviderPage + "?github_error=expired"),
                 GitHubAppStatus.NoCode => Results.Redirect(ProviderPage + "?github_error=no_code"),
                 // An App stored since the start is kept: the new one, created on GitHub, isn't collected either way.
-                GitHubAppStatus.Unavailable or GitHubAppStatus.ReplaceUnconfirmed => Results.Redirect(ProviderPage + "?github_error=exchange_failed"),
+                GitHubAppStatus.Unavailable or GitHubAppStatus.ReplaceUnconfirmed or GitHubAppStatus.Changed => Results.Redirect(ProviderPage + "?github_error=exchange_failed"),
                 _ => OperationProblems.Result(created),
             };
         }).RequireAuthorization("RequireSettingsAdmin")
