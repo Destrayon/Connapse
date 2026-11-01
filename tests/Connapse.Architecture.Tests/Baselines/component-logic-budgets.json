@@ -147,10 +147,10 @@
     "IsEmpty": false
   },
   "Pages/ProfileIntegrations.razor": {
-    "CodeLines": 260,
-    "Injects": 9,
-    "Complexity": 81,
-    "MarkupLogic": 42,
+    "CodeLines": 257,
+    "Injects": 8,
+    "Complexity": 79,
+    "MarkupLogic": 40,
     "IsEmpty": false
   },
   "Pages/Providers.razor": {

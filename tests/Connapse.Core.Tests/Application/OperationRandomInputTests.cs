@@ -769,10 +769,10 @@ public class OperationRandomInputTests
         [Fact]
         [RandomInputTestOf(typeof(ListAccountLinks))]
         public Task ListLinks_AnyCaller_ReadsOnlyTheCallersOwnLinksAndNeverFailsOnABrokenProvider() =>
-            Gen.Select(AnyLinkCaller, Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<CustomAnswer>().Array[0, 3])
+            Gen.Select(AnyLinkCaller, Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<CustomAnswer>().Array[0, 3], Gen.Bool)
                 .SampleAsync(async t =>
                 {
-                    var (caller, customStatus, gitHubLinked, atlassianOffered, answers) = t;
+                    var (caller, customStatus, gitHubLinked, atlassianOffered, answers, gitHubKeyUnreadable) = t;
                     var aws = Substitute.For<IAwsIdentityLinkService>();
                     var azure = Substitute.For<IAzureIdentityLinkService>();
                     var custom = Substitute.For<ICustomAccountLinks>();
@@ -789,6 +789,10 @@ public class OperationRandomInputTests
                     }
                     credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
                         .Returns(atlassianOffered ? new AtlassianLinkAppRegistration("client") { SignInEnabled = true } : null);
+                    // A stored App whose key this server can't decrypt, as after its encryption keys changed.
+                    if (gitHubKeyUnreadable)
+                        credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
+                            .Returns<GitHubAppCredentialMaterial?>(_ => throw new ProviderCredentialUnavailableException("github", new InvalidOperationException()));
                     if (caller.UserId is Guid owner && gitHubLinked)
                         await gitHub.SaveAsync(owner, 42, "octo");
                     // Someone else's link, which must never come back.
@@ -814,7 +818,8 @@ public class OperationRandomInputTests
                     await azure.Received(1).GetAsync(userId, Arg.Any<CancellationToken>());
                     links.GitHub?.Login.Should().Be("octo");
                     (links.GitHub is not null).Should().Be(gitHubLinked);
-                    links.GitHubAvailable.Should().BeFalse("no GitHub App is stored");
+                    links.GitHubAvailable.Should().BeFalse("no GitHub App is stored, or its key can't be read");
+                    links.GitHubProblem.Should().Be(gitHubKeyUnreadable ? GitHubSignInProblem.KeyUnreadable : GitHubSignInProblem.NoApp);
                     links.Atlassian.Should().BeNull();
                     links.AtlassianAvailable.Should().Be(atlassianOffered);
 
