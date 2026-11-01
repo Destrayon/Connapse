@@ -1,5 +1,19 @@
 @using Connapse.Core
 
+<div class="alert alert-info" role="note" data-testid="llm-unused-notice">
+    <div class="d-flex align-items-start">
+        <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
+        <div>
+            <strong>No feature uses these settings yet.</strong>
+            <div class="small mt-1">
+                No Connapse feature calls this AI model today. The settings are kept for features planned later,
+                so you can save a provider now, but filling them in changes nothing yet. Test Connection is the
+                one exception: it sends the provider a short test request.
+            </div>
+        </div>
+    </div>
+</div>
+
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
 

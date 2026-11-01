@@ -165,4 +165,23 @@ public class SettingsPageKeysTests : IDisposable
         (kept.OpenAiApiKey, kept.AnthropicApiKey).Should().Be((null, null), "the page holds no key once it is saved");
         saves.SavedKeys("llm").Should().BeEquivalentTo(["OpenAiApiKey"], "the emptied key is cleared and the typed one is saved");
     }
+
+    [Fact]
+    public void SettingsPage_LlmTab_SaysNoFeatureUsesTheSettingsYetAndStillSaves()
+    {
+        configured.Values[typeof(LlmSettings)] = new LlmSettings { Provider = "Ollama", Model = "llama3.2" };
+        LlmSettings? stored = null;
+        ctx.Services.GetRequiredService<IOperationAuthorizer>()
+            .AllowsAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+        store.UpdateWithRevisionAsync("llm", Arg.Any<Func<LlmSettings?, string?, LlmSettings>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (stored = call.Arg<Func<LlmSettings?, string?, LlmSettings>>()(null, null), "1"));
+        var page = ctx.Render<Connapse.Web.Components.Pages.Settings>();
+
+        page.FindAll("button.nav-link").Single(b => b.TextContent.Trim() == "LLM").Click();
+        page.Find("[data-testid=llm-unused-notice]").TextContent.Should().Contain("No feature uses these settings yet.");
+        page.Find("input[placeholder='llama3.2']").Change("qwen3:4b");
+        page.Find("form").Submit();
+
+        stored!.Model.Should().Be("qwen3:4b", "the notice only informs; the settings still save to the store");
+    }
 }
