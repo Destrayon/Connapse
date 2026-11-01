@@ -41,6 +41,7 @@ public sealed class OAuthClientRegistry(IDbContextFactory<ConnapseIdentityDbCont
         await using var db = await factory.CreateDbContextAsync(ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         DateTime now = time.GetUtcNow().UtcDateTime;
+        await OAuthClientLock.AcquireAsync(db, clientId, ct);
 
         // Refused first, then the registration: a client mid-refresh finds its token already revoked.
         int tokens = await db.RefreshTokens
