@@ -10,13 +10,15 @@ namespace Connapse.Web.Tests.Problems;
 [Trait("Category", "Unit")]
 public class RateLimitRejectionTests
 {
-    private static async Task<(string? ContentType, JsonElement Body)> RejectAsync(string path)
+    private static async Task<(string? ContentType, JsonElement Body)> RejectAsync(string path, string? accept = null)
     {
         var http = new DefaultHttpContext
         {
             RequestServices = new ServiceCollection().AddLogging().AddConnapseProblemDetails().BuildServiceProvider(),
         };
         http.Request.Path = path;
+        if (accept is not null)
+            http.Request.Headers.Accept = accept;
         http.Response.Body = new MemoryStream();
 
         await RateLimitingExtensions.WriteRejectionAsync(http, CancellationToken.None);
@@ -34,6 +36,26 @@ public class RateLimitRejectionTests
         type.Should().StartWith("application/problem+json");
         body.GetProperty("status").GetInt32().Should().Be(429);
         body.GetProperty("error").GetString().Should().Be("Rate limit exceeded. Try again later.");
+    }
+
+    // No problem writer accepts text/plain, so the problem service has nothing to write with; the
+    // client still gets its 429 problem rather than a 500 (CON-190).
+    [Theory]
+    [InlineData("text/plain")]
+    [InlineData("text/html")]
+    [InlineData("*/*")]
+    [InlineData("")]
+    public async Task WriteRejectionAsync_ApiPathWhateverItAccepts_WritesProblem(string accept)
+    {
+        var (type, body) = await RejectAsync("/api/v1/agents", accept);
+
+        type.Should().StartWith("application/problem+json");
+        body.GetProperty("status").GetInt32().Should().Be(429);
+        body.GetProperty("error").GetString().Should().Be("Rate limit exceeded. Try again later.");
+        body.GetProperty("detail").GetString().Should().Be("Rate limit exceeded. Try again later.");
+        body.GetProperty("title").GetString().Should().Be("Too Many Requests");
+        body.GetProperty("type").GetString().Should().Be("https://tools.ietf.org/html/rfc6585#section-4");
+        body.GetProperty("traceId").GetString().Should().NotBeNullOrEmpty();
     }
 
     [Theory]

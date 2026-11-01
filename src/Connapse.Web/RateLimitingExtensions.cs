@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Connapse.Core.Utilities;
 using Connapse.Web.Problems;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace Connapse.Web;
 
@@ -26,7 +29,8 @@ public static class RateLimitingExtensions
     /// <summary>
     /// The 429 body: a problem under /api, RFC 6749's <c>temporarily_unavailable</c> on the OAuth
     /// endpoints, and the JSON error MCP has always returned anywhere else, since those keep their
-    /// protocols' error shapes.
+    /// protocols' error shapes. An /api client whose Accept header no problem writer can serve,
+    /// such as <c>text/plain</c>, still gets the problem as JSON rather than a 500.
     /// </summary>
     public static async Task WriteRejectionAsync(HttpContext http, CancellationToken cancellationToken)
     {
@@ -34,11 +38,24 @@ public static class RateLimitingExtensions
         http.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         if (http.IsApiRequest())
         {
-            await http.RequestServices.GetRequiredService<IProblemDetailsService>().WriteAsync(new ProblemDetailsContext
+            var problem = new ProblemDetailsContext
             {
                 HttpContext = http,
-                ProblemDetails = { Status = StatusCodes.Status429TooManyRequests, Detail = detail },
-            });
+                ProblemDetails =
+                {
+                    Status = StatusCodes.Status429TooManyRequests,
+                    Title = "Too Many Requests",
+                    Type = "https://tools.ietf.org/html/rfc6585#section-4",
+                    Detail = detail,
+                },
+            };
+            if (await http.RequestServices.GetRequiredService<IProblemDetailsService>().TryWriteAsync(problem))
+                return;
+
+            // No writer serves the Accept header, so write what the default writer would have.
+            problem.ProblemDetails.Extensions.TryAdd("traceId", Activity.Current?.Id ?? http.TraceIdentifier);
+            http.RequestServices.GetRequiredService<IOptions<ProblemDetailsOptions>>().Value.CustomizeProblemDetails?.Invoke(problem);
+            await http.Response.WriteAsJsonAsync(problem.ProblemDetails, typeof(ProblemDetails), options: null, contentType: "application/problem+json", cancellationToken);
             return;
         }
 
