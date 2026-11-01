@@ -49,9 +49,9 @@
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
-    "CodeLines": 210,
+    "CodeLines": 211,
     "Injects": 4,
-    "Complexity": 36,
+    "Complexity": 37,
     "MarkupLogic": 33,
     "IsEmpty": false
   },

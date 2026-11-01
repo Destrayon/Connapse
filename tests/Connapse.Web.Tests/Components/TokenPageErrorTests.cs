@@ -181,6 +181,25 @@ public class TokenPageErrorTests : IDisposable
         Button(cut, "Revoke").HasAttribute("disabled").Should().BeFalse();
     }
 
+    [Fact]
+    public void AgentManagement_KeysOfAnotherAgentFailToLoad_ShowsNoneOfTheFirstAgentsKeys()
+    {
+        var key = new AgentKeyListItem(Guid.NewGuid(), "production", "cnp_ab", ["knowledge:read"], DateTime.UtcNow, null, null, false);
+        var other = agent with { Id = Guid.NewGuid(), Name = "other-agent" };
+        agents.ListAsync(Arg.Any<CancellationToken>()).Returns([agent with { Keys = [key] }, other]);
+        agents.GetAsync(agent.Id, Arg.Any<CancellationToken>()).Returns(agent with { Keys = [key] });
+        agents.GetAsync(other.Id, Arg.Any<CancellationToken>()).ThrowsAsync(new InvalidOperationException(DatabaseError));
+        var cut = ctx.Render<AgentManagement>();
+        cut.FindAll("button").Where(b => b.TextContent.Trim() == "API Keys").ElementAt(0).Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("cnp_ab"));
+
+        cut.FindAll("button").Where(b => b.TextContent.Trim() == "API Keys").ElementAt(1).Click();
+
+        ShowsError(cut, "The agent's keys couldn't be loaded.");
+        cut.Markup.Should().NotContain("cnp_ab");
+        cut.FindAll("button").Should().NotContain(b => b.TextContent.Trim() == "Revoke");
+    }
+
     [Theory]
     [InlineData("Disable", "The agent couldn't be updated.")]
     [InlineData("Confirm Delete", "The agent couldn't be deleted.")]

@@ -280,7 +280,8 @@
     /// <summary>The open agent's keys, through agents.keys.list.</summary>
     private async Task LoadKeysAsync(Guid agentId)
     {
-        selectedAgentKeys = await ShownAsync(Agents.ListKeys.RunAsync(context, agentId), selectedAgentKeys,
+        // Only this agent's keys are kept on a failure: another agent's would read as this one's.
+        selectedAgentKeys = await ShownAsync(Agents.ListKeys.RunAsync(context, agentId), selectedAgentId == agentId ? selectedAgentKeys : [],
             "The agent's keys couldn't be loaded. Reload the page to try again.");
     }
 
