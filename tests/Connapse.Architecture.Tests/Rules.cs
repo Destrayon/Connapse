@@ -102,6 +102,8 @@ internal static class Rules
     private static bool IsMcpToolParameter(Type t)
     {
         t = Nullable.GetUnderlyingType(t) ?? t;
+        if (t.IsArray)
+            return t.GetElementType() is { } element && (element.IsPrimitive || element == typeof(string) || element == typeof(Guid));
         return t.IsDefined(typeof(Connapse.Application.OperationAttribute), inherit: false)
             || t.IsPrimitive || t.IsEnum
             || t == typeof(string) || t == typeof(decimal) || t == typeof(Guid)

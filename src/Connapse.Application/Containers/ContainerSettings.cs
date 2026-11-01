@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -20,6 +21,39 @@ public sealed class GetContainerSettings(IContainerStore containers, IOperationA
 
         return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(
             (await containers.GetSettingsOverridesAsync(containerId, ct) ?? new ContainerSettingsOverrides()).WithoutSecrets());
+    }
+
+    /// <summary>
+    /// As <see cref="RunAsync"/>, with the names of the search settings the stored overrides hold, so a caller can leave
+    /// out one never chosen rather than show its default (CON-157).
+    /// </summary>
+    public async Task<Attempt<ChosenContainerSettings, ContainerStatus>> WithChosenSearchAsync(
+        OperationContext context, Guid containerId, CancellationToken ct = default) =>
+        await ChosenContainerSettings.ReadAsync(await RunAsync(context, containerId, ct), containers, containerId, ct);
+}
+
+/// <summary>A container's settings overrides, and the names of the search settings its stored overrides hold.</summary>
+public sealed record ChosenContainerSettings(ContainerSettingsOverrides Overrides, IReadOnlySet<string> ChosenSearchSettings)
+{
+    internal static async Task<Attempt<ChosenContainerSettings, ContainerStatus>> ReadAsync(
+        Attempt<ContainerSettingsOverrides, ContainerStatus> attempt, IContainerStore containers, Guid containerId, CancellationToken ct)
+    {
+        if (!attempt.Succeeded)
+            return Attempt<ChosenContainerSettings, ContainerStatus>.Fail(attempt.Status, attempt.Detail, attempt.Field);
+
+        HashSet<string> chosen = new(StringComparer.OrdinalIgnoreCase);
+        if (await containers.GetSettingsOverridesJsonAsync(containerId, ct) is { ValueKind: JsonValueKind.Object } root)
+        {
+            foreach (JsonProperty section in root.EnumerateObject())
+            {
+                if (string.Equals(section.Name, nameof(ContainerSettingsOverrides.Search), StringComparison.OrdinalIgnoreCase)
+                    && section.Value.ValueKind == JsonValueKind.Object)
+                {
+                    chosen.UnionWith(section.Value.EnumerateObject().Select(setting => setting.Name));
+                }
+            }
+        }
+        return Attempt<ChosenContainerSettings, ContainerStatus>.Succeed(new ChosenContainerSettings(attempt.Result!, chosen));
     }
 }
 
@@ -57,6 +91,13 @@ public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLo
         await audit.LogAsync("container.settings_updated", "container", containerId.ToString(), cancellationToken: ct);
         return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(saved.WithoutSecrets());
     }
+
+    /// <summary>As the overload with <paramref name="searchSettingsNamed"/>, with the search settings the saved overrides hold.</summary>
+    public async Task<Attempt<ChosenContainerSettings, ContainerStatus>> WithChosenSearchAsync(
+        OperationContext context, Guid containerId, ContainerSettingsOverrides overrides,
+        IReadOnlyCollection<string> searchSettingsNamed, CancellationToken ct = default) =>
+        await ChosenContainerSettings.ReadAsync(
+            await RunAsync(context, containerId, overrides, searchSettingsNamed, ct), containers, containerId, ct);
 }
 
 /// <summary>Removes every override, so the container follows the global settings again. Editors and above.</summary>

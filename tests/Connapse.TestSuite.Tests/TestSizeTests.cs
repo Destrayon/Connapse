@@ -18,7 +18,7 @@ public class TestSizeTests
         var problems = TestSources.TestFiles().SelectMany(f => TestSizeRules.Problems(f.RelativePath, f.Root)).ToList();
 
         Assert.True(problems.Count == 0,
-            "Every test needs one Category (Unit, Integration or LiveAws) and at most one Size (Medium or Large). " +
+            "Every test needs one Category (Unit, Integration, LiveAws or Gate) and at most one Size (Medium or Large). " +
             $"A test with no Category runs in no CI step.\n{string.Join("\n", problems)}");
     }
 

@@ -1285,8 +1285,7 @@
                     : null,
             };
 
-            var saved = await ContainerOps.UpdateSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, overrides,
-                [nameof(SearchSettings.Mode), nameof(SearchSettings.TopK), nameof(SearchSettings.MinimumScore)]);
+            var saved = await ContainerOps.UpdateSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, overrides, [nameof(SearchSettings.Mode), nameof(SearchSettings.TopK), nameof(SearchSettings.MinimumScore)]);
             (settingsSaved, settingsError) = (saved.Succeeded, saved.Detail);
         }
         catch (Exception ex)

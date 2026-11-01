@@ -12,6 +12,7 @@ using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi;
 
 namespace Connapse.Web.Endpoints;
 
@@ -157,19 +158,17 @@ public static class ContainersEndpoints
         group.MapGet("/{containerId:guid}/settings", async (
             Guid containerId,
             [FromServices] GetContainerSettings settings,
-            [FromServices] IContainerStore containerStore,
             [FromServices] IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
             HttpContext http,
             CancellationToken ct) =>
         {
-            var read = await settings.RunAsync(Rest(http), containerId, ct);
+            var read = await settings.WithChosenSearchAsync(Rest(http), containerId, ct);
             if (!read.Succeeded)
                 return OperationProblems.Result(read);
 
             // Only the search settings that were chosen: one never chosen must stay absent, or a client sending this
             // back would choose its default (CON-157).
-            return Results.Ok(ChosenSearchSettingsOnly(
-                read.Result!, await containerStore.GetSettingsOverridesJsonAsync(containerId, ct), jsonOptions.Value.SerializerOptions));
+            return Results.Ok(ChosenSearchSettingsOnly(read.Result!, jsonOptions.Value.SerializerOptions));
         })
         .Produces<ContainerSettingsOverrides>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -182,7 +181,6 @@ public static class ContainersEndpoints
             Guid containerId,
             [FromBody] JsonElement body,
             [FromServices] UpdateContainerSettings update,
-            [FromServices] IContainerStore containerStore,
             [FromServices] IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
             HttpContext http,
             CancellationToken ct) =>
@@ -202,14 +200,19 @@ public static class ContainersEndpoints
             if (overrides is null)
                 return ApiProblem.BadRequest("Request body must be a settings overrides object");
 
-            var saved = await update.RunAsync(Rest(http), containerId, overrides, NamedSearchSettings(body), ct);
+            var saved = await update.WithChosenSearchAsync(Rest(http), containerId, overrides, NamedSearchSettings(body), ct);
             if (!saved.Succeeded)
                 return OperationProblems.Result(saved);
 
-            return Results.Ok(ChosenSearchSettingsOnly(
-                saved.Result!, await containerStore.GetSettingsOverridesJsonAsync(containerId, ct), jsonOptions.Value.SerializerOptions));
+            return Results.Ok(ChosenSearchSettingsOnly(saved.Result!, jsonOptions.Value.SerializerOptions));
         })
-        .Accepts<ContainerSettingsOverrides>("application/json")
+        // The body binds as JSON so the save can see which settings were named; the document still describes the object.
+        .AddOpenApiOperationTransformer((operation, context, _) =>
+        {
+            if (operation.RequestBody?.Content?.TryGetValue("application/json", out var json) == true)
+                json.Schema = new OpenApiSchemaReference(nameof(ContainerSettingsOverrides), context.Document);
+            return Task.CompletedTask;
+        })
         .Produces<ContainerSettingsOverrides>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -334,27 +337,15 @@ public static class ContainersEndpoints
     }
 
     // The overrides as JSON with the search section cut to the settings the stored overrides hold.
-    private static JsonObject ChosenSearchSettingsOnly(
-        ContainerSettingsOverrides overrides, JsonElement? stored, JsonSerializerOptions options)
+    private static JsonObject ChosenSearchSettingsOnly(ChosenContainerSettings settings, JsonSerializerOptions options)
     {
-        JsonObject json = JsonSerializer.SerializeToNode(overrides, options)!.AsObject();
+        JsonObject json = JsonSerializer.SerializeToNode(settings.Overrides, options)!.AsObject();
         string? searchKey = json.Select(p => p.Key)
             .FirstOrDefault(k => string.Equals(k, nameof(ContainerSettingsOverrides.Search), StringComparison.OrdinalIgnoreCase));
         if (searchKey is null || json[searchKey] is not JsonObject search)
             return json;
 
-        HashSet<string> chosen = new(StringComparer.OrdinalIgnoreCase);
-        if (stored is { ValueKind: JsonValueKind.Object } root)
-        {
-            foreach (JsonProperty section in root.EnumerateObject())
-            {
-                if (string.Equals(section.Name, nameof(ContainerSettingsOverrides.Search), StringComparison.OrdinalIgnoreCase)
-                    && section.Value.ValueKind == JsonValueKind.Object)
-                {
-                    chosen.UnionWith(section.Value.EnumerateObject().Select(setting => setting.Name));
-                }
-            }
-        }
+        IReadOnlySet<string> chosen = settings.ChosenSearchSettings;
         foreach (string name in search.Select(p => p.Key).Where(n => !chosen.Contains(n)).ToList())
             search.Remove(name);
         return json;

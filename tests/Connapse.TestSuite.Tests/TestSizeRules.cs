@@ -12,7 +12,8 @@ namespace Connapse.TestSuite.Tests;
 /// </summary>
 internal static class TestSizeRules
 {
-    public static readonly string[] Categories = ["Unit", "Integration", "LiveAws"];
+    /// <summary>Gate holds the speed gates that time real work; CI runs them in their own steps.</summary>
+    public static readonly string[] Categories = ["Unit", "Integration", "LiveAws", "Gate"];
 
     /// <summary>
     /// LiveAws runs in no CI step, by design: it needs real AWS. Only these classes may use it, so it
