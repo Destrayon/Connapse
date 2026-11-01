@@ -85,6 +85,18 @@ public class AccountLinksEndpointTests(SharedWebAppFixture fixture)
         }
     }
 
+    // Scripts written before #783 branch on the old code, so it rides in error beside the problem type.
+    [Fact]
+    public async Task Unlink_UnknownProvider_CarriesInvalidProviderBesideTheType()
+    {
+        using var response = await fixture.AdminClient.DeleteAsync("/api/v1/auth/cloud/dropbox");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("type").GetString().Should().EndWith("#invalid-link-provider");
+        body.GetProperty("error").GetString().Should().Be("invalid_provider");
+    }
+
     [Fact]
     public async Task ListLinks_TokenWithoutKnowledgeRead_IsRefused()
     {
