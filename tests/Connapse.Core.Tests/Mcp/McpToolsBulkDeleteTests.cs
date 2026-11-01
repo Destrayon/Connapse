@@ -25,6 +25,7 @@ public class McpToolsBulkDeleteTests
     {
         _containerStore = Substitute.For<IContainerStore>();
         _documentStore = Substitute.For<IDocumentStore>();
+        _documentStore.RemovesUnrecordedFiles();
         _fileSystem = Substitute.For<IWritableConnector>();
         _logger = Substitute.For<ILogger<McpTools>>();
         _folderStore = Substitute.For<IFolderStore>();

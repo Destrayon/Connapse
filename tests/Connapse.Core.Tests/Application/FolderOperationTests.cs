@@ -50,6 +50,7 @@ public class FolderOperationTests
         public World(bool allowed = true, bool containerExists = true)
         {
             Storage.CreateConnector(Arg.Any<string>()).Returns(Files);
+            Documents.RemovesUnrecordedFiles();
             Authorizer = new PolicyAuthorizer(_ => allowed);
             Containers.GetAsync(Here, Arg.Any<CancellationToken>())
                 .Returns(containerExists ? new Container(Here.ToString(), "here", null, Epoch, Epoch) : null);
