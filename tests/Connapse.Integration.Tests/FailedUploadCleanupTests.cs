@@ -135,6 +135,44 @@ public class FailedUploadCleanupTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task DeleteFile_WhileAnUploadToTheSamePathIsWriting_KeepsThatUploadsFile()
+    {
+        var containerId = await CreateContainerAsync();
+        try
+        {
+            using var scope = fixture.Factory.Services.CreateScope();
+            var documents = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            var old = DocumentAt(containerId, "/same.txt");
+            (await documents.StoreInFolderAsync(old, null, token => WriteAsync(containerId, "/same.txt", "from A", token))).Should().NotBeNull();
+            var written = new TaskCompletionSource();
+            var release = new TaskCompletionSource();
+
+            // Upload B has written its file over A's and stalls before storing its record.
+            var upload = documents.StoreInFolderAsync(DocumentAt(containerId, "/same.txt"), null, async token =>
+            {
+                await WriteAsync(containerId, "/same.txt", "from B", token);
+                written.SetResult();
+                await release.Task;
+            });
+            await written.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            // A is deleted meanwhile. Its stored file must wait for B, whose record then holds the path.
+            var delete = fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}/files/{old.Id}");
+            await Task.WhenAny(delete, WaitUntilAnAdvisoryLockIsAwaitedAsync());
+
+            release.SetResult();
+            (await upload.WaitAsync(TimeSpan.FromSeconds(30))).Should().NotBeNull();
+            (await delete.WaitAsync(TimeSpan.FromSeconds(30))).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+            (await ReadAsync(containerId, "/same.txt")).Should().Be("from B");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
     private static Document DocumentAt(string containerId, string path) =>
         new(Guid.NewGuid().ToString(), containerId, path[(path.LastIndexOf('/') + 1)..], "text/plain", path, 4, DateTime.UtcNow, []);
 

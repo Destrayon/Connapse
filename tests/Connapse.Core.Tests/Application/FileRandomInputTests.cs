@@ -232,12 +232,14 @@ public class FileRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(DeleteFile))]
     public Task Delete_AnyFile_RemovesOnlyThisContainersFileAndAudits() =>
-        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>().Where(k => k != FileRef.OwnPath), Gen.Bool)
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>().Where(k => k != FileRef.OwnPath), Gen.Bool, Gen.Bool)
             .SampleAsync(async t =>
             {
-                var (caller, writer, exists, kind, storageFails) = t;
+                var (caller, writer, exists, kind, storageFails, reuploaded) = t;
                 var world = new World(reader: true, writer, exists);
                 world.Holds([Own, Other]);
+                // A newer upload to the same path may hold it by the time the stored file is removed.
+                world.Documents.RemovesUnrecordedFiles(pathRecorded: reuploaded);
                 if (storageFails)
                     world.Files.DeleteFileAsync(Own.Path, Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("disk"));
                 string fileId = RefFor(kind, Own, Other);
@@ -255,12 +257,35 @@ public class FileRandomInputTests
                     world.Touched.Should().BeFalse();
                     return;
                 }
-                deleted.Result.Should().Be(new FileDeletion(Own, storageFails));
+                deleted.Result.Should().Be(new FileDeletion(Own, storageFails && !reuploaded));
+                await world.Documents.Received(1).RemoveUnrecordedFileAsync(Here, Own.Path, Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+                await world.Files.Received(reuploaded ? 0 : 1).DeleteFileAsync(Own.Path, Arg.Any<CancellationToken>());
                 await world.Queue.Received(1).CancelJobForDocumentAsync(Own.Id);
                 await world.Documents.Received(1).DeleteAsync(Own.Id, Arg.Any<CancellationToken>());
                 await world.Folders.Received(1).DeleteEmptyAncestorsAsync(Here, Own.Path, Arg.Any<CancellationToken>());
                 await world.Audit.Received(1).LogAsync("doc.deleted", "document", Own.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 2000);
+
+    [Fact]
+    public async Task Delete_RequestCancelledAfterTheRecordIsGone_StillRemovesTheStoredFile()
+    {
+        var world = new World(reader: true, writer: true, containerExists: true);
+        world.Holds([Own]);
+        world.Documents.RemovesUnrecordedFiles();
+        using var request = new CancellationTokenSource();
+        world.Documents.DeleteAsync(Own.Id, Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            request.Cancel();
+            return Task.CompletedTask;
+        });
+
+        var deleted = await world.Delete().RunAsync(new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Rest),
+            Here, Own.Id, request.Token);
+
+        deleted.Result.Should().Be(new FileDeletion(Own, StorageCleanupFailed: false));
+        await world.Documents.Received(1).RemoveUnrecordedFileAsync(Here, Own.Path, Arg.Any<Func<CancellationToken, Task>>(), CancellationToken.None);
+        await world.Files.Received(1).DeleteFileAsync(Own.Path, CancellationToken.None);
+    }
 
     // ── files.bulkDelete ──────────────────────────────────────────────────────────────────────────
 

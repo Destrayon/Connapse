@@ -34,6 +34,7 @@ public class McpToolsDeleteFileTests
     {
         _containerStore = Substitute.For<IContainerStore>();
         _documentStore = Substitute.For<IDocumentStore>();
+        _documentStore.RemovesUnrecordedFiles();
         _folderStore = Substitute.For<IFolderStore>();
         _fileSystem = Substitute.For<IWritableConnector>();
         _logger = Substitute.For<ILogger<Connapse.Application.Files.DeleteFile>>();

@@ -298,7 +298,11 @@ public sealed class DeleteFile(
             {
                 try
                 {
-                    await connector.DeleteFileAsync(document.Path, ct);
+                    // Under the path's lock, and only while no record holds the path, so an upload to the same path
+                    // that lands meanwhile keeps its file. Not the request's token: the record is already gone, so a
+                    // cancelled delete must still remove the file.
+                    await documents.RemoveUnrecordedFileAsync(containerId, document.Path,
+                        token => connector.DeleteFileAsync(document.Path, token), CancellationToken.None);
                 }
                 finally
                 {
