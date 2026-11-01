@@ -165,4 +165,19 @@ public class SettingsPageKeysTests : IDisposable
         (kept.OpenAiApiKey, kept.AnthropicApiKey).Should().Be((null, null), "the page holds no key once it is saved");
         saves.SavedKeys("llm").Should().BeEquivalentTo(["OpenAiApiKey"], "the emptied key is cleared and the typed one is saved");
     }
+
+    [Fact]
+    public void Open_LlmTab_SaysNoFeatureUsesTheSettingsYetAndStillSaves()
+    {
+        configured.Values[typeof(LlmSettings)] = new LlmSettings { Provider = "Ollama" };
+        var saves = ctx.Services.GetRequiredService<SettingsPageSaves>();
+        var llm = saves.Open<LlmSettings>("llm");
+        LlmSettings? submitted = null;
+        var cut = ctx.Render<LlmSettingsTab>(p => p.Add(x => x.Settings, llm).Add(x => x.SavedKeys, saves.SavedKeys("llm"))
+            .Add(x => x.OnSave, (LlmSettings s) => submitted = s));
+
+        cut.Find("[data-testid=llm-unused-notice]").TextContent.Should().Contain("No feature uses these settings yet.");
+        cut.Find("form").Submit();
+        submitted.Should().NotBeNull("the notice only informs; the settings still save");
+    }
 }
