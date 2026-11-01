@@ -60,6 +60,26 @@ Use this when you want to move a running Connapse server to a newer release, and
 
    `/health` returns `200 OK`. Then sign in and run a search in a container you know.
 
+## Scripts that read error codes
+
+From v0.4.0, every REST API error is a [problem](../problems.md): its `type` ends in a slug that names the problem. File and folder errors still put the code older releases answered with in `error`, beside the new `type`, so a script that branches on `error` keeps working. Move scripts to `type` when you can.
+
+| Old code in `error` | New `type` slug | Status |
+|---|---|---|
+| `unsupported_file_type` | `unsupported-file-type` | 400 |
+| `filename_too_long` | `invalid-file-request`, with `field` set to `fileName` | 400 |
+| `document_not_ready` | `file-not-ready` | 400 |
+| `document_failed` | `file-ingestion-failed` | 400 |
+| `no_parser` | `no-parser` | 400 |
+| `file_not_readable` | `file-not-readable` | 404 |
+| `write_denied` | `container-not-writable` | 400 |
+| `path_too_deep` | `invalid-folder`, with `field` set to `path` | 400 |
+
+Two old file errors behave differently now:
+
+- A bulk upload no longer fails as a whole when one file has an unsupported type or a name that is too long. It succeeds, and that file's entry carries the reason in its own `error`.
+- `cloud_access_denied` is gone. Only containers with Connapse-managed storage take uploads, and an upload to any other container gets `write_denied`.
+
 ## Roll back
 
 Migrations only go forward. An older release can't run against a database a newer release has migrated, so rolling back means restoring the backup from step 1.

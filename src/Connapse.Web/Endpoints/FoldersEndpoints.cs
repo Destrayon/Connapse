@@ -26,7 +26,7 @@ public static class FoldersEndpoints
         {
             var created = await create.RunAsync(Rest(http), containerId, request.Path, ct);
             if (!created.Succeeded)
-                return OperationProblems.Result(created);
+                return FileProblems.Result(created, request.Path);
 
             var folder = created.Result!;
             return Results.Created($"/api/containers/{containerId}/folders?path={Uri.EscapeDataString(folder.Path)}", folder);

@@ -92,6 +92,7 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
             var body = await response.Content.ReadAsStringAsync();
             body.Should().Contain("problems.md#unsupported-file-type");
+            JsonDocument.Parse(body).RootElement.GetProperty("error").GetString().Should().Be("unsupported_file_type", "scripts branch on the code");
         }
         finally
         {
@@ -184,6 +185,7 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
             var body = await response.Content.ReadAsStringAsync();
             body.Should().Contain("problems.md#invalid-file-request").And.Contain("Filename exceeds 255 characters.");
+            JsonDocument.Parse(body).RootElement.GetProperty("error").GetString().Should().Be("filename_too_long", "scripts branch on the code");
         }
         finally
         {
