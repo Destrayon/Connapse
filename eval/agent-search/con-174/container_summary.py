@@ -1,6 +1,6 @@
 """CON-174 container summary: Connapse's own prompts over a random sample of erb-50k, answered by Claude Haiku.
 
-Document summaries come from CON-160's `summarize.DocSummaries` (Connapse's per-document prompt and truncation). The
+Document summaries come from `summarize.DocSummaries`, copied from CON-160 (Connapse's per-document prompt and truncation). The
 container prompt and user message are copied verbatim from src/Connapse.Storage/Llm/SummaryPrompts.cs, rendered the
 way ContainerSummarizer renders a clustered container: every summary prefixed with the number of documents it stands
 for, here 50,000 / 20 = 2,500 each. `test_describe.py` checks the copies still match the C# source.
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE.parent / "con-160"))
+sys.path.insert(0, str(HERE))
 from summarize import DocSummaries, complete  # noqa: E402
 
 CONTAINER = "eval-erb-50k"
