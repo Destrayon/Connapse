@@ -219,3 +219,31 @@ Tiers: **P** is primary (official docs, peer-reviewed papers, the project's own 
 - **[C1]** P. Connapse traffic for the 14 days to 2026-11-01, from `gh api repos/Destrayon/Connapse/traffic/*`
 
 Peer repo metadata (stars, descriptions, topics, social preview flags) comes from `gh api repos/<owner>/<repo>` and GraphQL `usesCustomOpenGraphImage`, both on 2026-11-01.
+
+[GH1]: https://docs.github.com/en/search-github/searching-on-github/searching-for-repositories
+[GH2]: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics
+[GH3]: https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files
+[GH4]: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview
+[GO1]: https://developers.google.com/search/docs/appearance/snippet
+[GO2]: https://llmstxt.org/
+[R1]: https://arxiv.org/abs/1802.06997
+[R2]: https://ink.library.smu.edu.sg/sis_research/6713
+[R3]: https://arxiv.org/abs/2206.10772
+[R4]: https://par.nsf.gov/servlets/purl/10063054
+[S1]: https://arxiv.org/pdf/1908.04219
+[S2]: https://arxiv.org/abs/2511.04453
+[S3]: https://arxiv.org/abs/2506.12643
+[T1]: https://hn.algolia.com/api/v1/search
+[T2]: https://dev.to/yvonnickfrin/i-wonder-how-github-s-trending-algorithm-works-any-clue-3ebf
+[L1]: https://github.com/langgenius/dify/releases/tag/1.0.0
+[L2]: https://news.ycombinator.com/item?id=41447317
+[L3]: https://news.ycombinator.com/item?id=36667374
+[L4]: https://news.ycombinator.com/item?id=41457633
+[L5]: https://news.ycombinator.com/item?id=39896923
+[L6]: https://news.ycombinator.com/item?id=39510874
+[L7]: https://news.ycombinator.com/item?id=36933452
+[L8]: https://www.skyvern.com/blog/we-open-sourced-and-ended-up-1-on-hackernews/
+[L9]: https://gitstars.substack.com/p/gittrends-september-1-2024
+[L10]: https://news.ycombinator.com/showhn.html
+[L1–L9]: #10-sources
+[R1–R3]: #10-sources
