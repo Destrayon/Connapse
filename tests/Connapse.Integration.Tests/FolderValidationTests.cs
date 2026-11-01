@@ -29,6 +29,7 @@ public class FolderValidationTests(SharedWebAppFixture fixture)
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
             body.GetProperty("type").GetString().Should().EndWith("#invalid-folder");
             body.GetProperty("field").GetString().Should().Be("path");
+            body.GetProperty("error").GetString().Should().Be("path_too_deep", "scripts branch on the code");
         }
         finally
         {

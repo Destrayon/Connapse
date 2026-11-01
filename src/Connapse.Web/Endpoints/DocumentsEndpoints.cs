@@ -39,7 +39,7 @@ public static class DocumentsEndpoints
                 var uploaded = await upload.RunAsync(Rest(httpContext), containerId,
                     new FileUpload(file.FileName, stream, path, file.ContentType, strategy?.ToString()), ct);
                 if (!uploaded.Succeeded)
-                    return OperationProblems.Result(uploaded);
+                    return FileProblems.Result(uploaded, file.FileName);
 
                 var one = uploaded.Result!;
                 return Results.Ok(new UploadResponse(
@@ -55,7 +55,7 @@ public static class DocumentsEndpoints
                 var uploadedAll = await bulkUpload.RunAsync(Rest(httpContext), containerId,
                     [.. files.Select((f, i) => new FileUpload(f.FileName, streams[i], path, f.ContentType, strategy?.ToString()))], ct);
                 if (!uploadedAll.Succeeded)
-                    return OperationProblems.Result(uploadedAll);
+                    return FileProblems.Result(uploadedAll);
 
                 var batch = uploadedAll.Result!;
                 return Results.Ok(new UploadResponse(
@@ -90,7 +90,7 @@ public static class DocumentsEndpoints
         {
             var listed = await list.RunAsync(Rest(http), containerId, new ListFilesQuery(path, skip ?? 0, take ?? 50), ct);
             if (!listed.Succeeded)
-                return OperationProblems.Result(listed);
+                return FileProblems.Result(listed);
 
             var page = listed.Result!;
             return Results.Ok(new PagedResponse<BrowseEntry>(
@@ -114,7 +114,7 @@ public static class DocumentsEndpoints
             CancellationToken ct) =>
         {
             var read = await get.RunAsync(Rest(http), containerId, fileId, ct);
-            return read.Succeeded ? Results.Ok(read.Result) : OperationProblems.Result(read);
+            return read.Succeeded ? Results.Ok(read.Result) : FileProblems.Result(read);
         })
         .Produces<Document>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -131,7 +131,7 @@ public static class DocumentsEndpoints
             CancellationToken ct) =>
         {
             var deleted = await delete.RunAsync(Rest(http), containerId, fileId, ct);
-            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
+            return deleted.Succeeded ? Results.NoContent() : FileProblems.Result(deleted);
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -149,7 +149,7 @@ public static class DocumentsEndpoints
         {
             var deleted = await bulkDelete.RunAsync(Rest(http), containerId, request.FileIds ?? [], ct);
             if (!deleted.Succeeded)
-                return OperationProblems.Result(deleted);
+                return FileProblems.Result(deleted);
 
             var items = deleted.Result!;
             return Results.Ok(new BulkDeleteFilesResponse([.. items], items.Count(i => i.Deleted), items.Count(i => !i.Deleted)));
@@ -172,7 +172,7 @@ public static class DocumentsEndpoints
         {
             var read = await content.RunAsync(Rest(http), containerId, fileId, ct);
             if (!read.Succeeded)
-                return OperationProblems.Result(read);
+                return FileProblems.Result(read);
 
             var (document, text) = read.Result!;
             // Content negotiation
@@ -207,7 +207,7 @@ public static class DocumentsEndpoints
         {
             var checkedFile = await check.RunAsync(Rest(http), containerId, fileId, ct);
             if (!checkedFile.Succeeded)
-                return OperationProblems.Result(checkedFile);
+                return FileProblems.Result(checkedFile);
 
             var result = checkedFile.Result!;
             return Results.Ok(new FileReindexCheckResponse(
@@ -236,7 +236,7 @@ public static class DocumentsEndpoints
             CancellationToken ct) =>
         {
             var queued = await retry.RunAsync(Rest(http), containerId, fileId, ct);
-            return queued.Succeeded ? Results.Accepted(value: queued.Result) : OperationProblems.Result(queued);
+            return queued.Succeeded ? Results.Accepted(value: queued.Result) : FileProblems.Result(queued);
         })
         .Produces<FileRetry>(StatusCodes.Status202Accepted)
         .ProducesProblem(StatusCodes.Status404NotFound)
