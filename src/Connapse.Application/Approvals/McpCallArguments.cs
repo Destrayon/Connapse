@@ -25,7 +25,7 @@ public sealed record McpCallArguments(string Canonical, string Redacted)
     public const string SecretNamePattern =
         """(?:(?:secret|password|passwd|pwd|passphrase|token|credentials?|apikey|privatekey|connectionstring|authorization|cookie)(?:value|string|text|data|base64|pem)?|(?:secret|private|access|account|signing|session|shared|master|encryption)[^"]*key)""";
 
-    private static readonly Regex SecretName = new(SecretNamePattern + "$", RegexOptions.CultureInvariant);
+    private static readonly Regex SecretName = new(SecretNamePattern + "$", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     /// <summary>Whether a field with this name holds a secret.</summary>
     public static bool IsSecret(string name)
