@@ -4,7 +4,10 @@ using Connapse.Core.Interfaces;
 
 namespace Connapse.Application.Containers;
 
-/// <summary>A container's settings overrides; empty when it has none, so every setting is the global one.</summary>
+/// <summary>
+/// A container's settings overrides; empty when it has none, so every setting is the global one. Secrets (API keys)
+/// are left out, as the global settings leave them out, since any reader may read the overrides.
+/// </summary>
 [Operation("containers.settings.get", Scope = "knowledge:read", Risk = RiskTier.Read, Mcp = McpExposure.Generic)]
 public sealed class GetContainerSettings(IContainerStore containers, IOperationAuthorizer authorizer)
 {
@@ -16,11 +19,15 @@ public sealed class GetContainerSettings(IContainerStore containers, IOperationA
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
 
         return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(
-            await containers.GetSettingsOverridesAsync(containerId, ct) ?? new ContainerSettingsOverrides());
+            (await containers.GetSettingsOverridesAsync(containerId, ct) ?? new ContainerSettingsOverrides()).WithoutSecrets());
     }
 }
 
-/// <summary>Replaces a container's settings overrides. Editors and above; a null section means the global setting.</summary>
+/// <summary>
+/// Replaces a container's settings overrides. Editors and above; a null section means the global setting. A secret left
+/// null keeps the stored one while its section's provider and addresses are unchanged, and an empty one clears it
+/// (see <see cref="ContainerSettingsOverrides.KeepingSecretsOf"/>). The answer leaves secrets out.
+/// </summary>
 [Operation("containers.settings.update", Scope = "knowledge:write", Risk = RiskTier.Credential, Mcp = McpExposure.Generic)]
 public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLogger audit, IOperationAuthorizer authorizer)
 {
@@ -32,9 +39,10 @@ public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLo
         if (!await containers.ExistsAsync(containerId, ct))
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
 
-        await containers.SaveSettingsOverridesAsync(containerId, overrides, ct);
+        var saved = overrides.KeepingSecretsOf(await containers.GetSettingsOverridesAsync(containerId, ct));
+        await containers.SaveSettingsOverridesAsync(containerId, saved, ct);
         await audit.LogAsync("container.settings_updated", "container", containerId.ToString(), cancellationToken: ct);
-        return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(overrides);
+        return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(saved.WithoutSecrets());
     }
 }
 

@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests;
 
@@ -98,6 +100,51 @@ public class ContainerSettingsIntegrationTests(SharedWebAppFixture fixture)
         retrieved!.Search.Should().BeNull("overrides were cleared");
 
         await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+    }
+
+    [Fact]
+    public async Task SaveContainerSettings_WithKeys_ReadsBackWithoutThemAndKeepsThemWhenLeftOut()
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = "settings-keys-test" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        var id = Guid.Parse(container!.Id);
+
+        var put = await fixture.AdminClient.PutAsJsonAsync($"/api/containers/{id}/settings", new ContainerSettingsOverrides
+        {
+            Embedding = new EmbeddingSettings { Provider = "OpenAI", Model = "text-embedding-3-small", Dimensions = 1536, OpenAiApiKey = "sk-con186-embedding" },
+            Search = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderApiKey = "co-con186-rerank" },
+        });
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await put.Content.ReadAsStringAsync()).Should().NotContain("con186");
+
+        // Every read leaves the keys out: the settings, the container, and the container list.
+        foreach (var path in new[] { $"/api/containers/{id}/settings", $"/api/containers/{id}", "/api/containers/by-name/settings-keys-test", "/api/containers" })
+            (await fixture.AdminClient.GetStringAsync(path)).Should().NotContain("con186", path);
+        var read = await fixture.AdminClient.GetFromJsonAsync<ContainerSettingsOverrides>($"/api/containers/{id}/settings", JsonOptions);
+        read!.Embedding!.OpenAiApiKey.Should().BeNull();
+        read.Search!.CrossEncoderApiKey.Should().BeNull();
+
+        // Saving what was read back keeps the stored keys.
+        (await fixture.AdminClient.PutAsJsonAsync($"/api/containers/{id}/settings", read)).StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+            (await resolver.GetEmbeddingSettingsAsync(id)).OpenAiApiKey.Should().Be("sk-con186-embedding");
+            (await resolver.GetSearchSettingsAsync(id)).CrossEncoderApiKey.Should().Be("co-con186-rerank");
+        }
+
+        // An empty key clears it.
+        read.Search.CrossEncoderApiKey = "";
+        (await fixture.AdminClient.PutAsJsonAsync($"/api/containers/{id}/settings", read)).StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+            (await resolver.GetEmbeddingSettingsAsync(id)).OpenAiApiKey.Should().Be("sk-con186-embedding");
+            (await resolver.GetSearchSettingsAsync(id)).CrossEncoderApiKey.Should().BeNull();
+        }
+
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
     }
 
     [Fact]

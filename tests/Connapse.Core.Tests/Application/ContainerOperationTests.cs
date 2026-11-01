@@ -319,7 +319,7 @@ public class ContainerOperationTests
 
         var saved = await new UpdateContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, id, overrides);
 
-        saved.Result.Should().BeSameAs(overrides);
+        saved.Result.Should().Be(overrides);
         await _containers.Received(1).SaveSettingsOverridesAsync(id, overrides, Arg.Any<CancellationToken>());
         await _audit.Received(1).LogAsync("container.settings_updated", "container", id.ToString(), null, Arg.Any<CancellationToken>());
     }

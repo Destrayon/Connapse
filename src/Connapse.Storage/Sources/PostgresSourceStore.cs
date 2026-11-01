@@ -429,7 +429,7 @@ public class PostgresSourceStore(
         SyncIntervalSeconds: entity.SyncIntervalSeconds,
         SettingsOverrides: entity.SettingsOverridesJson is null
             ? null
-            : JsonSerializer.Deserialize<ContainerSettingsOverrides>(entity.SettingsOverridesJson.RootElement.GetRawText(), SerializerOptions),
+            : JsonSerializer.Deserialize<ContainerSettingsOverrides>(entity.SettingsOverridesJson.RootElement.GetRawText(), SerializerOptions)?.WithoutSecrets(),
         DocumentCount: documentCount,
         WithheldDeletions: entity.WithheldDeletions,
         FailedDocumentCount: failedDocumentCount,

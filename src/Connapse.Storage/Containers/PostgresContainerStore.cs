@@ -190,7 +190,8 @@ public class PostgresContainerStore(
             try
             {
                 var settingsJson = entity.SettingsOverridesJson.RootElement.GetRawText();
-                overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(settingsJson, JsonOptions);
+                // Without secrets: a container is read by anyone who can see it, and nothing reads its keys from here.
+                overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(settingsJson, JsonOptions)?.WithoutSecrets();
             }
             catch { /* malformed override JSON — treat as no overrides */ }
         }
