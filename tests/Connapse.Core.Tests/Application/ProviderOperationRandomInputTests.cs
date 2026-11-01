@@ -553,6 +553,18 @@ public class ProviderOperationRandomInputTests
 
         private static readonly GitHubAppRegistration StoredGitHubApp = new(42, "stored", "Iv1.client", "octo", "https://github.com/apps/stored");
 
+        private static readonly GitHubAppVersion StoredVersion = new("{}", "stored-key-cipher", "stored-secret-cipher");
+
+        /// <summary>A store holding <paramref name="snapshot"/>, whose compare-and-swap save loses when <paramref name="raced"/>.</summary>
+        private static IProviderCredentialStore GitHubStore(GitHubAppSnapshot? snapshot, bool raced = false)
+        {
+            var credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetGitHubAppSnapshotAsync(Arg.Any<CancellationToken>()).Returns(snapshot);
+            credentials.ReplaceGitHubAppAsync(default, default!, default!, default, default, default)
+                .ReturnsForAnyArgs(raced ? null : new ProviderCredentialInfo("github", "stored", DateTime.UtcNow));
+            return credentials;
+        }
+
         [Fact]
         [RandomInputTestOf(typeof(GetGitHubApp))]
         public Task GetGitHubApp_AnyCaller_ReadsTheAppWithoutItsSecretsAndOnlyForSettingsAdmins() =>
@@ -578,12 +590,13 @@ public class ProviderOperationRandomInputTests
         [RandomInputTestOf(typeof(SetGitHubApp))]
         public Task SetGitHubApp_AnyRequest_StoresOnlyValuesGitHubAccepted() =>
             Gen.Select(Gen.Bool, Gen.OneOfConst<long?>(null, 0, -1, 42, 7), Gen.OneOfConst<string?>(null, " ", GitHubKey),
-                Gen.OneOfConst<string?>(null, "", "secret"), Gen.Bool, Gen.Bool, Gen.Bool, Gen.Bool).SampleAsync(async t =>
+                Gen.OneOfConst<string?>(null, "", "secret"), Gen.Bool, Gen.Bool, Gen.Bool, Gen.Select(Gen.Bool, Gen.Bool)).SampleAsync(async t =>
             {
-                var (allowed, appId, key, secret, replace, hasStored, keyAccepted, secretAccepted) = t;
-                var credentials = Substitute.For<IProviderCredentialStore>();
-                credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
-                    .Returns(hasStored ? new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old") : null);
+                var (allowed, appId, key, secret, replace, hasStored, keyAccepted, (secretAccepted, raced)) = t;
+                // Raced: someone else saved or removed the App while GitHub was checking these values.
+                var credentials = GitHubStore(hasStored
+                    ? new GitHubAppSnapshot(StoredGitHubApp, new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old"), StoredVersion)
+                    : null, raced);
 
                 var saved = await new SetGitHubApp(credentials, GitHub(credentials, keyAccepted, secretAccepted), NoAudit.Instance, Authorizer(allowed))
                     .RunAsync(Context(), new GitHubAppRequest(appId, key, secret, replace));
@@ -594,10 +607,13 @@ public class ProviderOperationRandomInputTests
                     : key != GitHubKey && !sameApp ? GitHubAppStatus.Invalid
                     : hasStored && !sameApp && !replace ? GitHubAppStatus.ReplaceUnconfirmed
                     : !keyAccepted || (secret == "secret" && !secretAccepted) ? GitHubAppStatus.Refused
+                    : raced ? GitHubAppStatus.Changed
                     : GitHubAppStatus.Success;
                 saved.Status.Should().Be(status);
-                await credentials.Received(saved.Succeeded ? 1 : 0).SaveGitHubAppAsync(
+                bool attempted = status is GitHubAppStatus.Success or GitHubAppStatus.Changed;
+                await credentials.Received(attempted ? 1 : 0).ReplaceGitHubAppAsync(hasStored ? StoredVersion : null,
                     Arg.Any<GitHubAppRegistration>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+                await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
                 if (saved.Succeeded)
                     saved.Result!.CanSignIn.Should().Be(secret == "secret" || sameApp);
             }, iter: 400);
@@ -663,12 +679,11 @@ public class ProviderOperationRandomInputTests
         [RandomInputTestOf(typeof(CompleteGitHubAppCreation))]
         public Task CompleteGitHubAppCreation_AnyRedirect_StoresOnlyThePersonsOwnLiveCreation() =>
             Gen.Select(Gen.Bool, Gen.Bool, Gen.OneOfConst("mine", "theirs", "made-up", ""), Gen.OneOfConst<string?>(null, " ", "code"), Gen.Bool,
-                    Gen.OneOfConst<long?>(null, 42), Gen.OneOfConst<long?>(null, 42, 7))
+                    Gen.OneOfConst<long?>(null, 42), Gen.OneOfConst<long?>(null, 42, 7), Gen.Bool)
                 .SampleAsync(async t =>
             {
-                var (allowed, person, whose, code, gitHubUp, replacing, storedNow) = t;
-                var credentials = Substitute.For<IProviderCredentialStore>();
-                credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(storedNow is { } id ? StoredGitHubApp with { AppId = id } : null);
+                var (allowed, person, whose, code, gitHubUp, replacing, storedNow, raced) = t;
+                var credentials = GitHubStore(storedNow is { } id ? new GitHubAppSnapshot(StoredGitHubApp with { AppId = id }, null, StoredVersion) : null, raced);
                 var requests = Requests();
                 string state = whose switch
                 {
@@ -686,35 +701,32 @@ public class ProviderOperationRandomInputTests
                     : code != "code" ? GitHubAppStatus.NoCode
                     : storedNow is not null && storedNow != replacing ? GitHubAppStatus.ReplaceUnconfirmed
                     : !gitHubUp ? GitHubAppStatus.Unavailable
+                    : raced ? GitHubAppStatus.Changed
                     : GitHubAppStatus.Success;
                 completed.Status.Should().Be(status);
-                await credentials.Received(completed.Succeeded ? 1 : 0).SaveGitHubAppAsync(
+                bool attempted = status is GitHubAppStatus.Success or GitHubAppStatus.Changed;
+                await credentials.Received(attempted ? 1 : 0).ReplaceGitHubAppAsync(storedNow is null ? null : StoredVersion,
                     Arg.Any<GitHubAppRegistration>(), Arg.Any<string>(), Arg.Any<string?>(), PersonId, Arg.Any<CancellationToken>());
+                await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
             }, iter: 300);
 
         [Fact]
-        public async Task SetGitHubApp_StoredAppChangesWhileGitHubChecks_SavesNothing()
+        public async Task SetGitHubApp_StoredAppChangesWhileGitHubChecks_SavesNothingAndSaysReload()
         {
-            var credentials = Substitute.For<IProviderCredentialStore>();
-            credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>()).Returns(
-                new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old"),
-                new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "rotated meanwhile"));
+            var credentials = GitHubStore(
+                new GitHubAppSnapshot(StoredGitHubApp, new GitHubAppCredentialMaterial(StoredGitHubApp, GitHubKey, "old"), StoredVersion), raced: true);
 
             var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), NoAudit.Instance, Authorizer(true))
                 .RunAsync(Context(), new GitHubAppRequest(42, ClientSecret: "secret"));
 
-            saved.Status.Should().Be(GitHubAppStatus.ReplaceUnconfirmed);
-            await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+            saved.Status.Should().Be(GitHubAppStatus.Changed);
+            saved.Detail.Should().Contain("changed since it was read").And.Contain("Reload");
+            await credentials.Received(1).ReplaceGitHubAppAsync(StoredVersion, Arg.Is<GitHubAppRegistration>(a => a.AppId == 42), GitHubKey, "secret",
+                Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
         }
 
-        private static IProviderCredentialStore UnreadableGitHubKey()
-        {
-            var credentials = Substitute.For<IProviderCredentialStore>();
-            credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
-                .Returns<GitHubAppCredentialMaterial?>(_ => throw new ProviderCredentialUnavailableException("github", new InvalidOperationException()));
-            credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(StoredGitHubApp);
-            return credentials;
-        }
+        private static IProviderCredentialStore UnreadableGitHubKey(bool raced = false) =>
+            GitHubStore(new GitHubAppSnapshot(StoredGitHubApp, null, StoredVersion), raced);
 
         [Fact]
         public async Task SetGitHubApp_StoredKeyUnreadableAndNewKeyGiven_SavesTheNewKey()
@@ -726,7 +738,7 @@ public class ProviderOperationRandomInputTests
 
             saved.Status.Should().Be(GitHubAppStatus.Success);
             saved.Result!.NewApp.Should().BeFalse();
-            await credentials.Received(1).SaveGitHubAppAsync(
+            await credentials.Received(1).ReplaceGitHubAppAsync(StoredVersion,
                 Arg.Is<GitHubAppRegistration>(a => a.AppId == 42), GitHubKey, "secret", Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
         }
 
@@ -741,7 +753,7 @@ public class ProviderOperationRandomInputTests
             saved.Status.Should().Be(GitHubAppStatus.Invalid);
             saved.Field.Should().Be("privateKeyPem");
             saved.Detail.Should().Contain("can't be read");
-            await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+            await credentials.DidNotReceiveWithAnyArgs().ReplaceGitHubAppAsync(default, default!, default!, default, default, default);
         }
 
         [Fact]
@@ -753,29 +765,25 @@ public class ProviderOperationRandomInputTests
                 .RunAsync(Context(), new GitHubAppRequest(7, GitHubKey));
 
             saved.Status.Should().Be(GitHubAppStatus.ReplaceUnconfirmed, "an unreadable key does not make the stored App's connections disposable");
-            await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+            await credentials.DidNotReceiveWithAnyArgs().ReplaceGitHubAppAsync(default, default!, default!, default, default, default);
         }
 
         [Fact]
         public async Task SetGitHubApp_StoredKeyUnreadableAndRepairedMeanwhileUnreadablyHere_SavesNothing()
         {
             // Another replica, with keys this one lacks, saved the App again while GitHub was checking.
-            var credentials = UnreadableGitHubKey();
-            credentials.GetStatusAsync("github", Arg.Any<CancellationToken>()).Returns(
-                new ProviderCredentialStatus(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), null),
-                new ProviderCredentialStatus(new DateTime(2026, 1, 1, 0, 5, 0, DateTimeKind.Utc), null));
+            var credentials = UnreadableGitHubKey(raced: true);
 
             var saved = await new SetGitHubApp(credentials, GitHub(credentials, true, true), NoAudit.Instance, Authorizer(true))
                 .RunAsync(Context(), new GitHubAppRequest(42, GitHubKey));
 
-            saved.Status.Should().Be(GitHubAppStatus.ReplaceUnconfirmed);
-            await credentials.DidNotReceiveWithAnyArgs().SaveGitHubAppAsync(default!, default!, default, default, default);
+            saved.Status.Should().Be(GitHubAppStatus.Changed);
         }
 
         [Fact]
         public async Task CompleteGitHubAppCreation_AuditFailsAfterStoring_StillReportsTheAppCreated()
         {
-            var credentials = Substitute.For<IProviderCredentialStore>();
+            var credentials = GitHubStore(null);
             var audit = Substitute.For<IAuditLogger>();
             audit.LogAsync(default!).ReturnsForAnyArgs(Task.FromException(new InvalidOperationException("audit down")));
             var requests = Requests();
