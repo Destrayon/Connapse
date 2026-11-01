@@ -167,17 +167,21 @@ public class SettingsPageKeysTests : IDisposable
     }
 
     [Fact]
-    public void Open_LlmTab_SaysNoFeatureUsesTheSettingsYetAndStillSaves()
+    public void SettingsPage_LlmTab_SaysNoFeatureUsesTheSettingsYetAndStillSaves()
     {
-        configured.Values[typeof(LlmSettings)] = new LlmSettings { Provider = "Ollama" };
-        var saves = ctx.Services.GetRequiredService<SettingsPageSaves>();
-        var llm = saves.Open<LlmSettings>("llm");
-        LlmSettings? submitted = null;
-        var cut = ctx.Render<LlmSettingsTab>(p => p.Add(x => x.Settings, llm).Add(x => x.SavedKeys, saves.SavedKeys("llm"))
-            .Add(x => x.OnSave, (LlmSettings s) => submitted = s));
+        configured.Values[typeof(LlmSettings)] = new LlmSettings { Provider = "Ollama", Model = "llama3.2" };
+        LlmSettings? stored = null;
+        ctx.Services.GetRequiredService<IOperationAuthorizer>()
+            .AllowsAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+        store.UpdateWithRevisionAsync("llm", Arg.Any<Func<LlmSettings?, string?, LlmSettings>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (stored = call.Arg<Func<LlmSettings?, string?, LlmSettings>>()(null, null), "1"));
+        var page = ctx.Render<Connapse.Web.Components.Pages.Settings>();
 
-        cut.Find("[data-testid=llm-unused-notice]").TextContent.Should().Contain("No feature uses these settings yet.");
-        cut.Find("form").Submit();
-        submitted.Should().NotBeNull("the notice only informs; the settings still save");
+        page.FindAll("button.nav-link").Single(b => b.TextContent.Trim() == "LLM").Click();
+        page.Find("[data-testid=llm-unused-notice]").TextContent.Should().Contain("No feature uses these settings yet.");
+        page.Find("input[placeholder='llama3.2']").Change("qwen3:4b");
+        page.Find("form").Submit();
+
+        stored!.Model.Should().Be("qwen3:4b", "the notice only informs; the settings still save to the store");
     }
 }
