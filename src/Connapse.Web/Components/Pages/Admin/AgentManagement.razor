@@ -6,6 +6,7 @@
 @inject AgentOperations Agents
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
+@inject ILogger<AgentManagement> Logger
 @rendermode InteractiveServer
 
 <PageTitle>Agents - Connapse</PageTitle>
@@ -273,21 +274,63 @@
 
     private async Task LoadAgentsAsync()
     {
-        agents = Shown(await Agents.List.RunAsync(context), []);
+        agents = await ShownAsync(Agents.List.RunAsync(context), agents, "The agents couldn't be loaded. Reload the page to try again.");
     }
 
     /// <summary>The open agent's keys, through agents.keys.list.</summary>
     private async Task LoadKeysAsync(Guid agentId)
     {
-        selectedAgentKeys = Shown(await Agents.ListKeys.RunAsync(context, agentId), []);
+        selectedAgentKeys = await ShownAsync(Agents.ListKeys.RunAsync(context, agentId), selectedAgentKeys,
+            "The agent's keys couldn't be loaded. Reload the page to try again.");
     }
 
-    /// <summary>A read's result, or the fallback with its failure shown.</summary>
-    private T Shown<T>(Attempt<T, AgentStatus> read, T fallback) where T : class
+    /// <summary>
+    /// A read's result, or none with its failure shown. A read that throws leaves what's on screen, so a
+    /// key just created stays there when only the refresh after it fails.
+    /// </summary>
+    private async Task<IReadOnlyList<T>> ShownAsync<T>(Task<Attempt<IReadOnlyList<T>, AgentStatus>> read, IReadOnlyList<T> current, string failure)
     {
-        if (!read.Succeeded)
-            Say(read.Detail, false);
-        return read.Result ?? fallback;
+        try
+        {
+            var result = await read;
+            if (!result.Succeeded)
+                Say(result.Detail, false);
+            return result.Result ?? [];
+        }
+        catch (Exception ex)
+        {
+            Failed(ex, failure);
+            return current;
+        }
+    }
+
+    /// <summary>
+    /// Runs one of the page's changes with the page busy. An unexpected error, such as the database being
+    /// unreachable, shows <paramref name="failure"/> rather than ending the page.
+    /// </summary>
+    private async Task RunAsync(string failure, Func<Task> change)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            await change();
+        }
+        catch (Exception ex)
+        {
+            Failed(ex, failure);
+        }
+        finally
+        {
+            isProcessing = false;
+            processingAction = "";
+        }
+    }
+
+    private void Failed(Exception ex, string failure)
+    {
+        Logger.LogError(ex, "Agents page: {Failure}", failure);
+        Say(failure, false);
     }
 
     private void Say(string? message, bool success)
@@ -322,12 +365,10 @@
         }
     }
 
-    private async Task CreateAgentAsync()
+    private Task CreateAgentAsync()
     {
-        isProcessing = true;
         processingAction = "create";
-        statusMessage = null;
-        try
+        return RunAsync("The agent couldn't be created. Try again.", async () =>
         {
             var created = await Agents.Create.RunAsync(context, new CreateAgentRequest(newAgentName, newAgentDescription));
             if (!created.Succeeded)
@@ -339,41 +380,25 @@
             newAgentName = "";
             newAgentDescription = "";
             await LoadAgentsAsync();
-        }
-        finally
-        {
-            isProcessing = false;
-            processingAction = "";
-        }
+        });
     }
 
-    private async Task ToggleActiveAsync(AgentDto agent)
+    private Task ToggleActiveAsync(AgentDto agent) => RunAsync("The agent couldn't be updated. Try again.", async () =>
     {
-        isProcessing = true;
-        statusMessage = null;
-        try
+        var set = await Agents.SetActive.RunAsync(context, new SetAgentActiveCommand(agent.Id, !agent.IsActive));
+        if (!set.Succeeded)
         {
-            var set = await Agents.SetActive.RunAsync(context, new SetAgentActiveCommand(agent.Id, !agent.IsActive));
-            if (!set.Succeeded)
-            {
-                Say(set.Detail, false);
-                return;
-            }
-            Say($"Agent '{agent.Name}' updated.", true);
-            await LoadAgentsAsync();
+            Say(set.Detail, false);
+            return;
         }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
+        Say($"Agent '{agent.Name}' updated.", true);
+        await LoadAgentsAsync();
+    });
 
-    private async Task DeleteAgentAsync(Guid agentId)
+    private Task DeleteAgentAsync(Guid agentId)
     {
-        isProcessing = true;
-        statusMessage = null;
         confirmDeleteAgentId = null;
-        try
+        return RunAsync("The agent couldn't be deleted. Try again.", async () =>
         {
             var deleted = await Agents.Delete.RunAsync(context, agentId);
             if (!deleted.Succeeded)
@@ -388,64 +413,42 @@
                 selectedAgentKeys = [];
             }
             await LoadAgentsAsync();
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        });
     }
 
-    private async Task CreateKeyAsync(Guid agentId)
+    private Task CreateKeyAsync(Guid agentId) => RunAsync("The key couldn't be created. Try again.", async () =>
     {
-        isProcessing = true;
-        statusMessage = null;
-        try
+        var created = await Agents.CreateKey.RunAsync(context, new CreateAgentKeyCommand(agentId, new CreateAgentKeyRequest(newKeyName,
+            [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval)));
+        if (!created.Succeeded)
         {
-            var created = await Agents.CreateKey.RunAsync(context, new CreateAgentKeyCommand(agentId, new CreateAgentKeyRequest(newKeyName,
-                [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval)));
-            if (!created.Succeeded)
-            {
-                Say(created.Detail, false);
-                return;
-            }
-            newKeyResponse = created.Result;
-            newKeyAgentId = agentId;
-            newKeyName = "";
-            await LoadAgentsAsync();
-            await LoadKeysAsync(agentId);
+            Say(created.Detail, false);
+            return;
         }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
+        newKeyResponse = created.Result;
+        newKeyAgentId = agentId;
+        newKeyName = "";
+        await LoadAgentsAsync();
+        await LoadKeysAsync(agentId);
+    });
 
-    private async Task RevokeKeyAsync(Guid agentId, Guid keyId)
+    private Task RevokeKeyAsync(Guid agentId, Guid keyId) => RunAsync("The key couldn't be revoked. Try again.", async () =>
     {
-        isProcessing = true;
-        statusMessage = null;
-        try
+        var revoked = await Agents.RevokeKey.RunAsync(context, new AgentKeyTarget(agentId, keyId));
+        if (!revoked.Succeeded)
         {
-            var revoked = await Agents.RevokeKey.RunAsync(context, new AgentKeyTarget(agentId, keyId));
-            if (!revoked.Succeeded)
-            {
-                Say(revoked.Detail, false);
-                return;
-            }
-            Say("Key revoked.", true);
-            if (newKeyAgentId == agentId)
-            {
-                newKeyResponse = null;
-                newKeyAgentId = null;
-            }
-            await LoadAgentsAsync();
-            await LoadKeysAsync(agentId);
+            Say(revoked.Detail, false);
+            return;
         }
-        finally
+        Say("Key revoked.", true);
+        if (newKeyAgentId == agentId)
         {
-            isProcessing = false;
+            newKeyResponse = null;
+            newKeyAgentId = null;
         }
-    }
+        await LoadAgentsAsync();
+        await LoadKeysAsync(agentId);
+    });
 
     private async Task CopyKeyToken()
     {
