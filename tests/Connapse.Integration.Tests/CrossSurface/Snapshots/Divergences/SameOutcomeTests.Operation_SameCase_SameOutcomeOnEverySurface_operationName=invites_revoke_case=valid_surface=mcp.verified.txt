@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: ok,
+    State: [
+      no invite
+    ],
+    Audit: [
+      invite.revoked invite {id1} actor={admin} details=none
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

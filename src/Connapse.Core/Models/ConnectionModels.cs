@@ -61,14 +61,25 @@ public record CreateConnectionRequest(
 public record UpdateConnectionRequest(
     string? Name = null,
     string? ConfigJson = null,
-    string? Secret = null)
+    string? Secret = null,
+    DateTime? ExpectedUpdatedAt = null)
 {
     // The generated ToString would print the secret into any log line or message it reached.
     protected virtual bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Name = {Name}, ConfigJson = {ConfigJson}, Secret = {(Secret is null ? "null" : "***")}");
+        builder.Append($"Name = {Name}, ConfigJson = {ConfigJson}, Secret = {(Secret is null ? "null" : "***")}, ExpectedUpdatedAt = {ExpectedUpdatedAt}");
         return true;
     }
+}
+
+/// <summary>
+/// The connection was saved by someone else after this update's settings were checked against it, so the
+/// checked settings could be paired with a secret they were never checked with. The caller reloads and retries.
+/// </summary>
+public class ConnectionChangedException(Guid connectionId)
+    : Exception($"Connection '{connectionId}' changed after its new settings were checked.")
+{
+    public Guid ConnectionId { get; } = connectionId;
 }
 
 /// <summary>
@@ -96,4 +107,24 @@ public class SourceSecretUnavailableException(Guid sourceId, Exception inner)
                 "must be re-entered.", inner)
 {
     public Guid SourceId { get; } = sourceId;
+}
+
+/// <summary>
+/// A container's storage could not be reached, or failed while answering. Distinct from a file that
+/// is not there: the storage never said whether it was, so callers report an error, not a missing file.
+/// </summary>
+public class ContainerStorageUnavailableException(string containerId, Exception inner)
+    : Exception($"The storage for container '{containerId}' could not be reached: {inner.Message}", inner)
+{
+    public string ContainerId { get; } = containerId;
+}
+
+/// <summary>
+/// The storage bucket a connector is configured to use does not exist. A setup problem, not a
+/// missing file: every file in the bucket would otherwise read as lost (CON-101).
+/// </summary>
+public class StorageBucketNotFoundException(string bucketName, Exception? inner = null)
+    : Exception($"The storage bucket '{bucketName}' does not exist. Check the configured bucket name.", inner)
+{
+    public string BucketName { get; } = bucketName;
 }

@@ -287,6 +287,10 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Worded as it always was, ahead of the storage scope check, which can't read it either.
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("error").GetString().Should().StartWith("Invalid scope JSON:");
+        body.TryGetProperty("field", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -341,11 +345,13 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         string name = ShortName("dup");
         await CreateSourceAsync(connectionId, name);
 
+        // A scope the connection allows, so the only thing wrong is the name: an empty S3 scope names
+        // no bucket and is refused by the scope check before the name is compared.
         var response = await Admin.PostAsJsonAsync("/api/sources", new
         {
             name,
             connectionId,
-            scopeJson = "{}",
+            scopeJson = """{"bucketName":"b","prefix":"team/"}""",
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -362,6 +368,46 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
 
         var updated = await response.Content.ReadFromJsonAsync<JsonElement>();
         updated.GetProperty("enabled").GetBoolean().Should().BeFalse();
+    }
+
+    // #862: a rename follows create's name rules, refused before the database would throw.
+    [Fact]
+    public async Task UpdateSource_RenameToAnotherSourcesName_IsConflictAndKeepsTheName()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+        string taken = ShortName("taken");
+        await CreateSourceAsync(connectionId, taken);
+        string own = ShortName("own");
+        Guid sourceId = await CreateSourceAsync(connectionId, own);
+
+        var response = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { name = $"  {taken}  " });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var source = await (await Admin.GetAsync($"/api/sources/{sourceId}")).Content.ReadFromJsonAsync<JsonElement>();
+        source.GetProperty("name").GetString().Should().Be(own);
+    }
+
+    [Fact]
+    public async Task UpdateSource_RenameToItsOwnName_IsAllowed()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+        string own = ShortName("same");
+        Guid sourceId = await CreateSourceAsync(connectionId, own);
+
+        var response = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { name = own });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task UpdateSource_NameOver128Characters_IsAValidationError()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+        Guid sourceId = await CreateSourceAsync(connectionId);
+
+        var response = await Admin.PatchAsJsonAsync($"/api/sources/{sourceId}", new { name = new string('n', 129) });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

@@ -106,4 +106,4 @@ MinIO and PostgreSQL are only accessible within the internal Docker network.
 ## Further reading
 
 - [Full project repository](https://github.com/Destrayon/Connapse)
-- [Connectors documentation](https://github.com/Destrayon/Connapse/blob/main/docs/connectors.md)
+- [Connectors documentation](https://github.com/Destrayon/Connapse/blob/main/docs/sources/index.md)

@@ -29,6 +29,7 @@ namespace Connapse.Core.Tests.Utilities;
 /// </para>
 /// </remarks>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class GeneratedScriptLintTests(ITestOutputHelper output)
 {
     /// <summary>

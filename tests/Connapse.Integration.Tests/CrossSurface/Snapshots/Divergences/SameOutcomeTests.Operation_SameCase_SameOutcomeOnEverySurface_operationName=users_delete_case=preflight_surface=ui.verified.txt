@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: the User management page offers no Delete on your own row or the Owner's,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      user roles=Viewer
+    ]
+  },
+  Surface: {
+    Result: absent,
+    State: [
+      user roles=Viewer
+    ]
+  }
+}

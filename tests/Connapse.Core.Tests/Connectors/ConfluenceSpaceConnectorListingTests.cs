@@ -11,6 +11,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// empty or shorter space: the store, the cursor and what it reports stay as they were.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class ConfluenceSpaceConnectorListingTests : IDisposable
 {
     private const string SpaceId = "4001";

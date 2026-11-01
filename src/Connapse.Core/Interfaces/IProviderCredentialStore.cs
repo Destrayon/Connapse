@@ -53,6 +53,21 @@ public record GitHubAppRegistration(long AppId, string Slug, string? ClientId, s
 public record GitHubAppCredentialMaterial(GitHubAppRegistration App, string PrivateKeyPem, string? ClientSecret);
 
 /// <summary>
+/// Which save of the GitHub App was read, for <see cref="IProviderCredentialStore.ReplaceGitHubAppAsync"/>. Opaque:
+/// every save encrypts afresh, so the stored ciphertexts differ between any two saves, even of the same values.
+/// </summary>
+public sealed record GitHubAppVersion(string? ConfigJson, string? PrivateKeyProtected, string? SecretProtected)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder) => false;
+}
+
+/// <summary>
+/// The stored GitHub App row as one snapshot. <see cref="App"/> is null when the row holds no usable App;
+/// <see cref="Material"/> is null when there is no App or its key or secret can't be decrypted.
+/// </summary>
+public sealed record GitHubAppSnapshot(GitHubAppRegistration? App, GitHubAppCredentialMaterial? Material, GitHubAppVersion Version);
+
+/// <summary>
 /// The Atlassian OAuth app users sign in through to link their Atlassian account (non-secret). The
 /// client secret is fetched separately via <see cref="IProviderCredentialStore.GetAtlassianLinkAppSecretAsync"/>.
 /// </summary>
@@ -131,6 +146,23 @@ public interface IProviderCredentialStore
         string provider, RolesAnywhereConfig config, string privateKeyPem, string? principalName,
         Guid? createdByUserId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Like <see cref="SaveRolesAnywhereAsync"/>, but only while the stored Roles Anywhere configuration is still
+    /// <paramref name="expected"/>; null expects none to be stored. The check and the write are one statement, so a
+    /// credential saved by someone else in between is never overwritten.
+    /// </summary>
+    /// <returns>Null, with nothing written, when the stored configuration is no longer <paramref name="expected"/>.</returns>
+    Task<ProviderCredentialInfo?> ReplaceRolesAnywhereAsync(
+        string provider, RolesAnywhereConfig? expected, RolesAnywhereConfig config, string privateKeyPem,
+        string? principalName, Guid? createdByUserId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes the provider's credential only while its Roles Anywhere configuration is still <paramref name="expected"/>
+    /// (null: while it holds none), in one statement, so a credential saved by someone else in between is never removed.
+    /// </summary>
+    /// <returns>False, with nothing removed, when no stored credential matches <paramref name="expected"/>.</returns>
+    Task<bool> DeleteRolesAnywhereAsync(string provider, RolesAnywhereConfig? expected, CancellationToken ct = default);
+
     /// <summary>The stored GitHub App, or null when none is.</summary>
     Task<GitHubAppRegistration?> GetGitHubAppAsync(CancellationToken ct = default);
 
@@ -142,6 +174,22 @@ public interface IProviderCredentialStore
     Task<ProviderCredentialInfo> SaveGitHubAppAsync(
         GitHubAppRegistration app, string privateKeyPem, string? clientSecret, Guid? createdByUserId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// The stored GitHub App row, with its version for <see cref="ReplaceGitHubAppAsync"/>, or null when nothing is
+    /// stored. A key that can't be decrypted leaves <see cref="GitHubAppSnapshot.Material"/> null rather than throwing.
+    /// </summary>
+    Task<GitHubAppSnapshot?> GetGitHubAppSnapshotAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Like <see cref="SaveGitHubAppAsync"/>, but only while the stored row is still the save <paramref name="expected"/>
+    /// names; null expects nothing to be stored. The check and the write are one statement, so an App saved by someone
+    /// else in between is never overwritten.
+    /// </summary>
+    /// <returns>Null, with nothing written, when the stored row is no longer <paramref name="expected"/>.</returns>
+    Task<ProviderCredentialInfo?> ReplaceGitHubAppAsync(
+        GitHubAppVersion? expected, GitHubAppRegistration app, string privateKeyPem, string? clientSecret,
+        Guid? createdByUserId, CancellationToken ct = default);
 
     /// <summary>The stored Atlassian link app, or null when none is.</summary>
     Task<AtlassianLinkAppRegistration?> GetAtlassianLinkAppAsync(CancellationToken ct = default);

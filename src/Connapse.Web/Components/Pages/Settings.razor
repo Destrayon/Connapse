@@ -2,16 +2,8 @@
 @attribute [Authorize(Policy = "RequireAdmin")]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
-@using Connapse.Storage.Settings
-@using Microsoft.Extensions.Options
-@inject ISettingsStore SettingsStore
-@inject ISettingsReloader ReloadService
-@inject IOptionsMonitor<EmbeddingSettings> EmbeddingOptions
-@inject IOptionsMonitor<ChunkingSettings> ChunkingOptions
-@inject IOptionsMonitor<SearchSettings> SearchOptions
-@inject IOptionsMonitor<LlmSettings> LlmOptions
-@inject IOptionsMonitor<UploadSettings> UploadOptions
-@inject IOptionsMonitor<SummarySettings> SummaryOptions
+@using Connapse.Application.Settings
+@inject SettingsPageSaves Saves
 @rendermode InteractiveServer
 
 <PageTitle>Settings - Connapse</PageTitle>
@@ -67,20 +59,13 @@
                 Upload
             </button>
         </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "summary" ? "active" : "")"
-                    @onclick='() => activeTab = "summary"'
-                    type="button">
-                Summary
-            </button>
-        </li>
     </ul>
 
     <!-- Tab Content -->
     <div class="tab-content">
         @if (activeTab == "embedding")
         {
-            <EmbeddingSettingsTab Settings="embeddingSettings" OnSave="SaveEmbeddingSettings" />
+            <EmbeddingSettingsTab Settings="embeddingSettings" SavedKeys='@Saves.SavedKeys("embedding")' OnSave="SaveEmbeddingSettings" />
         }
         else if (activeTab == "chunking")
         {
@@ -88,22 +73,15 @@
         }
         else if (activeTab == "search")
         {
-            <SearchSettingsTab Settings="searchSettings" OnSave="SaveSearchSettings" />
+            <SearchSettingsTab Settings="searchSettings" SavedKeys='@Saves.SavedKeys("search")' OnSave="SaveSearchSettings" />
         }
         else if (activeTab == "llm")
         {
-            <LlmSettingsTab Settings="llmSettings" OnSave="SaveLlmSettings" />
+            <LlmSettingsTab Settings="llmSettings" SavedKeys='@Saves.SavedKeys("llm")' OnSave="SaveLlmSettings" />
         }
         else if (activeTab == "upload")
         {
             <UploadSettingsTab Settings="uploadSettings" OnSave="SaveUploadSettings" />
-        }
-        else if (activeTab == "summary")
-        {
-            <SummarySettingsTab @ref="summaryTabRef"
-                                Settings="summarySettings"
-                                ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model" />
-            <button class="btn btn-primary mt-3" @onclick="SaveSummarySettings">Save Summary Settings</button>
         }
     </div>
 </div>
@@ -118,73 +96,55 @@
     private SearchSettings searchSettings = new();
     private LlmSettings llmSettings = new();
     private UploadSettings uploadSettings = new();
-    private SummarySettings summarySettings = new();
-    private SummarySettingsTab? summaryTabRef;
 
     protected override async Task OnInitializedAsync()
     {
         // Load current settings from IOptionsMonitor (includes DB overrides)
-        embeddingSettings = EmbeddingOptions.CurrentValue;
-        chunkingSettings = ChunkingOptions.CurrentValue;
-        searchSettings = SearchOptions.CurrentValue;
-        llmSettings = LlmOptions.CurrentValue;
-        uploadSettings = UploadOptions.CurrentValue;
-        summarySettings = SummaryOptions.CurrentValue;
+        embeddingSettings = Saves.Open<EmbeddingSettings>("embedding");
+        chunkingSettings = Saves.Open<ChunkingSettings>("chunking");
+        searchSettings = Saves.Open<SearchSettings>("search");
+        llmSettings = Saves.Open<LlmSettings>("llm");
+        uploadSettings = Saves.Open<UploadSettings>("upload");
     }
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
     {
-        await SaveSettings("embedding", settings);
-        embeddingSettings = settings;
+        embeddingSettings = await SaveSettings("embedding", settings);
     }
 
     private async Task SaveChunkingSettings(ChunkingSettings settings)
     {
-        await SaveSettings("chunking", settings);
-        chunkingSettings = settings;
+        chunkingSettings = await SaveSettings("chunking", settings);
     }
 
     private async Task SaveSearchSettings(SearchSettings settings)
     {
-        await SaveSettings("search", settings);
-        searchSettings = settings;
+        searchSettings = await SaveSettings("search", settings);
     }
 
     private async Task SaveLlmSettings(LlmSettings settings)
     {
-        await SaveSettings("llm", settings);
-        llmSettings = settings;
+        llmSettings = await SaveSettings("llm", settings);
     }
 
     private async Task SaveUploadSettings(UploadSettings settings)
     {
-        await SaveSettings("upload", settings);
-        uploadSettings = settings;
+        uploadSettings = await SaveSettings("upload", settings);
     }
 
-    private async Task SaveSummarySettings()
-    {
-        if (summaryTabRef is null) return;
-        // Use "Summary" (capital S) to match the category key read by
-        // ContainerSettingsResolver.GetSummarySettingsAsync.
-        var toSave = summaryTabRef.GetCurrentSettings();
-        await SaveSettings("Summary", toSave);
-        summarySettings = toSave;
-    }
-
-    private async Task SaveSettings<T>(string category, T settings) where T : class
+    /// <summary>Saves a category; the settings the page keeps afterwards, which hold no saved key.</summary>
+    private async Task<T> SaveSettings<T>(string category, T settings) where T : class
     {
         try
         {
-            await SettingsStore.SaveAsync(category, settings);
-            ReloadService.Reload();
-            saveMessage = $"{category} settings saved successfully!";
-            saveSuccess = true;
+            (saveSuccess, saveMessage, var kept) = await Saves.SaveAsync(category, settings);
+            return kept;
         }
         catch (Exception ex)
         {
             saveMessage = $"Failed to save {category} settings: {ex.Message}";
             saveSuccess = false;
+            return settings;
         }
     }
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application.Memory;
 using Connapse.Core;
 using Connapse.Identity.Data;
 using Connapse.Storage.Data;
@@ -88,6 +89,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
                 new Claim("actor_type", "agent"),
                 new Claim("on_behalf_of", user.ToString()),
                 new Claim(ClaimTypes.Role, "Agent"),
+                new Claim("scope", "knowledge:write"),
             ], "test")),
         };
         try
@@ -96,8 +98,8 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
 
             for (int i = 0; i < 5; i++)
             {
-                await McpTools.MemoryRemember(sp, container, $"warm{i}", "database", "x", "2026-01-01", sources: [source]);
-                await McpTools.MemoryRecall(sp, container, "warm database");
+                await McpTools.MemoryRemember(sp.GetRequiredService<RememberFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container, $"warm{i}", "database", "x", "2026-01-01", sources: [source]);
+                await McpTools.MemoryRecall(sp.GetRequiredService<RecallMemory>(), sp.GetRequiredService<IHttpContextAccessor>(), container, "warm database");
             }
 
             List<TimeSpan> writes = [];
@@ -105,7 +107,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
             for (int i = 0; i < 20; i++)
             {
                 (TimeSpan remember, string json) = await BestOfThreeAsync(() =>
-                    McpTools.MemoryRemember(sp, container, $"project {i}", "database", "MariaDB 11", "2026-01-05", sources: [source], reason: $"P-{i}"));
+                    McpTools.MemoryRemember(sp.GetRequiredService<RememberFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container, $"project {i}", "database", "MariaDB 11", "2026-01-05", sources: [source], reason: $"P-{i}"));
                 json.Should().Contain("remembered");
                 string id = Id(json);
                 writes.Add(remember);
@@ -113,7 +115,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
                 // Each correction replaces the fact the previous one wrote, so all three timed calls are real corrections.
                 (TimeSpan correct, string corrected) = await BestOfThreeAsync(async () =>
                 {
-                    string result = await McpTools.MemoryCorrect(sp, container, id, "PostgreSQL 15", kind: "wrong", sources: [source]);
+                    string result = await McpTools.MemoryCorrect(sp.GetRequiredService<CorrectFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container, id, "PostgreSQL 15", kind: "wrong", sources: [source]);
                     id = Id(result);
                     return result;
                 });
@@ -121,14 +123,14 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
                 writes.Add(correct);
 
                 (TimeSpan recall, string facts) = await BestOfThreeAsync(() =>
-                    McpTools.MemoryRecall(sp, container, $"What is project {i}'s database now?"));
+                    McpTools.MemoryRecall(sp.GetRequiredService<RecallMemory>(), sp.GetRequiredService<IHttpContextAccessor>(), container, $"What is project {i}'s database now?"));
                 facts.Should().Contain("PostgreSQL 15");
                 recalls.Add(recall);
             }
 
             (TimeSpan forget, string forgot) = await BestOfThreeAsync(async () =>
-                await McpTools.MemoryForget(sp, container,
-                    Id(await McpTools.MemoryRemember(sp, container, "gone", "database", "x", sources: [source]))));
+                await McpTools.MemoryForget(sp.GetRequiredService<ForgetFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container,
+                    Id(await McpTools.MemoryRemember(sp.GetRequiredService<RememberFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container, "gone", "database", "x", sources: [source]))));
             forgot.Should().StartWith("Forgot");
 
             TimeSpan p95 = recalls.OrderBy(t => t).ElementAt((int)Math.Ceiling(recalls.Count * 0.95) - 1);

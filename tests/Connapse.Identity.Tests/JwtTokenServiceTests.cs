@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 namespace Connapse.Identity.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class JwtTokenServiceTests
 {
     private const string TestSecret = "test-jwt-secret-must-be-at-least-64-characters-long-for-hs256-ok!";

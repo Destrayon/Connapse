@@ -11,6 +11,7 @@ namespace Connapse.Storage.Tests.CloudScope;
 /// read is a fact for the provider page to show, never an exception that stops the page rendering.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AzureCertificateFileTests : IDisposable
 {
     private readonly string directory = Path.Combine(Path.GetTempPath(), "connapse-cert-tests-" + Guid.NewGuid().ToString("N"));

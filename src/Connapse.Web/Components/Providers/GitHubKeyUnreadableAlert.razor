@@ -1,0 +1,16 @@
+@* Shown over the GitHub manual values when the stored App's key can't be decrypted, so it has to be entered again. *@
+@using Connapse.Core.Interfaces
+@if (Unreadable && App is { } app)
+{
+    <div id="github-key-unreadable" class="alert alert-danger py-2 small" role="alert">
+        <span class="bi-x-circle me-1" aria-hidden="true"></span>
+        <strong>@app.Slug</strong>'s stored private key can't be read, most often because this server's encryption
+        keys changed. Paste the App's private key again under Manual values below with App ID @app.AppId, and its
+        client secret so people can link their GitHub accounts.
+    </div>
+}
+
+@code {
+    [Parameter] public GitHubAppRegistration? App { get; set; }
+    [Parameter] public bool Unreadable { get; set; }
+}

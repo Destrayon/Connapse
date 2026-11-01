@@ -12,6 +12,7 @@ using Parquet.Serialization;
 namespace Connapse.Eval.Tests.Runs;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class EvalRunnerTests : IDisposable
 {
     private readonly string _repo = Path.Combine(Path.GetTempPath(), "eval-repo-" + Guid.NewGuid().ToString("N"));
@@ -408,7 +409,8 @@ public class EvalRunnerTests : IDisposable
         {
             Searched.Add(query.Id);
             return Task.FromResult(new SearchOutcome([new RankedDoc("d" + query.Id[1..], 1.0)],
-                new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null) { Passages = Passages });
+                new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null)
+            { Passages = Passages });
         }
 
         public Task UseSearchConfigAsync(SystemConfig config, CancellationToken ct)

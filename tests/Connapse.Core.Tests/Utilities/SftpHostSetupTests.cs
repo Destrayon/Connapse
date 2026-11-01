@@ -5,6 +5,7 @@ using Xunit;
 namespace Connapse.Core.Tests.Utilities;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SftpHostSetupTests
 {
     private const string Key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC0example connapse";

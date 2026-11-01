@@ -1,0 +1,63 @@
+| Setup | Hard (36) | Control (12) | Cost per question | Tool calls | Turns | First search is RAG | Used RAG |
+|---|---|---|---|---|---|---|---|
+| rag | 15 (42%) | 12 | $0.1875 | 5.8 | 6.9 | 48/48 | 48/48 |
+| files_first | 19 (53%) | 12 | $0.2039 | 8.4 | 9.2 | 48/48 | 48/48 |
+| rag_first | 19 (53%) | 11 | $0.1952 | 7.5 | 8.5 | 48/48 | 48/48 |
+| rag_always | 22 (61%) | 12 | $0.1808 | 6.8 | 7.4 | 48/48 | 48/48 |
+
+Miss rate: files_first got wrong 2 of the 15 hard questions rag answered correctly (13%): ['qst_0239', 'qst_0243']
+files_first answered 6 hard questions rag missed: ['qst_0235', 'qst_0251', 'qst_0282', 'qst_0255', 'qst_0244', 'qst_0289']
+
+rag_first vs files_first: hard +0 (+0.0 points; bar >= +4) FAIL; cost -4.2% (bar <= +20%) PASS; control -1 (bar >= -1) PASS; hard discordant 4 won / 4 lost, exact McNemar p=1.000
+
+rag_always vs files_first: hard +3 (+8.3 points; bar >= +4) FAIL; cost -11.3% (bar <= +20%) PASS; control +0 (bar >= -1) PASS; hard discordant 5 won / 2 lost, exact McNemar p=0.453
+
+Per-question correctness (rag / files_first / rag_first / rag_always):
+qst_0296 hard - - Y -
+qst_0248 hard Y Y Y Y
+qst_0235 hard - Y Y Y
+qst_0240 hard Y Y Y Y
+qst_0251 hard - Y - Y
+qst_0270 hard Y Y Y Y
+qst_0273 hard Y Y Y Y
+qst_0214 hard Y Y Y Y
+qst_0254 hard - - - -
+qst_0239 hard Y - - -
+qst_0267 hard - - - Y
+qst_0256 hard - - - -
+qst_0191 hard Y Y Y Y
+qst_0278 hard - - Y Y
+qst_0186 hard - - - -
+qst_0204 hard - - - -
+qst_0243 hard Y - - -
+qst_0179 hard - - Y Y
+qst_0193 hard Y Y Y Y
+qst_0207 hard - - - -
+qst_0178 hard Y Y Y Y
+qst_0245 hard Y Y Y Y
+qst_0275 hard - - - -
+qst_0203 hard - - - -
+qst_0282 hard - Y - -
+qst_0297 hard - - - -
+qst_0213 hard Y Y Y Y
+qst_0221 hard - - - -
+qst_0196 hard Y Y Y Y
+qst_0218 hard - - Y Y
+qst_0229 hard - - - Y
+qst_0255 hard - Y Y Y
+qst_0299 hard Y Y Y Y
+qst_0244 hard - Y - Y
+qst_0268 hard Y Y Y Y
+qst_0289 hard - Y - -
+qst_0024 control Y Y Y Y
+qst_0046 control Y Y Y Y
+qst_0078 control Y Y Y Y
+qst_0091 control Y Y Y Y
+qst_0042 control Y Y Y Y
+qst_0083 control Y Y Y Y
+qst_0001 control Y Y Y Y
+qst_0067 control Y Y Y Y
+qst_0081 control Y Y Y Y
+qst_0055 control Y Y Y Y
+qst_0034 control Y Y - Y
+qst_0108 control Y Y Y Y

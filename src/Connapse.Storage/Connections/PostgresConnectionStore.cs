@@ -96,8 +96,14 @@ public class PostgresConnectionStore(
 
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        var entity = await context.Connections.FirstOrDefaultAsync(c => c.Id == id, ct);
+        // An update checked against a known version locks the row, so no other save lands between the compare and the write.
+        await using var transaction = request.ExpectedUpdatedAt is null ? null : await context.Database.BeginTransactionAsync(ct);
+        var entity = request.ExpectedUpdatedAt is null
+            ? await context.Connections.FirstOrDefaultAsync(c => c.Id == id, ct)
+            : await context.Connections.FromSql($"SELECT * FROM connections WHERE id = {id} FOR UPDATE").FirstOrDefaultAsync(ct);
         if (entity is null) return null;
+        if (request.ExpectedUpdatedAt is { } expected && entity.UpdatedAt != expected)
+            throw new ConnectionChangedException(id);
 
         if (!string.IsNullOrWhiteSpace(request.Name))
             entity.Name = request.Name.Trim();
@@ -124,6 +130,8 @@ public class PostgresConnectionStore(
 
         entity.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
 
         int sourceCount = await context.Sources.CountAsync(s => s.ConnectionId == id, ct);
         return MapToModel(entity, sourceCount);
@@ -158,6 +166,26 @@ public class PostgresConnectionStore(
             .Select(c => c.SecretProtected)
             .FirstOrDefaultAsync(ct);
 
+        return Unprotect(id, ciphertext);
+    }
+
+    public async Task<string?> GetSecretAtAsync(Guid id, DateTime version, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var row = await context.Connections
+            .AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => new { c.SecretProtected, c.UpdatedAt })
+            .FirstOrDefaultAsync(ct);
+
+        if (row is null) return null;
+        if (row.UpdatedAt != version) throw new ConnectionChangedException(id);
+        return Unprotect(id, row.SecretProtected);
+    }
+
+    private string? Unprotect(Guid id, string? ciphertext)
+    {
         if (string.IsNullOrEmpty(ciphertext)) return null;
 
         try
@@ -185,20 +213,47 @@ public class PostgresConnectionStore(
         var entity = await context.Connections.FirstOrDefaultAsync(c => c.Id == id, ct);
         if (entity is null) return null;
 
-        ConnectionHealth? previous = ReadHealth(entity.HealthJson);
-        ConnectionHealth stored = health.Succeeded
-            ? health with { LastSucceededAt = health.CheckedAt }
-            : health with
-            {
-                LastSucceededAt = health.LastSucceededAt ?? previous?.LastSucceededAt,
-                ConfirmedScopes = health.ConfirmedScopes ?? previous?.ConfirmedScopes,
-            };
+        ConnectionHealth stored = Merge(health, ReadHealth(entity.HealthJson));
 
         // UpdatedAt is left alone: a check changes nothing an admin configured.
         entity.HealthJson = JsonSerializer.Serialize(stored, HealthJsonOptions);
         await context.SaveChangesAsync(ct);
         return stored;
     }
+
+    public async Task<ConnectionHealth?> RecordHealthAtAsync(
+        Guid id, ConnectionHealth health, DateTime version, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(health);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var row = await context.Connections
+            .AsNoTracking()
+            .Where(c => c.Id == id && c.UpdatedAt == version)
+            .Select(c => new { c.HealthJson })
+            .FirstOrDefaultAsync(ct);
+        if (row is null) return null;
+
+        ConnectionHealth stored = Merge(health, ReadHealth(row.HealthJson));
+        string json = JsonSerializer.Serialize(stored, HealthJsonOptions);
+
+        // The version is checked in the write itself, so a save between the read and here leaves health alone.
+        int written = await context.Connections
+            .Where(c => c.Id == id && c.UpdatedAt == version)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.HealthJson, json), ct);
+        return written == 0 ? null : stored;
+    }
+
+    /// <summary>A failure keeps the last success time and confirmed permissions of the check before it.</summary>
+    private static ConnectionHealth Merge(ConnectionHealth health, ConnectionHealth? previous) =>
+        health.Succeeded
+            ? health with { LastSucceededAt = health.CheckedAt }
+            : health with
+            {
+                LastSucceededAt = health.LastSucceededAt ?? previous?.LastSucceededAt,
+                ConfirmedScopes = health.ConfirmedScopes ?? previous?.ConfirmedScopes,
+            };
 
     private static readonly JsonSerializerOptions HealthJsonOptions = new(JsonSerializerDefaults.Web);
 

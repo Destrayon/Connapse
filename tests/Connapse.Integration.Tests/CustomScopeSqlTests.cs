@@ -52,19 +52,39 @@ public class CustomScopeSqlTests(SharedWebAppFixture fixture)
             documents[name] = id;
             db.Documents.Add(new DocumentEntity
             {
-                Id = id, ContainerId = containerId, FileName = name, Path = "/" + name, ResourceUri = uri, AccessKeys = keys,
-                ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready, CreatedAt = DateTime.UtcNow, Metadata = [],
+                Id = id,
+                ContainerId = containerId,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                AccessKeys = keys,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                IngestionStatus = DocumentStatus.Ready,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
             });
             Guid chunkId = Guid.NewGuid();
             db.Chunks.Add(new ChunkEntity
             {
-                Id = chunkId, DocumentId = id, OwnerId = containerId, ChunkIndex = 0, Content = $"the {Term} is here",
-                TokenCount = 4, StartOffset = 0, EndOffset = 16, Metadata = [],
+                Id = chunkId,
+                DocumentId = id,
+                OwnerId = containerId,
+                ChunkIndex = 0,
+                Content = $"the {Term} is here",
+                TokenCount = 4,
+                StartOffset = 0,
+                EndOffset = 16,
+                Metadata = [],
             });
             db.ChunkVectors.Add(new ChunkVectorEntity
             {
-                ChunkId = chunkId, DocumentId = id, OwnerId = containerId, Embedding = new Vector(new[] { 1f, 0f, 0f }),
-                ModelId = Model, ContentHash = $"hash-{chunkId:N}", Dimensions = 3,
+                ChunkId = chunkId,
+                DocumentId = id,
+                OwnerId = containerId,
+                Embedding = new Vector(new[] { 1f, 0f, 0f }),
+                ModelId = Model,
+                ContentHash = $"hash-{chunkId:N}",
+                Dimensions = 3,
             });
         }
 

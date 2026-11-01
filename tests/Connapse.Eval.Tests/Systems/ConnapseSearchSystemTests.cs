@@ -6,6 +6,7 @@ using FluentAssertions;
 namespace Connapse.Eval.Tests.Systems;
 
 [Trait("Category", "Integration")]
+[Trait("Size", "Large")]
 [Collection(EvalHostCollection.Name)]
 public class ConnapseSearchSystemTests
 {

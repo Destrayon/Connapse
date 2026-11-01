@@ -30,7 +30,7 @@ public abstract class AtlassianSourceSelection
     public static string MaxAttachmentMbHelp => $"{MinAttachmentMb} to {MaxAttachmentMbLimit} MB. Larger attachments are skipped.";
 
     /// <summary>Where the setup guide explains adding a missing scope to a site's credential.</summary>
-    public const string MissingScopeGuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope";
+    public const string MissingScopeGuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope";
 
     /// <summary>The site on the Connections page with Replace credentials open, where a missing permission is added.</summary>
     public static string ReplaceCredentialsUrl(Guid connectionId) => $"/connections?edit={connectionId}&replace=1";
@@ -132,6 +132,11 @@ public abstract class AtlassianSourceSelection
         {
             try
             {
+                // Only a row of the product that holds the id: a space for spaceId, a project for projectId.
+                if (SourceScopeCodec.AtlassianKindOf(source.ScopeJson)
+                    != (key == "projectId" ? AtlassianScopeKind.JiraProject : AtlassianScopeKind.ConfluenceSpace))
+                    continue;
+
                 using var doc = JsonDocument.Parse(source.ScopeJson);
                 if (doc.RootElement.ValueKind == JsonValueKind.Object
                     && doc.RootElement.TryGetProperty(key, out var id))

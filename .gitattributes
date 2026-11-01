@@ -64,5 +64,13 @@
 
 # Committed eval data is checksummed in eval/MANIFEST.json; keep its bytes identical on every OS.
 eval/datasets/**/*.jsonl text eol=lf
+# Verify snapshots (#790): stable line endings so a Windows checkout and the Linux runner
+# compare the same bytes.
+*.verified.txt text eol=lf working-tree-encoding=UTF-8
+*.verified.json text eol=lf working-tree-encoding=UTF-8
+
+# SquiggleCop writes its baselines with LF and compares them byte for byte (#786).
+SquiggleCop.Baseline.yaml text eol=lf
+
 # Eval shell scripts also run in Git Bash on Windows, where a CRLF checkout breaks them.
 eval/tools/**/*.sh text eol=lf

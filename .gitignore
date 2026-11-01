@@ -77,3 +77,6 @@ __pycache__/
 
 # Model files downloaded at build (Connapse.Ingestion.csproj)
 .models/
+# Verify: an unaccepted snapshot is never committed (#790)
+*.received.*
+StrykerOutput/

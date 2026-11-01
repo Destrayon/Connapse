@@ -20,7 +20,7 @@ public sealed class CustomLinkService(
     ICustomProviderStore providers,
     IHttpClientFactory httpClients,
     IOptionsMonitor<CustomSourceSettings> settings,
-    TimeProvider time)
+    TimeProvider time) : Connapse.Application.Ports.ICustomAccountLinks
 {
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StatusBudget = TimeSpan.FromSeconds(3);
@@ -122,7 +122,7 @@ public sealed class CustomLinkService(
     private async Task<CustomSourceClient> ClientAsync(Guid providerId, CancellationToken ct)
     {
         CustomProvider provider = await providers.GetAsync(providerId, ct)
-            ?? throw new CustomSourceException("This custom provider no longer exists.");
+            ?? throw new CustomProviderNotFoundException("This custom provider no longer exists.");
         if (!CustomSourceEndpoint.TryNormalize(provider.BaseUrl, settings.CurrentValue.AllowedHttpHosts, out string baseUrl, out string? error))
             throw new CustomSourceException(error ?? "The custom provider's address is not allowed.");
         string? token = await providers.GetTokenAsync(providerId, ct);

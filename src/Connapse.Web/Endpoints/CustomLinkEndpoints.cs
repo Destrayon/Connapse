@@ -1,7 +1,11 @@
 using System.Net;
 using System.Security.Claims;
+using Connapse.Application;
+using Connapse.Application.Links;
+using Connapse.Application.Ports;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors.Custom;
+using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,7 +22,7 @@ public static class CustomLinkEndpoints
     public const string LinkedEvent = "identity.custom.linked";
     public const string LinkRejectedEvent = "identity.custom.link_rejected";
     public const string LinkFailedEvent = "identity.custom.link_failed";
-    public const string UnlinkedEvent = "identity.custom.unlinked";
+    public const string UnlinkedEvent = UnlinkAccount.CustomUnlinkedEvent;
 
     public static string ReturnPath(Guid providerId) => $"/api/v1/auth/custom/{providerId}/return";
 
@@ -47,7 +51,10 @@ public static class CustomLinkEndpoints
             http.Response.Headers.CacheControl = "no-store";
             http.Response.Headers["Referrer-Policy"] = "no-referrer";
             return Results.Content(AutoPostPage(target.Provider.Name, target.LinkUrl, token), "text/html; charset=utf-8");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces<string>(StatusCodes.Status200OK, "text/html")
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // GET /api/v1/auth/custom/{providerId}/return?code=… — the middle man's redirect after the user signed in
         // there. The session cookie (SameSite=Lax) travels on this top-level GET; without a session the user signs
@@ -85,30 +92,26 @@ public static class CustomLinkEndpoints
 
             await audit.LogAsync(LinkedEvent, "user", userId.ToString(), new { ProviderId = providerId, status.DisplayName }, ct);
             return Results.Redirect("/profile/integrations?linked=custom");
-        }).RequireAuthorization();
+        }).RequireAuthorization()
+        .Produces(StatusCodes.Status302Found)
+        .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         // DELETE /api/v1/auth/custom/{providerId} — removes the signed-in user's link from the middle man.
         group.MapDelete("/", async (
             Guid providerId,
             HttpContext http,
-            [FromServices] CustomLinkService links,
-            [FromServices] IAuditLogger audit,
+            [FromServices] UnlinkAccount unlink,
             CancellationToken ct) =>
         {
-            if (UserIdOf(http) is not { } userId) return Results.Unauthorized();
-            try
-            {
-                await links.UnlinkAsync(providerId, userId, ct);
-            }
-            catch (Exception ex) when (ex is CustomSourceException or HttpRequestException)
-            {
-                return Results.Problem(statusCode: StatusCodes.Status502BadGateway,
-                    title: "The custom provider's source server did not remove the link.");
-            }
-
-            await audit.LogAsync(UnlinkedEvent, "user", userId.ToString(), new { ProviderId = providerId }, ct);
-            return Results.NoContent();
-        }).RequireAuthorization();
+            // The same links.unlink the provider's card on the profile page runs (#866).
+            var unlinked = await unlink.RunAsync(new OperationContext(http.User, OperationSurface.Rest), new UnlinkAccountRequest("custom", providerId), ct);
+            return unlinked.Succeeded ? Results.NoContent() : OperationProblems.Result(unlinked);
+        }).RequireAuthorization(Policies.Person)
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status502BadGateway);
 
         return app;
     }

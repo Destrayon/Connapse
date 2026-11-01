@@ -1,0 +1,27 @@
+# The nightly Schemathesis run (epic #783, CON-53). A 5xx fails it through --checks, and so do these
+# warnings, which mean the run never reached the logic behind an operation: missing_auth when an operation
+# only ever answered 401 or 403 (the token stopped working, say), rate_limited when it mostly answered 429.
+warnings = { fail-on = ["missing_auth", "rate_limited"] }
+
+# Signing in with generated credentials is refused with a 401 every time, which is the operation working.
+[[operations]]
+include-name = "POST /api/v1/identity/login"
+warnings = { fail-on = ["rate_limited"] }
+
+# Schemathesis reuses the client ids GET /api/v1/oauth-clients lists. A metadata-URL client id holds a "/", which
+# it won't put in a path segment, so it filters out every one and fails its filter_too_much health check before
+# sending a request (CON-165). A fixed id that names no client gets the operation tested; it answers 404.
+[[operations]]
+include-name = "DELETE /api/v1/oauth-clients/{clientId}"
+parameters = { clientId = "schemathesis-no-such-client" }
+
+# The only user id Schemathesis can reuse is the signed-in admin's own, and changing your own account is refused
+# with a 403 every time, which is the operation working but reads as missing_auth (CON-179). A fixed id that names
+# no user gets the operation tested; it answers 404.
+[[operations]]
+include-name = "DELETE /api/v1/auth/users/{id}"
+parameters = { id = "00000000-0000-4000-8000-000000000179" }
+
+[[operations]]
+include-name = "PUT /api/v1/auth/users/{id}/roles"
+parameters = { id = "00000000-0000-4000-8000-000000000179" }

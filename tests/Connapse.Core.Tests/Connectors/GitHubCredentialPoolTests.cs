@@ -1,3 +1,4 @@
+using Connapse.Core;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -17,6 +18,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// and the visibility check that stops a repository gone private from being read at all.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubCredentialPoolTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "gh-pool-" + Guid.NewGuid().ToString("N"));
@@ -59,7 +61,8 @@ public sealed class GitHubCredentialPoolTests : IDisposable
 
         var app = new ConnapseGitHubApp(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
-            NullLogger<ConnapseGitHubApp>.Instance, _clock) { ApiBaseUrl = "https://api.github.test" };
+            NullLogger<ConnapseGitHubApp>.Instance, _clock)
+        { ApiBaseUrl = "https://api.github.test" };
 
         return new GitHubCredentialPool(
             app, services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), _clock);
@@ -436,8 +439,10 @@ public sealed class GitHubCredentialPoolTests : IDisposable
             object body = path == "/app/installations"
                 ? installations.Select(id => new
                 {
-                    id, account = new { login = "org-" + id, type = "Organization" },
-                    repository_selection = "all", html_url = "https://github.com/x",
+                    id,
+                    account = new { login = "org-" + id, type = "Organization" },
+                    repository_selection = "all",
+                    html_url = "https://github.com/x",
                 }).ToArray()
                 : new { token = "tok-" + path.Split('/')[3], expires_at = DateTimeOffset.UtcNow.AddYears(1) };
 

@@ -1,3 +1,4 @@
+using Connapse.Core;
 using System.Text;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
@@ -14,6 +15,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// the URL differs.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubConnectorTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "gh-connector-" + Guid.NewGuid().ToString("N"));
@@ -107,8 +109,13 @@ public sealed class GitHubConnectorTests : IDisposable
         Commit(new Dictionary<string, string> { ["docs/a b.md"] = "12345" });
         var connector = new GitHubConnector(new GitHubConnectorConfig
         {
-            Owner = "octocat", Repo = "docs", RepoId = 99, IsPrivate = true, RequirePublic = false,
-            MirrorPath = _mirror, RemoteUrl = _upstream,
+            Owner = "octocat",
+            Repo = "docs",
+            RepoId = 99,
+            IsPrivate = true,
+            RequirePublic = false,
+            MirrorPath = _mirror,
+            RemoteUrl = _upstream,
         });
 
         var delta = await connector.GetChangesAsync(cursor: null);

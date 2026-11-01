@@ -5,20 +5,15 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
 @using Connapse.Storage.Connectors
-@using Microsoft.Extensions.Options
-@inject IContainerStore ContainerStore
-@inject IOptionsMonitor<LlmSettings> LlmOptions
-@inject IDocumentStore DocumentStore
-@inject IFolderStore FolderStore
-@inject IKnowledgeFileSystem FileSystem
-@inject IIngestionQueue IngestionQueue
+@inject Connapse.Application.Containers.ContainerOperations ContainerOps
+@inject Connapse.Application.Files.FileOperations FileOps
+@inject Connapse.Application.Files.FolderOperations FolderOps
 @inject IContainerSettingsResolver SettingsResolver
 @using Connapse.Web.Services
 @inject IngestionProgressNotifier ProgressNotifier
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
-@inject IServiceScopeFactory ScopeFactory
 @implements IAsyncDisposable
 
 <PageTitle>@(container?.Name ?? "Files") - Connapse</PageTitle>
@@ -32,13 +27,6 @@
             {
                 <span class="breadcrumb-sep">/</span>
                 <button class="breadcrumb-link" @onclick="NavigateToRoot">@container.Name</button>
-                @if (_isRollupInProgress)
-                {
-                    <span class="badge bg-info ms-2" title="A container rollup summary job is queued or running">
-                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                        Updating summary...
-                    </span>
-                }
             }
             @foreach (var crumb in GetBreadcrumbs())
             {
@@ -46,6 +34,7 @@
                 <button class="breadcrumb-link" @onclick="() => NavigateToPath(crumb.Path)">@crumb.Name</button>
             }
         </nav>
+        <ContainerStatsLine Stats="containerStats" />
     </div>
     <div class="d-flex align-items-center gap-2">
         <ul class="nav nav-tabs border-0 me-2">
@@ -171,14 +160,6 @@
                             <input type="number" class="form-control form-control-sm" placeholder="Global default (@globalTopK)" @bind="settingsTopK" min="1" max="100" />
                         </div>
                     </div>
-                </div>
-                @* Summary Generation *@
-                <div class="col-12">
-                    <h6 class="text-accent mb-3">Summary Generation</h6>
-                    <SummarySettingsTab @ref="summaryTabRef"
-                                        Settings="summarySettings"
-                                        ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model"
-                                        ContainerId="@ParseContainerIdOrEmpty()" />
                 </div>
             </div>
             <div class="d-flex gap-2 mt-4">
@@ -569,9 +550,6 @@
     private string settingsSearchMode = "";
     private int? settingsTopK;
     private double? settingsMinScore;
-    // Summary overrides
-    private SummarySettings summarySettings = new();
-    private SummarySettingsTab? summaryTabRef;
     // Global defaults (shown as placeholders)
     private string globalChunkingStrategy = "Semantic";
     private int globalMaxChunkSize = 512;
@@ -593,6 +571,8 @@
 
     // Container-wide, not just the folder on screen, so failures elsewhere are not hidden.
     private int failedCount;
+    private ContainerStats? containerStats;
+    private string? containerError;
     private List<BrowseEntryDto> entries = new();
     private string currentPath = "/";
     private bool isLoading = true;
@@ -640,46 +620,33 @@
         ProgressNotifier.StatusChanged += OnStatusChanged;
 
         await LoadContainer();
-        await LoadEntries();
-
-        // Drive the rollup-in-progress pill from a low-frequency poll (see RunRollupPollLoopAsync).
-        _rollupPollCts = new CancellationTokenSource();
-        _rollupPollTimer = new PeriodicTimer(TimeSpan.FromSeconds(2));
-        _ = RunRollupPollLoopAsync();
+        // A container that didn't load (missing, or the caller may not see it) has no files to list.
+        if (container is null)
+            (errorMessage, isLoading) = (containerError, false);
+        else
+            await LoadEntries();
     }
 
     private async Task RetryIngestion(BrowseEntryDto entry)
     {
         if (entry.Id is null) return;
-        if (!Guid.TryParse(ContainerId, out _)) return;
-
-        var job = new IngestionJob(
-            DocumentId: entry.Id,
-            Options: new IngestionOptions(
-                DocumentId: entry.Id,
-                FileName: entry.Name,
-                ContentType: entry.ContentType,
-                ContainerId: ContainerId,
-                Path: entry.Path));
+        if (!Guid.TryParse(ContainerId, out var containerId)) return;
 
         // Optimistic local flip so the spinner shows immediately.
         var idx = entries.FindIndex(e => e.Id == entry.Id);
         if (idx >= 0) entries[idx] = entries[idx] with { IngestionStatus = DocumentStatus.Queued };
         StateHasChanged();
 
-        await IngestionQueue.EnqueueAsync(job);
+        errorMessage = (await FileOps.Retry.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, entry.Id)).Detail;
     }
 
     private async Task RetryAllFailed()
     {
         if (!Guid.TryParse(ContainerId, out var containerId)) return;
 
-        // Its own scope: the reindex service holds a DbContext, which a Blazor circuit must not
-        // share across its handlers.
-        await using var scope = ScopeFactory.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<IReindexService>().RetryFailedAsync(containerId, CancellationToken.None);
-
-        failedCount = 0;
+        var retried = await ContainerOps.RetryFailed.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId);
+        // A refusal enqueues none and says why; a retry leaves only what it couldn't enqueue.
+        (failedCount, errorMessage) = (Math.Max(0, failedCount - retried.Result), retried.Detail);
         await RefreshEntries();
     }
 
@@ -723,96 +690,16 @@
             }
             catch { /* Will retry on next render */ }
         }
-
-        // The rollup-in-progress pill is driven by RunRollupPollLoopAsync (a 2s poll), not by
-        // render ticks: in document-clustering mode the rollup runs after per-doc SignalR
-        // traffic stops, so no render would fire to clear the pill once the rollup completes.
-    }
-
-    // Tracks the most recent rollup-pill check so we don't hammer the Hangfire monitoring
-    // API on every render. The pill is best-effort UX — being a second stale is fine.
-    private bool _isRollupInProgress;
-    private DateTime _rollupPillLastChecked = DateTime.MinValue;
-    private bool _rollupPillCachedResult;
-
-    // Low-frequency poll that keeps the rollup pill honest. Per-doc pills re-render via SignalR,
-    // but a container rollup (especially in document-clustering mode) runs after that traffic
-    // stops — without a poll, the pill would stay stuck "on" until a manual page refresh.
-    private PeriodicTimer? _rollupPollTimer;
-    private CancellationTokenSource? _rollupPollCts;
-
-    private async Task RunRollupPollLoopAsync()
-    {
-        if (_rollupPollTimer is null || _rollupPollCts is null) return;
-        try
-        {
-            while (await _rollupPollTimer.WaitForNextTickAsync(_rollupPollCts.Token))
-            {
-                if (_disposed) return;
-                if (container is null || !Guid.TryParse(container.Id, out var cid)) continue;
-
-                bool newState = IsRollupInProgress(cid);
-                if (newState != _isRollupInProgress)
-                {
-                    _isRollupInProgress = newState;
-                    await InvokeAsync(StateHasChanged);
-                }
-            }
-        }
-        catch (OperationCanceledException) { /* disposed — expected */ }
-        catch { /* best-effort pill; never tear down the circuit */ }
-    }
-
-    private bool IsRollupInProgress(Guid containerId)
-    {
-        if (DateTime.UtcNow - _rollupPillLastChecked < TimeSpan.FromSeconds(1))
-            return _rollupPillCachedResult;
-
-        try
-        {
-            var monitor = Hangfire.JobStorage.Current.GetMonitoringApi();
-            var scheduled = monitor.ScheduledJobs(0, 1000);
-            var processing = monitor.ProcessingJobs(0, 1000);
-
-            bool matchScheduled = scheduled.Any(kvp => MatchesRollup(kvp.Value.Job, containerId));
-            bool matchProcessing = processing.Any(kvp => MatchesRollup(kvp.Value.Job, containerId));
-
-            _rollupPillCachedResult = matchScheduled || matchProcessing;
-        }
-        catch
-        {
-            // Monitoring API can throw under load; fall back to "not in progress" so the
-            // pill flickers off rather than crashing the render.
-            _rollupPillCachedResult = false;
-        }
-
-        _rollupPillLastChecked = DateTime.UtcNow;
-        return _rollupPillCachedResult;
-    }
-
-    private static bool MatchesRollup(Hangfire.Common.Job? job, Guid containerId)
-    {
-        if (job is null) return false;
-        if (job.Method.Name != nameof(Connapse.Background.Jobs.ISummaryJobs.RollupContainerAsync)) return false;
-        if (job.Args.Count == 0) return false;
-        return job.Args[0] is Guid argGuid && argGuid == containerId;
     }
 
     private async Task LoadContainer()
     {
         try
         {
-            if (Guid.TryParse(ContainerId, out var containerId))
-            {
-                container = await ContainerStore.GetAsync(containerId);
-                failedCount = (await DocumentStore.GetContainerStatsAsync(containerId)).FailedCount;
-                // A source id simply does not resolve here any more: sources live in their own
-                // table and this store only reads containers. The guard that used to catch an
-                // un-migrated external container went with the column it read (#353).
-                errorMessage = container is null ? "Container not found." : null;
-            }
-            else
-                errorMessage = "Invalid container ID.";
+            var read = await ContainerOps.Stats.RunAsync(await AuthStateProvider.OperationContextAsync(),
+                Connapse.Application.Containers.ContainerKey.Parse(ContainerId));
+            (container, containerStats, containerError) = (read.Result?.Container, read.Result?.Stats, read.Detail);
+            failedCount = containerStats?.FailedCount ?? 0;
         }
         catch
         {
@@ -861,36 +748,12 @@
         if (!Guid.TryParse(ContainerId, out var containerId))
             return new();
 
-        var browsePath = PathUtilities.NormalizeFolderPath(currentPath);
-        var result = new List<BrowseEntryDto>();
-
-        var folders = await FolderStore.ListAsync(containerId, parentPath: browsePath);
-        foreach (var folder in folders)
-        {
-            var folderName = PathUtilities.GetFileName(folder.Path.TrimEnd('/'));
-            result.Add(new BrowseEntryDto(folderName, folder.Path, IsFolder: true, SizeBytes: null, LastModified: folder.CreatedAt, Status: null, Id: folder.Id));
-        }
-
-        var documents = await DocumentStore.ListAsync(containerId, pathPrefix: browsePath);
-        foreach (var doc in documents)
-        {
-            var docParent = PathUtilities.GetParentPath(doc.Path);
-            if (!string.Equals(docParent, browsePath, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            result.Add(new BrowseEntryDto(
-                doc.FileName, doc.Path, IsFolder: false, SizeBytes: doc.SizeBytes,
-                LastModified: doc.CreatedAt, Status: doc.Metadata.GetValueOrDefault("Status"),
-                Id: doc.Id, IngestionStatus: doc.Status, ContentType: doc.ContentType));
-        }
-
-        result.Sort((a, b) =>
-        {
-            if (a.IsFolder != b.IsFolder) return a.IsFolder ? -1 : 1;
-            return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-        });
-
-        return result;
+        var listed = await FileOps.List.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId,
+            new Connapse.Application.Files.ListFilesQuery(currentPath));
+        // Folders first, then by name, as the operation answers.
+        return [.. listed.ResultOr(failed => errorMessage = failed, new([], 0, false)).Entries.Select(e => new BrowseEntryDto(
+            e.Name, e.Path, e.IsFolder, e.SizeBytes, e.LastModified, e.Document?.Metadata.GetValueOrDefault("Status"), e.Id,
+            IngestionStatus: e.Document?.Status, ContentType: e.Document?.ContentType))];
     }
 
     private void NavigateToRoot() => NavigateToPath("/");
@@ -925,7 +788,7 @@
     {
         try
         {
-            selectedFile = await DocumentStore.GetAsync(fileId);
+            selectedFile = (await FileOps.Get.RunAsync(await AuthStateProvider.OperationContextAsync(), Guid.Parse(ContainerId), fileId)).Result;
         }
         catch
         {
@@ -1046,7 +909,7 @@
                 // on Pending if ingestion completed during the upload round-trip.
                 try
                 {
-                    var fresh = await DocumentStore.GetAsync(doc.DocumentId);
+                    var fresh = (await FileOps.Get.RunAsync(await AuthStateProvider.OperationContextAsync(), Guid.Parse(ContainerId), doc.DocumentId)).Result;
                     if (fresh is not null)
                     {
                         var idx = entries.FindIndex(e => e.Id == doc.DocumentId);
@@ -1098,15 +961,12 @@
                 return;
             }
 
-            var folderPath = PathUtilities.NormalizeFolderPath(currentPath + newFolderName.Trim().TrimEnd('/') + "/");
-
+            var created = await FolderOps.Create.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId,
+                currentPath + newFolderName.Trim().TrimEnd('/') + "/");
+            if (!created.Succeeded)
             {
-                if (await FolderStore.ExistsAsync(containerId, folderPath))
-                {
-                    folderError = $"Folder '{folderPath}' already exists.";
-                    return;
-                }
-                await FolderStore.CreateAsync(containerId, folderPath);
+                folderError = created.Detail;
+                return;
             }
 
             showFolderModal = false;
@@ -1177,20 +1037,7 @@
     {
         if (entry.Id is null) return;
 
-        await IngestionQueue.CancelJobForDocumentAsync(entry.Id);
-        await DocumentStore.DeleteAsync(entry.Id);
-
-        try
-        {
-            if (!string.IsNullOrEmpty(entry.Path))
-            {
-                // The Filesystem branch that used to live here is gone with #351: external
-                // storage is a source now, so a container can only be managed storage and
-                // this condition could never be true again.
-                await FileSystem.DeleteAsync(entry.Path);
-            }
-        }
-        catch { /* File already deleted or not found */ }
+        await DeleteDocumentAsync(Guid.Parse(ContainerId), entry.Id);
 
         if (selectedBrowseEntry?.Id == entry.Id)
         {
@@ -1199,28 +1046,20 @@
         }
     }
 
+    /// <summary>Deletes a folder through folders.delete; a refusal throws, for the delete's error handling to show.</summary>
     private async Task DeleteFolderEntry(Guid containerId, BrowseEntryDto entry)
     {
-        var normalizedPath = PathUtilities.NormalizeFolderPath(entry.Path);
+        var deleted = await FolderOps.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, entry.Path);
+        if (deleted.Status is not (Connapse.Application.Files.FolderStatus.Success or Connapse.Application.Files.FolderStatus.NotFound))
+            throw new InvalidOperationException(deleted.Detail);
+    }
 
-        {
-            var docs = await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath);
-
-            foreach (var doc in docs)
-                await IngestionQueue.CancelJobForDocumentAsync(doc.Id);
-
-            await FolderStore.DeleteAsync(containerId, normalizedPath);
-
-            foreach (var doc in docs)
-            {
-                try
-                {
-                    if (!string.IsNullOrEmpty(doc.Path))
-                        await FileSystem.DeleteAsync(doc.Path);
-                }
-                catch { /* File already deleted or not found */ }
-            }
-        }
+    /// <summary>Deletes one document through files.delete; a refusal throws, for the delete's error handling to show.</summary>
+    private async Task DeleteDocumentAsync(Guid containerId, string fileId)
+    {
+        var deleted = await FileOps.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, fileId);
+        if (!deleted.Succeeded && deleted.Status != Connapse.Application.Files.FileStatus.NotFound)
+            throw new InvalidOperationException(deleted.Detail);
     }
 
     // Multi-select helpers
@@ -1387,7 +1226,7 @@
             globalMinScore = globalSearch.MinimumScore;
 
             // Load current container overrides
-            var overrides = await ContainerStore.GetSettingsOverridesAsync(containerId);
+            var overrides = (await ContainerOps.GetSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId)).Result;
             settingsChunkingStrategy = overrides?.Chunking?.Strategy ?? "";
             settingsMaxChunkSize = overrides?.Chunking?.MaxChunkSize;
             settingsOverlap = overrides?.Chunking?.Overlap;
@@ -1397,10 +1236,6 @@
             settingsSearchMode = overrides?.Search?.Mode ?? "";
             settingsTopK = overrides?.Search?.TopK;
             settingsMinScore = overrides?.Search?.MinimumScore;
-
-            // Summary: fall back to resolved (global) value when no per-container override
-            var globalSummary = await SettingsResolver.GetSummarySettingsAsync(containerId);
-            summarySettings = overrides?.Summary ?? globalSummary;
         }
         catch (Exception ex)
         {
@@ -1422,7 +1257,6 @@
 
         try
         {
-            var summaryToSave = summaryTabRef?.GetCurrentSettings() ?? summarySettings;
             var overrides = new ContainerSettingsOverrides
             {
                 Chunking = (!string.IsNullOrEmpty(settingsChunkingStrategy) || settingsMaxChunkSize.HasValue || settingsOverlap.HasValue)
@@ -1449,13 +1283,11 @@
                         MinimumScore = settingsMinScore ?? globalMinScore
                     }
                     : null,
-                Summary = HasSummaryOverride(summaryToSave) ? summaryToSave : null
             };
 
-            await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides,
+            var saved = await ContainerOps.UpdateSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId, overrides,
                 [nameof(SearchSettings.Mode), nameof(SearchSettings.TopK), nameof(SearchSettings.MinimumScore)]);
-
-            settingsSaved = true;
+            (settingsSaved, settingsError) = (saved.Succeeded, saved.Detail);
         }
         catch (Exception ex)
         {
@@ -1477,19 +1309,10 @@
 
         try
         {
-            await ContainerStore.SaveSettingsOverridesAsync(containerId, new ContainerSettingsOverrides());
-            settingsChunkingStrategy = "";
-            settingsMaxChunkSize = null;
-            settingsOverlap = null;
-            settingsEmbeddingProvider = "";
-            settingsEmbeddingModel = "";
-            settingsEmbeddingDimensions = null;
-            settingsSearchMode = "";
-            settingsTopK = null;
-            settingsMinScore = null;
-            // Reset summary to resolved (global) value after clearing per-container override
-            summarySettings = await SettingsResolver.GetSummarySettingsAsync(containerId);
-            settingsSaved = true;
+            var cleared = await ContainerOps.ResetSettings.RunAsync(await AuthStateProvider.OperationContextAsync(), containerId);
+            (settingsSaved, settingsError) = (cleared.Succeeded, cleared.Detail);
+            // Reading the settings back shows the global values the container follows now.
+            await LoadSettings();
         }
         catch (Exception ex)
         {
@@ -1501,28 +1324,9 @@
         }
     }
 
-    // Defensive parse — the `[Parameter]` ContainerId is a route-bound string, and the
-    // SummarySettingsTab needs a real Guid. Falls back to Empty (which hides the
-    // Regenerate-now button) if the route param is malformed.
-    private Guid ParseContainerIdOrEmpty() =>
-        Guid.TryParse(ContainerId, out var cid) ? cid : Guid.Empty;
-
-    // Treat an "all-default" SummarySettings (Enabled=false + every override null) as no
-    // per-container override, so we don't pollute settings_overrides_json with empty objects.
-    private static bool HasSummaryOverride(SummarySettings s) =>
-        s.Enabled
-        || s.LlmProvider is not null
-        || s.LlmModel is not null
-        || s.PerDocSystemPrompt is not null
-        || s.ContainerRollupSystemPrompt is not null
-        || s.MaxInputTokens is not null;
-
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
-        _rollupPollCts?.Cancel();
-        _rollupPollTimer?.Dispose();
-        _rollupPollCts?.Dispose();
         ProgressNotifier.StatusChanged -= OnStatusChanged;
         if (jsModule is not null)
         {

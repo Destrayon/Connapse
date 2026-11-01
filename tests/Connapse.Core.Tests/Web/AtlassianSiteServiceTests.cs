@@ -1,4 +1,8 @@
+using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application;
+using Connapse.Application.Connections;
+using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Tests.Connectors;
@@ -22,8 +26,11 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     private const string Root = "/ex/confluence/" + CloudId + "/wiki";
     private const string Secret = "atlassian-secret-value-123";
 
+    private static readonly OperationContext Caller = new(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Ui);
+
     private readonly FakeAtlassianApi _api = new();
     private readonly IConnectionStore _store = Substitute.For<IConnectionStore>();
+    private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();
     private readonly List<(string Action, string? Id, string Details)> _events = [];
     private readonly List<Connection> _saved = [];
     private readonly AtlassianSiteService _sites;
@@ -38,8 +45,12 @@ public sealed class AtlassianSiteServiceTests : IDisposable
             .Returns(Task.CompletedTask)
             .AndDoes(c => _events.Add((c.ArgAt<string>(0), c.ArgAt<string?>(2), JsonSerializer.Serialize(c.ArgAt<object?>(3)))));
 
+        var authorizer = _authorizer;
+        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
         _sites = new AtlassianSiteService(http, new AtlassianConnectionTester(http), _store, audit,
-            new AtlassianTokenSource(http, TimeProvider.System));
+            new AtlassianTokenSource(http, TimeProvider.System),
+            new CreateConnection(_store, Substitute.For<IConnectionSettingsRules>(), audit, authorizer),
+            new ReplaceConnectionSecret(_store, Substitute.For<ISourceStore>(), Substitute.For<IConnectionSettingsRules>(), audit, authorizer));
 
         _api.MapJson(FakeAtlassianApi.TenantInfoPath, new { cloudId = CloudId });
         _api.MapJson(Root + "/rest/api/user/current", new { accountId = "svc" });
@@ -77,7 +88,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden));
 
-        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
+        var added = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret);
 
         added.Outcome.Should().Be(AtlassianAddOutcome.TestFailed);
         _events.Select(e => e.Action).Should().Equal("connection.test_started", "connection.test_step_failed");
@@ -93,7 +104,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     [Fact]
     public async Task Add_WhenEveryStepPasses_AuditsVerifiedWithTheTotalDuration_AndRecordsHealth()
     {
-        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
+        var added = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret);
 
         added.Outcome.Should().Be(AtlassianAddOutcome.Created);
         _events.Select(e => e.Action).Should().Equal("connection.test_started", "connection.test_verified", "connection.created");
@@ -110,7 +121,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         // The site's Confluence refuses this credential: a Jira connection never asks it.
         _api.Map(Root + "/rest/api/user/current", _ => new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden));
 
-        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
+        var added = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret, product: AtlassianProduct.Jira);
 
         added.Outcome.Should().Be(AtlassianAddOutcome.Created);
         _api.Calls.Keys.Should().NotContain(k => k.StartsWith("/ex/confluence/"));
@@ -125,7 +136,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         new FakeJira(_api, CloudId).MapSiteTest();
         _api.Map(Root + "/rest/api/user/current", _ => new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden));
 
-        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
+        var added = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret);
 
         added.Outcome.Should().Be(AtlassianAddOutcome.TestFailed);
         added.Test!.Details!["step"].Should().Be(AtlassianConnectionTester.IdentityStep);
@@ -139,9 +150,9 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         new FakeJira(_api, CloudId).MapSiteTest();
         Connection site = JiraSite();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
 
-        var result = await _sites.RetestAsync(site.Id);
+        var result = (await _sites.TestStoredAsync(site.Id)).Result;
 
         result!.Success.Should().BeTrue();
         result.Message.Should().Contain("read Jira");
@@ -156,7 +167,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         Connection site = JiraSite();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, "client-2", "new-secret", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.TestFailed);
         replaced.Test!.Details!["step"].Should().Be(AtlassianConnectionTester.JiraIdentityStep);
@@ -168,8 +179,8 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         _api.MapJson(Root + "/api/v2/pages", new { results = Array.Empty<object>() });
 
-        var refused = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
-        var saved = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, saveAnyway: true);
+        var refused = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret);
+        var saved = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret, saveAnyway: true);
 
         refused.Outcome.Should().Be(AtlassianAddOutcome.TestFailed);
         saved.Outcome.Should().Be(AtlassianAddOutcome.Created);
@@ -183,7 +194,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
 
-        var added = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, saveAnyway: true);
+        var added = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret, saveAnyway: true);
 
         added.Outcome.Should().Be(AtlassianAddOutcome.TestFailed);
         await _store.DidNotReceiveWithAnyArgs().CreateAsync(default!, default, default);
@@ -193,8 +204,8 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     public async Task Add_SameSiteBothProducts_Allowed()
     {
         new FakeJira(_api, CloudId).MapSiteTest();
-        var confluence = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null);
-        var jira = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
+        var confluence = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret);
+        var jira = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret, product: AtlassianProduct.Jira);
 
         confluence.Outcome.Should().Be(AtlassianAddOutcome.Created);
         jira.Outcome.Should().Be(AtlassianAddOutcome.Created);
@@ -210,11 +221,11 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     public async Task Add_SameSiteSameProduct_Duplicate()
     {
         new FakeJira(_api, CloudId).MapSiteTest();
-        var first = await _sites.AddAsync("https://acme.atlassian.net", "client-1", Secret, null, product: AtlassianProduct.Jira);
+        var first = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-1", Secret, product: AtlassianProduct.Jira);
         // Renamed, so only the site and product can tell it is the same connection.
         _saved[0] = _saved[0] with { Name = "Our Jira" };
 
-        var second = await _sites.AddAsync("https://acme.atlassian.net", "client-2", Secret, null, product: AtlassianProduct.Jira);
+        var second = await _sites.AddAsync(Caller, "https://acme.atlassian.net", "client-2", Secret, product: AtlassianProduct.Jira);
 
         first.Outcome.Should().Be(AtlassianAddOutcome.Created);
         second.Outcome.Should().Be(AtlassianAddOutcome.Conflict);
@@ -260,7 +271,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
         _store.UpdateAsync(site.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>()).Returns(site);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, " client-2 ", "new-secret", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, " client-2 ", "new-secret");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.Replaced);
         await _store.Received(1).UpdateAsync(site.Id, Arg.Is<UpdateConnectionRequest>(r =>
@@ -278,7 +289,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
         _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, "client-2", "wrong", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "wrong");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.TestFailed);
         replaced.Test!.Details!["step"].Should().Be("token");
@@ -287,12 +298,42 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Replace_NotAnAdministrator_IsForbiddenBeforeAtlassianIsAsked()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.SourcesAdmin).Returns(false);
+
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
+
+        replaced.Outcome.Should().Be(AtlassianReplaceOutcome.Forbidden);
+        _api.Requests.Should().BeEmpty();
+        await _store.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    [Fact]
+    public async Task Replace_SiteEditedWhileTheCredentialWasChecked_StoresNothing()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.UpdateAsync(site.Id, Arg.Any<UpdateConnectionRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Connection?>(_ => throw new ConnectionChangedException(site.Id));
+
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
+
+        replaced.Outcome.Should().Be(AtlassianReplaceOutcome.Changed);
+        await _store.Received(1).UpdateAsync(site.Id, Arg.Is<UpdateConnectionRequest>(r => r.ExpectedUpdatedAt == site.UpdatedAt),
+            Arg.Any<CancellationToken>());
+        _events.Select(e => e.Action).Should().NotContain("connection.credentials_replaced");
+    }
+
+    [Fact]
     public async Task Replace_WhenTheAddressNowBelongsToAnotherSite_RefusesIt()
     {
         Connection site = Site() with { ConfigJson = """{"siteUrl":"https://acme.atlassian.net","cloudId":"99999999-2222-3333-4444-555555555555","clientId":"client-1"}""" };
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
 
-        var replaced = await _sites.ReplaceCredentialsAsync(site.Id, "client-2", "new-secret", null);
+        var replaced = await _sites.ReplaceCredentialsAsync(Caller, site.Id, "client-2", "new-secret");
 
         replaced.Outcome.Should().Be(AtlassianReplaceOutcome.SiteChanged);
         await _store.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
@@ -303,14 +344,13 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         Connection site = Site();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
         _api.FailTokenWith(System.Net.HttpStatusCode.Unauthorized);
 
-        var result = await _sites.RetestAsync(site.Id);
+        var run = await _sites.TestStoredAsync(site.Id);
 
-        result!.Success.Should().BeFalse();
-        await _store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => h.CredentialRejected && h.Origin == "test" && h.Step == "token"), Arg.Any<CancellationToken>());
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().Match<ConnectionHealth>(h => h.CredentialRejected && h.Origin == "test" && h.Step == "token");
         _events.Select(e => e.Action).Should().Equal("connection.test_started", "connection.test_step_failed");
         _events.Should().OnlyContain(e => e.Id == site.Id.ToString());
     }
@@ -322,17 +362,45 @@ public sealed class AtlassianSiteServiceTests : IDisposable
     {
         Connection site = Site();
         _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
-        _store.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns(Secret);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
         if (redirect)
             _api.FailTokenWith(System.Net.HttpStatusCode.Redirect);
         else
             _api.AnswerTokenWith("{}");
 
-        var result = await _sites.RetestAsync(site.Id);
+        var run = await _sites.TestStoredAsync(site.Id);
 
-        result!.Success.Should().BeFalse();
-        await _store.Received(1).RecordHealthAsync(site.Id,
-            Arg.Is<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token"), Arg.Any<CancellationToken>());
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().Match<ConnectionHealth>(h => !h.CredentialRejected && !h.Succeeded && h.Step == "token");
+    }
+
+    [Fact]
+    public async Task Retest_RateLimited_RecordsNoHealth()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>()).Returns(Secret);
+        _api.FailTokenWith(System.Net.HttpStatusCode.TooManyRequests);
+
+        var run = await _sites.TestStoredAsync(site.Id);
+
+        run.Result!.Success.Should().BeFalse();
+        run.Health.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Retest_SavedAfterTheSiteWasRead_IsAConflictAndSendsNothing()
+    {
+        Connection site = Site();
+        _store.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
+        _store.GetSecretAtAsync(site.Id, site.UpdatedAt, Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw new ConnectionChangedException(site.Id));
+
+        var run = await _sites.TestStoredAsync(site.Id);
+
+        run.Result.Should().BeNull();
+        run.Refusal.Should().Be(ConnectionStatus.Conflict);
+        _api.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -342,7 +410,7 @@ public sealed class AtlassianSiteServiceTests : IDisposable
             new Dictionary<string, object> { ["step"] = "admin", ["troubleshoot"] = "missing-scope", ["detail"] = "HTTP 403" }));
 
         report.StepLabel.Should().Be("Checking access permissions");
-        report.TroubleshootingUrl.Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+        report.TroubleshootingUrl.Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope");
         report.Detail.Should().Be("HTTP 403");
     }
 }

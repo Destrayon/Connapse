@@ -1,0 +1,27 @@
+# Changes to the proof tests, the lists of gaps they accept, and the files that set what the build
+# checks need the maintainer's review (epic #783, #787). Deleting an entry from a list is how a
+# ticket proves its fix; adding one, or editing a proof test, loosens the proof. Later lines win.
+
+# CI, its scripts and baselines, and the composite actions
+/.github/ @Destrayon
+
+# What the build checks: the pinned SDK, analysis level and rule severities
+/global.json @Destrayon
+/Directory.Build.props @Destrayon
+/.editorconfig @Destrayon
+**/SquiggleCop.Baseline.yaml @Destrayon
+
+# Architecture and test-suite rules, with their exact-match lists
+/tests/Connapse.Architecture.Tests/ @Destrayon
+/tests/Connapse.TestSuite.Tests/ @Destrayon
+
+# Authorization matrices, the capability manifest, and the cross-surface tests with their snapshots
+/tests/Connapse.Integration.Tests/Authorization/ @Destrayon
+/tests/Connapse.Integration.Tests/Capabilities/ @Destrayon
+/tests/Connapse.Integration.Tests/CrossSurface/ @Destrayon
+
+# Expected results from the reference implementations (olmOCR, SciPy/statsmodels, trec_eval) the eval code must reproduce
+/tests/Connapse.Eval.Tests/Fixtures/ @Destrayon
+
+# Verify snapshots anywhere
+*.verified.* @Destrayon

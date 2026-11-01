@@ -7,6 +7,7 @@ using FluentAssertions;
 namespace Connapse.Eval.Tests.Reports;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ComparisonTests
 {
     internal static RunScores Scores(string runName, Func<string, int, double> ndcg, string version = "1", params string[] datasets)

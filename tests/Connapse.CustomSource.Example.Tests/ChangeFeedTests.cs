@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Connapse.CustomSource.Example.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ChangeFeedTests
 {
     private static ExampleServer NewServer(int pageSize = 2) => new(ExampleServer.DefaultConfig() with { PageSize = pageSize }, new Dictionary<string, string>

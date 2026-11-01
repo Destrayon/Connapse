@@ -1,0 +1,17 @@
+name: Free disk
+description: Log the runner's free disk space and delete preinstalled toolchains CI never uses, in the background.
+runs:
+  using: composite
+  steps:
+  # Twice on 2026-10-31 a runner filled its disk mid-job, once in a plain dotnet build (CON-177). The
+  # Android SDK, GHC, CodeQL and Swift are about 20 GB of the image and nothing here uses them. Deleting
+  # them takes a minute or more, so it runs in the background at the lowest CPU and IO priority while
+  # the job restores and builds, and adds nothing to the pipeline's time. The paths are the ones
+  # jlumbroso/free-disk-space and easimon/maximize-build-space remove; .NET, Node, Python and Docker
+  # images stay, since the jobs use them. The runner ends the deletion with the job if it is still going.
+  - name: Free disk space
+    shell: bash
+    run: |
+      df -h /
+      sudo -b nice -n 19 ionice -c 3 rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+        /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/boost > /dev/null 2>&1

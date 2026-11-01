@@ -1,4 +1,5 @@
 using Bunit;
+using Connapse.Application.Search;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -23,6 +24,7 @@ namespace Connapse.Web.Tests.Components;
 /// telling a hidden source apart from an id that does not exist.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SearchPageHiddenSourceTests : IDisposable
 {
     private readonly BunitContext ctx = new();
@@ -53,6 +55,7 @@ public class SearchPageHiddenSourceTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<IOptionsMonitor<EmbeddingSettings>>());
         ctx.Services.AddSingleton(new VectorModelDiscovery(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance));
+        ctx.Services.AddSourceOperations();
     }
 
     public void Dispose() => ctx.Dispose();
@@ -63,6 +66,7 @@ public class SearchPageHiddenSourceTests : IDisposable
             scopeJson, DateTime.UtcNow, DateTime.UtcNow);
         sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([source]);
         sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
+        sources.FindAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
         return source;
     }
 
@@ -89,26 +93,30 @@ public class SearchPageHiddenSourceTests : IDisposable
     }
 
     [Fact]
-    public void MissingId_LooksLikeAHiddenSourceAndSearchesNothing()
+    public void MissingId_LooksLikeAHiddenSourceAndSearchesNothingReal()
     {
         Seed("""{"kind":"confluence-space","spaceKey":"ENG"}""");
 
-        var cut = SearchFor(Guid.NewGuid());
+        var missing = Guid.NewGuid();
+        var cut = SearchFor(missing);
 
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("No results found"));
+        cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain($"Container or source '{missing}' not found"));
         cut.Markup.Should().Contain("Source from link");
-        search.DidNotReceiveWithAnyArgs().SearchAsync(default!, default!, default);
+        search.DidNotReceive().SearchAsync(Arg.Any<string>(),
+            Arg.Is<SearchOptions>(o => o.ContainerId != SearchKnowledge.Nowhere.ToString()), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public void HiddenPrivateGitHubSourceById_SearchesNothing()
+    public void HiddenPrivateGitHubSourceById_SearchesNoneOfIt()
     {
         var source = Seed("""{"owner":"acme","repo":"secret","private":true,"repoId":42}""");
 
         var cut = SearchFor(source.Id);
 
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("No results found"));
+        // The same answer as an id that doesn't exist, so the page can't tell the two apart.
+        cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain($"Container or source '{source.Id}' not found"));
         cut.Markup.Should().NotContain("secret-space-name");
-        search.DidNotReceiveWithAnyArgs().SearchAsync(default!, default!, default);
+        search.DidNotReceive().SearchAsync(Arg.Any<string>(),
+            Arg.Is<SearchOptions>(o => o.ContainerId != SearchKnowledge.Nowhere.ToString()), Arg.Any<CancellationToken>());
     }
 }

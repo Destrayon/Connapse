@@ -1,5 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Application.Containers;
+using Connapse.Application.Sources;
 using Connapse.Web.Mcp;
 using FluentAssertions;
 using NSubstitute;
@@ -13,7 +15,7 @@ public class McpToolsContainerDescribeTests
 
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _documentStore;
-    private readonly IServiceProvider _services;
+    private readonly GetSourceStats _sourceStats;
 
     public McpToolsContainerDescribeTests()
     {
@@ -32,40 +34,21 @@ public class McpToolsContainerDescribeTests
         // so every lookup misses and these tests keep covering the container path; the
         // source path is covered in McpSourceKindTests against a real database.
         var sourceStore = Substitute.For<ISourceStore>();
-
-        var services = Substitute.For<IServiceProvider>();
-        services.GetService(typeof(IContainerStore)).Returns(_containerStore);
-        services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
-        services.GetService(typeof(ISourceStore)).Returns(sourceStore);
-        _services = services;
+        _sourceStats = new GetSourceStats(sourceStore, _documentStore, McpCaller.SeesEverySource, McpCaller.Allowed);
     }
 
     [Fact]
-    public async Task ContainerDescribe_WithSummary_ReturnsFullDescription()
+    public async Task ContainerDescribe_ReturnsFullDescription()
     {
-        var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, ContainerId.ToString());
 
         result.Should().Contain("Container: research-papers");
         result.Should().Contain($"ID: {ContainerId}");
         result.Should().Contain("Type: managed storage");
         result.Should().Contain("Description: Academic research papers");
-        result.Should().Contain("Summary: A collection of AI and machine learning research.");
-        result.Should().Contain("Summary generated:");
         result.Should().Contain("Documents: 12");
         result.Should().Contain("Storage: 2.0 MB");
         result.Should().Contain("Created:");
-    }
-
-    [Fact]
-    public async Task ContainerDescribe_WithoutSummary_ShowsNotGenerated()
-    {
-        _containerStore
-            .GetAsync(ContainerId, Arg.Any<CancellationToken>())
-            .Returns(MakeContainer(summary: null));
-
-        var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
-
-        result.Should().Contain("Summary: (not yet generated)");
     }
 
     [Fact]
@@ -75,7 +58,7 @@ public class McpToolsContainerDescribeTests
             .GetContainerStatsAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(new ContainerStats(10, 7, 2, 1, 100, 512, null));
 
-        var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, ContainerId.ToString());
 
         result.Should().Contain("7 ready");
         result.Should().Contain("2 processing");
@@ -85,7 +68,7 @@ public class McpToolsContainerDescribeTests
     [Fact]
     public async Task ContainerDescribe_AllReady_OmitsStatusBreakdown()
     {
-        var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, ContainerId.ToString());
 
         result.Should().Contain("Documents: 12");
         result.Should().NotContain(" ready,"); // status breakdown omitted when all docs ready
@@ -94,7 +77,7 @@ public class McpToolsContainerDescribeTests
     [Fact]
     public async Task ContainerDescribe_Success_AppendsServerInstructions()
     {
-        var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, ContainerId.ToString());
 
         result.Should().Contain("Server instructions:");
         result.Should().Contain(McpServerConfig.McpServerInstructions);
@@ -103,7 +86,7 @@ public class McpToolsContainerDescribeTests
     [Fact]
     public async Task ContainerDescribe_ContainerNotFound_ReturnsError()
     {
-        var result = await McpTools.ContainerDescribe(_services, "nonexistent");
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, "nonexistent");
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found");
@@ -112,7 +95,7 @@ public class McpToolsContainerDescribeTests
     [Fact]
     public async Task ContainerDescribe_ContainerNotFound_OmitsServerInstructions()
     {
-        var result = await McpTools.ContainerDescribe(_services, "nonexistent");
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, "nonexistent");
 
         result.Should().NotContain("Server instructions:");
     }
@@ -124,7 +107,7 @@ public class McpToolsContainerDescribeTests
             .GetByNameAsync("research-papers", Arg.Any<CancellationToken>())
             .Returns(MakeContainer());
 
-        var result = await McpTools.ContainerDescribe(_services, "research-papers");
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, "research-papers");
 
         result.Should().Contain("Container: research-papers");
     }
@@ -136,20 +119,17 @@ public class McpToolsContainerDescribeTests
             .GetAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(MakeContainer(description: null));
 
-        var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerDescribe(new GetContainerStats(_containerStore, _documentStore, McpCaller.NoModels(), McpCaller.Allowed), _sourceStats, McpCaller.Http, ContainerId.ToString());
 
         result.Should().NotContain("Description:");
     }
 
     private static Container MakeContainer(
-        string? description = "Academic research papers",
-        string? summary = "A collection of AI and machine learning research.") =>
+        string? description = "Academic research papers") =>
         new(
             Id: ContainerId.ToString(),
             Name: "research-papers",
             Description: description,
             CreatedAt: new DateTime(2026, 1, 10, 8, 0, 0, DateTimeKind.Utc),
-            UpdatedAt: new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc),
-            Summary: summary,
-            SummaryGeneratedAt: summary is not null ? new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc) : null);
+            UpdatedAt: new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc));
 }

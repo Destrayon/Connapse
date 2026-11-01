@@ -15,6 +15,10 @@ public class RefreshTokenEntity
     // originally asked for at /oauth/authorize.
     public string? Resource { get; set; }
 
+    // The scopes an OAuth client was granted, space-separated, carried through the refresh chain so a
+    // refreshed access token keeps exactly them (#934). Null for a sign-in's token, which has none.
+    public string? Scope { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     // Navigation properties

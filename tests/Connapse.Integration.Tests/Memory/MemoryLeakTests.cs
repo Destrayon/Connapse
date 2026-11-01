@@ -65,8 +65,14 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
                 Guid id = Guid.NewGuid();
                 return new MemoryFactEntity
                 {
-                    Id = id, ChainId = id, ContainerId = container, Subject = "alpha", Attribute = "database", Value = "hidden",
-                    RecordedAt = now, Sources = [new MemoryFactSourceEntity { FactId = id, Ordinal = 0, Kind = 0, Ref = hidden }],
+                    Id = id,
+                    ChainId = id,
+                    ContainerId = container,
+                    Subject = "alpha",
+                    Attribute = "database",
+                    Value = "hidden",
+                    RecordedAt = now,
+                    Sources = [new MemoryFactSourceEntity { FactId = id, Ordinal = 0, Kind = 0, Ref = hidden }],
                 };
             }));
             await db.SaveChangesAsync();

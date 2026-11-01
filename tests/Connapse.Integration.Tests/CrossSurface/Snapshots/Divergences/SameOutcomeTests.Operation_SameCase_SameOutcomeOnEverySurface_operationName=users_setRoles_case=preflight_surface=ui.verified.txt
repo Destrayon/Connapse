@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: the User management page offers only the roles a user can be given, never Owner,
+  Reference: {
+    Result: error:validation,
+    State: [
+      user roles=Viewer
+    ]
+  },
+  Surface: {
+    Result: absent,
+    State: [
+      user roles=Viewer
+    ]
+  }
+}

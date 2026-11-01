@@ -131,6 +131,7 @@ public class ApiKeyAuthenticationHandler(
             new("auth_method", "api_key"),
             new("actor_type", "user"),
             new("pat_id", pat.Id.ToString()),
+            new(McpApprovalClaims.RequiresApproval, pat.RequiresApproval ? "true" : "false"),
         };
 
         if (!string.IsNullOrWhiteSpace(pat.Scopes))
@@ -155,6 +156,7 @@ public class ApiKeyAuthenticationHandler(
             new("agent_id", agentKey.Agent.Id.ToString()),
             new("agent_key_id", agentKey.Id.ToString()),
             new("auth_method", "agent_api_key"),
+            new(McpApprovalClaims.RequiresApproval, agentKey.RequiresApproval ? "true" : "false"),
 
             // The user an agent acts for. NameIdentifier is the agent's own id, so without this
             // an agent request carries no person at all — and an agent is meant to reach what its
