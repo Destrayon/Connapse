@@ -320,7 +320,11 @@ public sealed partial class ParserProcessPool : IDisposable
                     string stderr = current.CollectErrors();
                     string exit = current.ExitDescription();
                     Discard(ref host);
-                    if (current.KilledForMemory)
+
+                    // A host out of memory before it was ready ran out starting, on a busy machine,
+                    // not on the file it never read (CON-196): that is a failure to start, below.
+                    bool neverReady = ex is HostNotReadyException;
+                    if (current.KilledForMemory && !neverReady)
                         throw OutOfMemory(name, MemoryLimitMb(settings), ex);
                     if (ct.IsCancellationRequested)
                         throw new OperationCanceledException(ct);
@@ -331,7 +335,7 @@ public sealed partial class ParserProcessPool : IDisposable
                         throw Timeout(name, timeout, ex);
                     }
 
-                    if (stderr.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase))
+                    if (!neverReady && stderr.Contains("OutOfMemory", StringComparison.OrdinalIgnoreCase))
                         throw OutOfMemory(name, MemoryLimitMb(settings), ex);
 
                     // A host that died before saying it was ready never read the file: it failed to
@@ -339,7 +343,7 @@ public sealed partial class ParserProcessPool : IDisposable
                     // gets the file, within the same deadline. A host that died after it was ready
                     // died on the file, perhaps killed for memory before the watchdog saw it, and is
                     // not given it again.
-                    if (ex is HostNotReadyException && attempt == 1)
+                    if (neverReady && attempt == 1)
                     {
                         _logger.LogWarning(ex, "ParserHostFailedToStart before {Parser} on {FileName}, {Exit}; retrying on a new host: {Stderr}",
                             parser.Name, LogSanitizer.Sanitize(name), exit, stderr);

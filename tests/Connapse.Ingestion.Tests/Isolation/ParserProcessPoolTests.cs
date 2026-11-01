@@ -155,6 +155,40 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task ParseAsync_HostRunsOutOfMemoryBeforeItIsReady_FileGoesToANewHost()
+    {
+        int failures = 1;
+        _pool.StartInfoForTests = start =>
+        {
+            if (Interlocked.Decrement(ref failures) >= 0)
+                start.Environment["CONNAPSE_TEST_FAIL_TO_START"] = "oom";
+            return start;
+        };
+        int before = _pool.HostsStarted;
+
+        var parsed = await ParseAsync(_pool, nameof(TextParser), "parsed by the second host");
+
+        // The first host never read the file, so its memory says nothing about the file (CON-196).
+        parsed.Content.Should().Be("parsed by the second host");
+        (_pool.HostsStarted - before).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ParseAsync_HostRunsOutOfMemoryBeforeItIsReadyTwice_ReportedAsACrashNotTheFilesMemory()
+    {
+        _pool.StartInfoForTests = start =>
+        {
+            start.Environment["CONNAPSE_TEST_FAIL_TO_START"] = "oom";
+            return start;
+        };
+
+        var act = () => ParseAsync(_pool, nameof(TextParser));
+
+        (await act.Should().ThrowAsync<PermanentIngestionException>())
+            .Which.Message.Should().Contain("[parse_crashed]").And.NotContain("parse_out_of_memory");
+    }
+
+    [Fact]
     public async Task ParseAsync_HostDiesOnTheFile_NotRetriedAndReportedWithItsExitCode()
     {
         int before = _pool.HostsStarted;
